@@ -49,11 +49,17 @@ async function main() {
               options.updateGitignore = false;
             } else if (arg === '--quiet' || arg === '-q') {
               options.verbose = false;
+            } else if (arg === '--experimental') {
+              options.includeExperimental = true;
             }
           }
           
           if (options.cleanupOldVersions === false) {
             console.log('📦 Old package versions will be kept');
+          }
+          
+          if (options.includeExperimental) {
+            console.log('🧪 Experimental/prerelease packages will be included');
           }
           
           await setupSDKs(options);
@@ -121,6 +127,7 @@ function showHelp() {
   console.log('    --keep-old-versions       Alias for --no-cleanup');
   console.log('    --no-config              Don\'t use configuration file for version management');
   console.log('    --no-gitignore           Don\'t update .gitignore file');
+  console.log('    --experimental           Include experimental/prerelease packages from NuGet');
   console.log('    --quiet, -q              Suppress progress messages');
   console.log('  tool, run-buildtool <cmd>   Run a build tool command with Windows SDK paths');
   console.log('  msix <subcommand>           MSIX package management commands');
@@ -142,6 +149,7 @@ function showHelp() {
   console.log('Examples:');
   console.log(`  ${CLI_NAME} setup`);
   console.log(`  ${CLI_NAME} setup --no-cleanup  # Keep old package versions`);
+  console.log(`  ${CLI_NAME} setup --experimental  # Include prerelease packages`);
   console.log(`  ${CLI_NAME} addon generate --name myAddon`);
   console.log(`  ${CLI_NAME} msix init --sparse --output ./msix`);
   console.log(`  ${CLI_NAME} msix package ./app-folder ./output --cert ./cert.pfx`);

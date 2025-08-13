@@ -401,16 +401,15 @@ async function downloadAndExtractNuGetPackageWithExe(packageName, extractPath, o
     }
     
     // Build nuget.exe command - it will create PackageName.Version folder automatically
-    const versionArg = version ? `-Version ${targetVersion}` : '';
+    const versionArg = targetVersion ? `-Version ${targetVersion}` : '';
     const command = `"${nugetExePath}" install ${packageName} ${versionArg} -OutputDirectory "${extractPath}" -NonInteractive -DirectDownload`;
     
     if (verbose) {
       console.log(`Command: ${command}`);
     }
-    
+
     // Execute nuget.exe
     const result = execSync(command, { 
-      cwd: extractPath,
       stdio: verbose ? 'inherit' : 'pipe',
       encoding: 'utf8'
     });
@@ -445,161 +444,21 @@ async function downloadAndExtractNuGetPackageWithExe(packageName, extractPath, o
  * @param {boolean} [options.keepDownload=false] - Whether to keep the downloaded .nupkg file after extraction
  * @param {boolean} [options.verbose=true] - Whether to log progress messages
  * @param {boolean} [options.includeExperimental=false] - Whether to include experimental versions when finding latest version
- * @param {boolean} [options.useNugetExe=true] - Whether to use nuget.exe for faster downloads (defaults to true)
  * @param {boolean} [options.cleanupOldVersions=true] - Whether to remove old versions of the package after downloading
  * @returns {Promise<Object>} - Returns an object with version and path of the extracted package
  */
 async function downloadAndExtractNuGetPackage(packageName, extractPath, options = {}) {
   const {
-    useNugetExe = true,
     ...restOptions
   } = options;
 
   // Use nuget.exe if requested and available
-  if (useNugetExe) {
-    try {
-      return await downloadAndExtractNuGetPackageWithExe(packageName, extractPath, restOptions);
-    } catch (error) {
-      // If nuget.exe fails, fall back to the original method
-      if (restOptions.verbose !== false) {
-        console.warn(`nuget.exe method failed, falling back to manual download: ${error.message}`);
-      }
-    }
-  }
-
-  // Original implementation (fallback or when useNugetExe is false)
-  return await downloadAndExtractNuGetPackageManual(packageName, extractPath, restOptions);
-}
-
-/**
- * Download and extract a NuGet package using manual method (original implementation)
- * @param {string} packageName - Name of the NuGet package
- * @param {string} [extractPath] - Directory to extract the package to (defaults to ".winsdk/packages" in project root)
- * @param {Object} options - Options object
- * @param {string} [options.version] - Specific version to download (defaults to latest stable)
- * @param {string} [options.downloadPath] - Directory to download the .nupkg file to (defaults to extractPath)
- * @param {boolean} [options.keepDownload=false] - Whether to keep the downloaded .nupkg file after extraction
- * @param {boolean} [options.verbose=true] - Whether to log progress messages
- * @param {boolean} [options.includeExperimental=false] - Whether to include experimental versions when finding latest version
- * @param {boolean} [options.cleanupOldVersions=true] - Whether to remove old versions of the package after downloading
- * @returns {Promise<Object>} - Returns an object with version and path of the extracted package
- */
-async function downloadAndExtractNuGetPackageManual(packageName, extractPath, options = {}) {
-  // Default extractPath to ".winsdk/packages" folder in project root
-  if (!extractPath) {
-    try {
-      const projectRoot = getProjectRootDir();
-      extractPath = path.join(projectRoot, ".winsdk", "packages");
-    } catch (error) {
-      throw new Error(`Could not determine project root directory (no package.json found). Please specify an extractPath explicitly. Original error: ${error.message}`);
-    }
-  }
-  
-  const {
-    version = null,
-    downloadPath = extractPath,
-    keepDownload = false,
-    verbose = true,
-    includeExperimental = false,
-    cleanupOldVersions = true
-  } = options;
-
   try {
-    if (verbose) console.log(`Fetching versions for ${packageName}...`);
-    
-    const versions = await getNuGetPackageVersions(packageName);
-    
-    if (!versions || versions.length === 0) {
-      throw new Error(`No versions found for package ${packageName}`);
-    }
-    
-    // Determine which version to download
-    let targetVersion;
-    if (version) {
-      if (!versions.includes(version)) {
-        throw new Error(`Version ${version} not found for package ${packageName}`);
-      }
-      targetVersion = version;
-    } else {
-      targetVersion = getLatestVersion(versions, includeExperimental);
-    }
-    
-    if (verbose) console.log(`Target version: ${targetVersion}`);
-    
-    // Create output paths using nuget.exe format: PackageName.Version
-    const packageFileName = `${packageName}.${targetVersion}.nupkg`;
-    const packagePath = path.join(downloadPath, packageFileName);
-    const versionedExtractPath = path.join(extractPath, `${packageName}.${targetVersion}`);
-    
-    // Check if package already exists
-    if (fs.existsSync(versionedExtractPath)) {
-      if (verbose) {
-        console.log(`Package ${packageName} v${targetVersion} already exists at ${versionedExtractPath}`);
-      }
-      return {
-        version: targetVersion,
-        path: versionedExtractPath
-      };
-    }
-
-    // Clean up old versions before downloading new one
-    if (cleanupOldVersions) {
-      if (verbose) {
-        console.log(`🧹 Cleaning up old versions of ${packageName}...`);
-      }
-      const removedPaths = await cleanupOldPackageVersions(packageName, targetVersion, extractPath, verbose);
-      if (removedPaths.length > 0 && verbose) {
-        console.log(`🗑️  Cleaned up ${removedPaths.length} old version(s) of ${packageName}`);
-      }
-    }
-
-    // Ensure directories exist
-    if (!fs.existsSync(downloadPath)) {
-      fs.mkdirSync(downloadPath, { recursive: true });
-    }
-    if (!fs.existsSync(versionedExtractPath)) {
-      fs.mkdirSync(versionedExtractPath, { recursive: true });
-    }
-    
-    // Create download URL
-    const downloadUrl = `${NUGET_API_BASE}/${packageName.toLowerCase()}/${targetVersion}/${packageName.toLowerCase()}.${targetVersion}.nupkg`;
-    
-    if (verbose) {
-      console.log(`Downloading from: ${downloadUrl}`);
-      console.log(`Saving to: ${packagePath}`);
-    }
-    
-    await downloadFile(downloadUrl, packagePath);
-    
-    if (verbose) {
-      console.log('Download completed!');
-      console.log(`Extracting to: ${versionedExtractPath}`);
-    }
-    
-    await extractZip(packagePath, versionedExtractPath);
-    
-    // Clean up the downloaded .nupkg file unless requested to keep it
-    if (!keepDownload) {
-      try {
-        fs.unlinkSync(packagePath);
-        if (verbose) console.log('Downloaded package file cleaned up.');
-      } catch (cleanupError) {
-        if (verbose) console.warn('Warning: Could not delete downloaded package file:', cleanupError.message);
-      }
-    }
-    
-    if (verbose) {
-      console.log(`Package ${packageName} extraction completed!`);
-      console.log(`Package available at: ${versionedExtractPath}`);
-    }
-    
-    return {
-      version: targetVersion,
-      path: versionedExtractPath
-    };
-    
+    return await downloadAndExtractNuGetPackageWithExe(packageName, extractPath, restOptions);
   } catch (error) {
-    throw new Error(`Error downloading/extracting NuGet package ${packageName}: ${error.message}`);
+    if (restOptions.verbose !== false) {
+      console.warn(`nuget.exe failed: ${error.message}`);
+    }
   }
 }
 
@@ -659,7 +518,6 @@ module.exports = {
   extractZip,
   downloadAndExtractNuGetPackage,
   downloadAndExtractNuGetPackageWithExe,
-  downloadAndExtractNuGetPackageManual,
   ensureNuGetExe,
   getPackagePath,
   cleanupOldPackageVersions

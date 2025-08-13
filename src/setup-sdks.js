@@ -32,6 +32,7 @@ const SDK_PACKAGES = [
  * @param {boolean} [options.verbose=true] - Show progress messages
  * @param {boolean} [options.useConfig=true] - Use configuration file for version management
  * @param {boolean} [options.cleanupOldVersions=true] - Remove old versions of packages after downloading new ones
+ * @param {boolean} [options.includeExperimental=false] - Include experimental/prerelease packages from NuGet
  * @returns {Promise<Object>} - Object with package names as keys and downloaded versions as values
  */
 async function downloadAllSDKPackages(options = {}) {
@@ -41,7 +42,8 @@ async function downloadAllSDKPackages(options = {}) {
     keepDownloads = false,
     verbose = true,
     useConfig = true,
-    cleanupOldVersions = true
+    cleanupOldVersions = true,
+    includeExperimental = false
   } = options;
 
   // Load or create configuration
@@ -73,6 +75,9 @@ async function downloadAllSDKPackages(options = {}) {
   if (verbose) {
     console.log(`Downloading ${SDK_PACKAGES.length} SDK packages...`);
     console.log('Packages:', SDK_PACKAGES.join(', '));
+    if (includeExperimental) {
+      console.log('🧪 Including experimental/prerelease versions');
+    }
     console.log('');
   }
 
@@ -127,7 +132,8 @@ async function downloadAllSDKPackages(options = {}) {
           version: targetVersion, // Use the configured version if available
           keepDownload: keepDownloads,
           verbose: false, // We're handling our own verbose output
-          cleanupOldVersions
+          cleanupOldVersions,
+          includeExperimental
         }
       );
 
@@ -483,6 +489,7 @@ async function runCppWinRT(options = {}) {
  * @param {boolean} [options.updateGitignore=true] - Add .winsdk folder to .gitignore
  * @param {boolean} [options.useConfig=true] - Use configuration file for version management
  * @param {boolean} [options.cleanupOldVersions=true] - Remove old versions of packages after downloading new ones
+ * @param {boolean} [options.includeExperimental=false] - Include experimental/prerelease packages from NuGet
  * @returns {Promise<Object>} - Results from package downloads
  */
 async function setupSDKs(options = {}) {
@@ -493,7 +500,8 @@ async function setupSDKs(options = {}) {
     verbose = true,
     updateGitignore = true,
     useConfig = true,
-    cleanupOldVersions = true
+    cleanupOldVersions = true,
+    includeExperimental = false
   } = options;
 
   try {
@@ -507,7 +515,8 @@ async function setupSDKs(options = {}) {
       skipExisting,
       verbose,
       useConfig,
-      cleanupOldVersions
+      cleanupOldVersions,
+      includeExperimental
     });
 
     // Clean up and run CppWinRT generation
