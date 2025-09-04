@@ -140,3 +140,44 @@ vite.config.ts.timestamp-*
 
 *.nupkg
 Microsoft.Windows.SDK.BuildTools
+
+# .NET & Visual Studio .gitignore
+# Build results
+bin/
+obj/
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+# VS Code
+.vscode/
+# Visual Studio
+.vs/
+# NuGet packages
+*.nupkg
+# MSBuild logs
+msbuild.log
+# DotCover
+*.dotCover
+# Test results
+TestResults/
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+# Rider
+.idea/
+# Windows image file caches
+Thumbs.db
+# Others
+*.dbmdl
+*.pdb
+*.cache
+*.log
+*.vspscc
+*.vssscc
+*.tmp
+*.bak
+*.swp
+*.sln.ide
+launchSettings.json

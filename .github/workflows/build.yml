@@ -1,0 +1,33 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        architecture: [x64, arm64]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 9.0.x
+    - name: Build CLI
+      run: dotnet build src\winsdk-CLI\winsdk.sln -c Release
+    # Todo: Add tests
+    - name: Publish CLI
+      run: dotnet publish src\winsdk-CLI\Winsdk.Cli\Winsdk.Cli.csproj -c Release -r win-${{ matrix.architecture }}
+    - name: Upload CLI build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: CLI-Release-${{ matrix.architecture }}
+        path: src\winsdk-CLI\Winsdk.Cli\bin\Release\net9.0\win-${{ matrix.architecture }}\publish\

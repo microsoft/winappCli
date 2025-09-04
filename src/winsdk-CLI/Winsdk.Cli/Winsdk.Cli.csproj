@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- NativeAOT / single-file / self-contained (RID specified at publish time) -->
+    <PublishAot>true</PublishAot>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TrimMode>full</TrimMode>
+
+    <!-- Faster startup for single-file -->
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- No external CLI deps; using lightweight manual parsing for NativeAOT-friendliness -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embed templates and default MSIX assets -->
+    <EmbeddedResource Include="Templates\**\*.*" />
+    <EmbeddedResource Include="Assets\msix_default_assets\**\*.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta7.25380.108" />
+  </ItemGroup>
+
+</Project>
