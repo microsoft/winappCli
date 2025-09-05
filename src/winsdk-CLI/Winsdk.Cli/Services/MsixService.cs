@@ -8,8 +8,15 @@ namespace Winsdk.Cli;
 
 internal sealed class MsixService
 {
-    public async Task GenerateMsixAssetsAsync(bool isSparse, string outputDir, string packageName, string publisherName, string description, string version, string executable)
+    public async Task GenerateMsixAssetsAsync(bool isSparse, string outputDir, string? packageName, string? publisherName, string description, string version, string? executable, CancellationToken cancellationToken = default)
     {
+        var defaults = new SystemDefaultsService();
+        packageName ??= defaults.GetDefaultPackageName(Directory.GetCurrentDirectory());
+        publisherName ??= defaults.GetDefaultPublisherCN();
+        executable ??= $"{packageName}.exe";
+        
+        publisherName = StripCnPrefix(NormalizePublisher(publisherName));
+
         Directory.CreateDirectory(outputDir);
         var manifestName = "appxmanifest.xml";
         var templateSuffix = isSparse ? "sparse" : "packaged";
@@ -21,7 +28,7 @@ internal sealed class MsixService
         await using (var s = asm.GetManifestResourceStream(templateResName) ?? throw new FileNotFoundException(templateResName))
         using (var sr = new StreamReader(s, Encoding.UTF8))
         {
-            template = await sr.ReadToEndAsync();
+            template = await sr.ReadToEndAsync(cancellationToken);
         }
 
         var packageNameCamel = ToCamelCase(packageName);
@@ -34,7 +41,7 @@ internal sealed class MsixService
             .Replace("{Executable}", executable);
 
         var manifestPath = Path.Combine(outputDir, manifestName);
-        await File.WriteAllTextAsync(manifestPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        await File.WriteAllTextAsync(manifestPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
         var assetsDir = Path.Combine(outputDir, "Assets");
         Directory.CreateDirectory(assetsDir);
@@ -50,11 +57,31 @@ internal sealed class MsixService
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             await using var s = asm.GetManifestResourceStream(res)!;
             await using var fs = File.Create(target);
-            await s.CopyToAsync(fs);
+            await s.CopyToAsync(fs, cancellationToken);
         }
     }
 
-    public async Task<MsixIdentityResult> AddMsixIdentityToExeAsync(string exePath, string appxManifestPath, string? tempDir = null, bool verbose = true)
+    static string StripCnPrefix(string value)
+    {
+        var v = value.Trim().Trim('"', '\'');
+        if (v.StartsWith("CN=", StringComparison.OrdinalIgnoreCase))
+        {
+            v = v.Substring(3);
+        }
+        return v;
+    }
+
+    static string NormalizePublisher(string value)
+    {
+        var v = value.Trim().Trim('"', '\'');
+        if (!v.StartsWith("CN=", StringComparison.OrdinalIgnoreCase))
+        {
+            v = "CN=" + v;
+        }
+        return v;
+    }
+
+    public async Task<MsixIdentityResult> AddMsixIdentityToExeAsync(string exePath, string appxManifestPath, string? tempDir = null, bool verbose = true, CancellationToken cancellationToken = default)
     {
         // Validate inputs
         if (!File.Exists(exePath))
@@ -76,7 +103,7 @@ internal sealed class MsixService
         try
         {
             // Read and extract MSIX identity from appxmanifest.xml
-            var appxManifestContent = await File.ReadAllTextAsync(appxManifestPath, Encoding.UTF8);
+            var appxManifestContent = await File.ReadAllTextAsync(appxManifestPath, Encoding.UTF8, cancellationToken);
 
             // Extract Package Identity information
             var identityMatch = Regex.Match(appxManifestContent, @"<Identity[^>]*>", RegexOptions.IgnoreCase);
@@ -118,7 +145,7 @@ internal sealed class MsixService
             bool hasExistingManifest = false;
             try
             {
-                await RunMtToolAsync($@"-inputresource:""{exePath}"";#1 -out:""{tempManifestPath}""", verbose);
+                await RunMtToolAsync($@"-inputresource:""{exePath}"";#1 -out:""{tempManifestPath}""", verbose, cancellationToken);
                 hasExistingManifest = File.Exists(tempManifestPath);
             }
             catch
@@ -139,7 +166,7 @@ internal sealed class MsixService
                 }
 
                 // Read existing manifest
-                var existingManifest = await File.ReadAllTextAsync(tempManifestPath, Encoding.UTF8);
+                var existingManifest = await File.ReadAllTextAsync(tempManifestPath, Encoding.UTF8, cancellationToken);
 
                 // Find the closing </assembly> tag in existing manifest
                 var existingManifestParts = existingManifest.Split("</assembly>");
@@ -173,7 +200,7 @@ internal sealed class MsixService
             }
 
             // Write the combined manifest
-            await File.WriteAllTextAsync(combinedManifestPath, finalManifest, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            await File.WriteAllTextAsync(combinedManifestPath, finalManifest, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
             var command = $@"-manifest ""{combinedManifestPath}"" -outputresource:""{exePath}"";#1";
             if (verbose)
@@ -184,7 +211,7 @@ internal sealed class MsixService
             }
 
             // Re-embed the combined manifest into the executable
-            await RunMtToolAsync(command, verbose);
+            await RunMtToolAsync(command, verbose, cancellationToken);
 
             if (verbose)
             {
@@ -202,7 +229,7 @@ internal sealed class MsixService
             TryDeleteFile(tempManifestPath);
             TryDeleteFile(combinedManifestPath);
 
-            throw new Exception($"Failed to add MSIX identity to executable: {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to add MSIX identity to executable: {ex.Message}", ex);
         }
     }
 
@@ -213,8 +240,9 @@ internal sealed class MsixService
     /// <param name="language">Default language qualifier (default: 'en-US')</param>
     /// <param name="platformVersion">Platform version (default: '10.0.0')</param>
     /// <param name="verbose">Enable verbose logging</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Path to the created configuration file</returns>
-    public async Task<string> CreatePriConfigAsync(string packageDir, string language = "en-US", string platformVersion = "10.0.0", bool verbose = true)
+    public async Task<string> CreatePriConfigAsync(string packageDir, string language = "en-US", string platformVersion = "10.0.0", bool verbose = true, CancellationToken cancellationToken = default)
     {
         // Remove trailing backslashes from packageDir
         packageDir = packageDir.TrimEnd('\\', '/');
@@ -232,7 +260,7 @@ internal sealed class MsixService
 
         try
         {
-            await BuildToolsService.RunBuildToolAsync("makepri.exe", arguments, verbose);
+            await BuildToolsService.RunBuildToolAsync("makepri.exe", arguments, verbose, cancellationToken: cancellationToken);
 
             if (verbose)
             {
@@ -243,7 +271,7 @@ internal sealed class MsixService
         }
         catch (Exception ex)
         {
-            throw new Exception($"Failed to create PRI configuration: {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to create PRI configuration: {ex.Message}", ex);
         }
     }
 
@@ -254,8 +282,9 @@ internal sealed class MsixService
     /// <param name="configPath">Path to PRI config file (default: packageDir/priconfig.xml)</param>
     /// <param name="outputPath">Output path for PRI file (default: packageDir/resources.pri)</param>
     /// <param name="verbose">Enable verbose logging</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Path to the generated PRI file</returns>
-    public async Task<string> GeneratePriFileAsync(string packageDir, string? configPath = null, string? outputPath = null, bool verbose = true)
+    public async Task<string> GeneratePriFileAsync(string packageDir, string? configPath = null, string? outputPath = null, bool verbose = true, CancellationToken cancellationToken = default)
     {
         // Remove trailing backslashes from packageDir
         packageDir = packageDir.TrimEnd('\\', '/');
@@ -278,7 +307,7 @@ internal sealed class MsixService
 
         try
         {
-            await BuildToolsService.RunBuildToolAsync("makepri.exe", arguments, verbose);
+            await BuildToolsService.RunBuildToolAsync("makepri.exe", arguments, verbose, cancellationToken: cancellationToken);
 
             if (verbose)
             {
@@ -289,7 +318,7 @@ internal sealed class MsixService
         }
         catch (Exception ex)
         {
-            throw new Exception($"Failed to generate PRI file: {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to generate PRI file: {ex.Message}", ex);
         }
     }
 
@@ -386,8 +415,8 @@ internal sealed class MsixService
                     Console.WriteLine("Generating PRI configuration and files...");
                 }
 
-                await CreatePriConfigAsync(inputFolder, verbose: verbose);
-                await GeneratePriFileAsync(inputFolder, verbose: verbose);
+                await CreatePriConfigAsync(inputFolder, verbose: verbose, cancellationToken: cancellationToken);
+                await GeneratePriFileAsync(inputFolder, verbose: verbose, cancellationToken: cancellationToken);
             }
 
             // Create MSIX package
@@ -398,7 +427,7 @@ internal sealed class MsixService
                 Console.WriteLine("Creating MSIX package...");
             }
 
-            await BuildToolsService.RunBuildToolAsync("makeappx.exe", makeappxArguments, verbose);
+            await BuildToolsService.RunBuildToolAsync("makeappx.exe", makeappxArguments, verbose, cancellationToken: cancellationToken);
 
             var certPath = certificatePath;
             CertificateServices.CertificateResult? certInfo = null;
@@ -419,7 +448,7 @@ internal sealed class MsixService
                     }
 
                     certPath = Path.Combine(outputFolder, $"{finalPackageName}_cert.pfx");
-                    certInfo = await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, certificatePassword, verbose: verbose);
+                    certInfo = await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, certificatePassword, verbose: verbose, cancellationToken: cancellationToken);
                 }
 
                 if (string.IsNullOrWhiteSpace(certPath))
@@ -428,11 +457,11 @@ internal sealed class MsixService
                 // Install certificate if requested
                 if (installDevCert)
                 {
-                    var result = await certificateService.InstallCertificateAsync(certPath, certificatePassword, false, verbose);
+                    var result = await certificateService.InstallCertificateAsync(certPath, certificatePassword, false, verbose, cancellationToken);
                 }
 
                 // Sign the package
-                await certificateService.SignMsixPackageAsync(outputMsixPath, certPath, certificatePassword, verbose: verbose);
+                await certificateService.SignMsixPackageAsync(outputMsixPath, certPath, certificatePassword, verbose: verbose, cancellationToken: cancellationToken);
             }
 
             // Clean up temporary PRI files
@@ -476,14 +505,14 @@ internal sealed class MsixService
         }
         catch (Exception ex)
         {
-            throw new Exception($"Failed to create MSIX package: {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to create MSIX package: {ex.Message}", ex);
         }
     }
 
-    private static async Task RunMtToolAsync(string arguments, bool verbose)
+    private static async Task RunMtToolAsync(string arguments, bool verbose, CancellationToken cancellationToken = default)
     {
         // Use the new BuildToolsService to run mt.exe
-        await BuildToolsService.RunBuildToolAsync("mt.exe", arguments, verbose);
+        await BuildToolsService.RunBuildToolAsync("mt.exe", arguments, verbose, cancellationToken: cancellationToken);
     }
 
     private static void TryDeleteFile(string path)

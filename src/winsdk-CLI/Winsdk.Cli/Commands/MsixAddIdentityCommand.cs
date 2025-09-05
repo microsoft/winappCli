@@ -26,12 +26,14 @@ internal class MsixAddIdentityCommand : Command
         Arguments.Add(executableArgument);
         Arguments.Add(manifestPathArgument);
         Options.Add(tempDirOption);
+        Options.Add(Program.VerboseOption);
 
         SetAction(async (parseResult, ct) =>
         {
             var executablePath = parseResult.GetRequiredValue(executableArgument);
             var manifestPath = parseResult.GetRequiredValue(manifestPathArgument);
             var tempDir = parseResult.GetValue(tempDirOption);
+            var verbose = parseResult.GetValue(Program.VerboseOption);
 
             if (!File.Exists(executablePath))
             {
@@ -42,7 +44,7 @@ internal class MsixAddIdentityCommand : Command
             try
             {
                 var msix = new MsixService();
-                var result = await msix.AddMsixIdentityToExeAsync(executablePath, manifestPath, tempDir);
+                var result = await msix.AddMsixIdentityToExeAsync(executablePath, manifestPath, tempDir, verbose, ct);
 
                 Console.WriteLine("✅ MSIX identity added successfully!");
                 Console.WriteLine($"📦 Package: {result.PackageName}");

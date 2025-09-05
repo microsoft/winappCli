@@ -1,0 +1,136 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{cs,csx,vb,vbx}]
+indent_size = 4
+
+[*.{csproj,vbproj,vcxproj,vcxproj.filters,proj,projitems,shproj}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+# C# Code Style Rules
+
+# Async method naming
+dotnet_naming_rule.async_methods_end_in_async.severity = warning
+dotnet_naming_rule.async_methods_end_in_async.symbols = async_methods
+dotnet_naming_rule.async_methods_end_in_async.style = end_in_async
+dotnet_naming_symbols.async_methods.applicable_kinds = method
+dotnet_naming_symbols.async_methods.applicable_accessibilities = *
+dotnet_naming_symbols.async_methods.required_modifiers = async
+dotnet_naming_style.end_in_async.required_suffix = Async
+dotnet_naming_style.end_in_async.capitalization = pascal_case
+
+# Enable specific .NET code analysis categories (reduces noise)
+dotnet_analyzer_diagnostic.category-performance.severity = warning
+dotnet_analyzer_diagnostic.category-reliability.severity = warning
+dotnet_analyzer_diagnostic.category-security.severity = warning
+dotnet_analyzer_diagnostic.category-usage.severity = warning
+
+# CancellationToken rules (Built-in .NET analyzers) - MOST IMPORTANT
+# CA2016: Forward the CancellationToken parameter to methods that take one
+dotnet_diagnostic.CA2016.severity = warning
+
+# CA2008: Do not create tasks without passing a TaskScheduler
+dotnet_diagnostic.CA2008.severity = warning
+
+# CA1849: Call async methods when in an async method  
+dotnet_diagnostic.CA1849.severity = suggestion
+
+# Disable noisy rules for console applications
+# CA2007: Do not directly await a Task (consider ConfigureAwait) - not needed for console apps
+dotnet_diagnostic.CA2007.severity = none
+
+# CA1031: Do not catch general exception types (sometimes needed for resilience)
+dotnet_diagnostic.CA1031.severity = none
+
+# CA2201: Exception type System.Exception is not sufficiently specific
+dotnet_diagnostic.CA2201.severity = suggestion
+
+# CA1822: Mark members as static (can be noisy)
+dotnet_diagnostic.CA1822.severity = none
+
+# CA1852: Type can be sealed (not critical)
+dotnet_diagnostic.CA1852.severity = none
+
+# CA1812: Internal class that is apparently never instantiated
+dotnet_diagnostic.CA1812.severity = none
+
+# CA1515: Make types internal (not critical for applications)
+dotnet_diagnostic.CA1515.severity = none
+
+# CA1031: Do not catch general exception types (sometimes needed for resilience)
+dotnet_diagnostic.CA1031.severity = suggestion
+
+# CA1848: Use the LoggerMessage delegates
+dotnet_diagnostic.CA1848.severity = suggestion
+
+# CA2249: Consider using String.Contains instead of String.IndexOf
+dotnet_diagnostic.CA2249.severity = suggestion
+
+# CA2215: Dispose methods should call base class dispose
+dotnet_diagnostic.CA2215.severity = warning
+
+# CA2213: Disposable fields should be disposed
+dotnet_diagnostic.CA2213.severity = warning
+
+# CA1016: Mark assemblies with AssemblyVersionAttribute
+dotnet_diagnostic.CA1016.severity = none
+
+# CA1031: Do not catch general exception types (sometimes needed for resilience)
+dotnet_diagnostic.CA1031.severity = suggestion
+
+# CA1032: Implement standard exception constructors
+dotnet_diagnostic.CA1032.severity = warning
+
+# CA1303: Do not pass literals as localized parameters
+dotnet_diagnostic.CA1303.severity = none
+
+# CA1305: Specify IFormatProvider
+dotnet_diagnostic.CA1305.severity = suggestion
+
+# CA2211: Non-constant fields should not be visible
+dotnet_diagnostic.CA2211.severity = warning
+
+# Custom rules for async/cancellation
+# These are custom analyzer rules that you can implement
+
+# IDE suggestions
+dotnet_style_prefer_auto_properties = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
+dotnet_style_prefer_conditional_expression_over_return = true:suggestion
+dotnet_style_prefer_inferred_tuple_names = true:suggestion
+dotnet_style_prefer_inferred_anonymous_type_member_names = true:suggestion
+
+# Expression preferences
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
+dotnet_style_prefer_simplified_boolean_expressions = true:suggestion
+
+# C# preferences
+csharp_prefer_simple_using_statement = true:suggestion
+csharp_prefer_braces = true:warning
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_prefer_method_group_conversion = true:suggestion
+csharp_style_prefer_top_level_statements = false:suggestion
+csharp_style_expression_bodied_methods = false:suggestion
+csharp_style_expression_bodied_constructors = false:suggestion
+csharp_style_expression_bodied_operators = false:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_expression_bodied_indexers = true:suggestion
+csharp_style_expression_bodied_accessors = true:suggestion
+csharp_style_expression_bodied_lambdas = true:suggestion
+csharp_style_expression_bodied_local_functions = false:suggestion
+
+# Modifier preferences
+csharp_preferred_modifier_order = public,private,protected,internal,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,volatile,async:suggestion
+
+# Code block preferences
+csharp_prefer_simple_using_statement = true:suggestion

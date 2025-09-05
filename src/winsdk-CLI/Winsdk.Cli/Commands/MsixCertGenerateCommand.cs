@@ -3,9 +3,9 @@ using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
 
-internal class CertGenerateCommand : Command
+internal class MsixCertGenerateCommand : Command
 {
-    public CertGenerateCommand()
+    public MsixCertGenerateCommand()
         : base("generate", "Generate a new development certificate")
     {
         var publisherOption = new Option<string>("--publisher")
@@ -48,7 +48,7 @@ internal class CertGenerateCommand : Command
             {
                 var certificateService = new CertificateServices();
 
-                var result = await certificateService.GenerateDevCertificateAsync(publisher, output, password, validDays, verbose);
+                var result = await certificateService.GenerateDevCertificateAsync(publisher, output, password, validDays, verbose, ct);
 
                 Console.WriteLine("✅ Certificate generated successfully!");
                 Console.WriteLine($"🔐 Certificate: {result.CertificatePath}");

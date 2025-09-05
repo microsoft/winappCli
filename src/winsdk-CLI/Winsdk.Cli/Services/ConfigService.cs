@@ -34,7 +34,7 @@ internal sealed class ConfigService
         while ((line = sr.ReadLine()) != null)
         {
             var t = line.Trim();
-            if (t.StartsWith("#") || t.Length == 0) continue;
+            if (t.StartsWith('#') || t.Length == 0) continue;
             if (t.Equals("packages:", StringComparison.OrdinalIgnoreCase)) continue;
 
             if (t.StartsWith("- name:", StringComparison.OrdinalIgnoreCase))

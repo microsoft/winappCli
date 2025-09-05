@@ -16,7 +16,8 @@ internal class CertificateServices
         string outputPath,
         string password = "password",
         int validDays = 365,
-        bool verbose = true)
+        bool verbose = true,
+        CancellationToken cancellationToken = default)
     {
         if (!Path.IsPathRooted(outputPath))
         {
@@ -59,11 +60,11 @@ internal class CertificateServices
             using var process = Process.Start(processStartInfo);
             if (process != null)
             {
-                await process.WaitForExitAsync();
+                await process.WaitForExitAsync(cancellationToken);
 
                 if (process.ExitCode != 0)
                 {
-                    var error = await process.StandardError.ReadToEndAsync();
+                    var error = await process.StandardError.ReadToEndAsync(cancellationToken);
                     throw new InvalidOperationException($"PowerShell command failed with exit code {process.ExitCode}: {error}");
                 }
             }
@@ -86,7 +87,7 @@ internal class CertificateServices
         }
     }
 
-    internal async Task<bool> InstallCertificateAsync(string certPath, string password, bool force, bool verbose)
+    internal async Task<bool> InstallCertificateAsync(string certPath, string password, bool force, bool verbose, CancellationToken cancellationToken = default)
     {
         if (!Path.IsPathRooted(certPath))
         {
@@ -126,8 +127,8 @@ internal class CertificateServices
                     using var checkProcess = Process.Start(checkProcessInfo);
                     if (checkProcess != null)
                     {
-                        await checkProcess.WaitForExitAsync();
-                        var result = await checkProcess.StandardOutput.ReadToEndAsync();
+                        await checkProcess.WaitForExitAsync(cancellationToken);
+                        var result = await checkProcess.StandardOutput.ReadToEndAsync(cancellationToken);
 
                         if (!string.IsNullOrWhiteSpace(result))
                         {
@@ -169,7 +170,7 @@ internal class CertificateServices
             using var process = Process.Start(processStartInfo);
             if (process != null)
             {
-                await process.WaitForExitAsync();
+                await process.WaitForExitAsync(cancellationToken);
 
                 // Note: When using UseShellExecute = true with elevation,
                 // exit codes may not be reliable. We'll assume success if no exception occurred.
@@ -200,7 +201,8 @@ internal class CertificateServices
     /// <param name="password">Certificate password</param>
     /// <param name="timestampUrl">Timestamp server URL (optional)</param>
     /// <param name="verbose">Enable verbose logging</param>
-    public async Task SignMsixPackageAsync(string msixPath, string certificatePath, string password = "password", string? timestampUrl = null, bool verbose = true)
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task SignMsixPackageAsync(string msixPath, string certificatePath, string? password = "password", string? timestampUrl = null, bool verbose = true, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(msixPath))
             throw new FileNotFoundException($"MSIX package not found: {msixPath}");
@@ -224,7 +226,7 @@ internal class CertificateServices
 
         try
         {
-            await BuildToolsService.RunBuildToolAsync("signtool.exe", arguments, verbose);
+            await BuildToolsService.RunBuildToolAsync("signtool.exe", arguments, verbose, cancellationToken: cancellationToken);
 
             if (verbose)
             {
@@ -233,7 +235,7 @@ internal class CertificateServices
         }
         catch (Exception ex)
         {
-            throw new Exception($"Failed to sign MSIX package: {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to sign MSIX package: {ex.Message}", ex);
         }
     }
 }

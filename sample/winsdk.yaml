@@ -2,14 +2,18 @@ packages:
   - name: Microsoft.Windows.CppWinRT
     version: 2.0.250303.1
   - name: Microsoft.Windows.SDK.BuildTools
-    version: 10.0.26100.4188
+    version: 10.0.26100.4948
+  - name: Microsoft.Web.WebView2
+    version: 1.0.3405.78
   - name: Microsoft.WindowsAppSDK
-    version: 1.8.250702007-experimental4
+    version: 1.7.250606001
+  - name: Microsoft.UI.Xaml
+    version: 2.8.7
   - name: Microsoft.Windows.ImplementationLibrary
     version: 1.0.250325.1
   - name: Microsoft.Windows.SDK.CPP
-    version: 10.0.26100.4204
+    version: 10.0.26100.4948
   - name: Microsoft.Windows.SDK.CPP.x64
-    version: 10.0.26100.4204
+    version: 10.0.26100.4948
   - name: Microsoft.Windows.SDK.CPP.arm64
-    version: 10.0.26100.4204
+    version: 10.0.26100.4948

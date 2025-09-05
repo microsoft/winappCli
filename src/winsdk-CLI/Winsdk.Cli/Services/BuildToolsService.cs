@@ -148,8 +148,10 @@ internal static class BuildToolsService
     /// <param name="verbose">Whether to output verbose information</param>
     /// <param name="startPath">Starting directory to search for .winsdk (defaults to current directory)</param>
     /// <returns>Task representing the asynchronous operation</returns>
-    public static async Task RunBuildToolAsync(string toolName, string arguments, bool verbose = false, string? startPath = null)
+    public static async Task RunBuildToolAsync(string toolName, string arguments, bool verbose = false, string? startPath = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var toolPath = GetBuildToolPath(toolName, startPath);
         if (toolPath == null)
         {
@@ -166,10 +168,12 @@ internal static class BuildToolsService
             CreateNoWindow = true
         };
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         using var p = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {toolName} process");
-        var stdout = await p.StandardOutput.ReadToEndAsync();
-        var stderr = await p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
+        var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderr = await p.StandardError.ReadToEndAsync(cancellationToken);
+        await p.WaitForExitAsync(cancellationToken);
 
         if (verbose)
         {
@@ -179,7 +183,7 @@ internal static class BuildToolsService
 
         if (p.ExitCode != 0)
         {
-            throw new Exception($"{toolName} execution failed with exit code {p.ExitCode}");
+            throw new InvalidOperationException($"{toolName} execution failed with exit code {p.ExitCode}");
         }
     }
 }

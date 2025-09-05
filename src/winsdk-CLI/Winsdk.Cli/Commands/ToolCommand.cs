@@ -23,6 +23,8 @@ internal class ToolCommand : Command
             if (toolPath == null)
             {
                 Console.Error.WriteLine($"Could not find '{toolName}' in the Windows SDK Build Tools.");
+                Console.Error.WriteLine($"Usage: winsdk tool <command> [args...]");
+                Console.Error.WriteLine($"Example: winsdk tool makeappx.exe pack /o /d \"./msix\" /nv /p \"./dist/app.msix\"");
                 return 1;
             }
             var processStartInfo = new System.Diagnostics.ProcessStartInfo
@@ -54,7 +56,7 @@ internal class ToolCommand : Command
                 };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-                await process.WaitForExitAsync();
+                await process.WaitForExitAsync(ct);
                 return process.ExitCode;
             }
             catch (Exception ex)

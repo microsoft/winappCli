@@ -6,6 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
+    <!-- Enable Code Analysis -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Recommended</AnalysisMode>
+    
+    <!-- Suppress specific warnings -->
+    <NoWarn>CA1822;CA1852</NoWarn>
+
     <!-- NativeAOT / single-file / self-contained (RID specified at publish time) -->
     <PublishAot>true</PublishAot>
     <SelfContained>true</SelfContained>

@@ -56,35 +56,10 @@ internal class MsixInitCommand : Command
             var version = parseResult.GetRequiredValue(versionOption);
             var executable = parseResult.GetValue(executableOption);
 
-            var defaults = new SystemDefaultsService();
-            var resolvedName = name ?? defaults.GetDefaultPackageName(Directory.GetCurrentDirectory());
-            var resolvedPublisher = NormalizePublisher(publisher ?? defaults.GetDefaultPublisherCN());
-            var resolvedExe = executable ?? $"{resolvedName}.exe";
-
             var msix = new MsixService();
-            await msix.GenerateMsixAssetsAsync(sparse, outputDir, resolvedName, StripCnPrefix(resolvedPublisher), description, version, resolvedExe);
+            await msix.GenerateMsixAssetsAsync(sparse, outputDir, name, publisher, description, version, executable);
 
             Console.WriteLine($"MSIX assets generated at: {outputDir}");
         });
-    }
-
-    static string StripCnPrefix(string value)
-    {
-        var v = value.Trim().Trim('"', '\'');
-        if (v.StartsWith("CN=", StringComparison.OrdinalIgnoreCase))
-        {
-            v = v.Substring(3);
-        }
-        return v;
-    }
-
-    static string NormalizePublisher(string value)
-    {
-        var v = value.Trim().Trim('"', '\'');
-        if (!v.StartsWith("CN=", StringComparison.OrdinalIgnoreCase))
-        {
-            v = "CN=" + v;
-        }
-        return v;
     }
 }

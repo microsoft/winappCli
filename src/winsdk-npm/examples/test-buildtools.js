@@ -1,21 +1,17 @@
-const { ensureBuildTools, execSyncWithBuildTools } = require("../buildtools-utils");
+const { execSyncWithBuildTools } = require("../buildtools-utils");
 
 /**
  * Test script to demonstrate auto-download functionality
  */
 
-async function testBuildToolsAutoDownload() {
+function testBuildToolsAutoDownload() {
   try {
-    console.log("Testing BuildTools auto-download functionality...");
-    
-    // This will automatically download BuildTools if not found
-    const binPath = await ensureBuildTools();
-    console.log(`BuildTools available at: ${binPath}`);
+    console.log("Testing BuildTools functionality through native CLI...");
     
     // Test a simple tool - mt.exe returns non-zero for help, so catch it
     console.log("\nTesting mt.exe...");
     try {
-      await execSyncWithBuildTools('mt.exe -help', { encoding: 'utf8' });
+      execSyncWithBuildTools('mt.exe -help', { encoding: 'utf8' });
     } catch (error) {
       // mt.exe returns non-zero exit code for help, but that's expected
       if (error.message.includes('Command failed: mt.exe -help')) {
@@ -27,7 +23,7 @@ async function testBuildToolsAutoDownload() {
     
     console.log("\nTesting signtool.exe...");
     try {
-      await execSyncWithBuildTools('signtool.exe /?', { stdio: 'pipe' });
+      execSyncWithBuildTools('signtool.exe /?', { stdio: 'pipe' });
     } catch (error) {
       // signtool.exe also returns non-zero for help in some cases
       if (error.message.includes('Command failed: signtool.exe /?')) {

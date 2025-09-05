@@ -4,9 +4,9 @@ using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
 
-internal class CertInstallCommand : Command
+internal class MsixCertInstallCommand : Command
 {
-    public CertInstallCommand()
+    public MsixCertInstallCommand()
         : base("install", "Install a certificate to the local machine store")
     {
         var certPathArgument = new Argument<string>("cert-path")
@@ -37,7 +37,7 @@ internal class CertInstallCommand : Command
             try
             {
                 var certificateService = new CertificateServices();
-                var result = await certificateService.InstallCertificateAsync(certPath, password, force, verbose);
+                var result = await certificateService.InstallCertificateAsync(certPath, password, force, verbose, ct);
                 if (!result)
                 {
                     Console.WriteLine($"ℹ️ Certificate is already installed");

@@ -1,9 +1,10 @@
 using System.CommandLine;
 using System.Runtime.InteropServices;
+using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
 
-internal class InitCommand : Command
+internal class SetupCommand : Command
 {
     enum Architecture
     {
@@ -11,15 +12,27 @@ internal class InitCommand : Command
         arm64
     }
 
-    public InitCommand() : base("init", "Initialize a new project")
+    public SetupCommand() : base("setup", "Download and setup Windows SDKs")
     {
         var experimentalOption = new Option<bool>("--experimental")
         {
-            Description = "Use experimental package versions"
+            Description = "Include experimental/prerelease packages from NuGet"
         };
-        var ignoreConfigOption = new Option<bool>("--ignore-config")
+        var ignoreConfigOption = new Option<bool>("--ignore-config", "--no-config")
         {
-            Description = "Ignore existing winsdk.yaml configuration"
+            Description = "Don't use configuration file for version management"
+        };
+        var noCleanupOption = new Option<bool>("--no-cleanup", "--keep-old-versions")
+        {
+            Description = "Keep old package versions instead of cleaning them up"
+        };
+        var noGitignoreOption = new Option<bool>("--no-gitignore")
+        {
+            Description = "Don't update .gitignore file"
+        };
+        var quietOption = new Option<bool>("--quiet", "-q")
+        {
+            Description = "Suppress progress messages"
         };
         var yesOption = new Option<bool>("--yes")
         {
@@ -37,6 +50,9 @@ internal class InitCommand : Command
 
         Options.Add(experimentalOption);
         Options.Add(ignoreConfigOption);
+        Options.Add(noCleanupOption);
+        Options.Add(noGitignoreOption);
+        Options.Add(quietOption);
         Options.Add(yesOption);
         Options.Add(archOption);
 
@@ -44,6 +60,9 @@ internal class InitCommand : Command
         {
             var experimental = parseResult.GetValue(experimentalOption);
             var ignoreConfig = parseResult.GetValue(ignoreConfigOption);
+            var noCleanup = parseResult.GetValue(noCleanupOption);
+            var noGitignore = parseResult.GetValue(noGitignoreOption);
+            var quiet = parseResult.GetValue(quietOption);
             var assumeYes = parseResult.GetValue(yesOption);
             var arch = parseResult.GetValue(archOption);
 
@@ -60,6 +79,16 @@ internal class InitCommand : Command
             Console.WriteLine($"{UiSymbols.Rocket} winsdk init starting in {cwd}");
             Console.WriteLine($"{UiSymbols.Folder} Workspace → {winsdkDir}");
 
+            if (noCleanup)
+            {
+                Console.WriteLine($"{UiSymbols.Package} Old package versions will be kept");
+            }
+
+            if (experimental)
+            {
+                Console.WriteLine($"{UiSymbols.Wrench} Experimental/prerelease packages will be included");
+            }
+
             var config = new ConfigService(cwd);
             var nuget = new NugetService();
             var cppwinrt = new CppWinrtService();
@@ -72,7 +101,10 @@ internal class InitCommand : Command
             if (hadConfig)
             {
                 pinned = config.Load();
-                Console.WriteLine($"{UiSymbols.Note} Found winsdk.yaml; using pinned versions unless overridden.");
+                if (!quiet)
+                {
+                    Console.WriteLine($"{UiSymbols.Note} Found winsdk.yaml; using pinned versions unless overridden.");
+                }
                 if (!ignoreConfig && pinned.Packages.Count > 0)
                 {
                     var overwrite = assumeYes || Program.PromptYesNo("winsdk.yaml exists with pinned versions. Overwrite with latest versions? [y/N]: ");
@@ -81,12 +113,18 @@ internal class InitCommand : Command
             }
             else
             {
-                Console.WriteLine($"{UiSymbols.New} No winsdk.yaml found; will generate one after init.");
+                if (!quiet)
+                {
+                    Console.WriteLine($"{UiSymbols.New} No winsdk.yaml found; will generate one after init.");
+                }
             }
 
             Console.WriteLine($"{UiSymbols.Wrench} Ensuring nuget.exe is available...");
-            Console.WriteLine($"{UiSymbols.Package} Installing SDK packages → {pkgsDir}");
-            await nuget.EnsureNugetExeAsync();
+            if (!quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Package} Installing SDK packages → {pkgsDir}");
+            }
+            await nuget.EnsureNugetExeAsync(ct);
 
             // 1) Resolve all versions first (pinned vs latest)
             foreach (var pkg in NugetService.SDK_PACKAGES)
@@ -95,20 +133,34 @@ internal class InitCommand : Command
                 if (!ignoreConfig && config.Exists())
                 {
                     var v = pinned.GetVersion(pkg);
-                    version = string.IsNullOrWhiteSpace(v) ? await nuget.GetLatestVersionAsync(pkg, experimental)
+                    version = string.IsNullOrWhiteSpace(v) ? await nuget.GetLatestVersionAsync(pkg, experimental, ct)
                                                            : v!;
                 }
                 else
                 {
-                    version = await nuget.GetLatestVersionAsync(pkg, experimental);
+                    version = await nuget.GetLatestVersionAsync(pkg, experimental, ct);
                 }
 
-                Console.WriteLine($"  {UiSymbols.Bullet} {pkg} {version}");
+                if (!quiet)
+                {
+                    Console.WriteLine($"  {UiSymbols.Bullet} {pkg} {version}");
+                }
                 usedVersions[pkg] = version;
             }
 
             // 2) Single bulk install using a temp packages.config
-            await nuget.InstallPackagesFromConfigAsync(usedVersions, pkgsDir);
+            await nuget.InstallPackagesFromConfigAsync(
+                usedVersions, 
+                pkgsDir, 
+                cleanupOldVersions: !noCleanup, 
+                verbose: !quiet,
+                cancellationToken: ct);
+
+            // Note: Cleanup functionality is now implemented in NugetService
+            if (!noCleanup && !quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Check} Package cleanup completed");
+            }
 
             // Prepare consolidated layout and run cppwinrt
             var cppWinrtExe = cppwinrt.FindCppWinrtExe(pkgsDir, usedVersions);
@@ -121,26 +173,41 @@ internal class InitCommand : Command
 
             // Copy headers, libs, runtimes
             var layout = new PackageLayoutService();
-            Console.WriteLine($"{UiSymbols.Files} Copying headers → {includeOut}");
+            if (!quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Files} Copying headers → {includeOut}");
+            }
             layout.CopyIncludesFromPackages(pkgsDir, includeOut);
             Console.WriteLine($"{UiSymbols.Check} Headers ready → {includeOut}");
 
             var libRoot = Path.Combine(winsdkDir, "lib");
-            Console.WriteLine($"{UiSymbols.Books} Copying import libs by arch → {libRoot}");
+            if (!quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Books} Copying import libs by arch → {libRoot}");
+            }
             layout.CopyLibsAllArch(pkgsDir, libRoot);
             var libArchs = Directory.Exists(libRoot) ? string.Join(", ", Directory.EnumerateDirectories(libRoot).Select(Path.GetFileName)) : "(none)";
             Console.WriteLine($"{UiSymbols.Books} Import libs ready for archs: {libArchs}");
 
             var binRoot = Path.Combine(winsdkDir, "bin");
-            Console.WriteLine($"{UiSymbols.Gear} Copying runtime binaries by arch → {binRoot}");
+            if (!quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Gear} Copying runtime binaries by arch → {binRoot}");
+            }
             layout.CopyRuntimesAllArch(pkgsDir, binRoot);
             var binArchs = Directory.Exists(binRoot) ? string.Join(", ", Directory.EnumerateDirectories(binRoot).Select(Path.GetFileName)) : "(none)";
             Console.WriteLine($"{UiSymbols.Gear} Runtime binaries ready for archs: {binArchs}");
 
             // Collect winmd inputs
-            Console.WriteLine($"{UiSymbols.Search} Searching for .winmd metadata...");
+            if (!quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Search} Searching for .winmd metadata...");
+            }
             var winmds = layout.FindWinmds(pkgsDir).ToList();
-            Console.WriteLine($"{UiSymbols.Search} Found {winmds.Count} .winmd");
+            if (!quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Search} Found {winmds.Count} .winmd");
+            }
             if (winmds.Count == 0)
             {
                 Console.Error.WriteLine("No .winmd files found for C++/WinRT projection.");
@@ -148,8 +215,11 @@ internal class InitCommand : Command
             }
 
             // Run cppwinrt inline with -input sdk+ and explicit winmds
-            Console.WriteLine($"{UiSymbols.Gear} Generating C++/WinRT projections...");
-            await CppWinrtRunner.RunWithRspAsync(cppWinrtExe, winmds, includeOut, winsdkDir, verbose: true);
+            if (!quiet)
+            {
+                Console.WriteLine($"{UiSymbols.Gear} Generating C++/WinRT projections...");
+            }
+            await CppWinrtRunner.RunWithRspAsync(cppWinrtExe, winmds, includeOut, winsdkDir, verbose: !quiet, cancellationToken: ct);
             Console.WriteLine($"{UiSymbols.Check} C++/WinRT headers generated → {includeOut}");
 
             // Save winsdk.yaml with used versions
@@ -160,6 +230,12 @@ internal class InitCommand : Command
             }
             config.Save(finalConfig);
             Console.WriteLine($"{UiSymbols.Save} Wrote config → {Path.Combine(cwd, "winsdk.yaml")}");
+
+            // Update .gitignore to exclude .winsdk folder (unless --no-gitignore is specified)
+            if (!noGitignore)
+            {
+                GitignoreService.UpdateGitignore(cwd, verbose: !quiet);
+            }
 
             Console.WriteLine($"{UiSymbols.Party} winsdk init completed.");
 

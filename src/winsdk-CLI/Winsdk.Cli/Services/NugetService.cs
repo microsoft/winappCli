@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Winsdk.Cli;
 
@@ -24,7 +25,7 @@ internal sealed class NugetService
         "Microsoft.Windows.SDK.CPP.arm64"
     };
 
-    public async Task EnsureNugetExeAsync()
+    public async Task EnsureNugetExeAsync(CancellationToken cancellationToken = default)
     {
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var toolsDir = Path.Combine(userProfile, ".winsdk", "tools");
@@ -33,19 +34,19 @@ internal sealed class NugetService
             return;
 
         Directory.CreateDirectory(toolsDir);
-        using var resp = await Http.GetAsync(NugetExeUrl);
+        using var resp = await Http.GetAsync(NugetExeUrl, cancellationToken);
         resp.EnsureSuccessStatusCode();
         await using var fs = File.Create(nugetExe);
-        await resp.Content.CopyToAsync(fs);
+        await resp.Content.CopyToAsync(fs, cancellationToken);
     }
 
-    public async Task<string> GetLatestVersionAsync(string packageName, bool includePrerelease)
+    public async Task<string> GetLatestVersionAsync(string packageName, bool includePrerelease, CancellationToken cancellationToken = default)
     {
         var url = $"{FlatIndex}/{packageName.ToLowerInvariant()}/index.json";
-        using var resp = await Http.GetAsync(url);
+        using var resp = await Http.GetAsync(url, cancellationToken);
         resp.EnsureSuccessStatusCode();
-        using var s = await resp.Content.ReadAsStreamAsync();
-        using var doc = await JsonDocument.ParseAsync(s);
+        using var s = await resp.Content.ReadAsStreamAsync(cancellationToken);
+        using var doc = await JsonDocument.ParseAsync(s, cancellationToken: cancellationToken);
         if (!doc.RootElement.TryGetProperty("versions", out var versionsElem) || versionsElem.ValueKind != JsonValueKind.Array)
             throw new InvalidOperationException($"No versions found for {packageName}");
 
@@ -66,7 +67,7 @@ internal sealed class NugetService
         return list[^1];
     }
 
-    public async Task InstallPackageAsync(string package, string version, string outputDir)
+    public async Task InstallPackageAsync(string package, string version, string outputDir, CancellationToken cancellationToken = default)
     {
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var nugetExe = Path.Combine(userProfile, ".winsdk", "tools", "nuget.exe");
@@ -94,14 +95,14 @@ internal sealed class NugetService
             WorkingDirectory = outputDir,
         };
         using var p = Process.Start(psi)!;
-        var stdout = await p.StandardOutput.ReadToEndAsync();
-        var stderr = await p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
+        var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderr = await p.StandardError.ReadToEndAsync(cancellationToken);
+        await p.WaitForExitAsync(cancellationToken);
         if (p.ExitCode != 0)
         {
             Console.Error.WriteLine(stdout);
             Console.Error.WriteLine(stderr);
-            throw new Exception($"nuget install failed for {package} {version}");
+            throw new InvalidOperationException($"nuget install failed for {package} {version}");
         }
     }
 
@@ -109,7 +110,10 @@ internal sealed class NugetService
         IReadOnlyDictionary<string, string> packagesAndVersions,
         string outputDir,
         string? framework = null,
-        string dependencyVersion = "lowest")
+        string dependencyVersion = "lowest",
+        bool cleanupOldVersions = false,
+        bool verbose = false,
+        CancellationToken cancellationToken = default)
     {
         if (packagesAndVersions == null || packagesAndVersions.Count == 0)
             return;
@@ -172,15 +176,28 @@ internal sealed class NugetService
             };
 
             using var p = Process.Start(psi)!;
-            var stdout = await p.StandardOutput.ReadToEndAsync();
-            var stderr = await p.StandardError.ReadToEndAsync();
-            await p.WaitForExitAsync();
+            var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);
+            var stderr = await p.StandardError.ReadToEndAsync(cancellationToken);
+            await p.WaitForExitAsync(cancellationToken);
 
             if (p.ExitCode != 0)
             {
                 Console.Error.WriteLine(stdout);
                 Console.Error.WriteLine(stderr);
-                throw new Exception($"nuget install failed for packages.config '{tempFile}'");
+                throw new InvalidOperationException($"nuget install failed for packages.config '{tempFile}'");
+            }
+
+            // Clean up old package versions if requested
+            if (cleanupOldVersions)
+            {
+                foreach (var packageAndVersion in packagesAndVersions)
+                {
+                    var removedCount = CleanupOldPackageVersionsInternal(packageAndVersion.Key, packageAndVersion.Value, outputDir, verbose);
+                    if (removedCount > 0 && verbose)
+                    {
+                        Console.WriteLine($"🗑️  Cleaned up {removedCount} old version(s) of {packageAndVersion.Key}");
+                    }
+                }
             }
         }
         finally
@@ -231,5 +248,142 @@ internal sealed class NugetService
             if (ai != bi) return ai.CompareTo(bi);
         }
         return 0;
+    }
+
+    /// <summary>
+    /// Remove old versions of a package, keeping only the specified version
+    /// </summary>
+    /// <param name="packageName">Name of the NuGet package</param>
+    /// <param name="keepVersion">Version to keep</param>
+    /// <param name="packagesDir">Directory containing packages</param>
+    /// <param name="verbose">Whether to log progress messages</param>
+    /// <returns>Number of removed package versions</returns>
+    public static int CleanupOldPackageVersions(string packageName, string keepVersion, string packagesDir, bool verbose = true)
+    {
+        return CleanupOldPackageVersionsInternal(packageName, keepVersion, packagesDir, verbose);
+    }
+
+    /// <summary>
+    /// Remove old versions of a package, keeping only the specified version
+    /// </summary>
+    /// <param name="packageName">Name of the NuGet package</param>
+    /// <param name="keepVersion">Version to keep</param>
+    /// <param name="packagesDir">Directory containing packages</param>
+    /// <param name="verbose">Whether to log progress messages</param>
+    /// <returns>Number of removed package versions</returns>
+    private static int CleanupOldPackageVersionsInternal(string packageName, string keepVersion, string packagesDir, bool verbose = true)
+    {
+        var removedCount = 0;
+
+        try
+        {
+            if (!Directory.Exists(packagesDir))
+            {
+                return removedCount;
+            }
+
+            var entries = Directory.GetDirectories(packagesDir)
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Cast<string>()
+                .ToList();
+
+            // Pattern to match package directories: PackageName.Version
+            var packagePattern = new Regex(
+                $@"^{Regex.Escape(packageName)}\.(.+)$",
+                RegexOptions.IgnoreCase);
+
+            foreach (var entry in entries)
+            {
+                var match = packagePattern.Match(entry);
+                if (match.Success)
+                {
+                    var foundVersion = match.Groups[1].Value;
+                    var entryPath = Path.Combine(packagesDir, entry);
+
+                    // Skip if this is the version we want to keep
+                    if (string.Equals(foundVersion, keepVersion, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    // Check if this is actually a directory for this package
+                    if (Directory.Exists(entryPath))
+                    {
+                        if (verbose)
+                        {
+                            Console.WriteLine($"🗑️  Removing old version: {packageName} v{foundVersion}");
+                        }
+
+                        try
+                        {
+                            Directory.Delete(entryPath, recursive: true);
+                            removedCount++;
+
+                            if (verbose)
+                            {
+                                Console.WriteLine($"✅ Removed: {entryPath}");
+                            }
+                        }
+                        catch (Exception error)
+                        {
+                            if (verbose)
+                            {
+                                Console.WriteLine($"⚠️  Could not remove {entryPath}: {error.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Also clean up any .nupkg files for old versions
+            var nupkgFiles = Directory.GetFiles(packagesDir, "*.nupkg")
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Cast<string>()
+                .ToList();
+
+            var nupkgPattern = new Regex(
+                $@"^{Regex.Escape(packageName)}\.(.+)\.nupkg$",
+                RegexOptions.IgnoreCase);
+
+            foreach (var nupkgFile in nupkgFiles)
+            {
+                var match = nupkgPattern.Match(nupkgFile);
+                if (match.Success)
+                {
+                    var foundVersion = match.Groups[1].Value;
+                    if (!string.Equals(foundVersion, keepVersion, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var nupkgPath = Path.Combine(packagesDir, nupkgFile);
+                        try
+                        {
+                            File.Delete(nupkgPath);
+                            if (verbose)
+                            {
+                                Console.WriteLine($"🗑️  Removed old .nupkg: {nupkgFile}");
+                            }
+                        }
+                        catch (Exception error)
+                        {
+                            if (verbose)
+                            {
+                                Console.WriteLine($"⚠️  Could not remove {nupkgPath}: {error.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+        catch (Exception error)
+        {
+            if (verbose)
+            {
+                Console.WriteLine($"⚠️  Error during cleanup of {packageName}: {error.Message}");
+            }
+        }
+
+        return removedCount;
     }
 }

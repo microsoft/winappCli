@@ -5,7 +5,7 @@ namespace Winsdk.Cli;
 
 internal static class CppWinrtRunner
 {
-    public static async Task RunInlineAsync(string cppwinrtExe, IEnumerable<string> winmdInputs, string outputDir, bool verbose)
+    public static async Task RunInlineAsync(string cppwinrtExe, IEnumerable<string> winmdInputs, string outputDir, bool verbose, CancellationToken cancellationToken = default)
     {
         var inputArgs = string.Join(" ", winmdInputs.Select(p => $"-input \"{p}\""));
         var args = $"-input sdk+ {inputArgs} -optimize -output \"{outputDir}\"";
@@ -27,9 +27,9 @@ internal static class CppWinrtRunner
         };
 
         using var p = Process.Start(psi)!;
-        var so = await p.StandardOutput.ReadToEndAsync();
-        var se = await p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
+        var so = await p.StandardOutput.ReadToEndAsync(cancellationToken);
+        var se = await p.StandardError.ReadToEndAsync(cancellationToken);
+        await p.WaitForExitAsync(cancellationToken);
 
         if (verbose)
         {
@@ -39,12 +39,12 @@ internal static class CppWinrtRunner
 
         if (p.ExitCode != 0)
         {
-            throw new Exception("cppwinrt execution failed");
+            throw new InvalidOperationException("cppwinrt execution failed");
         }
     }
 
     // CMake-aligned runner: generate a response file and invoke cppwinrt with @rsp
-    public static async Task RunWithRspAsync(string cppwinrtExe, IEnumerable<string> winmdInputs, string outputDir, string workingDirectory, bool verbose)
+    public static async Task RunWithRspAsync(string cppwinrtExe, IEnumerable<string> winmdInputs, string outputDir, string workingDirectory, bool verbose, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(outputDir);
         var rspPath = Path.Combine(outputDir, ".cppwinrt.rsp");
@@ -59,7 +59,7 @@ internal static class CppWinrtRunner
         sb.AppendLine($"-output \"{outputDir}\"");
         if (verbose) sb.AppendLine("-verbose");
 
-        await File.WriteAllTextAsync(rspPath, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        await File.WriteAllTextAsync(rspPath, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
         if (verbose)
         {
@@ -78,9 +78,9 @@ internal static class CppWinrtRunner
         };
 
         using var p = Process.Start(psi)!;
-        var so = await p.StandardOutput.ReadToEndAsync();
-        var se = await p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
+        var so = await p.StandardOutput.ReadToEndAsync(cancellationToken);
+        var se = await p.StandardError.ReadToEndAsync(cancellationToken);
+        await p.WaitForExitAsync(cancellationToken);
 
         if (verbose)
         {
@@ -90,7 +90,7 @@ internal static class CppWinrtRunner
 
         if (p.ExitCode != 0)
         {
-            throw new Exception("cppwinrt execution failed");
+            throw new InvalidOperationException("cppwinrt execution failed");
         }
     }
 }
