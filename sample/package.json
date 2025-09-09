@@ -7,7 +7,7 @@
     "start": "electron .",
     "build": "electron-builder --dir",
     "package-msi": "electron-builder",
-    "create-msix-sparse": "windows-sdk tool makeappx.exe pack /o /d \"./msix-sparse-assets\" /nv /p \"./dist/SparseExample.msix\"",
+    "create-msix-sparse": "winsdk tool makeappx.exe pack /o /d \"./msix-sparse-assets\" /nv /p \"./dist/SparseExample.msix\"",
     "build-addon": "node-gyp clean configure build --directory=native",
     "copy-msix-assets": "powershell -Command \"if (Test-Path 'msix-full') { Copy-Item -Path 'msix-full\\*' -Destination 'dist\\win-unpacked' -Recurse -Force; Write-Host 'Copied msix-full contents to dist\\win-unpacked' } else { Write-Host 'msix-full folder not found' }\"",
     "generate-dev-cert": "winsdk msix cert generate --publisher \"CN=Metulev\" --output .\\dev-cert.pfx",
@@ -41,6 +41,7 @@
     "electron-builder": "^26.0.12",
     "nan": "^2.22.2",
     "node-addon-api": "^8.4.0",
-    "node-gyp": "^11.2.0"
+    "node-gyp": "^11.2.0",
+    "windows-sdk": "file:../src/winsdk-npm"
   }
 }
