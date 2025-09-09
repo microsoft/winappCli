@@ -25,27 +25,31 @@ jobs:
       with:
         node-version: '24'
     
+    # Build the CLI solution and publish the CLI binaries for both x64 and ARM64 architectures
     - name: Build CLI solution
       run: dotnet build src\winsdk-CLI\winsdk.sln -c Release
-    
     # Todo: Add tests
-    
-    - name: Build complete npm package
-      run: |
-        cd src\winsdk-npm
-        npm run build
-    
+    - name: Publish CLI for x64
+      run: dotnet publish src\winsdk-CLI\Winsdk.Cli\Winsdk.Cli.csproj -c Release -r win-x64 --self-contained
+    - name: Publish CLI for ARM64
+      run: dotnet publish src\winsdk-CLI\Winsdk.Cli\Winsdk.Cli.csproj -c Release -r win-arm64 --self-contained
     - name: Upload CLI binaries
       uses: actions/upload-artifact@v4
       with:
         name: cli-binaries
-        path: src\winsdk-npm\bin\
-    
+        path: |
+          src/winsdk-CLI/Winsdk.Cli/bin/Release/net9.0/win-x64/publish/
+          src/winsdk-CLI/Winsdk.Cli/bin/Release/net9.0/win-arm64/publish/
+
+    # Build npm package and upload the package and tarball as artifacts
+    - name: Build complete npm package (copy binaries only)
+      run: |
+        cd src\winsdk-npm
+        npm run build-copy-only
     - name: Create npm package
       run: |
         cd src\winsdk-npm
         npm pack
-    
     - name: Upload npm package artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -55,7 +59,6 @@ jobs:
           !src/winsdk-npm/bin/**/*.pdb
           !src/winsdk-npm/node_modules/**
           !src/winsdk-npm/*.tgz
-    
     - name: Upload npm tarball
       uses: actions/upload-artifact@v4
       with:

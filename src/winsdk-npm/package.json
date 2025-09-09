@@ -12,6 +12,9 @@
     "build": "npm run build-x64 && npm run build-arm64",
     "build-x64": "dotnet publish ../winsdk-CLI/Winsdk.Cli/Winsdk.Cli.csproj -c Release -r win-x64 --self-contained -o bin/win-x64",
     "build-arm64": "dotnet publish ../winsdk-CLI/Winsdk.Cli/Winsdk.Cli.csproj -c Release -r win-arm64 --self-contained -o bin/win-arm64",
+    "build-copy-only": "npm run copy-x64 && npm run copy-arm64",
+    "copy-x64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winsdk-CLI/Winsdk.Cli/bin/Release/net9.0/win-x64/publish'; const dest = 'bin/win-x64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
+    "copy-arm64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winsdk-CLI/Winsdk.Cli/bin/Release/net9.0/win-arm64/publish'; const dest = 'bin/win-arm64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
     "clean": "node -e \"require('fs').rmSync('bin', {recursive: true, force: true})\"",
     "postinstall": "node -e \"console.log('\\\\n🎉 Windows SDK utilities installed successfully!\\\\n\\\\nGet started with: npx winsdk --help\\\\n')\""
   },
