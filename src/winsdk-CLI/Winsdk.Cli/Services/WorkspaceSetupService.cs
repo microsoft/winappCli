@@ -15,6 +15,7 @@ internal class WorkspaceSetupOptions
     public bool AssumeYes { get; set; }
     public bool RequireExistingConfig { get; set; }
     public bool ForceLatestBuildTools { get; set; }
+    public bool NoCert { get; set; }
 }
 
 /// <summary>
@@ -305,6 +306,26 @@ internal class WorkspaceSetupService
                     {
                         GitignoreService.UpdateGitignore(path.Parent.FullName, verbose: !options.Quiet);
                     }
+                }
+
+                // Step 8: Generate development certificate (unless --no-cert is specified)
+                if (!options.NoCert)
+                {
+                    var certificateServices = new CertificateServices(buildToolsService);
+                    var certPath = Path.Combine(options.BaseDirectory, CertificateServices.DefaultCertFileName);
+                    
+                    await certificateServices.GenerateDevCertificateWithInferenceAsync(
+                        outputPath: certPath,
+                        explicitPublisher: null,
+                        manifestPath: null,
+                        password: "password",
+                        validDays: 365,
+                        skipIfExists: true,
+                        updateGitignore: true,
+                        install: false,
+                        quiet: options.Quiet,
+                        verbose: options.Verbose,
+                        cancellationToken: cancellationToken);
                 }
 
                 Console.WriteLine($"{UiSymbols.Party} winsdk init completed.");

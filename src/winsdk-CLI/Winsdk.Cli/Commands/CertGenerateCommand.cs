@@ -28,7 +28,7 @@ internal class CertGenerateCommand : Command
         var outputOption = new Option<string>("--output")
         {
             Description = "Output path for the generated PFX file",
-            DefaultValueFactory = (argumentResult) => "devcert.pfx"
+            DefaultValueFactory = (argumentResult) => CertificateServices.DefaultCertFileName
         };
         outputOption.AcceptLegalFileNamesOnly();
         var passwordOption = new Option<string>("--password")
@@ -65,104 +65,30 @@ internal class CertGenerateCommand : Command
             var install = parseResult.GetRequiredValue(installOption);
             var verbose = parseResult.GetValue(Program.VerboseOption);
 
-            try
+            // Check if certificate file already exists
+            if (File.Exists(output))
             {
-                // Check if certificate file already exists
-                if (File.Exists(output))
-                {
-                    Console.Error.WriteLine($"❌ Certificate file already exists: {output}");
-                    Console.Error.WriteLine("Please specify a different output path or remove the existing file.");
-                    return 1;
-                }
-
-                // Infer publisher using the hierarchy specified
-                var finalPublisher = await InferPublisherAsync(publisher, manifestPath, verbose, ct);
-                
-                var result = await _certificateService.GenerateDevCertificateAsync(finalPublisher, output, password, validDays, verbose, ct);
-
-                Console.WriteLine("✅ Certificate generated successfully!");
-                Console.WriteLine($"🔐 Certificate: {result.CertificatePath}");
-
-                // Add certificate to .gitignore
-                var certFileName = Path.GetFileName(result.CertificatePath);
-                var projectDirectory = Directory.GetCurrentDirectory();
-                GitignoreService.AddCertificateToGitignore(projectDirectory, certFileName, verbose);
-
-                // Install certificate if requested
-                if (install)
-                {
-                    if (verbose)
-                    {
-                        Console.WriteLine("Installing certificate...");
-                    }
-                    
-                    var installResult = await _certificateService.InstallCertificateAsync(result.CertificatePath, password, false, verbose, ct);
-                    if (installResult)
-                    {
-                        Console.WriteLine("✅ Certificate installed successfully!");
-                    }
-                    else
-                    {
-                        Console.WriteLine("ℹ️ Certificate was already installed");
-                    }
-                }
-
-                return 0;
-            }
-            catch (Exception error)
-            {
-                Console.Error.WriteLine($"❌ Failed to generate certificate: {error.Message}");
+                Console.Error.WriteLine($"❌ Certificate file already exists: {output}");
+                Console.Error.WriteLine("Please specify a different output path or remove the existing file.");
                 return 1;
             }
+
+            // Use the consolidated certificate generation method with all console output and error handling
+            await _certificateService.GenerateDevCertificateWithInferenceAsync(
+                outputPath: output,
+                explicitPublisher: publisher,
+                manifestPath: manifestPath,
+                password: password,
+                validDays: validDays,
+                skipIfExists: false, // We already checked above
+                updateGitignore: true,
+                install: install,
+                quiet: false,
+                verbose: verbose,
+                cancellationToken: ct);
+
+            return 0;
         });
     }
 
-    /// <summary>
-    /// Infers the publisher name using the specified hierarchy:
-    /// 1. If publisher is explicitly provided, use that
-    /// 2. If manifest path is provided, extract publisher from that manifest
-    /// 3. If appxmanifest.xml is found in project (.winsdk directory), use that
-    /// 4. Otherwise, fail
-    /// </summary>
-    private async Task<string> InferPublisherAsync(string? publisher, string? manifestPath, bool verbose, CancellationToken cancellationToken)
-    {
-        // 1. If --publisher is passed, use that
-        if (!string.IsNullOrWhiteSpace(publisher))
-        {
-            if (verbose)
-            {
-                Console.WriteLine($"Using publisher from command line: {publisher}");
-            }
-            return publisher;
-        }
-
-        // 2. If --manifest path is passed, use the publisher from the appxmanifest
-        if (!string.IsNullOrWhiteSpace(manifestPath))
-        {
-            if (verbose)
-            {
-                Console.WriteLine($"Extracting publisher from manifest: {manifestPath}");
-            }
-            
-            var identityInfo = await _msixService.ParseAppxManifestAsync(manifestPath, cancellationToken);
-            return identityInfo.Publisher;
-        }
-
-        // 3. If appxmanifest.xml is found in the current project, use that
-        var projectManifestPath = MsixService.FindProjectManifest();
-        if (projectManifestPath != null)
-        {
-            if (verbose)
-            {
-                Console.WriteLine($"Found project manifest: {projectManifestPath}");
-            }
-            
-            var identityInfo = await _msixService.ParseAppxManifestAsync(projectManifestPath, cancellationToken);
-            return identityInfo.Publisher;
-        }
-
-        // 4. Fail if no publisher can be determined
-        throw new InvalidOperationException(
-            "Publisher could not be determined. Please specify --publisher, --manifest, or ensure appxmanifest.xml exists in your project.");
-    }
 }

@@ -1,18 +1,11 @@
 using System.CommandLine;
-using System.Runtime.InteropServices;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
 
-internal class SetupCommand : Command
+internal class InitCommand : Command
 {
-    enum Architecture
-    {
-        x64,
-        arm64
-    }
-
-    public SetupCommand() : base("setup", "Download and setup Windows SDKs")
+    public InitCommand() : base("init", "Initializes a directory with required assets (manifest, certs, libraries) for building a modern Windows app. ")
     {
         var baseDirectoryArgument = new Argument<string>("base-directory")
         {
@@ -40,9 +33,13 @@ internal class SetupCommand : Command
         {
             Description = "Suppress progress messages"
         };
-        var yesOption = new Option<bool>("--yes")
+        var yesOption = new Option<bool>("--yes", "--no-prompt")
         {
             Description = "Assume yes to all prompts"
+        };
+        var noCertOption = new Option<bool>("--no-cert")
+        {
+            Description = "Skip development certificate generation"
         };
 
         Arguments.Add(baseDirectoryArgument);
@@ -52,6 +49,7 @@ internal class SetupCommand : Command
         Options.Add(noGitignoreOption);
         Options.Add(quietOption);
         Options.Add(yesOption);
+        Options.Add(noCertOption);
         Options.Add(Program.VerboseOption);
 
         SetAction(async (parseResult, ct) =>
@@ -63,6 +61,7 @@ internal class SetupCommand : Command
             var noGitignore = parseResult.GetValue(noGitignoreOption);
             var quiet = parseResult.GetValue(quietOption);
             var assumeYes = parseResult.GetValue(yesOption);
+            var noCert = parseResult.GetValue(noCertOption);
             var verbose = parseResult.GetValue(Program.VerboseOption);
 
             if (quiet && verbose)
@@ -84,7 +83,8 @@ internal class SetupCommand : Command
                 NoGitignore = noGitignore,
                 AssumeYes = assumeYes,
                 RequireExistingConfig = false,
-                ForceLatestBuildTools = true
+                ForceLatestBuildTools = true,
+                NoCert = noCert
             };
 
             return await workspaceSetup.SetupWorkspaceAsync(options, ct);
