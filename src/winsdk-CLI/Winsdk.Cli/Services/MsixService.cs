@@ -332,6 +332,7 @@ internal class MsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
+        string? manifestPath = null,
         bool verbose = true,
         CancellationToken cancellationToken = default)
     {
@@ -342,9 +343,50 @@ internal class MsixService
         if (!Directory.Exists(inputFolder))
             throw new DirectoryNotFoundException($"Input folder not found: {inputFolder}");
 
-        var manifestPath = Path.Combine(inputFolder, "appxmanifest.xml");
-        if (!File.Exists(manifestPath))
-            throw new FileNotFoundException($"appxmanifest.xml not found in input folder: {inputFolder}");
+        // Determine manifest path based on priority:
+        // 1. Use provided manifestPath parameter
+        // 2. Check for appxmanifest.xml in input folder
+        // 3. Check for appxmanifest.xml in current directory
+        string resolvedManifestPath;
+        if (!string.IsNullOrEmpty(manifestPath))
+        {
+            resolvedManifestPath = manifestPath;
+            if (verbose)
+            {
+                Console.WriteLine($"📄 Using specified manifest: {resolvedManifestPath}");
+            }
+        }
+        else
+        {
+            var inputFolderManifest = Path.Combine(inputFolder, "appxmanifest.xml");
+            if (File.Exists(inputFolderManifest))
+            {
+                resolvedManifestPath = inputFolderManifest;
+                if (verbose)
+                {
+                    Console.WriteLine($"📄 Using manifest from input folder: {inputFolderManifest}");
+                }
+            }
+            else
+            {
+                var currentDirManifest = Path.Combine(Directory.GetCurrentDirectory(), "appxmanifest.xml");
+                if (File.Exists(currentDirManifest))
+                {
+                    resolvedManifestPath = currentDirManifest;
+                    if (verbose)
+                    {
+                        Console.WriteLine($"📄 Using manifest from current directory: {currentDirManifest}");
+                    }
+                }
+                else
+                {
+                    throw new FileNotFoundException($"Manifest file not found. Searched in: input folder ({inputFolderManifest}), current directory ({currentDirManifest})");
+                }
+            }
+        }
+
+        if (!File.Exists(resolvedManifestPath))
+            throw new FileNotFoundException($"Manifest file not found: {resolvedManifestPath}");
 
         // Ensure output folder exists
         if (!Directory.Exists(outputFolder))
@@ -360,7 +402,7 @@ internal class MsixService
         {
             try
             {
-                var manifestContent = await File.ReadAllTextAsync(manifestPath, Encoding.UTF8, cancellationToken);
+                var manifestContent = await File.ReadAllTextAsync(resolvedManifestPath, Encoding.UTF8, cancellationToken);
 
                 if (string.IsNullOrWhiteSpace(finalPackageName))
                 {
@@ -405,49 +447,13 @@ internal class MsixService
                 await GeneratePriFileAsync(inputFolder, verbose: verbose, cancellationToken: cancellationToken);
             }
 
-            // Create MSIX package
-            var makeappxArguments = $@"pack /o /d ""{inputFolder}"" /nv /p ""{outputMsixPath}""";
-
-            if (verbose)
-            {
-                Console.WriteLine("Creating MSIX package...");
-            }
-
-            await _buildToolsService.RunBuildToolAsync("makeappx.exe", makeappxArguments, verbose, cancellationToken: cancellationToken);
+            await CreateMsixPackageFromFolderAsync(inputFolder, verbose, outputMsixPath, cancellationToken);
 
             var certPath = certificatePath;
-            CertificateServices.CertificateResult? certInfo = null;
-
             // Handle certificate generation and signing
             if (autoSign)
             {
-                var certificateService = new CertificateServices(_buildToolsService);
-
-                if (string.IsNullOrWhiteSpace(certPath) && generateDevCert)
-                {
-                    if (string.IsNullOrWhiteSpace(extractedPublisher))
-                        throw new InvalidOperationException("Publisher name required for certificate generation. Provide publisher option or ensure it exists in manifest.");
-
-                    if (verbose)
-                    {
-                        Console.WriteLine($"Generating certificate for publisher: {extractedPublisher}");
-                    }
-
-                    certPath = Path.Combine(outputFolder, $"{finalPackageName}_cert.pfx");
-                    certInfo = await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, certificatePassword, verbose: verbose, cancellationToken: cancellationToken);
-                }
-
-                if (string.IsNullOrWhiteSpace(certPath))
-                    throw new InvalidOperationException("Certificate path required for signing. Provide certificatePath or set generateDevCert to true.");
-
-                // Install certificate if requested
-                if (installDevCert)
-                {
-                    var result = await certificateService.InstallCertificateAsync(certPath, certificatePassword, false, verbose, cancellationToken);
-                }
-
-                // Sign the package
-                await certificateService.SignFileAsync(outputMsixPath, certPath, certificatePassword, verbose: verbose, cancellationToken: cancellationToken);
+                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, verbose, finalPackageName, extractedPublisher, outputMsixPath, certPath, cancellationToken);
             }
 
             // Clean up temporary PRI files
@@ -493,6 +499,50 @@ internal class MsixService
         {
             throw new InvalidOperationException($"Failed to create MSIX package: {ex.Message}", ex);
         }
+    }
+
+    private async Task SignMsixPackageAsync(string outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, bool verbose, string finalPackageName, string? extractedPublisher, string outputMsixPath, string? certPath, CancellationToken cancellationToken)
+    {
+        var certificateService = new CertificateServices(_buildToolsService);
+
+        if (string.IsNullOrWhiteSpace(certPath) && generateDevCert)
+        {
+            if (string.IsNullOrWhiteSpace(extractedPublisher))
+                throw new InvalidOperationException("Publisher name required for certificate generation. Provide publisher option or ensure it exists in manifest.");
+
+            if (verbose)
+            {
+                Console.WriteLine($"Generating certificate for publisher: {extractedPublisher}");
+            }
+
+            certPath = Path.Combine(outputFolder, $"{finalPackageName}_cert.pfx");
+            await certificateService.GenerateDevCertificateAsync(extractedPublisher, certPath, certificatePassword, verbose: verbose, cancellationToken: cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(certPath))
+            throw new InvalidOperationException("Certificate path required for signing. Provide certificatePath or set generateDevCert to true.");
+
+        // Install certificate if requested
+        if (installDevCert)
+        {
+            var result = await certificateService.InstallCertificateAsync(certPath, certificatePassword, false, verbose, cancellationToken);
+        }
+
+        // Sign the package
+        await certificateService.SignFileAsync(outputMsixPath, certPath, certificatePassword, verbose: verbose, cancellationToken: cancellationToken);
+    }
+
+    private async Task CreateMsixPackageFromFolderAsync(string inputFolder, bool verbose, string outputMsixPath, CancellationToken cancellationToken)
+    {
+        // Create MSIX package
+        var makeappxArguments = $@"pack /o /d ""{inputFolder}"" /nv /p ""{outputMsixPath}""";
+
+        if (verbose)
+        {
+            Console.WriteLine("Creating MSIX package...");
+        }
+
+        await _buildToolsService.RunBuildToolAsync("makeappx.exe", makeappxArguments, verbose, cancellationToken: cancellationToken);
     }
 
     private async Task RunMtToolAsync(string arguments, bool verbose, CancellationToken cancellationToken = default)
@@ -587,14 +637,13 @@ internal class MsixService
         var debugIdentity = CreateDebugIdentity(originalIdentity);
 
         // Step 4: Modify manifest for sparse packaging and debug identity
-        var debugManifestContent = await CreateDebugManifestContentAsync(
+        var debugManifestContent = CreateDebugManifestContent(
             originalManifestContent, 
             originalIdentity, 
             debugIdentity, 
             executablePath,
             baseDirectory,
-            verbose, 
-            cancellationToken);
+            verbose);
 
         // Step 5: Write debug manifest
         var debugManifestPath = Path.Combine(debugDir, "appxmanifest.xml");
@@ -630,14 +679,13 @@ internal class MsixService
     /// <summary>
     /// Creates the content for the debug manifest with sparse packaging and debug identity
     /// </summary>
-    private Task<string> CreateDebugManifestContentAsync(
+    private string CreateDebugManifestContent(
         string originalManifestContent,
         MsixIdentityResult originalIdentity,
         MsixIdentityResult debugIdentity,
         string executablePath,
         string? baseDirectory,
-        bool verbose,
-        CancellationToken cancellationToken)
+        bool verbose)
     {
         var modifiedContent = originalManifestContent;
 
@@ -754,7 +802,7 @@ $1",
             Console.WriteLine("✏️  Modified manifest for sparse packaging and debug identity");
         }
 
-        return Task.FromResult(modifiedContent);
+        return modifiedContent;
     }
 
     /// <summary>
