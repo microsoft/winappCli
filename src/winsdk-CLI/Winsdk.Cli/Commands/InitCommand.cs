@@ -41,6 +41,10 @@ internal class InitCommand : Command
         {
             Description = "Skip development certificate generation"
         };
+        var configOnlyOption = new Option<bool>("--config-only")
+        {
+            Description = "Only handle configuration file operations (create if missing, validate if exists). Skip package installation, certificate generation, and other workspace setup steps."
+        };
 
         Arguments.Add(baseDirectoryArgument);
         Options.Add(configDirOption);
@@ -50,6 +54,7 @@ internal class InitCommand : Command
         Options.Add(quietOption);
         Options.Add(yesOption);
         Options.Add(noCertOption);
+        Options.Add(configOnlyOption);
         Options.Add(Program.VerboseOption);
 
         SetAction(async (parseResult, ct) =>
@@ -62,6 +67,7 @@ internal class InitCommand : Command
             var quiet = parseResult.GetValue(quietOption);
             var assumeYes = parseResult.GetValue(yesOption);
             var noCert = parseResult.GetValue(noCertOption);
+            var configOnly = parseResult.GetValue(configOnlyOption);
             var verbose = parseResult.GetValue(Program.VerboseOption);
 
             if (quiet && verbose)
@@ -84,7 +90,8 @@ internal class InitCommand : Command
                 AssumeYes = assumeYes,
                 RequireExistingConfig = false,
                 ForceLatestBuildTools = true,
-                NoCert = noCert
+                NoCert = noCert,
+                ConfigOnly = configOnly
             };
 
             return await workspaceSetup.SetupWorkspaceAsync(options, ct);

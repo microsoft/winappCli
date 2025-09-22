@@ -16,6 +16,7 @@ internal class WorkspaceSetupOptions
     public bool RequireExistingConfig { get; set; }
     public bool ForceLatestBuildTools { get; set; }
     public bool NoCert { get; set; }
+    public bool ConfigOnly { get; set; }
 }
 
 /// <summary>
@@ -90,6 +91,90 @@ internal class WorkspaceSetupService
                 {
                     Console.WriteLine($"{UiSymbols.New} No winsdk.yaml found; will generate one after setup.");
                 }
+            }
+
+            // Handle config-only mode: just create/validate config file and exit
+            if (options.ConfigOnly)
+            {
+                if (hadExistingConfig)
+                {
+                    if (!options.Quiet)
+                    {
+                        Console.WriteLine($"{UiSymbols.Check} Existing configuration file found and validated → {configService.ConfigPath}");
+                        Console.WriteLine($"{UiSymbols.Package} Configuration contains {config.Packages.Count} packages");
+                        
+                        if (options.Verbose && config.Packages.Count > 0)
+                        {
+                            Console.WriteLine($"{UiSymbols.Note} Configured packages:");
+                            foreach (var pkg in config.Packages)
+                            {
+                                Console.WriteLine($"  • {pkg.Name} = {pkg.Version}");
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    // Generate config with default package versions
+                    var nugetService = new NugetService();
+                    
+                    if (!options.Quiet)
+                    {
+                        Console.WriteLine($"{UiSymbols.New} Creating configuration file with default SDK packages...");
+                    }
+                    
+                    // Get latest package versions (respecting prerelease option)
+                    var defaultVersions = new Dictionary<string, string>();
+                    foreach (var packageName in NugetService.SDK_PACKAGES)
+                    {
+                        try
+                        {
+                            var version = await nugetService.GetLatestVersionAsync(
+                                packageName, 
+                                includePrerelease: options.IncludeExperimental,
+                                cancellationToken: cancellationToken);
+                            defaultVersions[packageName] = version;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (options.Verbose)
+                            {
+                                Console.WriteLine($"{UiSymbols.Note} Could not get version for {packageName}: {ex.Message}");
+                            }
+                        }
+                    }
+                    
+                    var finalConfig = new WinsdkConfig();
+                    foreach (var kvp in defaultVersions)
+                    {
+                        finalConfig.SetVersion(kvp.Key, kvp.Value);
+                    }
+                    
+                    configService.Save(finalConfig);
+                    
+                    if (!options.Quiet)
+                    {
+                        Console.WriteLine($"{UiSymbols.Save} Configuration file created → {configService.ConfigPath}");
+                        Console.WriteLine($"{UiSymbols.Package} Added {finalConfig.Packages.Count} default SDK packages");
+                        
+                        if (options.Verbose)
+                        {
+                            Console.WriteLine($"{UiSymbols.Note} Generated packages:");
+                            foreach (var pkg in finalConfig.Packages)
+                            {
+                                Console.WriteLine($"  • {pkg.Name} = {pkg.Version}");
+                            }
+                        }
+                        
+                        if (options.IncludeExperimental)
+                        {
+                            Console.WriteLine($"{UiSymbols.Wrench} Prerelease packages were included");
+                        }
+                    }
+                }
+                
+                Console.WriteLine($"{UiSymbols.Party} Configuration-only operation completed.");
+                return 0;
             }
 
             // Step 3: Initialize workspace
