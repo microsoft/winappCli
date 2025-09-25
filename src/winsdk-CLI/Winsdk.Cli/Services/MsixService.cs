@@ -862,11 +862,14 @@ $1",
     }
 
     /// <summary>
-    /// Recursively copies files and directories, excluding debug directories and manifest files
+    /// Recursively copies files and directories, excluding specified directories and manifest files
     /// </summary>
     private static async Task<int> CopyDirectoryRecursiveAsync(string sourceDir, string targetDir, bool verbose)
     {
         var filesCopied = 0;
+        
+        // List of directories to exclude from copying
+        var excludedDirectories = new List<string> { ".winsdk", ".git" };
         
         // Get all files in current directory
         var files = Directory.GetFiles(sourceDir);
@@ -901,13 +904,14 @@ $1",
         {
             var dirName = Path.GetFileName(directory);
             
-            // Skip .winsdk directories to avoid copying existing .winsdk folders
-            if (dirName.Equals(".winsdk", StringComparison.OrdinalIgnoreCase) || 
-                dirName.Contains(".winsdk", StringComparison.OrdinalIgnoreCase))
+            // Skip directories that are in the exclusion list
+            if (excludedDirectories.Any(excluded => 
+                dirName.Equals(excluded, StringComparison.OrdinalIgnoreCase) || 
+                dirName.Contains(excluded, StringComparison.OrdinalIgnoreCase)))
             {
                 if (verbose)
                 {
-                    Console.WriteLine($"⏭️  Skipping .winsdk directory: {directory}");
+                    Console.WriteLine($"⏭️  Skipping excluded directory: {directory}");
                 }
                 continue;
             }

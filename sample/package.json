@@ -47,11 +47,9 @@
     "@electron/rebuild": "^4.0.1",
     "windows-sdk": "file:../src/winsdk-npm"
   },
-  "//": {
-    "overrides": {
-        "app-builder-lib": {
-          "@electron/rebuild": "4.0.1"
-        }
+  "overrides": {
+    "app-builder-lib": {
+      "@electron/rebuild": "4.0.1"
     }
   }
 }
