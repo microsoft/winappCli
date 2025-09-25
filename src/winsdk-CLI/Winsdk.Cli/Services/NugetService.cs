@@ -14,7 +14,6 @@ internal class NugetService
         "Microsoft.Windows.CppWinRT",
         BuildToolsService.BUILD_TOOLS_PACKAGE,
         "Microsoft.WindowsAppSDK",
-        "Microsoft.UI.Xaml",
         "Microsoft.Windows.ImplementationLibrary",
         $"{BuildToolsService.CPP_SDK_PACKAGE}",
         $"{BuildToolsService.CPP_SDK_PACKAGE}.x64",
