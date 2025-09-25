@@ -7,7 +7,6 @@
     "winsdk": "./cli.js"
   },
   "scripts": {
-    "setup": "node cli.js setup",
     "test": "node examples/test-buildtools.js",
     "build": "npm run build-x64 && npm run build-arm64",
     "build-x64": "dotnet publish ../winsdk-CLI/Winsdk.Cli/Winsdk.Cli.csproj -c Release -r win-x64 --self-contained -o bin/win-x64",
@@ -27,7 +26,7 @@
     "windows-app-sdk",
     "native-addon"
   ],
-  "author": "Nikola Metulev",
+  "author": "Microsoft",
   "license": "MIT",
   "repository": {
     "type": "git",
