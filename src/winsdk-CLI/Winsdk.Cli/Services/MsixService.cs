@@ -905,9 +905,7 @@ $1",
             var dirName = Path.GetFileName(directory);
             
             // Skip directories that are in the exclusion list
-            if (excludedDirectories.Any(excluded => 
-                dirName.Equals(excluded, StringComparison.OrdinalIgnoreCase) || 
-                dirName.Contains(excluded, StringComparison.OrdinalIgnoreCase)))
+            if (excludedDirectories.Any(excluded => dirName.Equals(excluded, StringComparison.OrdinalIgnoreCase)))
             {
                 if (verbose)
                 {
