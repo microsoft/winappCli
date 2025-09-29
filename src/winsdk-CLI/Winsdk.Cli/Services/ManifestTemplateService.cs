@@ -96,6 +96,29 @@ internal class ManifestTemplateService
         
         return await reader.ReadToEndAsync(cancellationToken);
     }
+    
+    public static async Task GenerateSelfContainedManifestTemplateAsync(string outputDir, bool verbose, CancellationToken cancellationToken)
+    {
+        var templateResName = FindResourceEnding(".Templates.app.manifest.selfcontained.xml")
+                              ?? throw new FileNotFoundException("Self-contained manifest template not found in embedded resources");
+
+        // Use embedded template
+        var asm = Assembly.GetExecutingAssembly();
+        string template;
+        await using (var s = asm.GetManifestResourceStream(templateResName) ?? throw new FileNotFoundException(templateResName))
+        using (var sr = new StreamReader(s, System.Text.Encoding.UTF8))
+        {
+            template = await sr.ReadToEndAsync(cancellationToken);
+        }
+
+        var manifestTemplatePath = Path.Combine(outputDir, "app.manifest.template");
+        await File.WriteAllTextAsync(manifestTemplatePath, template, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+
+        if (verbose)
+        {
+            Console.WriteLine($"  {UiSymbols.Files} Generated manifest template: {Path.GetFileName(manifestTemplatePath)}");
+        }
+    }
 
     /// <summary>
     /// Applies common template replacements to manifest content
@@ -108,15 +131,15 @@ internal class ManifestTemplateService
     /// <param name="description">Package description</param>
     /// <returns>Template with replacements applied</returns>
     public static string ApplyTemplateReplacements(
-        string template, 
-        string packageName, 
-        string publisherName, 
-        string version, 
-        string executable, 
+        string template,
+        string packageName,
+        string publisherName,
+        string version,
+        string executable,
         string description)
     {
         var packageNameCamel = ToCamelCase(packageName);
-        
+
         var result = template
             .Replace("{PackageName}", packageName)
             .Replace("{PackageNameCamelCase}", packageNameCamel)

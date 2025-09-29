@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,6 +15,119 @@ internal class MsixService
     {
         _buildToolsService = buildToolsService;
         _powerShellService = new PowerShellService();
+    }
+
+    /// <summary>
+    /// Sets up Windows App SDK for self-contained deployment by extracting MSIX content
+    /// and preparing the necessary files for embedding in applications.
+    /// </summary>
+    public async Task SetupSelfContainedAsync(string winsdkDir, string architecture, bool verbose, CancellationToken cancellationToken = default)
+    {
+        // Look for the Runtime package which contains the MSIX files
+        var selfContainedDir = Path.Combine(winsdkDir, "self-contained");
+        Directory.CreateDirectory(selfContainedDir);
+
+        var archSelfContainedDir = Path.Combine(selfContainedDir, architecture);
+        Directory.CreateDirectory(archSelfContainedDir);
+
+        string? msixDir = GetRuntimeMsixDir(verbose);
+        if (msixDir == null)
+        {
+            throw new DirectoryNotFoundException("Windows App SDK Runtime MSIX directory not found. Ensure Windows App SDK is installed.");
+        }
+
+        // Look for the MSIX file in the tools/MSIX folder
+        var msixToolsDir = Path.Combine(msixDir, $"win10-{architecture}");
+        if (!Directory.Exists(msixToolsDir))
+        {
+            throw new DirectoryNotFoundException($"MSIX tools directory not found: {msixToolsDir}");
+        }
+
+        // Try to use inventory first for accurate file selection
+        string? msixPath = null;
+        try
+        {
+            var packageEntries = await WorkspaceSetupService.ParseMsixInventoryAsync(msixDir, verbose, cancellationToken);
+            if (packageEntries != null)
+            {
+                // Look for the base Windows App Runtime package (not Framework, DDLM, or Singleton packages)
+                var mainRuntimeEntry = packageEntries.FirstOrDefault(entry => 
+                    entry.PackageIdentity.StartsWith("Microsoft.WindowsAppRuntime.") && 
+                    !entry.PackageIdentity.Contains("Framework") &&
+                    !entry.FileName.Contains("DDLM", StringComparison.OrdinalIgnoreCase) &&
+                    !entry.FileName.Contains("Singleton", StringComparison.OrdinalIgnoreCase));
+                
+                if (mainRuntimeEntry != null)
+                {
+                    msixPath = Path.Combine(msixToolsDir, mainRuntimeEntry.FileName);
+                    if (verbose)
+                    {
+                        Console.WriteLine($"  {UiSymbols.Package} Found main runtime package from inventory: {mainRuntimeEntry.FileName}");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (verbose)
+            {
+                Console.WriteLine($"  {UiSymbols.Note} Could not parse inventory, falling back to file search: {ex.Message}");
+            }
+        }
+
+        // Fallback: search for files directly with pattern matching
+        if (msixPath == null || !File.Exists(msixPath))
+        {
+            var msixFiles = Directory.GetFiles(msixToolsDir, "Microsoft.WindowsAppRuntime.*.msix");
+            if (msixFiles.Length == 0)
+            {
+                throw new FileNotFoundException($"No MSIX files found in {msixToolsDir}");
+            }
+
+            // Look for the base runtime package (format: Microsoft.WindowsAppRuntime.{version}.msix)
+            // Exclude files with additional suffixes like DDLM, Singleton, Framework, etc.
+            msixPath = msixFiles.FirstOrDefault(f => 
+            {
+                var fileName = Path.GetFileName(f);
+                return !fileName.Contains("DDLM", StringComparison.OrdinalIgnoreCase) &&
+                       !fileName.Contains("Singleton", StringComparison.OrdinalIgnoreCase) &&
+                       !fileName.Contains("Framework", StringComparison.OrdinalIgnoreCase) &&
+                       System.Text.RegularExpressions.Regex.IsMatch(fileName, @"^Microsoft\.WindowsAppRuntime\.\d+\.\d+.*\.msix$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }) ?? msixFiles[0];
+        }
+
+        if (verbose)
+        {
+            Console.WriteLine($"  {UiSymbols.Package} Extracting MSIX: {Path.GetFileName(msixPath)}");
+        }
+
+        // Extract MSIX content
+        var extractedDir = Path.Combine(archSelfContainedDir, "extracted");
+        if (Directory.Exists(extractedDir))
+        {
+            Directory.Delete(extractedDir, true);
+        }
+        Directory.CreateDirectory(extractedDir);
+
+        using (var archive = ZipFile.OpenRead(msixPath))
+        {
+            archive.ExtractToDirectory(extractedDir);
+        }
+
+        // Copy relevant files to deployment directory
+        var deploymentDir = Path.Combine(archSelfContainedDir, "deployment");
+        Directory.CreateDirectory(deploymentDir);
+
+        // Copy DLLs, WinMD files, and other runtime assets
+        await CopyRuntimeFilesAsync(extractedDir, deploymentDir, verbose);
+
+        // Generate self-contained manifest template using embedded template
+        await ManifestTemplateService.GenerateSelfContainedManifestTemplateAsync(archSelfContainedDir, verbose, cancellationToken);
+
+        if (verbose)
+        {
+            Console.WriteLine($"  {UiSymbols.Check} Self-contained files prepared in: {archSelfContainedDir}");
+        }
     }
 
     /// <summary>
@@ -364,6 +478,7 @@ internal class MsixService
         bool installDevCert = false,
         string? publisher = null,
         string? manifestPath = null,
+        bool selfContained = false,
         bool verbose = true,
         CancellationToken cancellationToken = default)
     {
@@ -487,6 +602,17 @@ internal class MsixService
                         Console.WriteLine($"  - {resourceFile}");
                     }
                 }
+            }
+
+            // Handle self-contained deployment if requested
+            if (selfContained)
+            {
+                if (verbose)
+                {
+                    Console.WriteLine($"{UiSymbols.Package} Preparing self-contained Windows App SDK runtime...");
+                }
+
+                await PrepareRuntimeForPackagingAsync(inputFolder, verbose, cancellationToken);
             }
 
             await CreateMsixPackageFromFolderAsync(inputFolder, verbose, outputMsixPath, cancellationToken);
@@ -932,92 +1058,9 @@ $1",
     {
         try
         {
-            // Load the locked config to get the actual package versions
-            var configService = new ConfigService(Directory.GetCurrentDirectory());
-            if (!configService.Exists())
-            {
-                if (verbose)
-                {
-                    Console.WriteLine("⚠️  No winsdk.yaml found, cannot determine locked Windows App SDK version");
-                }
-                return null;
-            }
-
-            var config = configService.Load();
-            
-            // Get the main Windows App SDK version from config
-            var mainVersion = config.GetVersion("Microsoft.WindowsAppSDK");
-            
-            if (string.IsNullOrEmpty(mainVersion))
-            {
-                if (verbose)
-                {
-                    Console.WriteLine("⚠️  No Microsoft.WindowsAppSDK package found in winsdk.yaml");
-                }
-                return null;
-            }
-
-            if (verbose)
-            {
-                Console.WriteLine($"📦 Found Windows App SDK main package: v{mainVersion}");
-            }
-
-            // Use PackageCacheService to find the runtime package that was installed with the main package
-            var cacheService = new PackageCacheService();
-            Dictionary<string, string> cachedPackages;
-            
-            try
-            {
-                cachedPackages = cacheService.GetCachedPackageAsync("Microsoft.WindowsAppSDK", mainVersion, CancellationToken.None).GetAwaiter().GetResult();
-            }
-            catch (KeyNotFoundException)
-            {
-                if (verbose)
-                {
-                    Console.WriteLine($"⚠️  Microsoft.WindowsAppSDK v{mainVersion} not found in package cache");
-                }
-                return null;
-            }
-
-            // Look for the runtime package in the cached dependencies
-            var runtimePackage = cachedPackages.FirstOrDefault(kvp => 
-                kvp.Key.StartsWith("Microsoft.WindowsAppSDK.Runtime", StringComparison.OrdinalIgnoreCase));
-
-            // Create a dictionary with versions for FindWindowsAppSdkMsixDirectory
-            var usedVersions = new Dictionary<string, string>
-            {
-                ["Microsoft.WindowsAppSDK"] = mainVersion
-            };
-
-            if (runtimePackage.Key != null)
-            {
-                // For Windows App SDK 1.8+, there's a separate runtime package
-                var runtimeVersion = runtimePackage.Value;
-                usedVersions[runtimePackage.Key] = runtimeVersion;
-                
-                if (verbose)
-                {
-                    Console.WriteLine($"📦 Found cached runtime package: {runtimePackage.Key} v{runtimeVersion}");
-                }
-            }
-            else
-            {
-                // For Windows App SDK 1.7 and earlier, runtime is included in the main package
-                if (verbose)
-                {
-                    Console.WriteLine("📝 No separate runtime package found - using main package (Windows App SDK 1.7 or earlier)");
-                    Console.WriteLine($"📝 Available cached packages: {string.Join(", ", cachedPackages.Keys)}");
-                }
-            }
-
-            // Find the MSIX directory with the runtime package
-            var msixDir = WorkspaceSetupService.FindWindowsAppSdkMsixDirectory(usedVersions);
+            string? msixDir = GetRuntimeMsixDir(verbose);
             if (msixDir == null)
             {
-                if (verbose)
-                {
-                    Console.WriteLine("⚠️  Windows App SDK MSIX directory not found for cached runtime package");
-                }
                 return null;
             }
 
@@ -1042,6 +1085,100 @@ $1",
             }
             return null;
         }
+    }
+
+    private static string? GetRuntimeMsixDir(bool verbose)
+    {
+        // Load the locked config to get the actual package versions
+        var configService = new ConfigService(Directory.GetCurrentDirectory());
+        if (!configService.Exists())
+        {
+            if (verbose)
+            {
+                Console.WriteLine("⚠️  No winsdk.yaml found, cannot determine locked Windows App SDK version");
+            }
+            return null;
+        }
+
+        var config = configService.Load();
+
+        // Get the main Windows App SDK version from config
+        var mainVersion = config.GetVersion("Microsoft.WindowsAppSDK");
+
+        if (string.IsNullOrEmpty(mainVersion))
+        {
+            if (verbose)
+            {
+                Console.WriteLine("⚠️  No Microsoft.WindowsAppSDK package found in winsdk.yaml");
+            }
+            return null;
+        }
+
+        if (verbose)
+        {
+            Console.WriteLine($"📦 Found Windows App SDK main package: v{mainVersion}");
+        }
+
+        // Use PackageCacheService to find the runtime package that was installed with the main package
+        var cacheService = new PackageCacheService();
+        Dictionary<string, string> cachedPackages;
+
+        try
+        {
+            cachedPackages = cacheService.GetCachedPackageAsync("Microsoft.WindowsAppSDK", mainVersion, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch (KeyNotFoundException)
+        {
+            if (verbose)
+            {
+                Console.WriteLine($"⚠️  Microsoft.WindowsAppSDK v{mainVersion} not found in package cache");
+            }
+            return null;
+        }
+
+        // Look for the runtime package in the cached dependencies
+        var runtimePackage = cachedPackages.FirstOrDefault(kvp =>
+            kvp.Key.StartsWith("Microsoft.WindowsAppSDK.Runtime", StringComparison.OrdinalIgnoreCase));
+
+        // Create a dictionary with versions for FindWindowsAppSdkMsixDirectory
+        var usedVersions = new Dictionary<string, string>
+        {
+            ["Microsoft.WindowsAppSDK"] = mainVersion
+        };
+
+        if (runtimePackage.Key != null)
+        {
+            // For Windows App SDK 1.8+, there's a separate runtime package
+            var runtimeVersion = runtimePackage.Value;
+            usedVersions[runtimePackage.Key] = runtimeVersion;
+
+            if (verbose)
+            {
+                Console.WriteLine($"📦 Found cached runtime package: {runtimePackage.Key} v{runtimeVersion}");
+            }
+        }
+        else
+        {
+            // For Windows App SDK 1.7 and earlier, runtime is included in the main package
+            if (verbose)
+            {
+                Console.WriteLine("📝 No separate runtime package found - using main package (Windows App SDK 1.7 or earlier)");
+                Console.WriteLine($"📝 Available cached packages: {string.Join(", ", cachedPackages.Keys)}");
+            }
+        }
+
+        // Find the MSIX directory with the runtime package
+        var msixDir = WorkspaceSetupService.FindWindowsAppSdkMsixDirectory(usedVersions);
+        if (msixDir == null)
+        {
+            if (verbose)
+            {
+                Console.WriteLine("⚠️  Windows App SDK MSIX directory not found for cached runtime package");
+            }
+            return null;
+        }
+
+        return msixDir;
     }
 
     /// <summary>
@@ -1364,6 +1501,94 @@ $1",
         catch (Exception ex)
         {
             throw new InvalidOperationException($"Failed to register sparse package: {ex.Message}", ex);
+        }
+    }
+    
+    private Task CopyRuntimeFilesAsync(string extractedDir, string deploymentDir, bool verbose)
+    {
+        var patterns = new[] { "*.dll", "*.winmd", "*.mui", "*.pri" };
+
+        foreach (var pattern in patterns)
+        {
+            var files = Directory.GetFiles(extractedDir, pattern, SearchOption.AllDirectories);
+            foreach (var file in files)
+            {
+                var relativePath = Path.GetRelativePath(extractedDir, file);
+                var destPath = Path.Combine(deploymentDir, relativePath);
+
+                // Create destination directory if needed
+                var destDir = Path.GetDirectoryName(destPath);
+                if (!string.IsNullOrEmpty(destDir))
+                {
+                    Directory.CreateDirectory(destDir);
+                }
+
+                File.Copy(file, destPath, overwrite: true);
+
+                if (verbose)
+                {
+                    Console.WriteLine($"    {UiSymbols.Files} {relativePath}");
+                }
+            }
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Prepares Windows App SDK runtime files for packaging into an MSIX by extracting them to the input folder
+    /// </summary>
+    private async Task PrepareRuntimeForPackagingAsync(string inputFolder, bool verbose, CancellationToken cancellationToken)
+    {
+        var arch = WorkspaceSetupService.GetSystemArchitecture();
+
+        // Create temporary directory for runtime files
+        var tempRuntimeDir = Path.Combine(Path.GetTempPath(), "winsdk-runtime-temp", Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempRuntimeDir);
+
+        try
+        {
+            var workingDir = Directory.GetCurrentDirectory();
+            var winsdkDir = Path.Combine(workingDir, ".winsdk");
+
+            // Extract runtime files using the existing method
+            await SetupSelfContainedAsync(winsdkDir, arch, verbose, cancellationToken);
+
+            // Copy runtime files from .winsdk/self-contained to input folder
+            var runtimeSourceDir = Path.Combine(winsdkDir, "self-contained", arch, "deployment");
+            var runtimeDestDir = Path.Combine(inputFolder, "WinAppSDK");
+
+            if (Directory.Exists(runtimeSourceDir))
+            {
+                Directory.CreateDirectory(runtimeDestDir);
+
+                foreach (var file in Directory.GetFiles(runtimeSourceDir))
+                {
+                    var destFile = Path.Combine(runtimeDestDir, Path.GetFileName(file));
+                    File.Copy(file, destFile, overwrite: true);
+
+                    if (verbose)
+                    {
+                        Console.WriteLine($"{UiSymbols.Folder} Bundled runtime: {Path.GetFileName(file)}");
+                    }
+                }
+
+                if (verbose)
+                {
+                    Console.WriteLine($"{UiSymbols.Check} Windows App SDK runtime bundled into package");
+                }
+            }
+            else
+            {
+                throw new DirectoryNotFoundException($"Runtime files not found at {runtimeSourceDir}");
+            }
+        }
+        finally
+        {
+            // Clean up temp directory
+            if (Directory.Exists(tempRuntimeDir))
+            {
+                Directory.Delete(tempRuntimeDir, recursive: true);
+            }
         }
     }
 }

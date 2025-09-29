@@ -69,6 +69,10 @@ internal class PackageCommand : Command
         {
             Description = "Path to AppX manifest file (default: auto-detect from input folder or current directory)"
         };
+        var selfContainedOption = new Option<bool>("--self-contained")
+        {
+            Description = "Bundle Windows App SDK runtime for self-contained deployment"
+        };
 
         Options.Add(nameOption);
         Options.Add(skipPriOption);
@@ -78,6 +82,7 @@ internal class PackageCommand : Command
         Options.Add(installCertOption);
         Options.Add(publisherOption);
         Options.Add(manifestOption);
+        Options.Add(selfContainedOption);
         Options.Add(Program.VerboseOption);
 
         SetAction(async (parseResult, ct) =>
@@ -95,6 +100,7 @@ internal class PackageCommand : Command
             var installCert = parseResult.GetValue(installCertOption);
             var publisher = parseResult.GetValue(publisherOption);
             var manifestPath = parseResult.GetValue(manifestOption);
+            var selfContained = parseResult.GetValue(selfContainedOption);
             var verbose = parseResult.GetValue(Program.VerboseOption);
 
             try
@@ -102,7 +108,7 @@ internal class PackageCommand : Command
                 // Auto-sign if certificate is provided or if generate-cert is specified
                 var autoSign = !string.IsNullOrEmpty(certPath) || generateCert;
 
-                var result = await _msixService.CreateMsixPackageAsync(inputFolder, outputFolder, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, verbose, ct);
+                var result = await _msixService.CreateMsixPackageAsync(inputFolder, outputFolder, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, verbose, ct);
 
                 Console.WriteLine("✅ MSIX package created successfully!");
 

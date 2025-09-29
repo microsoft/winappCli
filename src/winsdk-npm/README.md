@@ -76,6 +76,9 @@ const mtPath = await getBuildToolPath('mt.exe');
 #### `winsdk setup`
 Download all SDK packages and generate CppWinRT projection headers.
 
+#### `winsdk package --self-contained`
+Create MSIX packages with self-contained Windows App SDK runtime. This bundles the runtime files directly in the MSIX package for deployment scenarios that don't have the Windows App SDK installed.
+
 #### `winsdk tool <command> [args...]`
 Run Windows build tools with automatic PATH management.
 
@@ -222,6 +225,27 @@ Compare two version strings.
 
 **Returns:** -1, 0, or 1 for version comparison.
 
+### MSIX Packaging
+
+The winsdk CLI provides MSIX packaging capabilities through the native CLI. Self-contained deployment is handled during the packaging phase:
+
+```bash
+# Create MSIX package with self-contained runtime
+winsdk package --self-contained --input ./myapp --output ./dist/myapp.msix
+
+# Standard MSIX packaging
+winsdk package --input ./myapp --output ./dist/myapp.msix
+```
+
+For programmatic MSIX operations, use the CLI through the Node.js utilities:
+
+```javascript
+const { execSyncWithBuildTools } = require('windows-sdks');
+
+// Create self-contained MSIX package
+execSyncWithBuildTools('winsdk package --self-contained --input ./myapp --output ./dist/myapp.msix');
+```
+
 ## 📁 Package Management
 
 ### Automatic Organization
@@ -345,7 +369,8 @@ Add to your `package.json`:
     "setup-sdks": "winsdk setup",
     "build:manifest": "winsdk tool mt.exe -manifest app.manifest -outputresource:app.exe",
     "build:sign": "winsdk tool signtool.exe sign /fd SHA256 /f cert.pfx app.exe",
-    "build:package": "winsdk tool makeappx.exe pack /o /d \"./msix\" /p \"./dist/app.msix\"",
+    "build:package": "winsdk package --input ./msix --output ./dist/app.msix",
+    "build:package-self-contained": "winsdk package --self-contained --input ./msix --output ./dist/app.msix",
     "prebuild": "npm run setup-sdks",
     "build": "node-gyp build"
   }
@@ -390,6 +415,23 @@ if (packagePath) {
 } else {
   console.log('Package not found');
 }
+```
+
+### MSIX Packaging with Self-Contained Runtime
+
+```javascript
+const { execSyncWithBuildTools } = require('windows-sdks');
+
+// Create MSIX package with self-contained Windows App SDK runtime
+try {
+  execSyncWithBuildTools('winsdk package --self-contained --input ./myapp --output ./dist/myapp.msix');
+  console.log('✅ Self-contained MSIX package created');
+} catch (error) {
+  console.error('❌ MSIX packaging failed:', error.message);
+}
+
+// Standard MSIX packaging without self-contained runtime
+execSyncWithBuildTools('winsdk package --input ./myapp --output ./dist/myapp.msix');
 ```
 
 ## 🚀 Migration Guide

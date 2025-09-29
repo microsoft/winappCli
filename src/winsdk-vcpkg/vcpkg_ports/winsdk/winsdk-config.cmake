@@ -91,4 +91,66 @@ function(winsdk_register_appx_package TARGET_NAME)
     )
 endfunction()
 
+# Function to copy self-contained Windows App SDK runtime files to build directory
+function(winsdk_copy_self_contained_files)
+    set(options)
+    set(oneValueArgs TARGET_NAME ARCHITECTURE DESTINATION SOURCE_DIR)
+    set(multiValueArgs)
+    cmake_parse_arguments(PARSE_ARGV 0 ARG "${options}" "${oneValueArgs}" "${multiValueArgs}")
+    
+    # Set default values - match CMake architecture
+    if(NOT ARG_ARCHITECTURE)
+        # Use CMAKE_GENERATOR_PLATFORM if available, otherwise detect from pointer size
+        if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64" OR CMAKE_GENERATOR_PLATFORM STREQUAL "Win64")
+            set(ARG_ARCHITECTURE "x64")
+        elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64")
+            set(ARG_ARCHITECTURE "arm64")
+        elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            set(ARG_ARCHITECTURE "x64")
+        else()
+            set(ARG_ARCHITECTURE "x86")
+        endif()
+    endif()
+    
+    if(NOT ARG_DESTINATION)
+        set(ARG_DESTINATION "${CMAKE_BINARY_DIR}")
+    endif()
+    
+    if(NOT ARG_SOURCE_DIR)
+        set(ARG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
+    
+    # Find winsdk CLI
+    find_program(WINSDK_CLI_EXE 
+        NAMES Winsdk.Cli.exe winsdk.exe
+        PATHS 
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../../winsdk-npm/bin/win-x64"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../winsdk-CLI/Winsdk.Cli/bin/Debug/net9.0-windows/win-x64"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../winsdk-CLI/Winsdk.Cli/bin/Release/net9.0-windows/win-x64"
+    )
+    
+    if(NOT WINSDK_CLI_EXE)
+        message(WARNING "winsdk CLI not found - cannot prepare self-contained files")
+        message(STATUS "Please build the CLI first or install the npm package")
+        return()
+    endif()
+    
+    if(ARG_TARGET_NAME)
+        # Set up post-build command to create self-contained MSIX package
+        add_custom_command(TARGET ${ARG_TARGET_NAME} POST_BUILD
+            COMMAND "${WINSDK_CLI_EXE}" package 
+                "${ARG_DESTINATION}" 
+                "${ARG_DESTINATION}"
+                --self-contained
+                --name "${ARG_TARGET_NAME}"
+            WORKING_DIRECTORY "${ARG_SOURCE_DIR}"
+            COMMENT "Creating self-contained MSIX package for ${ARG_TARGET_NAME} (${ARG_ARCHITECTURE})"
+            VERBATIM
+        )
+        message(STATUS "Configured self-contained MSIX packaging for ${ARG_TARGET_NAME} (${ARG_ARCHITECTURE})")
+    else()
+        message(STATUS "TARGET_NAME required for self-contained deployment")
+    endif()
+endfunction()
+
 unset(_packages_dir)

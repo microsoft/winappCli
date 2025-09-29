@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes'?>
+<assembly manifestVersion='1.0'
+    xmlns:asmv3='urn:schemas-microsoft-com:asm.v3'
+    xmlns:winrtv1='urn:schemas-microsoft-com:winrt.v1'
+    xmlns='urn:schemas-microsoft-com:asm.v1'>
+    
+    <!-- 
+    This is a template for Windows App SDK self-contained deployment.
+    
+    To use this template:
+    1. Copy this file to your project as app.manifest
+    2. Update the assembly identity information as needed
+    3. Add references to your WinRT components if any
+    4. Include the deployment files from the deployment/ folder in your application
+    
+    For complete setup, see the Microsoft.WindowsAppSDK.SelfContained.targets file.
+    -->
+    
+    <assemblyIdentity version="1.0.0.0" name="YourApp.exe" type="win32"/>
+    
+    <!-- Windows App SDK Runtime Files -->
+    <!-- Add asmv3:file entries for each DLL in the deployment folder -->
+    <!-- Example:
+    <asmv3:file name='Microsoft.WindowsAppRuntime.dll'/>
+    <asmv3:file name='Microsoft.WindowsAppRuntime.Bootstrap.dll'/>
+    -->
+    
+</assembly>

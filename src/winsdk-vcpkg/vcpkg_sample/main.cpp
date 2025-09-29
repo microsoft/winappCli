@@ -20,10 +20,21 @@
 
 void ProcessArgs(std::vector<std::wstring_view> const& args, std::wstring& prompt, bool& useProgress);
 
+// Detect deployment mode at compile time
+#ifdef MICROSOFT_WINDOWSAPPSDK_SELFCONTAINED
+constexpr bool g_isSelfContained = true;
+#else
+constexpr bool g_isSelfContained = false;
+#endif
+
 int wmain(int argc, wchar_t* argv[])
 try
 {
     winrt::init_apartment();
+    
+    // Show deployment mode
+    std::println("Windows App SDK deployment mode: {}", g_isSelfContained ? "Self-contained" : "Framework-dependent");
+    
     std::wstring instructions =
         L"You are a clever storyteller. You write engaging one-paragraph stories that grab the imagination of an 8th grader. Tell a story about a dragon who says: ";
 

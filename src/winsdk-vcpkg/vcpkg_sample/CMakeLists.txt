@@ -4,6 +4,9 @@ cmake_minimum_required(VERSION 3.21)
 
 project(cmake-ai-generator)
 
+# Option for self-contained deployment
+option(WINSDK_SELF_CONTAINED "Enable Windows App SDK self-contained deployment" OFF)
+
 find_package(wil CONFIG REQUIRED)
 find_package(winsdk CONFIG REQUIRED)
 
@@ -21,6 +24,16 @@ target_link_libraries(cmake-ai-generator
         Microsoft::WindowsAppSdk
         OneCoreUAP
 )
+
+# Handle self-contained deployment
+if(WINSDK_SELF_CONTAINED)
+    message(STATUS "Configuring for Windows App SDK self-contained deployment")
+    
+    # Set compiler definition for self-contained mode
+    target_compile_definitions(cmake-ai-generator PRIVATE MICROSOFT_WINDOWSAPPSDK_SELFCONTAINED=1)
+    
+    message(STATUS "Self-contained runtime files will be copied during build")
+endif()
 
 function(install_target_runtime_dlls)
   set(single_value_args DESTINATION)
@@ -41,12 +54,22 @@ function(install_target_runtime_dlls)
     endforeach()
 endfunction()
 
-install_target_runtime_dlls(TARGETS WindowsAppSdk::Bootstrap
-    DESTINATION ${CMAKE_BINARY_DIR}
-)
-
 # Copy AppX package files to build directory
 winsdk_copy_appx_files()
+
+# Handle runtime files based on deployment mode
+if(WINSDK_SELF_CONTAINED)
+    # Copy self-contained runtime files to build directory
+    winsdk_copy_self_contained_files(
+        TARGET_NAME cmake-ai-generator
+        DESTINATION ${CMAKE_BINARY_DIR}
+    )
+else()
+    # Standard non-self-contained build: install runtime DLLs
+    install_target_runtime_dlls(TARGETS WindowsAppSdk::Bootstrap
+        DESTINATION ${CMAKE_BINARY_DIR}
+    )
+endif()
 
 # Register AppX package for debugging
 winsdk_register_appx_package(cmake-ai-generator)
