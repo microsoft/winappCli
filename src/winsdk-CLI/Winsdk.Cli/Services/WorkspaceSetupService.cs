@@ -651,122 +651,165 @@ internal class WorkspaceSetupService
 
         var msixArchDir = Path.Combine(msixDir, $"win10-{architecture}");
 
-        // Install each MSIX package from the inventory
+        // Build package data for PowerShell script
+        var packageData = new List<string>();
         foreach (var entry in packageEntries)
         {
-            try
+            var msixFilePath = Path.Combine(msixArchDir, entry.FileName);
+            if (!File.Exists(msixFilePath))
             {
                 if (verbose)
                 {
-                    Console.WriteLine($"{UiSymbols.Gear} Checking {entry.FileName}...");
+                    Console.WriteLine($"{UiSymbols.Note} MSIX file not found: {msixFilePath}");
                 }
-
-                // Parse the PackageIdentity (format: Name_Version_Architecture_PublisherId)
-                var identityParts = entry.PackageIdentity.Split('_');
-                var packageName = identityParts[0];
-
-                // Check if this exact package is already installed using PackageFullName
-                var checkCommand = $"Get-AppxPackage | Where-Object {{ $_.PackageFullName -eq '{entry.PackageIdentity}' }}";
-                var (_, existingPackageInfo) = await powerShellService.RunCommandAsync(checkCommand, verbose: false, cancellationToken: cancellationToken);
-
-                if (!string.IsNullOrWhiteSpace(existingPackageInfo))
-                {
-                    if (verbose)
-                    {
-                        Console.WriteLine($"{UiSymbols.Check} {entry.FileName} is already installed (exact match), skipping");
-                    }
-                    continue;
-                }
-
-                // If exact match not found, check for newer versions by package name
-                var checkVersionCommand = $"Get-AppxPackage | Where-Object {{ $_.Name -eq '{packageName}' }} | Select-Object Version";
-                var (_, versionInfo) = await powerShellService.RunCommandAsync(checkVersionCommand, verbose: false, cancellationToken: cancellationToken);
-
-                if (!string.IsNullOrWhiteSpace(versionInfo))
-                {
-                    // Parse the new package version from the PackageIdentity
-                    if (identityParts.Length >= 2)
-                    {
-                        var newVersionString = identityParts[1];
-                        
-                        // Extract version from existing package info
-                        // PowerShell output format has "Version" header followed by version numbers
-                        var lines = versionInfo.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                            .Select(line => line.Trim())
-                            .Where(line => !string.IsNullOrEmpty(line) && !line.Equals("Version") && !line.StartsWith('-'))
-                            .ToList();
-                        
-                        if (lines.Count > 0)
-                        {
-                            // Use the first version found (they should all be the same for a given package name)
-                            var existingVersionString = lines[0];
-                            
-                            if (Version.TryParse(newVersionString, out var newVersion) && 
-                                Version.TryParse(existingVersionString, out var existingVersion))
-                            {
-                                if (newVersion <= existingVersion)
-                                {
-                                    if (verbose)
-                                    {
-                                        Console.WriteLine($"{UiSymbols.Check} {packageName} v{existingVersionString} is already installed (newer or equal to v{newVersionString}), skipping");
-                                    }
-                                    continue;
-                                }
-                                else if (verbose)
-                                {
-                                    Console.WriteLine($"{UiSymbols.Gear} Upgrading {packageName} from v{existingVersionString} to v{newVersionString}");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (verbose)
-                {
-                    Console.WriteLine($"{UiSymbols.Gear} Installing {entry.FileName}...");
-                }
-
-                // Install the MSIX package
-                var msixFilePath = Path.Combine(msixArchDir, entry.FileName);
-                if (!File.Exists(msixFilePath))
-                {
-                    if (verbose)
-                    {
-                        Console.WriteLine($"{UiSymbols.Note} MSIX file not found: {msixFilePath}");
-                    }
-                    continue;
-                }
-
-                var installCommand = $"Add-AppxPackage -Path '{msixFilePath}' -ForceApplicationShutdown";
-                var (exitCode, output) = await powerShellService.RunCommandAsync(installCommand, verbose: verbose, cancellationToken: cancellationToken);
-
-                if (exitCode == 0)
-                {
-                    if (verbose)
-                    {
-                        Console.WriteLine($"{UiSymbols.Check} {entry.FileName} installed successfully");
-                    }
-                }
-                else
-                {
-                    if (verbose)
-                    {
-                        Console.WriteLine($"{UiSymbols.Note} {entry.FileName} installation returned exit code {exitCode}");
-                        if (!string.IsNullOrWhiteSpace(output))
-                        {
-                            Console.WriteLine($"{UiSymbols.Note} Output: {output}");
-                        }
-                    }
-                }
+                continue;
             }
-            catch (Exception ex)
+
+            // Parse the PackageIdentity (format: Name_Version_Architecture_PublisherId)
+            var identityParts = entry.PackageIdentity.Split('_');
+            var packageName = identityParts[0];
+            var newVersionString = identityParts.Length >= 2 ? identityParts[1] : "";
+
+            packageData.Add($"@{{Path='{msixFilePath}';Identity='{entry.PackageIdentity}';Name='{packageName}';Version='{newVersionString}';FileName='{entry.FileName}'}}");
+        }
+
+        if (packageData.Count == 0)
+        {
+            return;
+        }
+
+        // Create compact PowerShell script with reusable function
+        var script = $@"
+function Test-PackageNeedsInstall($pkg) {{
+    $exactMatch = Get-AppxPackage | Where-Object {{ $_.PackageFullName -eq $pkg.Identity }}
+    if ($exactMatch) {{ return $false }}
+    
+    $existing = Get-AppxPackage -Name $pkg.Name -ErrorAction SilentlyContinue
+    if (-not $existing) {{ return $true }}
+    
+    $shouldUpgrade = $false
+    foreach ($p in $existing) {{ if ([version]$pkg.Version -gt [version]$p.Version) {{ $shouldUpgrade = $true; break }} }}
+    return $shouldUpgrade
+}}
+
+$packages = @({string.Join(",", packageData)})
+$toInstall = @()
+
+foreach ($pkg in $packages) {{
+    if (Test-PackageNeedsInstall $pkg) {{
+        $toInstall += $pkg.Path
+        Write-Output ""INSTALL|$($pkg.FileName)|Will install""
+    }} else {{
+        Write-Output ""SKIP|$($pkg.FileName)|Already installed or newer version exists""
+    }}
+}}
+
+if ($toInstall.Count -gt 0) {{
+    Write-Output ""INSTALLING|$($toInstall.Count) packages will be installed""
+    foreach ($path in $toInstall) {{
+        try {{
+            Add-AppxPackage -Path $path -ForceApplicationShutdown -ErrorAction Stop
+            Write-Output ""SUCCESS|$(Split-Path $path -Leaf)|Installation successful""
+        }} catch {{
+
+Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
+        }}
+    }}
+}} else {{
+    Write-Output ""COMPLETE|No packages need to be installed""
+}}";
+
+        if (verbose)
+        {
+            Console.WriteLine($"{UiSymbols.Gear} Checking and installing {packageEntries.Count} MSIX packages...");
+        }
+
+        // Execute the batch script
+        var (exitCode, output) = await powerShellService.RunCommandAsync(script, verbose: false, cancellationToken: cancellationToken);
+
+        // Parse the output to provide user feedback
+        var outputLines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => !string.IsNullOrEmpty(line));
+
+        var installedCount = 0;
+        var skippedCount = 0;
+        var errorCount = 0;
+
+        foreach (var line in outputLines)
+        {
+            var parts = line.Split('|', 3);
+            if (parts.Length < 2) continue;
+
+            var action = parts[0];
+            var fileName = parts[1];
+            var message = parts.Length > 2 ? parts[2] : "";
+
+            switch (action)
             {
-                if (verbose)
-                {
-                    Console.WriteLine($"{UiSymbols.Note} Failed to install {entry.FileName}: {ex.Message}");
-                }
-                // Continue with other packages even if one fails
+                case "SKIP":
+                    skippedCount++;
+                    if (verbose)
+                    {
+                        Console.WriteLine($"{UiSymbols.Check} {fileName}: {message}");
+                    }
+                    break;
+
+                case "INSTALL":
+                    if (verbose)
+                    {
+                        Console.WriteLine($"{UiSymbols.Gear} {fileName}: {message}");
+                    }
+                    break;
+
+                case "INSTALLING":
+                    if (verbose)
+                    {
+                        Console.WriteLine($"{UiSymbols.Gear} {message}");
+                    }
+                    break;
+
+                case "SUCCESS":
+                    installedCount++;
+                    if (verbose)
+                    {
+                        Console.WriteLine($"{UiSymbols.Check} {fileName}: {message}");
+                    }
+                    break;
+
+                case "ERROR":
+                    errorCount++;
+                    if (verbose)
+                    {
+                        Console.WriteLine($"{UiSymbols.Note} {fileName}: {message}");
+                    }
+                    break;
+
+                case "COMPLETE":
+                    if (verbose)
+                    {
+                        Console.WriteLine($"{UiSymbols.Check} {message}");
+                    }
+                    break;
             }
+        }
+
+        // Provide summary feedback
+        if (!verbose && (installedCount > 0 || errorCount > 0))
+        {
+            if (installedCount > 0)
+            {
+                Console.WriteLine($"{UiSymbols.Check} Installed {installedCount} MSIX packages");
+            }
+            if (errorCount > 0)
+            {
+                Console.WriteLine($"{UiSymbols.Note} {errorCount} packages failed to install");
+            }
+        }
+
+        if (exitCode != 0 && verbose)
+        {
+            Console.WriteLine($"{UiSymbols.Note} PowerShell batch operation returned exit code {exitCode}");
         }
     }
 
