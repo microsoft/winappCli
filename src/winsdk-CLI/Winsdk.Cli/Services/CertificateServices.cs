@@ -365,7 +365,7 @@ internal class CertificateServices
                     Console.WriteLine($"Extracting publisher from manifest: {manifestPath}");
                 }
                 
-                var identityInfo = await msixService.ParseAppxManifestAsync(manifestPath, cancellationToken);
+                var identityInfo = await msixService.ParseAppxManifestFromPathAsync(manifestPath, cancellationToken);
                 return identityInfo.Publisher;
             }
             catch (Exception ex)
@@ -388,7 +388,7 @@ internal class CertificateServices
                     Console.WriteLine($"Found project manifest: {projectManifestPath}");
                 }
                 
-                var identityInfo = await msixService.ParseAppxManifestAsync(projectManifestPath, cancellationToken);
+                var identityInfo = await msixService.ParseAppxManifestFromPathAsync(projectManifestPath, cancellationToken);
                 return identityInfo.Publisher;
             }
             catch (Exception ex)

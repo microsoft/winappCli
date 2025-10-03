@@ -135,7 +135,7 @@ internal class MsixService
     /// <returns>MsixIdentityResult containing package name, publisher, and application ID</returns>
     /// <exception cref="FileNotFoundException">Thrown when the manifest file is not found</exception>
     /// <exception cref="InvalidOperationException">Thrown when the manifest is invalid or missing required elements</exception>
-    public async Task<MsixIdentityResult> ParseAppxManifestAsync(string appxManifestPath, CancellationToken cancellationToken = default)
+    public async Task<MsixIdentityResult> ParseAppxManifestFromPathAsync(string appxManifestPath, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(appxManifestPath))
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}");
@@ -143,6 +143,17 @@ internal class MsixService
         // Read and extract MSIX identity from appxmanifest.xml
         var appxManifestContent = await File.ReadAllTextAsync(appxManifestPath, Encoding.UTF8, cancellationToken);
 
+        return ParseAppxManifestAsync(appxManifestContent);
+    }
+
+    /// <summary>
+    /// Parses an AppX manifest content and extracts the package identity information
+    /// </summary>
+    /// <param name="appxManifestContent">The content of the appxmanifest.xml file</param>
+    /// <returns>MsixIdentityResult containing package name, publisher, and application ID</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the manifest is invalid or missing required elements</exception>
+    public MsixIdentityResult ParseAppxManifestAsync(string appxManifestContent)
+    {
         // Extract Package Identity information
         var identityMatch = Regex.Match(appxManifestContent, @"<Identity[^>]*>", RegexOptions.IgnoreCase);
         if (!identityMatch.Success)
@@ -558,6 +569,10 @@ internal class MsixService
                     var publisherMatch = Regex.Match(manifestContent, @"<Identity[^>]*Publisher\s*=\s*[""']([^""']*)[""']", RegexOptions.IgnoreCase);
                     extractedPublisher = publisherMatch.Success ? publisherMatch.Groups[1].Value : null;
                 }
+
+                // Update manifest content to ensure it's either referencing Windows App SDK or is self-contained
+                manifestContent = UpdateManifestContent(manifestContent, null, null, null, sparse: false, selfContained: selfContained, verbose);
+                await File.WriteAllTextAsync(resolvedManifestPath, manifestContent, Encoding.UTF8, cancellationToken);
             }
             catch
             {
@@ -790,7 +805,7 @@ internal class MsixService
 
         // Step 2: Parse original manifest to get identity and assets
         var originalManifestContent = await File.ReadAllTextAsync(originalManifestPath, Encoding.UTF8, cancellationToken);
-        var originalIdentity = await ParseAppxManifestAsync(originalManifestPath, cancellationToken);
+        var originalIdentity = ParseAppxManifestAsync(originalManifestContent);
 
         // Step 3: Create debug identity with ".debug" suffix
         var debugIdentity = CreateDebugIdentity(originalIdentity);
@@ -846,8 +861,8 @@ internal class MsixService
     /// </summary>
     private string UpdateManifestContent(
         string originalManifestContent,
-        MsixIdentityResult identity,
-        string executablePath,
+        MsixIdentityResult? identity,
+        string? executablePath,
         string? baseDirectory,
         bool sparse,
         bool selfContained,
@@ -855,43 +870,49 @@ internal class MsixService
     {
         var modifiedContent = originalManifestContent;
 
-        // Replace package identity attributes
-        modifiedContent = Regex.Replace(
-            modifiedContent,
-            @"(<Identity[^>]*Name\s*=\s*)[""']([^""']*)[""']",
-            $@"$1""{identity.PackageName}""",
-            RegexOptions.IgnoreCase);
-
-        // Replace application ID
-        modifiedContent = Regex.Replace(
-            modifiedContent,
-            @"(<Application[^>]*Id\s*=\s*)[""']([^""']*)[""']",
-            $@"$1""{identity.ApplicationId}""",
-            RegexOptions.IgnoreCase);
-
-        // Replace executable path with relative path from package root
-        var workingDir = baseDirectory ?? Directory.GetCurrentDirectory();
-        string relativeExecutablePath;
-
-        try
+        if (identity != null)
         {
-            // Calculate relative path from the working directory (package root) to the executable
-            relativeExecutablePath = Path.GetRelativePath(workingDir, executablePath);
+            // Replace package identity attributes
+                modifiedContent = Regex.Replace(
+                modifiedContent,
+                @"(<Identity[^>]*Name\s*=\s*)[""']([^""']*)[""']",
+                $@"$1""{identity.PackageName}""",
+                RegexOptions.IgnoreCase);
 
-            // Ensure we use forward slashes for consistency in manifest
-            relativeExecutablePath = relativeExecutablePath.Replace('\\', '/');
-        }
-        catch
-        {
-            // Fallback to just the filename if relative path calculation fails
-            relativeExecutablePath = Path.GetFileName(executablePath);
+            // Replace application ID
+            modifiedContent = Regex.Replace(
+                modifiedContent,
+                @"(<Application[^>]*Id\s*=\s*)[""']([^""']*)[""']",
+                $@"$1""{identity.ApplicationId}""",
+                RegexOptions.IgnoreCase);
         }
 
-        modifiedContent = Regex.Replace(
-            modifiedContent,
-            @"(<Application[^>]*Executable\s*=\s*)[""']([^""']*)[""']",
-            $@"$1""{relativeExecutablePath}""",
-            RegexOptions.IgnoreCase);
+        if (executablePath != null)
+        {
+            // Replace executable path with relative path from package root
+            var workingDir = baseDirectory ?? Directory.GetCurrentDirectory();
+            string relativeExecutablePath;
+
+            try
+            {
+                // Calculate relative path from the working directory (package root) to the executable
+                relativeExecutablePath = Path.GetRelativePath(workingDir, executablePath);
+
+                // Ensure we use forward slashes for consistency in manifest
+                relativeExecutablePath = relativeExecutablePath.Replace('\\', '/');
+            }
+            catch
+            {
+                // Fallback to just the filename if relative path calculation fails
+                relativeExecutablePath = Path.GetFileName(executablePath);
+            }
+
+            modifiedContent = Regex.Replace(
+                modifiedContent,
+                @"(<Application[^>]*Executable\s*=\s*)[""']([^""']*)[""']",
+                $@"$1""{relativeExecutablePath}""",
+                RegexOptions.IgnoreCase);
+        }
 
         // Only apply sparse packaging modifications if sparse is true
         if (sparse)
@@ -1557,14 +1578,24 @@ $1",
 
         if (Directory.Exists(runtimeSourceDir))
         {
-            foreach (var file in Directory.GetFiles(runtimeSourceDir))
+            // Copy files recursively to maintain directory structure
+            foreach (var file in Directory.GetFiles(runtimeSourceDir, "*", SearchOption.AllDirectories))
             {
-                var destFile = Path.Combine(inputFolder, Path.GetFileName(file));
+                var relativePath = Path.GetRelativePath(runtimeSourceDir, file);
+                var destFile = Path.Combine(inputFolder, relativePath);
+
+                // Create destination directory if needed
+                var destDir = Path.GetDirectoryName(destFile);
+                if (!string.IsNullOrEmpty(destDir))
+                {
+                    Directory.CreateDirectory(destDir);
+                }
+
                 File.Copy(file, destFile, overwrite: true);
 
                 if (verbose)
                 {
-                    Console.WriteLine($"{UiSymbols.Folder} Bundled runtime: {Path.GetFileName(file)}");
+                    Console.WriteLine($"{UiSymbols.Folder} Bundled runtime: {relativePath}");
                 }
             }
 

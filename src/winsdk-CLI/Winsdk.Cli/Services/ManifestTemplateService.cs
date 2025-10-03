@@ -164,17 +164,6 @@ internal class ManifestTemplateService
     }
 
     /// <summary>
-    /// Writes manifest content to file with proper UTF-8 encoding (no BOM)
-    /// </summary>
-    /// <param name="manifestPath">Path to write manifest to</param>
-    /// <param name="content">Manifest content</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    public static async Task WriteManifestAsync(string manifestPath, string content, CancellationToken cancellationToken = default)
-    {
-        await File.WriteAllTextAsync(manifestPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
-    }
-
-    /// <summary>
     /// Generates a complete manifest with defaults, template processing, and asset generation
     /// </summary>
     /// <param name="outputDirectory">Directory to generate manifest and assets in</param>
@@ -228,7 +217,7 @@ internal class ManifestTemplateService
 
         // Write manifest file
         var manifestPath = Path.Combine(outputDirectory, "appxmanifest.xml");
-        await WriteManifestAsync(manifestPath, content, cancellationToken);
+        await File.WriteAllTextAsync(manifestPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
         // Generate default assets
         await GenerateDefaultAssetsAsync(outputDirectory, verbose, cancellationToken);
