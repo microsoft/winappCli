@@ -3,7 +3,7 @@ using Winsdk.Cli.Services;
 namespace Winsdk.Cli.Tests;
 
 [TestClass]
-public class WinsdkDirectoryServiceTests
+public class WinsdkDirectoryServiceTests :  BaseCommandTests
 {
     private string _tempDirectory = null!;
     private string _testWinsdkDirectory = null!;
@@ -34,7 +34,7 @@ public class WinsdkDirectoryServiceTests
     public void GetGlobalWinsdkDirectory_WithoutOverride_ReturnsDefaultDirectory()
     {
         // Act - Create a fresh instance without override to test default behavior
-        var directoryService = new WinsdkDirectoryService();
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         var result = directoryService.GetGlobalWinsdkDirectory();
 
         // Assert
@@ -50,7 +50,7 @@ public class WinsdkDirectoryServiceTests
         Directory.CreateDirectory(customDirectory);
 
         // Act - Use SetCacheDirectoryForTesting to override the directory
-        var directoryService = new WinsdkDirectoryService();
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         directoryService.SetCacheDirectoryForTesting(customDirectory);
         var result = directoryService.GetGlobalWinsdkDirectory();
 
@@ -62,7 +62,7 @@ public class WinsdkDirectoryServiceTests
     public void GetGlobalWinsdkDirectory_WithInstanceOverride_ReturnsOverrideDirectory()
     {
         // Act - Test instance override using SetCacheDirectoryForTesting
-        var directoryService = new WinsdkDirectoryService();
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         directoryService.SetCacheDirectoryForTesting(_testWinsdkDirectory);
         var result = directoryService.GetGlobalWinsdkDirectory();
 
@@ -80,8 +80,8 @@ public class WinsdkDirectoryServiceTests
         Directory.CreateDirectory(secondPath);
 
         // Act & Assert - Test that override can be changed
-        var directoryService = new WinsdkDirectoryService();
-        
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
+
         directoryService.SetCacheDirectoryForTesting(firstPath);
         var firstResult = directoryService.GetGlobalWinsdkDirectory();
         Assert.AreEqual(firstPath, firstResult, "First override should be returned");
@@ -108,7 +108,7 @@ public class WinsdkDirectoryServiceTests
             Environment.SetEnvironmentVariable("WINSDK_CACHE_DIRECTORY", envTestDirectory);
             
             // Act - Create fresh instance to test environment variable behavior
-            var directoryService = new WinsdkDirectoryService();
+            var directoryService = GetRequiredService<IWinsdkDirectoryService>();
             var result = directoryService.GetGlobalWinsdkDirectory();
             
             // Assert
@@ -139,7 +139,7 @@ public class WinsdkDirectoryServiceTests
             Environment.SetEnvironmentVariable("WINSDK_CACHE_DIRECTORY", envTestDirectory);
             
             // Act - Create instance and set override (should take precedence)
-            var directoryService = new WinsdkDirectoryService();
+            var directoryService = GetRequiredService<IWinsdkDirectoryService>();
             directoryService.SetCacheDirectoryForTesting(overrideTestDirectory);
             var result = directoryService.GetGlobalWinsdkDirectory();
             
@@ -161,7 +161,7 @@ public class WinsdkDirectoryServiceTests
         Directory.CreateDirectory(localWinsdkDir);
 
         // Act
-        var directoryService = new WinsdkDirectoryService();
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         var result = directoryService.GetLocalWinsdkDirectory(_tempDirectory);
 
         // Assert
@@ -172,7 +172,7 @@ public class WinsdkDirectoryServiceTests
     public void GetLocalWinsdkDirectory_WithoutExistingDirectory_ReturnsPathInBaseDirectory()
     {
         // Act - No existing .winsdk directory in temp directory
-        var directoryService = new WinsdkDirectoryService();
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         var result = directoryService.GetLocalWinsdkDirectory(_tempDirectory);
 
         // Assert
@@ -184,7 +184,7 @@ public class WinsdkDirectoryServiceTests
     public void GetLocalWinsdkDirectory_WithNullBaseDirectory_UsesCurrentDirectory()
     {
         // Act
-        var directoryService = new WinsdkDirectoryService();
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         var result = directoryService.GetLocalWinsdkDirectory(null);
 
         // Assert

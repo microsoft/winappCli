@@ -7,8 +7,9 @@ internal sealed class ConfigService : IConfigService
 {
     public string ConfigPath { get; set; }
 
-    public ConfigService(string workingDir)
+    public ConfigService()
     {
+        var workingDir = Directory.GetCurrentDirectory();
         ConfigPath = Path.Combine(workingDir, "winsdk.yaml");
     }
 

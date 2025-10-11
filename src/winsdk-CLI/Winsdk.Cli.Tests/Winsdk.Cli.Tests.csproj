@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <!-- Test-specific packages -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-rc.1.25451.107" />
   </ItemGroup>
 

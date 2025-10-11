@@ -4,7 +4,7 @@ using Winsdk.Cli.Services;
 namespace Winsdk.Cli.Tests;
 
 [TestClass]
-public class ManifestCommandTests
+public class ManifestCommandTests : BaseCommandTests
 {
     private string _tempDirectory = null!;
     private string _testLogoPath = null!;
@@ -56,7 +56,7 @@ public class ManifestCommandTests
     public void ManifestCommandShouldHaveGenerateSubcommand()
     {
         // Arrange & Act
-        var manifestCommand = new ManifestCommand();
+        var manifestCommand = GetRequiredService<ManifestCommand>();
 
         // Assert
         Assert.IsNotNull(manifestCommand, "ManifestCommand should be created");
@@ -68,7 +68,7 @@ public class ManifestCommandTests
     public async Task ManifestGenerateCommandWithDefaultsShouldCreateManifest()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory,
@@ -95,7 +95,7 @@ public class ManifestCommandTests
     public async Task ManifestGenerateCommandWithCustomOptionsShouldUseThoseValues()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory,
@@ -131,7 +131,7 @@ public class ManifestCommandTests
     public async Task ManifestGenerateCommandWithSparseOptionShouldCreateSparseManifest()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory,
@@ -160,7 +160,7 @@ public class ManifestCommandTests
     public async Task ManifestGenerateCommandWithLogoShouldCopyLogo()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory,
@@ -192,7 +192,7 @@ public class ManifestCommandTests
         var existingManifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
         await File.WriteAllTextAsync(existingManifestPath, "<Package>Existing</Package>");
 
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory,
@@ -211,7 +211,7 @@ public class ManifestCommandTests
     public void ManifestGenerateCommandParseArgumentsShouldHandleAllOptions()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             "/test/directory",
@@ -238,7 +238,7 @@ public class ManifestCommandTests
     public void ManifestGenerateCommandShouldUseCurrentDirectoryAsDefault()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             "--yes" // Skip interactive prompts - no directory argument
@@ -259,7 +259,7 @@ public class ManifestCommandTests
     public async Task ManifestGenerateCommandWithVerboseOptionShouldProduceOutput()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory,
@@ -313,7 +313,7 @@ public class ManifestCommandTests
     {
         // Arrange
         var nonExistentLogoPath = Path.Combine(_tempDirectory, "nonexistent.png");
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory,
@@ -342,7 +342,7 @@ public class ManifestCommandTests
     public void ManifestCommandHelpShouldDisplayCorrectInformation()
     {
         // Arrange
-        var manifestCommand = new ManifestCommand();
+        var manifestCommand = GetRequiredService<ManifestCommand>();
         var args = new[] { "--help" };
 
         // Act
@@ -357,7 +357,7 @@ public class ManifestCommandTests
     public void ManifestGenerateCommandHelpShouldDisplayCorrectInformation()
     {
         // Arrange
-        var generateCommand = new ManifestGenerateCommand();
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[] { "--help" };
 
         // Act

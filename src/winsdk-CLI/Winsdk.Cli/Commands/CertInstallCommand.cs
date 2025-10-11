@@ -1,50 +1,54 @@
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
 
 internal class CertInstallCommand : Command
 {
-    public CertInstallCommand()
-        : base("install", "Install a certificate to the local machine store")
+    public static Argument<string> CertPathArgument { get; }
+    public static Option<string> PasswordOption { get; }
+    public static Option<bool> ForceOption { get; }
+
+    static CertInstallCommand()
     {
-        var certPathArgument = new Argument<string>("cert-path")
+        CertPathArgument = new Argument<string>("cert-path")
         {
             Description = "Path to the certificate file (PFX or CER)"
         };
-        var passwordOption = new Option<string>("--password")
+        PasswordOption = new Option<string>("--password")
         {
             Description = "Password for the PFX file",
             DefaultValueFactory = (argumentResult) => "password",
         };
-        var forceOption = new Option<bool>("--force")
+        ForceOption = new Option<bool>("--force")
         {
             Description = "Force installation even if the certificate already exists",
             DefaultValueFactory = (argumentResult) => false,
         };
-        Arguments.Add(certPathArgument);
-        Options.Add(passwordOption);
-        Options.Add(forceOption);
-        Options.Add(Program.VerboseOption);
+    }
 
-        SetAction(async (parseResult, ct) =>
+    public CertInstallCommand()
+        : base("install", "Install a certificate to the local machine store")
+    {
+        Arguments.Add(CertPathArgument);
+        Options.Add(PasswordOption);
+        Options.Add(ForceOption);
+        Options.Add(WinSdkRootCommand.VerboseOption);
+    }
+
+    public class Handler(ICertificateService certificateService) : AsynchronousCommandLineAction
+    {
+        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var configService = new ConfigService(Directory.GetCurrentDirectory());
-            var directoryService = new WinsdkDirectoryService();
-            var nugetService = new NugetService();
-            var cacheService = new PackageCacheService(directoryService);
-            var packageService = new PackageInstallationService(configService, nugetService, cacheService);
-            var buildToolsService = new BuildToolsService(configService, directoryService, packageService);
-            var powerShellService = new PowerShellService();
-            var certificateService = new CertificateService(buildToolsService, powerShellService);
-        
-            var certPath = parseResult.GetRequiredValue(certPathArgument);
-            var password = parseResult.GetRequiredValue(passwordOption);
-            var force = parseResult.GetRequiredValue(forceOption);
-            var verbose = parseResult.GetValue(Program.VerboseOption);
+            var certPath = parseResult.GetRequiredValue(CertPathArgument);
+            var password = parseResult.GetRequiredValue(PasswordOption);
+            var force = parseResult.GetRequiredValue(ForceOption);
+            var verbose = parseResult.GetValue(WinSdkRootCommand.VerboseOption);
+
             try
             {
-                var result = await certificateService.InstallCertificateAsync(certPath, password, force, verbose, ct);
+                var result = await certificateService.InstallCertificateAsync(certPath, password, force, verbose, cancellationToken);
                 if (!result)
                 {
                     Console.WriteLine($"ℹ️ Certificate is already installed");
@@ -61,6 +65,6 @@ internal class CertInstallCommand : Command
                 Console.Error.WriteLine($"❌ Failed to install certificate: {error.Message}");
                 return 1;
             }
-        });
+        }
     }
 }

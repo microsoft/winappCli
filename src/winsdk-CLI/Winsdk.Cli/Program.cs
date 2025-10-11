@@ -1,16 +1,12 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Text;
-using System.CommandLine;
 using Winsdk.Cli.Commands;
+using Winsdk.Cli.Helpers;
 
 namespace Winsdk.Cli;
 
 internal static class Program
 {
-    internal static Option<bool> VerboseOption = new Option<bool>("--verbose", "-v")
-    {
-        Description = "Enable verbose output"
-    };
-
     static async Task<int> Main(string[] args)
     {
         // Ensure UTF-8 I/O for emoji-capable terminals; fall back silently if not supported
@@ -24,19 +20,13 @@ internal static class Program
             // ignore
         }
 
-        RootCommand rootCommand = new("Windows SDK CLI tool")
-        {
-            new InitCommand(),
-            new RestoreCommand(),
-            new PackageCommand(),
-            new ManifestCommand(),
-            new UpdateCommand(),
-            new CreateDebugIdentityCommand(),
-            new GetWinsdkPathCommand(),
-            new CertCommand(),
-            new SignCommand(),
-            new ToolCommand()
-        };
+        var services = new ServiceCollection()
+            .ConfigureServices()
+            .ConfigureCommands();
+
+        using var serviceProvider = services.BuildServiceProvider();
+
+        var rootCommand = serviceProvider.GetRequiredService<WinSdkRootCommand>();
 
         return await rootCommand.Parse(args).InvokeAsync();
     }

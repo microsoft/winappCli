@@ -4,12 +4,12 @@ namespace Winsdk.Cli.Tests;
 
 [TestClass]
 [DoNotParallelize]
-public class BuildToolsServiceTests
+public class BuildToolsServiceTests : BaseCommandTests
 {
     private string _tempDirectory = null!;
     private string _testWinsdkDirectory = null!;
-    private ConfigService _configService = null!;
-    private BuildToolsService _buildToolsService = null!;
+    private IConfigService _configService = null!;
+    private IBuildToolsService _buildToolsService = null!;
 
     [TestInitialize]
     public void Setup()
@@ -23,13 +23,12 @@ public class BuildToolsServiceTests
         Directory.CreateDirectory(_testWinsdkDirectory);
 
         // Set up services with test cache directory
-        _configService = new ConfigService(_tempDirectory);
-        var directoryService = new WinsdkDirectoryService();
+        _configService = GetRequiredService<IConfigService>();
+        _configService.ConfigPath = Path.Combine(_tempDirectory, "winsdk.yaml");
+
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         directoryService.SetCacheDirectoryForTesting(_testWinsdkDirectory);
-        var nugetService = new NugetService();
-        var cacheService = new PackageCacheService(directoryService);
-        var packageService = new PackageInstallationService(_configService, nugetService, cacheService);
-        _buildToolsService = new BuildToolsService(_configService, directoryService, packageService);
+        _buildToolsService = GetRequiredService<IBuildToolsService>();
     }
 
     [TestCleanup]
@@ -48,8 +47,6 @@ public class BuildToolsServiceTests
             }
         }
     }
-
-
 
     [TestMethod]
     public void BuildToolsService_WithTestCacheDirectory_UsesOverriddenDirectory()

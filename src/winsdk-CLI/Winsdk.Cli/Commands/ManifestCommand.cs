@@ -4,8 +4,9 @@ namespace Winsdk.Cli.Commands;
 
 internal class ManifestCommand : Command
 {
-    public ManifestCommand() : base("manifest", "AppxManifest.xml management")
+    public ManifestCommand(ManifestGenerateCommand manifestGenerateCommand)
+        : base("manifest", "AppxManifest.xml management")
     {
-        Subcommands.Add(new ManifestGenerateCommand());
+        Subcommands.Add(manifestGenerateCommand);
     }
 }

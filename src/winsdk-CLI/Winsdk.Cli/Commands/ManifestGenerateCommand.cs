@@ -1,106 +1,130 @@
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
 
 internal class ManifestGenerateCommand : Command
 {
-    public ManifestGenerateCommand() : base("generate", "Generate a manifest in directory")
+    public static Argument<string> DirectoryArgument { get; }
+    public static Option<string> PackageNameOption { get; }
+    public static Option<string> PublisherNameOption { get; }
+    public static Option<string> VersionOption { get; }
+    public static Option<string> DescriptionOption { get; }
+    public static Option<string?> ExecutableOption { get; }
+    public static Option<bool> SparseOption { get; }
+    public static Option<string?> LogoPathOption { get; }
+    public static Option<bool> YesOption { get; }
+
+    static ManifestGenerateCommand()
     {
-        var directoryArgument = new Argument<string>("directory")
+        DirectoryArgument = new Argument<string>("directory")
         {
             Description = "Directory to generate manifest in",
             Arity = ArgumentArity.ZeroOrOne,
             DefaultValueFactory = (argumentResult) => Directory.GetCurrentDirectory()
         };
 
-        var packageNameOption = new Option<string>("--package-name")
+        PackageNameOption = new Option<string>("--package-name")
         {
             Description = "Package name (default: folder name)"
         };
 
-        var publisherNameOption = new Option<string>("--publisher-name")
+        PublisherNameOption = new Option<string>("--publisher-name")
         {
             Description = "Publisher CN (default: CN=<current user>)"
         };
 
-        var versionOption = new Option<string>("--version")
+        VersionOption = new Option<string>("--version")
         {
             Description = "Version",
             DefaultValueFactory = (argumentResult) => "1.0.0.0"
         };
 
-        var descriptionOption = new Option<string>("--description")
+        DescriptionOption = new Option<string>("--description")
         {
             Description = "Description",
             DefaultValueFactory = (argumentResult) => "My Application"
         };
 
-        var executableOption = new Option<string?>("--executable")
+        ExecutableOption = new Option<string?>("--executable")
         {
             Description = "Executable path/name (default: <package-name>.exe)"
         };
 
-        var sparseOption = new Option<bool>("--sparse")
+        SparseOption = new Option<bool>("--sparse")
         {
             Description = "Generate sparse package manifest"
         };
 
-        var logoPathOption = new Option<string?>("--logo-path")
+        LogoPathOption = new Option<string?>("--logo-path")
         {
             Description = "Path to logo image file"
         };
 
-        var yesOption = new Option<bool>("--yes", "--y")
+        YesOption = new Option<bool>("--yes", "--y")
         {
             Description = "Skip interactive prompts and use default values"
         };
+    }
 
-        var verboseOption = new Option<bool>("--verbose", "--v")
+    public ManifestGenerateCommand() : base("generate", "Generate a manifest in directory")
+    {
+        Arguments.Add(DirectoryArgument);
+        Options.Add(PackageNameOption);
+        Options.Add(PublisherNameOption);
+        Options.Add(VersionOption);
+        Options.Add(DescriptionOption);
+        Options.Add(ExecutableOption);
+        Options.Add(SparseOption);
+        Options.Add(LogoPathOption);
+        Options.Add(YesOption);
+        Options.Add(WinSdkRootCommand.VerboseOption);
+    }
+
+    public class Handler(IManifestService manifestService) : AsynchronousCommandLineAction
+    {
+        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            Description = "Enable verbose output"
-        };
+            var directory = parseResult.GetRequiredValue(DirectoryArgument);
+            var packageName = parseResult.GetValue(PackageNameOption);
+            var publisherName = parseResult.GetValue(PublisherNameOption);
+            var version = parseResult.GetRequiredValue(VersionOption);
+            var description = parseResult.GetRequiredValue(DescriptionOption);
+            var executable = parseResult.GetValue(ExecutableOption);
+            var sparse = parseResult.GetValue(SparseOption);
+            var logoPath = parseResult.GetValue(LogoPathOption);
+            var yes = parseResult.GetValue(YesOption);
+            var verbose = parseResult.GetValue(WinSdkRootCommand.VerboseOption);
 
-        Arguments.Add(directoryArgument);
-        Options.Add(packageNameOption);
-        Options.Add(publisherNameOption);
-        Options.Add(versionOption);
-        Options.Add(descriptionOption);
-        Options.Add(executableOption);
-        Options.Add(sparseOption);
-        Options.Add(logoPathOption);
-        Options.Add(yesOption);
-        Options.Add(verboseOption);
+            try
+            {
+                await manifestService.GenerateManifestAsync(
+                    directory,
+                    packageName,
+                    publisherName,
+                    version,
+                    description,
+                    executable,
+                    sparse,
+                    logoPath,
+                    yes,
+                    verbose,
+                    cancellationToken);
 
-        SetAction(async (parseResult, ct) =>
-        {
-            var directory = parseResult.GetRequiredValue(directoryArgument);
-            var packageName = parseResult.GetValue(packageNameOption);
-            var publisherName = parseResult.GetValue(publisherNameOption);
-            var version = parseResult.GetRequiredValue(versionOption);
-            var description = parseResult.GetRequiredValue(descriptionOption);
-            var executable = parseResult.GetValue(executableOption);
-            var sparse = parseResult.GetValue(sparseOption);
-            var logoPath = parseResult.GetValue(logoPathOption);
-            var yes = parseResult.GetValue(yesOption);
-            var verbose = parseResult.GetValue(verboseOption);
+                Console.WriteLine($"Manifest generated successfully in: {directory}");
 
-            var manifestService = new ManifestService();
-
-            await manifestService.GenerateManifestAsync(
-                directory,
-                packageName,
-                publisherName,
-                version,
-                description,
-                executable,
-                sparse,
-                logoPath,
-                yes,
-                verbose,
-                ct);
-
-            Console.WriteLine($"Manifest generated successfully in: {directory}");
-        });
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"❌ Error generating manifest: {ex.Message}");
+                if (verbose)
+                {
+                    Console.Error.WriteLine(ex.StackTrace);
+                }
+                return 1;
+            }
+        }
     }
 }

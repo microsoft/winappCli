@@ -4,14 +4,14 @@ using Winsdk.Cli.Services;
 namespace Winsdk.Cli.Tests;
 
 [TestClass]
-public class SignCommandTests
+public class SignCommandTests : BaseCommandTests
 {
     private string _tempDirectory = null!;
     private string _testExecutablePath = null!;
     private string _testCertificatePath = null!;
-    private ConfigService _configService = null!;
-    private BuildToolsService _buildToolsService = null!;
-    private CertificateService _certificateService = null!;
+    private IConfigService _configService = null!;
+    private IBuildToolsService _buildToolsService = null!;
+    private ICertificateService _certificateService = null!;
 
     [TestInitialize]
     public async Task Setup()
@@ -32,15 +32,12 @@ public class SignCommandTests
         _testCertificatePath = Path.Combine(_tempDirectory, "TestCert.pfx");
 
         // Set up services
-        _configService = new ConfigService(_tempDirectory);
-        var directoryService = new WinsdkDirectoryService();
+        _configService = GetRequiredService<IConfigService>();
+        _configService.ConfigPath = Path.Combine(_tempDirectory, "winsdk.yaml");
+        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
         directoryService.SetCacheDirectoryForTesting(testWinsdkDirectory);
-        var nugetService = new NugetService();
-        var cacheService = new PackageCacheService(directoryService);
-        var packageService = new PackageInstallationService(_configService, nugetService, cacheService);
-        _buildToolsService = new BuildToolsService(_configService, directoryService, packageService);
-        var powerShellService = new PowerShellService();
-        _certificateService = new CertificateService(_buildToolsService, powerShellService);
+        _buildToolsService = GetRequiredService<IBuildToolsService>();
+        _certificateService = GetRequiredService<ICertificateService>();
 
         // Create a temporary certificate for testing
         await CreateTestCertificateAsync();
@@ -99,7 +96,7 @@ public class SignCommandTests
         // isn't a real PE file, but that's expected and shows the command flow works.
         
         // Arrange
-        var command = new SignCommand();
+        var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
             _testExecutablePath,
@@ -129,7 +126,7 @@ public class SignCommandTests
     public async Task SignCommandWithNonExistentFileShouldFail()
     {
         // Arrange
-        var command = new SignCommand();
+        var command = GetRequiredService<SignCommand>();
         var nonExistentFile = Path.Combine(_tempDirectory, "NonExistent.exe");
         var args = new[]
         {
@@ -150,7 +147,7 @@ public class SignCommandTests
     public async Task SignCommandWithNonExistentCertificateShouldFail()
     {
         // Arrange
-        var command = new SignCommand();
+        var command = GetRequiredService<SignCommand>();
         var nonExistentCert = Path.Combine(_tempDirectory, "NonExistent.pfx");
         var args = new[]
         {
@@ -171,7 +168,7 @@ public class SignCommandTests
     public async Task SignCommandWithWrongPasswordShouldFail()
     {
         // Arrange
-        var command = new SignCommand();
+        var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
             _testExecutablePath,
@@ -193,7 +190,7 @@ public class SignCommandTests
         // Similar to the main signing test, this verifies the timestamp parameter is processed correctly
         
         // Arrange
-        var command = new SignCommand();
+        var command = GetRequiredService<SignCommand>();
         var timestampUrl = "http://timestamp.digicert.com";
         var args = new[]
         {
@@ -221,7 +218,7 @@ public class SignCommandTests
     public void SignCommandParseArgumentsShouldHandleAllOptions()
     {
         // Arrange
-        var command = new SignCommand();
+        var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
             "test.exe",
@@ -273,7 +270,7 @@ public class SignCommandTests
     public void SignCommandHelpShouldDisplayCorrectInformation()
     {
         // Arrange
-        var command = new SignCommand();
+        var command = GetRequiredService<SignCommand>();
         var args = new[] { "--help" };
 
         // Act
@@ -295,7 +292,7 @@ public class SignCommandTests
             // Change to temp directory
             Directory.SetCurrentDirectory(_tempDirectory);
             
-            var command = new SignCommand();
+            var command = GetRequiredService<SignCommand>();
             var relativeExePath = Path.GetFileName(_testExecutablePath);
             var relativeCertPath = Path.GetFileName(_testCertificatePath);
             

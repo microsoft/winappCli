@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Models;
 using Winsdk.Cli.Services;
@@ -7,34 +8,34 @@ namespace Winsdk.Cli.Commands;
 
 internal class UpdateCommand : Command
 {
-    public UpdateCommand() : base("update", "Update packages in winsdk.yaml and install/update build tools in cache")
+    public static Option<bool> PrereleaseOption { get; }
+
+    static UpdateCommand()
     {
-        var prereleaseOption = new Option<bool>("--prerelease")
+        PrereleaseOption = new Option<bool>("--prerelease")
         {
             Description = "Include prerelease versions when checking for updates"
         };
+    }
 
-        Options.Add(prereleaseOption);
-        Options.Add(Program.VerboseOption);
+    public UpdateCommand() : base("update", "Update packages in winsdk.yaml and install/update build tools in cache")
+    {
+        Options.Add(PrereleaseOption);
+        Options.Add(WinSdkRootCommand.VerboseOption);
+    }
 
-        SetAction(async (parseResult, ct) =>
+    public class Handler(
+        IConfigService configService,
+        INugetService nugetService,
+        IWinsdkDirectoryService winsdkDirectoryService,
+        IPackageInstallationService packageInstallationService,
+        IBuildToolsService buildToolsService,
+        IWorkspaceSetupService workspaceSetupService) : AsynchronousCommandLineAction
+    {
+        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var configService = new ConfigService(Directory.GetCurrentDirectory());
-            var winsdkDirectoryService = new WinsdkDirectoryService();
-            var nugetService = new NugetService();
-            var cacheService = new PackageCacheService(winsdkDirectoryService);
-            var packageInstallationService = new PackageInstallationService(configService, nugetService, cacheService);
-            var buildToolsService = new BuildToolsService(configService, winsdkDirectoryService, packageInstallationService);
-            var cppWinrtService = new CppWinrtService();
-            var packageLayoutService = new PackageLayoutService();
-            var powerShellService = new PowerShellService();
-            var certificateService = new CertificateService(buildToolsService, powerShellService);
-            var manifestService = new ManifestService();
-            var devModeService = new DevModeService();
-            var workspaceSetupService = new WorkspaceSetupService(configService, winsdkDirectoryService, packageInstallationService, buildToolsService, cppWinrtService, packageLayoutService, certificateService, powerShellService, nugetService, manifestService, devModeService);
-
-            var prerelease = parseResult.GetValue(prereleaseOption);
-            var verbose = parseResult.GetValue(Program.VerboseOption);
+            var prerelease = parseResult.GetValue(PrereleaseOption);
+            var verbose = parseResult.GetValue(WinSdkRootCommand.VerboseOption);
 
             try
             {
@@ -72,7 +73,7 @@ internal class UpdateCommand : Command
 
                             try
                             {
-                                var latestVersion = await nugetService.GetLatestVersionAsync(package.Name, prerelease, ct);
+                                var latestVersion = await nugetService.GetLatestVersionAsync(package.Name, prerelease, cancellationToken);
                                 
                                 if (latestVersion != package.Version)
                                 {
@@ -114,7 +115,7 @@ internal class UpdateCommand : Command
                                 includeExperimental: prerelease,
                                 ignoreConfig: false, // Use the updated config
                                 quiet: !verbose,
-                                cancellationToken: ct
+                                cancellationToken: cancellationToken
                             );
                             
                             Console.WriteLine($"{UiSymbols.Check} Package installation completed");
@@ -139,7 +140,7 @@ internal class UpdateCommand : Command
                     Console.WriteLine($"{UiSymbols.Wrench} Checking build tools in cache...");
                 }
 
-                var buildToolsPath = await buildToolsService.EnsureBuildToolsAsync(quiet: !verbose, forceLatest: true, cancellationToken: ct);
+                var buildToolsPath = await buildToolsService.EnsureBuildToolsAsync(quiet: !verbose, forceLatest: true, cancellationToken: cancellationToken);
                 
                 if (buildToolsPath != null)
                 {
@@ -169,7 +170,7 @@ internal class UpdateCommand : Command
                         Console.WriteLine($"{UiSymbols.Wrench} Installing Windows App Runtime...");
                     }
 
-                    await workspaceSetupService.InstallWindowsAppRuntimeAsync(msixDir, verbose, ct);
+                    await workspaceSetupService.InstallWindowsAppRuntimeAsync(msixDir, verbose, cancellationToken);
 
                     if (!verbose)
                     {
@@ -193,6 +194,6 @@ internal class UpdateCommand : Command
                 }
                 return 1;
             }
-        });
+        }
     }
 }

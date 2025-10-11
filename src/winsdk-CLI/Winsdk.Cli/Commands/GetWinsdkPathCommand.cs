@@ -1,25 +1,33 @@
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
 
 internal class GetWinsdkPathCommand : Command
 {
-    public GetWinsdkPathCommand() : base("get-winsdk-path", "Get the path to the .winsdk directory (local by default, global with --global)")
+    public static Option<bool> GlobalOption { get; }
+
+    static GetWinsdkPathCommand()
     {
-        var globalOption = new Option<bool>("--global")
+        GlobalOption = new Option<bool>("--global")
         {
             Description = "Get the global .winsdk directory instead of local"
         };
-        
-        Options.Add(globalOption);
-        Options.Add(Program.VerboseOption);
+    }
 
-        SetAction((parseResult) =>
+    public GetWinsdkPathCommand() : base("get-winsdk-path", "Get the path to the .winsdk directory (local by default, global with --global)")
+    {
+        Options.Add(GlobalOption);
+        Options.Add(WinSdkRootCommand.VerboseOption);
+    }
+
+    public class Handler(IWinsdkDirectoryService winsdkDirectoryService) : AsynchronousCommandLineAction
+    {
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var directoryService = new WinsdkDirectoryService();
-            var verbose = parseResult.GetValue(Program.VerboseOption);
-            var global = parseResult.GetValue(globalOption);
+            var verbose = parseResult.GetValue(WinSdkRootCommand.VerboseOption);
+            var global = parseResult.GetValue(GlobalOption);
 
             try
             {
@@ -29,13 +37,13 @@ internal class GetWinsdkPathCommand : Command
                 if (global)
                 {
                     // Get the global .winsdk directory
-                    winsdkDir = directoryService.GetGlobalWinsdkDirectory();
+                    winsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
                     directoryType = "Global";
                 }
                 else
                 {
                     // Get the local .winsdk directory
-                    winsdkDir = directoryService.GetLocalWinsdkDirectory(Directory.GetCurrentDirectory());
+                    winsdkDir = winsdkDirectoryService.GetLocalWinsdkDirectory(Directory.GetCurrentDirectory());
                     directoryType = "Local";
                 }
                 
@@ -45,7 +53,7 @@ internal class GetWinsdkPathCommand : Command
                     {
                         Console.Error.WriteLine($"❌ {directoryType} .winsdk directory path could not be determined");
                     }
-                    return 1;
+                    return Task.FromResult(1);
                 }
 
                 // For global directories, check if they exist
@@ -56,7 +64,7 @@ internal class GetWinsdkPathCommand : Command
                         Console.Error.WriteLine($"❌ {directoryType} .winsdk directory not found: {winsdkDir}");
                         Console.Error.WriteLine($"   Make sure to run 'winsdk init' first");
                     }
-                    return 1;
+                    return Task.FromResult(1);
                 }
 
                 // Output just the path for easy consumption by scripts
@@ -68,8 +76,8 @@ internal class GetWinsdkPathCommand : Command
                     var status = exists ? "exists" : "does not exist";
                     Console.Error.WriteLine($"📂 {directoryType} .winsdk directory: {winsdkDir} ({status})");
                 }
-                
-                return 0;
+
+                return Task.FromResult(0);
             }
             catch (Exception ex)
             {
@@ -81,8 +89,8 @@ internal class GetWinsdkPathCommand : Command
                 {
                     Console.Error.WriteLine($"{(global ? "Global" : "Local")} winsdk directory not found");
                 }
-                return 1;
+                return Task.FromResult(1);
             }
-        });
+        }
     }
 }
