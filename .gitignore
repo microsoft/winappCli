@@ -197,3 +197,5 @@ src/**/portfile-cli-test/*
 vcpkg_installed/
 
 CMakeCache.txt
+
+/artifacts
