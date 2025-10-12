@@ -82,9 +82,15 @@ jobs:
     - name: Prepare Release Assets
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
+        $version = "${{ steps.build.outputs.version }}"
+        
         # Create a zip of the MSIX bundle distribution folder
-        Compress-Archive -Path "artifacts\msix-bundle\*" -DestinationPath "artifacts\msix-bundle.zip" -Force
-        Write-Host "Created msix-bundle.zip"
+        Compress-Archive -Path "artifacts\msix-bundle\*" -DestinationPath "artifacts\msix-$version.zip" -Force
+        Write-Host "Created msix-$version.zip"
+        
+        # Create a zip of the CLI binaries (both x64 and arm64)
+        Compress-Archive -Path "artifacts\cli\*" -DestinationPath "artifacts\binaries-$version.zip" -Force
+        Write-Host "Created binaries-$version.zip"
     
     # Create GitHub pre-release (only on push to main)
     - name: Create Pre-Release
@@ -103,24 +109,29 @@ jobs:
           Build Number: `${{ steps.build.outputs.build_number }}`
           Commit: `${{ github.sha }}`
           
-          ## Installation
+          ## Installation Options
           
-          ### Windows MSIX Bundle
-          1. Download `msix-bundle.zip`
+          ### 🪟 Windows MSIX Bundle (Recommended)
+          1. Download `msix-${{ steps.build.outputs.version }}.zip`
           2. Extract the archive
           3. Double-click `install.cmd`
           4. Allow elevation when prompted
           
-          ### NPM Package
+          ### 📦 Standalone CLI Binaries
+          1. Download `binaries-${{ steps.build.outputs.version }}.zip`
+          2. Extract to your desired location
+          3. Add to PATH or run directly: `win-x64\Winsdk.Cli.exe` or `win-arm64\Winsdk.Cli.exe`
+          
+          ### 📚 NPM Package (for Electron or NodeJS)
           ```bash
-          npm install @microsoft/winsdk-${{ steps.build.outputs.version }}.tgz
+          npm install microsoft-winsdk-${{ steps.build.outputs.version }}.tgz
           ```
           
           ## What's Included
-          - ✅ x64 and ARM64 Windows binaries
-          - ✅ Self-signed development certificate
-          - ✅ Automated installer script
-          - ✅ NPM package for Node.js integration
+          - ✅ MSIX Bundle with automated installer
+          - ✅ Standalone CLI binaries (x64 and ARM64)
+          - ✅ NPM package for NodeJS/Electron integration
         files: |
-          artifacts/msix-bundle.zip
+          artifacts/msix-*.zip
+          artifacts/binaries-*.zip
           artifacts/*.tgz
