@@ -24,7 +24,7 @@ param(
     [switch]$Clean = $false,
     [switch]$SkipTests = $false,
     [switch]$FailOnTestFailure = $false,
-    [switch]$SkipMsix = $false
+    [switch]$SkipMsix = $true
 )
 
 # Ensure we're running from the project root

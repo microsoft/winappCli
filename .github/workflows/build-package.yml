@@ -66,17 +66,17 @@ jobs:
         name: npm-package
         path: artifacts/*.tgz
     
-    - name: Upload MSIX bundle distribution
-      uses: actions/upload-artifact@v4
-      with:
-        name: msix-bundle
-        path: artifacts/msix-bundle/
+    # - name: Upload MSIX bundle distribution
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: msix-bundle
+    #     path: artifacts/msix-bundle/
     
-    - name: Upload MSIX layout
-      uses: actions/upload-artifact@v4
-      with:
-        name: msix-layout
-        path: artifacts/msix-layout/
+    # - name: Upload MSIX layout
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: msix-layout
+    #     path: artifacts/msix-layout/
     
     # Prepare release assets (only on push to main)
     - name: Prepare Release Assets
@@ -84,9 +84,9 @@ jobs:
       run: |
         $version = "${{ steps.build.outputs.version }}"
         
-        # Create a zip of the MSIX bundle distribution folder
-        Compress-Archive -Path "artifacts\msix-bundle\*" -DestinationPath "artifacts\msix-$version.zip" -Force
-        Write-Host "Created msix-$version.zip"
+        # # Create a zip of the MSIX bundle distribution folder
+        # Compress-Archive -Path "artifacts\msix-bundle\*" -DestinationPath "artifacts\msix-$version.zip" -Force
+        # Write-Host "Created msix-$version.zip"
         
         # Create a zip of the CLI binaries (both x64 and arm64)
         Compress-Archive -Path "artifacts\cli\*" -DestinationPath "artifacts\binaries-$version.zip" -Force
@@ -111,12 +111,6 @@ jobs:
           
           ## Installation Options
           
-          ### 🪟 Windows MSIX Bundle (Recommended)
-          1. Download `msix-${{ steps.build.outputs.version }}.zip`
-          2. Extract the archive
-          3. Double-click `install.cmd`
-          4. Allow elevation when prompted
-          
           ### 📦 Standalone CLI Binaries
           1. Download `binaries-${{ steps.build.outputs.version }}.zip`
           2. Extract to your desired location
@@ -128,10 +122,8 @@ jobs:
           ```
           
           ## What's Included
-          - ✅ MSIX Bundle with automated installer
           - ✅ Standalone CLI binaries (x64 and ARM64)
           - ✅ NPM package for NodeJS/Electron integration
         files: |
-          artifacts/msix-*.zip
           artifacts/binaries-*.zip
           artifacts/*.tgz

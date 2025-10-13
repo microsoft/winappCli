@@ -26,7 +26,6 @@ Download automated nightly builds from GitHub Releases.
 
 | Package | Description | Use Case |
 |---------|-------------|----------|
-| **`msix-[version].zip`** | 🪟 Windows MSIX Bundle | Easiest installation - double-click `install.cmd` |
 | **`binaries-[version].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
 | **`microsoft-winsdk-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
 
