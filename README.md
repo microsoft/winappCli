@@ -1,4 +1,4 @@
-# Windows Developer CLI
+# Windows Development CLI
 
 The winsdk command line utility provides tools and helpers for building and packaging Windows applications. It helps with:
 * **Using modern Windows APIs** - bootstrapping and setup of the Windows SDK and Windows App SDK
@@ -7,8 +7,6 @@ The winsdk command line utility provides tools and helpers for building and pack
 * `+` generating and managing **manifests**, **certificates**, **assets**, and more
 
 If you're building a Windows application with cross-platform frameworks like Electron, Qt, or Flutter - or with any non-MSBuild/Visual Studio workflows like CMake - this CLI is for you.
-
-[Read the docs](./docs)
 
 ## Installation
 
