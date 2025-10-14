@@ -5,23 +5,35 @@ steps:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
 - task: CopyFiles@2
-  displayName: Copy Artifacts
+  displayName: Copy Artifacts - Test Results
   inputs:
     sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/'
-    contents: '**/*'
-    targetFolder: '$(Build.ArtifactStagingDirectory)'
+    contents: '**/*.trx'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/TestResults'
 - task: 1ES.PublishPipelineArtifact@1
   displayName: Upload Artifact - Test Results
   inputs:
-    path: '$(Build.ArtifactStagingDirectory)/TestResults/*.trx'
+    path: '$(Build.ArtifactStagingDirectory)/TestResults'
     artifactName: test-results
+- task: CopyFiles@2
+  displayName: Copy Artifacts - CLI Binaries
+  inputs:
+    sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/cli/'
+    contents: '**'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/cli'
 - task: 1ES.PublishPipelineArtifact@1
   displayName: Upload Artifact - CLI Binaries
   inputs:
-    path: '$(Build.ArtifactStagingDirectory)/cli/**.*'
+    path: '$(Build.ArtifactStagingDirectory)/cli'
     artifactName: cli-binaries
+- task: CopyFiles@2
+  displayName: Copy Artifacts - NPM Package
+  inputs:
+    sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/'
+    contents: '*.tgz'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/npmpackage'
 - task: 1ES.PublishPipelineArtifact@1
   displayName: Upload Artifact - NPM Package
   inputs:
-    path: '$(Build.ArtifactStagingDirectory)/*.tgz'
+    path: '$(Build.ArtifactStagingDirectory)/npmpackage'
     artifactName: npm-package
