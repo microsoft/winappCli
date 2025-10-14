@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using Winsdk.Cli.Commands;
 using Winsdk.Cli.Services;
 
@@ -58,6 +59,10 @@ public class SignCommandTests : BaseCommandTests
                 // Ignore cleanup errors
             }
         }
+
+        // Clean up any test certificates that might have been left in the certificate store
+        // This is optional but helps keep the certificate store clean during development
+        CleanupInvalidTestCertificatesFromStore("CN=WinsdkTestPublisher");
     }
 
     /// <summary>
@@ -73,19 +78,164 @@ public class SignCommandTests : BaseCommandTests
 
     /// <summary>
     /// Creates a test certificate for signing operations
+    /// Checks for existing test certificates in the certificate store and cleans up invalid ones
     /// </summary>
     private async Task CreateTestCertificateAsync()
     {
-        // Generate a test certificate using CertificateServices
+        const string testPublisher = "CN=WinsdkTestPublisher";
+        const string testPassword = "testpassword";
+
+        // Clean up any invalid test certificates from the certificate store first
+        CleanupInvalidTestCertificatesFromStore(testPublisher);
+
+        // Check if we have a valid certificate already installed
+        if (HasValidTestCertificateInStore(testPublisher))
+        {
+            // We have a valid certificate in the store, just create the PFX file if it doesn't exist
+            if (!File.Exists(_testCertificatePath) || !IsCertificateFileValid(_testCertificatePath, testPassword))
+            {
+                // Export the existing certificate from the store to create the PFX file
+                ExportCertificateFromStore(testPublisher, testPassword, _testCertificatePath);
+            }
+            return;
+        }
+
+        // No valid certificate exists, generate a new one
         var result = await _certificateService.GenerateDevCertificateAsync(
-            publisher: "CN=WinsdkTestPublisher",
+            publisher: testPublisher,
             outputPath: _testCertificatePath,
-            password: "testpassword",
+            password: testPassword,
             validDays: 30,
-            verbose: true);
+            verbose: false); // Set to false to reduce test output noise
 
         Assert.IsNotNull(result, "Certificate generation should succeed");
         Assert.IsTrue(File.Exists(_testCertificatePath), "Certificate file should exist");
+    }
+
+    /// <summary>
+    /// Checks if a certificate file exists, can be loaded, and is still valid (not expired)
+    /// </summary>
+    /// <param name="certPath">Path to the certificate file</param>
+    /// <param name="password">Certificate password</param>
+    /// <returns>True if the certificate file is valid and usable</returns>
+    private static bool IsCertificateFileValid(string certPath, string password)
+    {
+        if (!File.Exists(certPath))
+            return false;
+
+        try
+        {
+            // Check if certificate can be loaded with the correct password
+            if (!TestCertificateUtils.CanLoadCertificate(certPath, password))
+                return false;
+
+            // Check if certificate is not expired
+            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
+                certPath, password, X509KeyStorageFlags.Exportable);
+
+            var now = DateTime.UtcNow;
+            return now >= cert.NotBefore && now <= cert.NotAfter;
+        }
+        catch
+        {
+            // If any operation fails, consider the certificate invalid
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if there's a valid test certificate with the specified subject in the CurrentUser\My store
+    /// </summary>
+    /// <param name="subjectName">Certificate subject name (e.g., "CN=WinsdkTestPublisher")</param>
+    /// <returns>True if a valid certificate exists in the store</returns>
+    private static bool HasValidTestCertificateInStore(string subjectName)
+    {
+        try
+        {
+            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadOnly);
+
+            var certificates = store.Certificates.Find(X509FindType.FindBySubjectName, subjectName.Replace("CN=", ""), false);
+
+            foreach (X509Certificate2 cert in certificates)
+            {
+                var now = DateTime.UtcNow;
+                if (now >= cert.NotBefore && now <= cert.NotAfter && cert.HasPrivateKey)
+                {
+                    return true; // Found a valid certificate
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            // If we can't check the store, assume no valid certificate
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Removes invalid test certificates from the CurrentUser\My certificate store
+    /// </summary>
+    /// <param name="subjectName">Certificate subject name to clean up</param>
+    private static void CleanupInvalidTestCertificatesFromStore(string subjectName)
+    {
+        try
+        {
+            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadWrite);
+
+            var certificates = store.Certificates.Find(X509FindType.FindBySubjectName, subjectName.Replace("CN=", ""), false);
+            var now = DateTime.UtcNow;
+
+            foreach (X509Certificate2 cert in certificates)
+            {
+                // Remove expired certificates or certificates without private keys
+                if (now < cert.NotBefore || now > cert.NotAfter || !cert.HasPrivateKey)
+                {
+                    store.Remove(cert);
+                }
+            }
+        }
+        catch
+        {
+            // Ignore cleanup errors - not critical for test functionality
+        }
+    }
+
+    /// <summary>
+    /// Exports an existing certificate from the store to a PFX file
+    /// </summary>
+    /// <param name="subjectName">Certificate subject name</param>
+    /// <param name="password">Password for the PFX file</param>
+    private static void ExportCertificateFromStore(string subjectName, string password, string outputPath)
+    {
+        try
+        {
+            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadOnly);
+
+            var certificates = store.Certificates.Find(X509FindType.FindBySubjectName, subjectName.Replace("CN=", ""), false);
+
+            foreach (X509Certificate2 cert in certificates)
+            {
+                var now = DateTime.UtcNow;
+                if (now >= cert.NotBefore && now <= cert.NotAfter && cert.HasPrivateKey)
+                {
+                    // Export the certificate as PFX
+                    var pfxData = cert.Export(X509ContentType.Pfx, password);
+                    File.WriteAllBytes(outputPath, pfxData);
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException($"No valid certificate found in store with subject: {subjectName}");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to export certificate from store: {ex.Message}", ex);
+        }
     }
 
     [TestMethod]
@@ -94,7 +244,7 @@ public class SignCommandTests : BaseCommandTests
         // This test verifies that the signing command processes correctly up to the point 
         // where it calls signtool. The actual signing will fail because our fake exe 
         // isn't a real PE file, but that's expected and shows the command flow works.
-        
+
         // Arrange
         var command = GetRequiredService<SignCommand>();
         var args = new[]
@@ -117,7 +267,7 @@ public class SignCommandTests : BaseCommandTests
         // 3. signtool was found and executed
         // 4. The error was handled gracefully
         Assert.AreEqual(1, exitCode, "Sign command should fail gracefully for invalid executable format");
-        
+
         // Verify that the original file still exists
         Assert.IsTrue(File.Exists(_testExecutablePath), "Original executable should still exist after failed signing");
     }
@@ -188,7 +338,7 @@ public class SignCommandTests : BaseCommandTests
     public async Task SignCommandWithTimestampShouldAttemptSigning()
     {
         // Similar to the main signing test, this verifies the timestamp parameter is processed correctly
-        
+
         // Arrange
         var command = GetRequiredService<SignCommand>();
         var timestampUrl = "http://timestamp.digicert.com";
@@ -209,7 +359,7 @@ public class SignCommandTests : BaseCommandTests
         // We expect this to fail because our fake executable isn't a real PE file
         // But this confirms the timestamp parameter was processed correctly
         Assert.AreEqual(1, exitCode, "Sign command with timestamp should fail gracefully for invalid executable format");
-        
+
         // Verify that the file still exists
         Assert.IsTrue(File.Exists(_testExecutablePath), "Original executable should still exist after failed signing");
     }
@@ -234,7 +384,7 @@ public class SignCommandTests : BaseCommandTests
         // Assert
         Assert.IsNotNull(parseResult, "Parse result should not be null");
         Assert.IsEmpty(parseResult.Errors, "There should be no parsing errors");
-        
+
         // Verify that the command was parsed successfully by checking there are no errors
         // Note: The actual argument values are harder to extract in System.CommandLine 2.0
         // but we can verify the parsing worked by absence of errors
@@ -245,7 +395,7 @@ public class SignCommandTests : BaseCommandTests
     {
         // This test directly calls the CertificateServices.SignFileAsync method
         // to ensure it works correctly without going through the command parsing layer
-        
+
         // Act & Assert
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
         {
@@ -260,7 +410,7 @@ public class SignCommandTests : BaseCommandTests
                 timestampUrl: null,
                 verbose: true);
         }, "SignFileAsync should throw when file cannot be signed or BuildTools are not available");
-        
+
         // The exception is guaranteed to be non-null and of the exact type
         // We could add additional assertions on the exception properties if needed
         // Assert.That.StringContains(exception.Message, "expected text");
@@ -286,16 +436,16 @@ public class SignCommandTests : BaseCommandTests
     {
         // Arrange
         var originalDirectory = Directory.GetCurrentDirectory();
-        
+
         try
         {
             // Change to temp directory
             Directory.SetCurrentDirectory(_tempDirectory);
-            
+
             var command = GetRequiredService<SignCommand>();
             var relativeExePath = Path.GetFileName(_testExecutablePath);
             var relativeCertPath = Path.GetFileName(_testCertificatePath);
-            
+
             var args = new[]
             {
                 relativeExePath,
@@ -322,14 +472,14 @@ public class SignCommandTests : BaseCommandTests
     public void CertificateGenerationShouldCreateValidCertificate()
     {
         // This test verifies that the certificate creation worked properly
-        
+
         // Assert
         Assert.IsTrue(File.Exists(_testCertificatePath), "Certificate file should exist");
-        
+
         // Verify the certificate can be loaded (this tests our certificate generation)
         var canLoad = TestCertificateUtils.CanLoadCertificate(_testCertificatePath, "testpassword");
         Assert.IsTrue(canLoad, "Generated certificate should be loadable with correct password");
-        
+
         // Verify wrong password fails
         var canLoadWrong = TestCertificateUtils.CanLoadCertificate(_testCertificatePath, "wrongpassword");
         Assert.IsFalse(canLoadWrong, "Certificate should not load with wrong password");
@@ -340,10 +490,10 @@ public class SignCommandTests : BaseCommandTests
     {
         // This test verifies that the BuildToolsService correctly detects when tools are missing
         // which is the expected behavior in our test environment
-        
+
         // Arrange & Act
         var toolPath = _buildToolsService.GetBuildToolPath("signtool.exe");
-        
+
         // Assert
         // In our test environment, BuildTools might not be installed, and that's OK
         // This test just verifies the service doesn't crash when tools are missing
