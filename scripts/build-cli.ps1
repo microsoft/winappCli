@@ -66,7 +66,7 @@ if ($LASTEXITCODE -ne 0) {
 # Step 2: Run tests (unless skipped)
 if (-not $SkipTests) {
     Write-Host "[TEST] Running tests..." -ForegroundColor Blue
-    dotnet test $CliSolutionPath -c Release --no-build --logger:"trx;LogFileName=TestResults.trx"
+    dotnet test $CliSolutionPath -c Release --no-build --results-directory .\TestResults -- --report-trx
     $TestExitCode = $LASTEXITCODE
     
     if ($TestExitCode -ne 0) {
