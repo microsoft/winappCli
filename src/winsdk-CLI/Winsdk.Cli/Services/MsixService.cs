@@ -745,7 +745,7 @@ internal class MsixService : IMsixService
             // Handle certificate generation and signing
             if (autoSign)
             {
-                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, verbose, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, cancellationToken);
+                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, verbose, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, resolvedManifestPath, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -1025,7 +1025,7 @@ internal class MsixService : IMsixService
         await File.WriteAllTextAsync(outAppManifestPath, manifestContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
     }
 
-    private async Task SignMsixPackageAsync(string outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, bool verbose, string finalPackageName, string? extractedPublisher, string outputMsixPath, string? certPath, CancellationToken cancellationToken)
+    private async Task SignMsixPackageAsync(string outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, bool verbose, string finalPackageName, string? extractedPublisher, string outputMsixPath, string? certPath, string resolvedManifestPath, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(certPath) && generateDevCert)
         {
@@ -1043,6 +1043,27 @@ internal class MsixService : IMsixService
 
         if (string.IsNullOrWhiteSpace(certPath))
             throw new InvalidOperationException("Certificate path required for signing. Provide certificatePath or set generateDevCert to true.");
+
+        // Validate that the certificate publisher matches the manifest publisher
+        if (verbose)
+        {
+            Console.WriteLine("🔍 Validating certificate and manifest publishers match...");
+        }
+
+        try
+        {
+            await CertificateService.ValidatePublisherMatchAsync(certPath, certificatePassword, resolvedManifestPath, cancellationToken);
+            
+            if (verbose)
+            {
+                Console.WriteLine("✅ Certificate and manifest publishers match");
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Re-throw with the specific error message format requested
+            throw new InvalidOperationException(ex.Message, ex);
+        }
 
         // Install certificate if requested
         if (installDevCert)

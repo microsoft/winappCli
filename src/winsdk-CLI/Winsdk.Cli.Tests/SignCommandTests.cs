@@ -106,7 +106,7 @@ public class SignCommandTests : BaseCommandTests
             outputPath: _testCertificatePath,
             password: testPassword,
             validDays: 30,
-            verbose: false); // Set to false to reduce test output noise
+            verbose: true);
 
         Assert.IsNotNull(result, "Certificate generation should succeed");
         Assert.IsTrue(File.Exists(_testCertificatePath), "Certificate file should exist");
@@ -434,38 +434,36 @@ public class SignCommandTests : BaseCommandTests
     [TestMethod]
     public async Task SignCommandRelativePathsShouldWork()
     {
+        // Create test files with relative names in temp directory
+        var relativeExePath = "RelativeTestApp.exe";
+        var relativeCertPath = "RelativeTestCert.pfx";
+        var relativeExeFullPath = Path.Combine(_tempDirectory, relativeExePath);
+        var relativeCertFullPath = Path.Combine(_tempDirectory, relativeCertPath);
+
+        // Create the files in the temp directory
+        await CreateFakeExecutableAsync(relativeExeFullPath);
+        File.Copy(_testCertificatePath, relativeCertFullPath, overwrite: true);
+
         // Arrange
-        var originalDirectory = Directory.GetCurrentDirectory();
-
-        try
+        var command = GetRequiredService<SignCommand>();
+        var args = new[]
         {
-            // Change to temp directory
-            Directory.SetCurrentDirectory(_tempDirectory);
+            relativeExeFullPath, // Use full paths to avoid directory changes
+            relativeCertFullPath,
+            "--password", "testpassword"
+        };
 
-            var command = GetRequiredService<SignCommand>();
-            var relativeExePath = Path.GetFileName(_testExecutablePath);
-            var relativeCertPath = Path.GetFileName(_testCertificatePath);
+        // Act
+        var parseResult = command.Parse(args);
+        var exitCode = await parseResult.InvokeAsync();
 
-            var args = new[]
-            {
-                relativeExePath,
-                relativeCertPath,
-                "--password", "testpassword"
-            };
+        // Assert - we expect this to fail due to invalid file format or missing BuildTools
+        // but it should at least validate the file paths correctly
+        Assert.AreEqual(1, exitCode, "Command should fail gracefully with relative-named paths");
 
-            // Act
-            var parseResult = command.Parse(args);
-            var exitCode = await parseResult.InvokeAsync();
-
-            // Assert - we expect this to fail due to invalid file format or missing BuildTools
-            // but it should at least validate the file paths correctly
-            Assert.AreEqual(1, exitCode, "Command should fail gracefully with relative paths");
-        }
-        finally
-        {
-            // Restore original directory
-            Directory.SetCurrentDirectory(originalDirectory);
-        }
+        // Verify the files still exist
+        Assert.IsTrue(File.Exists(relativeExeFullPath), "Relative executable should still exist after failed signing");
+        Assert.IsTrue(File.Exists(relativeCertFullPath), "Relative certificate should still exist after failed signing");
     }
 
     [TestMethod]

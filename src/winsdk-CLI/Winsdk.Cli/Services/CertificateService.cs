@@ -15,15 +15,11 @@ internal class CertificateService : ICertificateService
         _powerShellService = powerShellService;
     }
 
-    /// <summary>
-    /// Gets the default environment variables for certificate operations to prevent PowerShell Core conflicts
-    /// </summary>
-    /// <returns>Dictionary with PSModulePath cleared</returns>
     private static Dictionary<string, string> GetCertificateEnvironmentVariables()
     {
         return new Dictionary<string, string>
         {
-            ["PSModulePath"] = "" // Clear to prevent PowerShell Core module conflicts
+            ["PSModulePath"] = "C:\\Program Files\\WindowsPowerShell\\Modules;C:\\WINDOWS\\system32\\WindowsPowerShell\\v1.0\\Modules"
         };
     }
 
@@ -60,8 +56,8 @@ internal class CertificateService : ICertificateService
         // Ensure we have a proper CN format
         var subjectName = $"CN={cleanPublisher}";
 
-        var command = $"New-SelfSignedCertificate -Type Custom -Subject '{subjectName}' -KeyUsage DigitalSignature -FriendlyName 'MSIX Dev Certificate' -CertStoreLocation 'Cert:\\CurrentUser\\My' -KeyProtection None -KeyExportPolicy Exportable -Provider 'Microsoft Software Key Storage Provider' -TextExtension @('2.5.29.37={{text}}1.3.6.1.5.5.7.3.3', '2.5.29.19={{text}}') -NotAfter (Get-Date).AddDays({validDays}) | Export-PfxCertificate -FilePath '{outputPath}' -Password (ConvertTo-SecureString -String '{password}' -Force -AsPlainText)";
-
+        var command = $"$dest='{outputPath}';$cert=New-SelfSignedCertificate -Type Custom -Subject '{subjectName}' -KeyUsage DigitalSignature -FriendlyName 'MSIX Dev Certificate' -CertStoreLocation 'Cert:\\CurrentUser\\My' -KeyProtection None -KeyExportPolicy Exportable -Provider 'Microsoft Software Key Storage Provider' -TextExtension @('2.5.29.37={{text}}1.3.6.1.5.5.7.3.3', '2.5.29.19={{text}}') -NotAfter (Get-Date).AddDays({validDays}); Export-PfxCertificate -Cert $cert -FilePath $dest -Password (ConvertTo-SecureString -String '{password}' -Force -AsPlainText) -Force";
+        
         if (verbose)
         {
             Console.WriteLine($"Generating development certificate for publisher: {cleanPublisher}");
@@ -331,6 +327,82 @@ internal class CertificateService : ICertificateService
                 Console.WriteLine($"{UiSymbols.Note} Failed to generate development certificate (use --verbose for details)");
             }
             throw; // Re-throw for callers that want to handle the error differently
+        }
+    }
+
+    /// <summary>
+    /// Extracts the publisher name from a certificate file
+    /// </summary>
+    /// <param name="certificatePath">Path to the certificate file (.pfx)</param>
+    /// <param name="password">Certificate password</param>
+    /// <returns>Publisher name (without CN= prefix)</returns>
+    /// <exception cref="FileNotFoundException">Certificate file not found</exception>
+    /// <exception cref="InvalidOperationException">Certificate cannot be loaded or has no subject</exception>
+    public static string ExtractPublisherFromCertificate(string certificatePath, string password)
+    {
+        if (!File.Exists(certificatePath))
+            throw new FileNotFoundException($"Certificate file not found: {certificatePath}");
+
+        try
+        {
+            using var cert = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12FromFile(
+                certificatePath, password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.Exportable);
+
+            var subject = cert.Subject;
+            if (string.IsNullOrWhiteSpace(subject))
+                throw new InvalidOperationException("Certificate has no subject information");
+
+            // Extract CN from the subject (format: "CN=Publisher, O=Organization, ...")
+            var cnMatch = System.Text.RegularExpressions.Regex.Match(subject, @"CN=([^,]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!cnMatch.Success)
+                throw new InvalidOperationException($"Certificate subject does not contain CN field: {subject}");
+
+            var publisher = cnMatch.Groups[1].Value.Trim();
+            
+            // Remove any quotes that might be present
+            publisher = publisher.Trim('"', '\'');
+            
+            return publisher;
+        }
+        catch (Exception ex) when (!(ex is FileNotFoundException || ex is InvalidOperationException))
+        {
+            throw new InvalidOperationException($"Failed to extract publisher from certificate: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Validates that the publisher in the certificate matches the publisher in the AppX manifest
+    /// </summary>
+    /// <param name="certificatePath">Path to the certificate file</param>
+    /// <param name="password">Certificate password</param>
+    /// <param name="manifestPath">Path to the AppX manifest file</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <exception cref="InvalidOperationException">Publishers don't match or validation failed</exception>
+    public static async Task ValidatePublisherMatchAsync(string certificatePath, string password, string manifestPath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Extract publisher from certificate
+            var certPublisher = ExtractPublisherFromCertificate(certificatePath, password);
+            
+            // Extract publisher from manifest
+            var manifestIdentity = await MsixService.ParseAppxManifestFromPathAsync(manifestPath, cancellationToken);
+            var manifestPublisher = manifestIdentity.Publisher;
+            
+            // Normalize both publishers for comparison (remove CN= prefix and quotes)
+            var normalizedCertPublisher = ManifestTemplateService.StripCnPrefix(certPublisher);
+            var normalizedManifestPublisher = ManifestTemplateService.StripCnPrefix(manifestPublisher);
+            
+            // Compare publishers (case-insensitive)
+            if (!string.Equals(normalizedCertPublisher, normalizedManifestPublisher, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Error: Publisher in {manifestPath} (CN={normalizedManifestPublisher}) does not match the publisher in the certificate {certificatePath} (CN={normalizedCertPublisher}).");
+            }
+        }
+        catch (Exception ex) when (!(ex is InvalidOperationException))
+        {
+            throw new InvalidOperationException($"Failed to validate publisher match: {ex.Message}", ex);
         }
     }
 

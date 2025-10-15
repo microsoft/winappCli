@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Tests;
@@ -10,6 +11,7 @@ public class PackageCommandTests : BaseCommandTests
     private IConfigService _configService = null!;
     private IBuildToolsService _buildToolsService = null!;
     private IMsixService _msixService = null!;
+    private ICertificateService _certificateService = null!;
 
     /// <summary>
     /// Standard test manifest content for use across multiple tests
@@ -57,11 +59,33 @@ public class PackageCommandTests : BaseCommandTests
 
         _buildToolsService = GetRequiredService<IBuildToolsService>();
         _msixService = GetRequiredService<IMsixService>();
+        _certificateService = GetRequiredService<ICertificateService>();
     }
 
     [TestCleanup]
     public void Cleanup()
     {
+        // Clean up test certificates from the certificate store
+        // This prevents test certificates from accumulating in the CurrentUser\My store
+        // and potentially interfering with other tests or system operations.
+        // The cleanup logic matches the pattern used in SignCommandTests.cs
+        var testCertificatePublishers = new[]
+        {
+            "CN=TestPublisher",
+            "CN=WrongPublisher",
+            "CN=ExternalTestPublisher",
+            "CN=DifferentPublisher",
+            "CN=TestCertificatePublisher",
+            "CN=PasswordTestPublisher",
+            "CN=CommonValidationPublisher",
+            "CN=CertificatePublisher"
+        };
+
+        foreach (var publisher in testCertificatePublishers)
+        {
+            CleanupInvalidTestCertificatesFromStore(publisher);
+        }
+
         // Clean up temporary files and directories
         if (Directory.Exists(_tempDirectory))
         {
@@ -122,6 +146,33 @@ public class PackageCommandTests : BaseCommandTests
     </Application>
   </Applications>
 </Package>";
+    }
+
+    /// <summary>
+    /// Removes test certificates from the CurrentUser\My certificate store
+    /// This ensures test certificates don't accumulate and interfere with other tests
+    /// </summary>
+    /// <param name="subjectName">Certificate subject name to clean up (e.g., "CN=TestPublisher")</param>
+    private static void CleanupInvalidTestCertificatesFromStore(string subjectName)
+    {
+        try
+        {
+            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadWrite);
+
+            var certificates = store.Certificates.Find(X509FindType.FindBySubjectName, subjectName.Replace("CN=", ""), false);
+
+            foreach (X509Certificate2 cert in certificates)
+            {
+                // Remove all test certificates - we don't need datetime logic
+                store.Remove(cert);
+            }
+        }
+        catch
+        {
+            // Ignore cleanup errors - not critical for test functionality
+            // The certificate store cleanup is a best-effort operation
+        }
     }
 
     [TestMethod]
@@ -222,7 +273,7 @@ public class PackageCommandTests : BaseCommandTests
                 packageName: "TestPackage",
                 skipPri: true,
                 autoSign: false,
-                verbose: false,
+                verbose: true,
                 cancellationToken: CancellationToken.None
             );
         }, "Expected DirectoryNotFoundException when input folder does not exist.");
@@ -247,7 +298,7 @@ public class PackageCommandTests : BaseCommandTests
                 packageName: "TestPackage",
                 skipPri: true,
                 autoSign: false,
-                verbose: false,
+                verbose: true,
                 cancellationToken: CancellationToken.None
             );
         }, "Expected FileNotFoundException when manifest file is missing.");
@@ -302,5 +353,234 @@ public class PackageCommandTests : BaseCommandTests
         Assert.IsTrue(File.Exists(externalManifestPath), "External manifest should still exist");
         Assert.IsTrue(File.Exists(Path.Combine(externalAssetsDir, "Logo.png")), "External Logo.png should still exist");
         Assert.IsTrue(File.Exists(Path.Combine(externalAssetsDir, "StoreLogo.png")), "External StoreLogo.png should still exist");
+    }
+
+    [TestMethod]
+    public async Task CreateMsixPackageAsync_WithSigningAndMatchingPublishers_ShouldSucceed()
+    {
+        // Arrange - Create package structure
+        var packageDir = Path.Combine(_tempDirectory, "SigningTestPackage");
+        CreateTestPackageStructure(packageDir);
+
+        // Create a certificate with the same publisher as the manifest
+        var certPath = Path.Combine(_tempDirectory, "matching_cert.pfx");
+        const string testPassword = "testpassword123";
+        const string testPublisher = "CN=TestPublisher"; // This matches StandardTestManifestContent
+
+        var certResult = await _certificateService.GenerateDevCertificateAsync(
+            testPublisher, certPath, testPassword, verbose: true);
+
+        // Create minimal winsdk.yaml
+        await File.WriteAllTextAsync(_configService.ConfigPath, "packages: []");
+
+        // Act & Assert - This should succeed because publishers match
+        var result = await _msixService.CreateMsixPackageAsync(
+            inputFolder: packageDir,
+            outputPath: null,
+            packageName: "SigningTestPackage",
+            skipPri: true,
+            autoSign: true,
+            certificatePath: certPath,
+            certificatePassword: testPassword,
+            verbose: true,
+            cancellationToken: CancellationToken.None
+        );
+
+        // Verify the package was created and signed
+        Assert.IsNotNull(result, "Result should not be null");
+        Assert.IsTrue(result.Signed, "Package should be marked as signed");
+        Assert.IsTrue(File.Exists(result.MsixPath), "MSIX package file should exist");
+    }
+
+    [TestMethod]
+    public async Task CreateMsixPackageAsync_WithSigningAndMismatchedPublishers_ShouldFail()
+    {
+        // Arrange - Create package structure
+        var packageDir = Path.Combine(_tempDirectory, "MismatchedSigningTest");
+        CreateTestPackageStructure(packageDir);
+
+        // Create a certificate with a DIFFERENT publisher than the manifest
+        var certPath = Path.Combine(_tempDirectory, "mismatched_cert.pfx");
+        const string testPassword = "testpassword123";
+        const string wrongPublisher = "CN=WrongPublisher"; // This does NOT match StandardTestManifestContent
+
+        var certResult = await _certificateService.GenerateDevCertificateAsync(
+            wrongPublisher, certPath, testPassword, verbose: true);
+
+        // Create minimal winsdk.yaml
+        await File.WriteAllTextAsync(_configService.ConfigPath, "packages: []");
+
+        // Act & Assert - This should fail because publishers don't match
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
+        {
+            await _msixService.CreateMsixPackageAsync(
+                inputFolder: packageDir,
+                outputPath: null,
+                packageName: "MismatchedSigningTest",
+                skipPri: true,
+                autoSign: true,
+                certificatePath: certPath,
+                certificatePassword: testPassword,
+                verbose: true,
+                cancellationToken: CancellationToken.None
+            );
+        });
+
+        // Verify the error message contains the expected format
+        Assert.Contains("Publisher in", ex.Message, "Error should mention manifest publisher");
+        Assert.Contains("does not match the publisher in the certificate", ex.Message, "Error should mention certificate publisher mismatch");
+        Assert.Contains("CN=TestPublisher", ex.Message, "Error should show manifest publisher");
+        Assert.Contains("CN=WrongPublisher", ex.Message, "Error should show certificate publisher");
+    }
+
+    [TestMethod]
+    public async Task CreateMsixPackageAsync_WithExternalManifestAndMismatchedCertificate_ShouldFail()
+    {
+        // Arrange - Create input folder and external manifest with different publisher
+        var packageDir = Path.Combine(_tempDirectory, "ExternalMismatchTest");
+        Directory.CreateDirectory(packageDir);
+        File.WriteAllText(Path.Combine(packageDir, "TestApp.exe"), "fake exe content");
+
+        // Create external manifest with specific publisher
+        var externalManifestDir = Path.Combine(_tempDirectory, "ExternalManifestForMismatch");
+        Directory.CreateDirectory(externalManifestDir);
+        var externalManifestPath = Path.Combine(externalManifestDir, "AppxManifest.xml");
+        await File.WriteAllTextAsync(externalManifestPath, CreateExternalTestManifest()); // Uses "CN=ExternalTestPublisher"
+
+        // Create certificate with different publisher
+        var certPath = Path.Combine(_tempDirectory, "external_mismatch_cert.pfx");
+        const string testPassword = "testpassword123";
+        const string wrongPublisher = "CN=DifferentPublisher";
+
+        await _certificateService.GenerateDevCertificateAsync(
+            wrongPublisher, certPath, testPassword, verbose: true);
+
+        // Create minimal winsdk.yaml
+        await File.WriteAllTextAsync(_configService.ConfigPath, "packages: []");
+
+        // Act & Assert - Should fail due to publisher mismatch
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
+        {
+            await _msixService.CreateMsixPackageAsync(
+                inputFolder: packageDir,
+                outputPath: null,
+                packageName: "ExternalMismatchTest",
+                skipPri: true,
+                autoSign: true,
+                certificatePath: certPath,
+                certificatePassword: testPassword,
+                manifestPath: externalManifestPath,
+                verbose: true,
+                cancellationToken: CancellationToken.None
+            );
+        });
+
+        // Verify error message format
+        Assert.Contains("CN=ExternalTestPublisher", ex.Message, "Error should show external manifest publisher");
+        Assert.Contains("CN=DifferentPublisher", ex.Message, "Error should show certificate publisher");
+    }
+
+    [TestMethod]
+    public void CertificateService_ExtractPublisherFromCertificate_ShouldReturnCorrectPublisher()
+    {
+        // This test uses a pre-generated certificate to test publisher extraction
+        // We need to create a test certificate first
+
+        // Arrange
+        var certPath = Path.Combine(_tempDirectory, "publisher_test_cert.pfx");
+        const string testPassword = "testpassword123";
+        const string expectedPublisher = "TestCertificatePublisher";
+        const string testPublisherCN = $"CN={expectedPublisher}";
+
+        // Create a test certificate using the existing certificate service
+        var certResult = _certificateService.GenerateDevCertificateAsync(
+            testPublisherCN, certPath, testPassword, verbose: true).GetAwaiter().GetResult();
+
+        // Act
+        var extractedPublisher = CertificateService.ExtractPublisherFromCertificate(certPath, testPassword);
+
+        // Assert
+        Assert.AreEqual(expectedPublisher, extractedPublisher, "Extracted publisher should match the expected publisher");
+    }
+
+    [TestMethod]
+    public void CertificateService_ExtractPublisherFromCertificate_WithNonExistentFile_ShouldThrow()
+    {
+        // Arrange
+        var nonExistentPath = Path.Combine(_tempDirectory, "nonexistent.pfx");
+
+        // Act & Assert
+        Assert.ThrowsExactly<FileNotFoundException>(() =>
+        {
+            CertificateService.ExtractPublisherFromCertificate(nonExistentPath, "password");
+        });
+    }
+
+    [TestMethod]
+    public void CertificateService_ExtractPublisherFromCertificate_WithWrongPassword_ShouldThrow()
+    {
+        // Arrange - Create test certificate
+        var certPath = Path.Combine(_tempDirectory, "password_test_cert.pfx");
+        const string correctPassword = "correct123";
+        const string wrongPassword = "wrong123";
+
+        _certificateService.GenerateDevCertificateAsync(
+            "CN=PasswordTestPublisher", certPath, correctPassword, verbose: true).GetAwaiter().GetResult();
+
+        // Act & Assert
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+        {
+            CertificateService.ExtractPublisherFromCertificate(certPath, wrongPassword);
+        });
+    }
+
+    [TestMethod]
+    public async Task CertificateService_ValidatePublisherMatch_WithMatchingPublishers_ShouldSucceed()
+    {
+        // Arrange - Create certificate and manifest with same publisher
+        var certPath = Path.Combine(_tempDirectory, "matching_validation_cert.pfx");
+        var manifestPath = Path.Combine(_tempDirectory, "matching_validation_manifest.xml");
+        const string testPassword = "testpassword123";
+        const string commonPublisher = "CN=CommonValidationPublisher";
+
+        // Create certificate
+        await _certificateService.GenerateDevCertificateAsync(
+            commonPublisher, certPath, testPassword, verbose: true);
+
+        // Create manifest with same publisher
+        var manifestContent = StandardTestManifestContent.Replace(
+            "CN=TestPublisher", commonPublisher);
+        await File.WriteAllTextAsync(manifestPath, manifestContent);
+
+        // Act & Assert - Should not throw
+        await CertificateService.ValidatePublisherMatchAsync(certPath, testPassword, manifestPath);
+    }
+
+    [TestMethod]
+    public async Task CertificateService_ValidatePublisherMatch_WithMismatchedPublishers_ShouldThrow()
+    {
+        // Arrange - Create certificate and manifest with different publishers
+        var certPath = Path.Combine(_tempDirectory, "mismatch_validation_cert.pfx");
+        var manifestPath = Path.Combine(_tempDirectory, "mismatch_validation_manifest.xml");
+        const string testPassword = "testpassword123";
+
+        // Create certificate with one publisher
+        await _certificateService.GenerateDevCertificateAsync(
+            "CN=CertificatePublisher", certPath, testPassword, verbose: true);
+
+        // Create manifest with different publisher
+        var manifestContent = StandardTestManifestContent.Replace(
+            "CN=TestPublisher", "CN=ManifestPublisher");
+        await File.WriteAllTextAsync(manifestPath, manifestContent);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
+        {
+            await CertificateService.ValidatePublisherMatchAsync(certPath, testPassword, manifestPath);
+        });
+
+        // Verify error message format matches requirement
+        Assert.Contains($"Error: Publisher in {manifestPath} (CN=ManifestPublisher)", ex.Message);
+        Assert.Contains($"does not match the publisher in the certificate {certPath} (CN=CertificatePublisher)", ex.Message);
     }
 }
