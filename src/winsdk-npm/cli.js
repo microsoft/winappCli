@@ -102,11 +102,11 @@ async function showCombinedHelp() {
   console.log('  node <subcommand>         Node.js-specific commands');
   console.log('');
   console.log('Node.js Subcommands:');
-  console.log('  node addon generate       Generate native addon files for Electron');
+  console.log('  node create-addon         Generate native addon files for Electron');
   console.log('  node add-electron-debug-identity  Add MSIX identity to Electron debug process');
   console.log('');
   console.log('Examples:');
-  console.log(`  ${CLI_NAME} node addon generate --name myAddon`);
+  console.log(`  ${CLI_NAME} node create-addon --name myAddon`);
   console.log(`  ${CLI_NAME} node add-electron-debug-identity`);
 }
 
@@ -165,14 +165,11 @@ async function handleNode(args) {
     console.log('Node.js-specific commands');
     console.log('');
     console.log('Subcommands:');
-    console.log('  addon <subcommand>          Native addon generation commands');
+    console.log('  create-addon                Generate native addon files for Electron');
     console.log('  add-electron-debug-identity Add MSIX identity to Electron debug process');
     console.log('');
-    console.log('Addon Subcommands:');
-    console.log('  addon generate              Generate native addon files for Electron');
-    console.log('');
     console.log('Examples:');
-    console.log(`  ${CLI_NAME} node addon generate --name myAddon`);
+    console.log(`  ${CLI_NAME} node create-addon --name myAddon`);
     console.log(`  ${CLI_NAME} node add-electron-debug-identity`);
     console.log('');
     console.log(`Use "${CLI_NAME} node <subcommand> --help" for detailed help on each subcommand.`);
@@ -183,8 +180,8 @@ async function handleNode(args) {
   const subcommandArgs = args.slice(1);
 
   switch (subcommand) {
-    case 'addon':
-      await handleAddon(subcommandArgs);
+    case 'create-addon':
+      await handleCreateAddon(subcommandArgs);
       break;
       
     case 'add-electron-debug-identity':
@@ -198,45 +195,14 @@ async function handleNode(args) {
   }
 }
 
-async function handleAddon(args) {
-  if (args.length === 0) {
-    console.log(`Usage: ${CLI_NAME} node addon <subcommand> [options]`);
-    console.log('');
-    console.log('Native addon generation commands');
-    console.log('');
-    console.log('Subcommands:');
-    console.log('  generate                    Generate native addon files for Electron');
-    console.log('');
-    console.log('Examples:');
-    console.log(`  ${CLI_NAME} node addon generate --name myAddon`);
-    console.log('');
-    console.log(`Use "${CLI_NAME} node addon <subcommand> --help" for detailed help on each subcommand.`);
-    return;
-  }
-
-  const subcommand = args[0];
-  const subcommandArgs = args.slice(1);
-
-  switch (subcommand) {
-    case 'generate':
-      await handleAddonGenerate(subcommandArgs);
-      break;
-      
-    default:
-      console.error(`❌ Unknown addon subcommand: ${subcommand}`);
-      console.error(`Run "${CLI_NAME} node addon" for available subcommands.`);
-      process.exit(1);
-  }
-}
-
-async function handleAddonGenerate(args) {
+async function handleCreateAddon(args) {
   const options = parseArgs(args, {
     name: 'nativeWindowsAddon',
     verbose: true
   });
 
   if (options.help) {
-    console.log(`Usage: ${CLI_NAME} node addon generate [options]`);
+    console.log(`Usage: ${CLI_NAME} node create-addon [options]`);
     console.log('');
     console.log('Generate native addon files for Electron project');
     console.log('');
@@ -252,8 +218,8 @@ async function handleAddonGenerate(args) {
     console.log('  --help                Show this help');
     console.log('');
     console.log('Examples:');
-    console.log(`  ${CLI_NAME} node addon generate`);
-    console.log(`  ${CLI_NAME} node addon generate --name myCustomAddon`);
+    console.log(`  ${CLI_NAME} node create-addon`);
+    console.log(`  ${CLI_NAME} node create-addon --name myCustomAddon`);
     console.log('');
     console.log('Note: This command must be run from the root of an Electron project');
     console.log('      (directory containing package.json)');
