@@ -35,7 +35,6 @@ internal class RestoreCommand : Command
         Arguments.Add(BaseDirectoryArgument);
         Options.Add(ConfigDirOption);
         Options.Add(QuietOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(IWorkspaceSetupService workspaceSetupService) : AsynchronousCommandLineAction

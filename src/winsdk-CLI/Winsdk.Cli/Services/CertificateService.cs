@@ -59,12 +59,6 @@ internal class CertificateService : ICertificateService
 
         var command = $"$dest='{outputPath}';$cert=New-SelfSignedCertificate -Type Custom -Subject '{subjectName}' -KeyUsage DigitalSignature -FriendlyName 'MSIX Dev Certificate' -CertStoreLocation 'Cert:\\CurrentUser\\My' -KeyProtection None -KeyExportPolicy Exportable -Provider 'Microsoft Software Key Storage Provider' -TextExtension @('2.5.29.37={{text}}1.3.6.1.5.5.7.3.3', '2.5.29.19={{text}}') -NotAfter (Get-Date).AddDays({validDays}); Export-PfxCertificate -Cert $cert -FilePath $dest -Password (ConvertTo-SecureString -String '{password}' -Force -AsPlainText) -Force";
 
-        if (verbose)
-        {
-            Console.WriteLine($"Generating development certificate for publisher: {cleanPublisher}");
-            Console.WriteLine($"Certificate subject: {subjectName}");
-        }
-
         try
         {
             var (exitCode, output) = await _powerShellService.RunCommandAsync(command, verbose: verbose, environmentVariables: GetCertificateEnvironmentVariables(), cancellationToken: cancellationToken);
@@ -289,10 +283,7 @@ internal class CertificateService : ICertificateService
             // Infer publisher using the specified hierarchy
             string publisher = await InferPublisherAsync(explicitPublisher, manifestPath, defaultPublisher, verbose, cancellationToken);
 
-            if (verbose)
-            {
-                Console.WriteLine($"Generating development certificate for publisher: {publisher}");
-            }
+            Console.WriteLine($"Certificate publisher: {publisher}");
 
             // Generate the certificate
             var result = await GenerateDevCertificateAsync(
@@ -315,9 +306,9 @@ internal class CertificateService : ICertificateService
             }
 
             // Display password information
-            if (!quiet)
+            if (!quiet && password == "password")
             {
-                Console.WriteLine($"{UiSymbols.Note} Certificate password: `{password}`");
+                Console.WriteLine($"{UiSymbols.Note} Using default password");
             }
 
             // Install certificate if requested
@@ -452,10 +443,6 @@ internal class CertificateService : ICertificateService
         // 1. If explicit publisher is provided, use that
         if (!string.IsNullOrWhiteSpace(explicitPublisher))
         {
-            if (verbose)
-            {
-                Console.WriteLine($"Using explicit publisher: {explicitPublisher}");
-            }
             return explicitPublisher;
         }
 
@@ -464,11 +451,8 @@ internal class CertificateService : ICertificateService
         {
             try
             {
-                if (verbose)
-                {
-                    Console.WriteLine($"Extracting publisher from manifest: {manifestPath}");
-                }
-
+                Console.WriteLine($"Certificate publisher inferred from: {manifestPath}");
+                
                 var identityInfo = await MsixService.ParseAppxManifestFromPathAsync(manifestPath, cancellationToken);
                 return identityInfo.Publisher;
             }
@@ -487,11 +471,8 @@ internal class CertificateService : ICertificateService
         {
             try
             {
-                if (verbose)
-                {
-                    Console.WriteLine($"Found project manifest: {projectManifestPath}");
-                }
-
+                Console.WriteLine($"Certificate publisher inferred from: {projectManifestPath}");
+                
                 var identityInfo = await MsixService.ParseAppxManifestFromPathAsync(projectManifestPath, cancellationToken);
                 return identityInfo.Publisher;
             }
@@ -505,10 +486,7 @@ internal class CertificateService : ICertificateService
         }
 
         // 4. Use default publisher
-        if (verbose)
-        {
-            Console.WriteLine($"No manifest found, using default publisher: {defaultPublisher}");
-        }
+        Console.WriteLine($"No manifest found, using default publisher: {defaultPublisher}");
         return defaultPublisher;
     }
 }

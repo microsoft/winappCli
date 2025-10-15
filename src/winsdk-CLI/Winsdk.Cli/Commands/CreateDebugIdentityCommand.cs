@@ -38,7 +38,6 @@ internal class CreateDebugIdentityCommand : Command
         Options.Add(ManifestOption);
         Options.Add(NoInstallOption);
         Options.Add(LocationOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(IMsixService msixService) : AsynchronousCommandLineAction

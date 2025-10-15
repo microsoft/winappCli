@@ -12,6 +12,14 @@ internal class CertGenerateCommand : Command
     public static Option<string> PasswordOption { get; }
     public static Option<int> ValidDaysOption { get; }
     public static Option<bool> InstallOption { get; }
+    public static Option<IfExists> IfExistsOption { get; }
+
+    internal enum IfExists
+    {
+        Error,
+        Overwrite,
+        Skip
+    }
 
     static CertGenerateCommand()
     {
@@ -45,6 +53,11 @@ internal class CertGenerateCommand : Command
             Description = "Install the certificate to the local machine store after generation",
             DefaultValueFactory = (argumentResult) => false,
         };
+        IfExistsOption = new Option<IfExists> ("--if-exists")
+        {
+            Description = "Skip generation if the certificate file already exists",
+            DefaultValueFactory = (argumentResult) => IfExists.Error,
+        };
     }
 
     public CertGenerateCommand()
@@ -56,7 +69,7 @@ internal class CertGenerateCommand : Command
         Options.Add(PasswordOption);
         Options.Add(ValidDaysOption);
         Options.Add(InstallOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
+        Options.Add(IfExistsOption);
     }
 
     public class Handler(ICertificateService certificateService) : AsynchronousCommandLineAction
@@ -69,14 +82,26 @@ internal class CertGenerateCommand : Command
             var password = parseResult.GetRequiredValue(PasswordOption);
             var validDays = parseResult.GetRequiredValue(ValidDaysOption);
             var install = parseResult.GetRequiredValue(InstallOption);
+            var ifExists = parseResult.GetRequiredValue(IfExistsOption);
             var verbose = parseResult.GetValue(WinSdkRootCommand.VerboseOption);
 
             // Check if certificate file already exists
             if (File.Exists(output))
             {
                 Console.Error.WriteLine($"❌ Certificate file already exists: {output}");
-                Console.Error.WriteLine("Please specify a different output path or remove the existing file.");
-                return 1;
+                if (ifExists == IfExists.Error)
+                {
+                    Console.Error.WriteLine("Please specify a different output path or remove the existing file.");
+                    return 1;
+                }
+                else if (ifExists == IfExists.Skip)
+                {
+                    return 0;
+                }
+                else if (ifExists == IfExists.Overwrite)
+                {
+                    Console.WriteLine($"⚠️ Overwriting existing certificate file: {output}");
+                }
             }
 
             // Use the consolidated certificate generation method with all console output and error handling
@@ -86,7 +111,7 @@ internal class CertGenerateCommand : Command
                 manifestPath: manifestPath,
                 password: password,
                 validDays: validDays,
-                skipIfExists: false, // We already checked above
+                skipIfExists: false,
                 updateGitignore: true,
                 install: install,
                 quiet: false,

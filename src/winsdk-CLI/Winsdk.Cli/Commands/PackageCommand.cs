@@ -83,7 +83,6 @@ internal class PackageCommand : Command
         Options.Add(PublisherOption);
         Options.Add(ManifestOption);
         Options.Add(SelfContainedOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(IMsixService msixService) : AsynchronousCommandLineAction
