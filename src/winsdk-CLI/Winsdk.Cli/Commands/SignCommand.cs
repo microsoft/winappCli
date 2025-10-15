@@ -38,7 +38,6 @@ internal class SignCommand : Command
         Arguments.Add(CertPathArgument);
         Options.Add(PasswordOption);
         Options.Add(TimestampOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(ICertificateService certificateService) : AsynchronousCommandLineAction
@@ -57,6 +56,11 @@ internal class SignCommand : Command
 
                 Console.WriteLine($"🔐 Signed file: {filePath}");
                 return 0;
+            }
+            catch (InvalidOperationException error)
+            {
+                Console.Error.WriteLine(error.Message);
+                return 1;
             }
             catch (Exception error)
             {

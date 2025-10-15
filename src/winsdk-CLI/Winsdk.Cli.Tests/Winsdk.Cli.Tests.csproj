@@ -1,4 +1,4 @@
-<Project Sdk="MSTest.Sdk/4.0.0">
+<Project Sdk="MSTest.Sdk/4.0.1">
 
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
@@ -23,8 +23,8 @@
 
   <ItemGroup>
     <!-- Test-specific packages -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
-    <PackageReference Include="System.CommandLine" Version="2.0.0-rc.1.25451.107" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.10" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-rc.2.25502.107" />
   </ItemGroup>
 
 </Project>

@@ -34,7 +34,6 @@ internal class CertInstallCommand : Command
         Arguments.Add(CertPathArgument);
         Options.Add(PasswordOption);
         Options.Add(ForceOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(ICertificateService certificateService) : AsynchronousCommandLineAction

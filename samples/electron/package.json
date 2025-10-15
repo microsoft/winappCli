@@ -11,7 +11,7 @@
     "publish": "electron-forge publish",
     "build-addon": "node-gyp clean configure build --directory=addon",
     "setup-debug": "winsdk node add-electron-debug-identity",
-    "package-msix": "npm run build-addon && npm run package & winsdk package ./out/sample-electron-app-win32-arm64/ --output-folder ./out --cert ./devcert.pfx",
+    "package-msix": "npm run build-addon && npm run package & winsdk package ./out/sample-electron-app-win32-arm64/ --output ./out --cert ./devcert.pfx --manifest appxmanifest.xml",
     "postinstall": "winsdk restore && winsdk cert generate && npm run setup-debug"
   },
   "keywords": [],

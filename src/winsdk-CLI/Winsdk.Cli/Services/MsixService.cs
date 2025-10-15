@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Security;
 using System.Text;
@@ -523,7 +524,7 @@ internal class MsixService : IMsixService
     /// Creates an MSIX package from a prepared package directory
     /// </summary>
     /// <param name="inputFolder">Path to the folder containing the package contents</param>
-    /// <param name="outputFolder">Path to the folder where the MSIX will be created</param>
+    /// <param name="outputPath">Path to the file or folder for the output MSIX</param>
     /// <param name="packageName">Name for the output MSIX file (default: derived from manifest)</param>
     /// <param name="skipPri">Skip PRI generation</param>
     /// <param name="autoSign">Automatically sign the package</param>
@@ -537,7 +538,7 @@ internal class MsixService : IMsixService
     /// <returns>Result containing the MSIX path and signing status</returns>
     public async Task<CreateMsixPackageResult> CreateMsixPackageAsync(
         string inputFolder,
-        string outputFolder,
+        string? outputPath,
         string? packageName = null,
         bool skipPri = false,
         bool autoSign = false,
@@ -605,12 +606,6 @@ internal class MsixService : IMsixService
             throw new FileNotFoundException($"Manifest file not found: {resolvedManifestPath}");
         }
 
-        // Ensure output folder exists
-        if (!Directory.Exists(outputFolder))
-        {
-            Directory.CreateDirectory(outputFolder);
-        }
-
         // Determine package name and publisher
         var finalPackageName = packageName;
         var extractedPublisher = publisher;
@@ -619,7 +614,8 @@ internal class MsixService : IMsixService
 
         // Update manifest content to ensure it's either referencing Windows App SDK or is self-contained
         manifestContent = UpdateAppxManifestContent(manifestContent, null, null, null, sparse: false, selfContained: selfContained, verbose);
-        await File.WriteAllTextAsync(resolvedManifestPath, manifestContent, Encoding.UTF8, cancellationToken);
+        var updatedManifestPath = Path.Combine(inputFolder, "appxmanifest.xml");
+        await File.WriteAllTextAsync(updatedManifestPath, manifestContent, Encoding.UTF8, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(finalPackageName) || string.IsNullOrWhiteSpace(extractedPublisher))
         {
@@ -654,7 +650,48 @@ internal class MsixService : IMsixService
         // Clean the resolved package name to ensure it meets MSIX schema requirements
         finalPackageName = ManifestService.CleanPackageName(finalPackageName);
 
-        var outputMsixPath = Path.Combine(outputFolder, $"{finalPackageName}.msix");
+        string outputMsixPath;
+        string outputFolder;
+        if (string.IsNullOrEmpty(outputPath))
+        {
+            outputFolder = Directory.GetCurrentDirectory();
+            outputMsixPath = Path.Combine(outputFolder, $"{finalPackageName}.msix");
+        }
+        else
+        {
+            outputFolder = outputPath;
+            if (Path.HasExtension(outputPath) && string.Equals(Path.GetExtension(outputPath), ".msix", StringComparison.OrdinalIgnoreCase))
+            {
+                outputFolder = Path.GetDirectoryName(outputPath) ?? Directory.GetCurrentDirectory();
+                outputMsixPath = outputPath;
+            }
+            else
+            {
+                outputMsixPath = Path.Combine(outputPath, $"{finalPackageName}.msix");
+            }
+        }
+
+        if (!Path.IsPathRooted(outputFolder))
+        {
+            outputFolder = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), outputFolder));
+        }
+
+        if (!Path.IsPathRooted(outputMsixPath))
+        {
+            outputMsixPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), outputMsixPath));
+        }
+
+        // Ensure output folder exists
+        if (!Directory.Exists(outputFolder))
+        {
+            Directory.CreateDirectory(outputFolder);
+        }
+
+        // If manifest is outside input folder, copy it and any related assets into input folder
+        if (!string.IsNullOrEmpty(resolvedManifestPath) && !inputFolder.Equals(Path.GetDirectoryName(resolvedManifestPath), StringComparison.OrdinalIgnoreCase))
+        {
+            await CopyAllAssetsAsync(resolvedManifestPath, inputFolder, verbose, cancellationToken);
+        }
 
         if (verbose)
         {
@@ -708,7 +745,7 @@ internal class MsixService : IMsixService
             // Handle certificate generation and signing
             if (autoSign)
             {
-                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, verbose, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, cancellationToken);
+                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, verbose, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, resolvedManifestPath, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -988,7 +1025,7 @@ internal class MsixService : IMsixService
         await File.WriteAllTextAsync(outAppManifestPath, manifestContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
     }
 
-    private async Task SignMsixPackageAsync(string outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, bool verbose, string finalPackageName, string? extractedPublisher, string outputMsixPath, string? certPath, CancellationToken cancellationToken)
+    private async Task SignMsixPackageAsync(string outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, bool verbose, string finalPackageName, string? extractedPublisher, string outputMsixPath, string? certPath, string resolvedManifestPath, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(certPath) && generateDevCert)
         {
@@ -1006,6 +1043,27 @@ internal class MsixService : IMsixService
 
         if (string.IsNullOrWhiteSpace(certPath))
             throw new InvalidOperationException("Certificate path required for signing. Provide certificatePath or set generateDevCert to true.");
+
+        // Validate that the certificate publisher matches the manifest publisher
+        if (verbose)
+        {
+            Console.WriteLine("🔍 Validating certificate and manifest publishers match...");
+        }
+
+        try
+        {
+            await CertificateService.ValidatePublisherMatchAsync(certPath, certificatePassword, resolvedManifestPath, cancellationToken);
+            
+            if (verbose)
+            {
+                Console.WriteLine("✅ Certificate and manifest publishers match");
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Re-throw with the specific error message format requested
+            throw new InvalidOperationException(ex.Message, ex);
+        }
 
         // Install certificate if requested
         if (installDevCert)
@@ -1589,22 +1647,22 @@ $1",
     }
 
     /// <summary>
-    /// Copies files referenced in the manifest to the debug directory
+    /// Copies files referenced in the manifest to the target directory
     /// </summary>
-    private async Task CopyAllAssetsAsync(string originalManifestPath, string debugDir, bool verbose, CancellationToken cancellationToken)
+    private async Task CopyAllAssetsAsync(string manifestPath, string targetDir, bool verbose, CancellationToken cancellationToken)
     {
-        var originalManifestDir = Path.GetDirectoryName(originalManifestPath)!;
+        var originalManifestDir = Path.GetDirectoryName(manifestPath)!;
 
         if (verbose)
         {
             Console.WriteLine($"📋 Copying manifest-referenced files from: {originalManifestDir}");
         }
 
-        var filesCopied = await CopyManifestReferencedFilesAsync(originalManifestPath, debugDir, verbose);
+        var filesCopied = await CopyManifestReferencedFilesAsync(manifestPath, targetDir, verbose);
 
         if (verbose)
         {
-            Console.WriteLine($"✅ Copied {filesCopied} files to debug directory");
+            Console.WriteLine($"✅ Copied {filesCopied} files to target directory");
         }
     }
 

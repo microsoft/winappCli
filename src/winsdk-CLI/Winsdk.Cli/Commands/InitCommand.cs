@@ -69,7 +69,6 @@ internal class InitCommand : Command
         Options.Add(YesOption);
         Options.Add(NoCertOption);
         Options.Add(ConfigOnlyOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(IWorkspaceSetupService workspaceSetupService) : AsynchronousCommandLineAction

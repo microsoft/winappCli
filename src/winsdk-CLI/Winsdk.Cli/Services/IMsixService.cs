@@ -6,7 +6,7 @@ internal interface IMsixService
 {
     public Task<CreateMsixPackageResult> CreateMsixPackageAsync(
         string inputFolder,
-        string outputFolder,
+        string? outputPath,
         string? packageName = null,
         bool skipPri = false,
         bool autoSign = false,

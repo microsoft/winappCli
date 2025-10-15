@@ -79,7 +79,6 @@ internal class ManifestGenerateCommand : Command
         Options.Add(SparseOption);
         Options.Add(LogoPathOption);
         Options.Add(YesOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(IManifestService manifestService) : AsynchronousCommandLineAction

@@ -13,16 +13,6 @@ module.exports = {
     ]
   },
   rebuildConfig: {},
-  hooks: {
-    postPackage: async (forgeConfig, options) => {
-      console.log('Copying MSIX files to:', options.outputPaths);
-      for (const outputPath of options.outputPaths) {
-        await fs.copy(path.join(__dirname, 'appxmanifest.xml'), path.join(outputPath, 'appxmanifest.xml'));
-        await fs.copy(path.join(__dirname, 'Assets'), path.join(outputPath, 'Assets'));
-      }
-      console.log('MSIX files copied successfully');
-    }
-  },
   makers: [
     {
       name: '@electron-forge/maker-squirrel',

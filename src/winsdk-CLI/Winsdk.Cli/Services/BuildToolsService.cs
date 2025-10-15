@@ -318,9 +318,23 @@ internal class BuildToolsService : IBuildToolsService
 
         if (p.ExitCode != 0)
         {
-            throw new InvalidOperationException($"{toolName} execution failed with exit code {p.ExitCode}");
+            throw new InvalidBuildToolException(p.Id, stdout, stderr, $"{toolName} execution failed with exit code {p.ExitCode}");
         }
 
         return (stdout, stderr);
+    }
+
+    internal class InvalidBuildToolException : InvalidOperationException
+    {
+        public InvalidBuildToolException(int processId, string stdout, string stderr, string message) : base(message)
+        {
+            ProcessId = processId;
+            Stdout = stdout;
+            Stderr = stderr;
+        }
+
+        public int ProcessId { get; }
+        public string Stdout { get; }
+        public string Stderr { get; }
     }
 }

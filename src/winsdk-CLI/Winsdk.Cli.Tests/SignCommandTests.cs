@@ -106,7 +106,7 @@ public class SignCommandTests : BaseCommandTests
             outputPath: _testCertificatePath,
             password: testPassword,
             validDays: 30,
-            verbose: false); // Set to false to reduce test output noise
+            verbose: true);
 
         Assert.IsNotNull(result, "Certificate generation should succeed");
         Assert.IsTrue(File.Exists(_testCertificatePath), "Certificate file should exist");
@@ -434,38 +434,36 @@ public class SignCommandTests : BaseCommandTests
     [TestMethod]
     public async Task SignCommandRelativePathsShouldWork()
     {
+        // Create test files with relative names in temp directory
+        var relativeExePath = "RelativeTestApp.exe";
+        var relativeCertPath = "RelativeTestCert.pfx";
+        var relativeExeFullPath = Path.Combine(_tempDirectory, relativeExePath);
+        var relativeCertFullPath = Path.Combine(_tempDirectory, relativeCertPath);
+
+        // Create the files in the temp directory
+        await CreateFakeExecutableAsync(relativeExeFullPath);
+        File.Copy(_testCertificatePath, relativeCertFullPath, overwrite: true);
+
         // Arrange
-        var originalDirectory = Directory.GetCurrentDirectory();
-
-        try
+        var command = GetRequiredService<SignCommand>();
+        var args = new[]
         {
-            // Change to temp directory
-            Directory.SetCurrentDirectory(_tempDirectory);
+            relativeExeFullPath, // Use full paths to avoid directory changes
+            relativeCertFullPath,
+            "--password", "testpassword"
+        };
 
-            var command = GetRequiredService<SignCommand>();
-            var relativeExePath = Path.GetFileName(_testExecutablePath);
-            var relativeCertPath = Path.GetFileName(_testCertificatePath);
+        // Act
+        var parseResult = command.Parse(args);
+        var exitCode = await parseResult.InvokeAsync();
 
-            var args = new[]
-            {
-                relativeExePath,
-                relativeCertPath,
-                "--password", "testpassword"
-            };
+        // Assert - we expect this to fail due to invalid file format or missing BuildTools
+        // but it should at least validate the file paths correctly
+        Assert.AreEqual(1, exitCode, "Command should fail gracefully with relative-named paths");
 
-            // Act
-            var parseResult = command.Parse(args);
-            var exitCode = await parseResult.InvokeAsync();
-
-            // Assert - we expect this to fail due to invalid file format or missing BuildTools
-            // but it should at least validate the file paths correctly
-            Assert.AreEqual(1, exitCode, "Command should fail gracefully with relative paths");
-        }
-        finally
-        {
-            // Restore original directory
-            Directory.SetCurrentDirectory(originalDirectory);
-        }
+        // Verify the files still exist
+        Assert.IsTrue(File.Exists(relativeExeFullPath), "Relative executable should still exist after failed signing");
+        Assert.IsTrue(File.Exists(relativeCertFullPath), "Relative certificate should still exist after failed signing");
     }
 
     [TestMethod]
@@ -504,6 +502,111 @@ public class SignCommandTests : BaseCommandTests
         else
         {
             Assert.IsTrue(File.Exists(toolPath), "If BuildToolsService reports a tool path, the file should exist");
+        }
+    }
+
+    [TestMethod]
+    public async Task SignCommandWithMismatchedMsixPublishers_ShouldReturnSpecificErrorMessage()
+    {
+        // Arrange - Create an MSIX package with one publisher
+        var msixService = GetRequiredService<IMsixService>();
+        var packageDir = Path.Combine(_tempDirectory, "TestMsixPackage");
+        Directory.CreateDirectory(packageDir);
+
+        // Create a test manifest with "CN=Right" as publisher
+        var manifestContent = @"<?xml version=""1.0"" encoding=""utf-8""?>
+<Package xmlns=""http://schemas.microsoft.com/appx/manifest/foundation/windows10""
+         xmlns:uap=""http://schemas.microsoft.com/appx/manifest/uap/windows10"">
+  <Identity Name=""TestPackage""
+            Publisher=""CN=Right""
+            Version=""1.0.0.0"" />
+  <Properties>
+    <DisplayName>Test Package</DisplayName>
+    <PublisherDisplayName>Right Publisher</PublisherDisplayName>
+    <Description>Test package for publisher mismatch testing</Description>
+    <Logo>Assets\Logo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name=""Windows.Universal"" MinVersion=""10.0.18362.0"" MaxVersionTested=""10.0.26100.0"" />
+  </Dependencies>
+  <Applications>
+    <Application Id=""TestApp"" Executable=""TestApp.exe"" EntryPoint=""TestApp.App"">
+      <uap:VisualElements DisplayName=""Test App"" Description=""Test application""
+                          BackgroundColor=""#777777"" Square150x150Logo=""Assets\Logo.png"" Square44x44Logo=""Assets\Logo.png"" />
+    </Application>
+  </Applications>
+</Package>";
+
+        var manifestPath = Path.Combine(packageDir, "AppxManifest.xml");
+        await File.WriteAllTextAsync(manifestPath, manifestContent);
+
+        // Create Assets directory and files
+        var assetsDir = Path.Combine(packageDir, "Assets");
+        Directory.CreateDirectory(assetsDir);
+        await File.WriteAllBytesAsync(Path.Combine(assetsDir, "Logo.png"), new byte[] { 0x89, 0x50, 0x4E, 0x47 }); // Fake PNG header
+
+        // Create fake executable
+        await File.WriteAllBytesAsync(Path.Combine(packageDir, "TestApp.exe"), new byte[] { 0x4D, 0x5A }); // Fake MZ header
+
+        // Create a minimal winsdk.yaml for the MSIX service
+        var configService = GetRequiredService<IConfigService>();
+        configService.ConfigPath = Path.Combine(_tempDirectory, "winsdk.yaml");
+        await File.WriteAllTextAsync(configService.ConfigPath, "packages: []");
+
+        // Create MSIX package (unsigned first)
+        var msixPath = Path.Combine(_tempDirectory, "TestPackage.msix");
+        var msixResult = await msixService.CreateMsixPackageAsync(
+            inputFolder: packageDir,
+            outputPath: msixPath,
+            packageName: "TestPackage",
+            skipPri: true,
+            autoSign: false, // Don't auto-sign, we'll sign manually with wrong cert
+            verbose: true,
+            cancellationToken: CancellationToken.None
+        );
+
+        // Create a certificate with "CN=Wrong" as publisher (different from manifest)
+        var wrongCertPath = Path.Combine(_tempDirectory, "WrongCert.pfx");
+        await _certificateService.GenerateDevCertificateAsync(
+            publisher: "CN=Wrong",
+            outputPath: wrongCertPath,
+            password: "testpassword",
+            validDays: 30,
+            verbose: true);
+
+        // Capture error output from Console.Error
+        using var errorOutput = new StringWriter();
+        var originalConsoleError = Console.Error;
+        Console.SetError(errorOutput);
+
+        try
+        {
+            // Arrange the sign command
+            var command = GetRequiredService<SignCommand>();
+            var args = new[]
+            {
+                msixResult.MsixPath,
+                wrongCertPath,
+                "--password", "testpassword",
+                "--verbose"
+            };
+
+            // Act
+            var parseResult = command.Parse(args);
+            var exitCode = await parseResult.InvokeAsync();
+
+            // Assert
+            Assert.AreEqual(1, exitCode, "Sign command should fail when publishers don't match");
+
+            var errorMessage = errorOutput.ToString().Trim();
+
+            Assert.Contains("Failed to sign file: error 0x8007000B: The app manifest publisher name (CN=Right) must match the subject name of the signing certificate (CN=Wrong).", errorMessage,
+                "Expected specific error message about publisher mismatch with error code 0x8007000B");
+        }
+        finally
+        {
+            // Restore Console.Error
+            Console.SetError(originalConsoleError);
         }
     }
 }

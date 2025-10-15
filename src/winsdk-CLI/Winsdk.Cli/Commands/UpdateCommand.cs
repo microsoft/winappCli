@@ -21,7 +21,6 @@ internal class UpdateCommand : Command
     public UpdateCommand() : base("update", "Update packages in winsdk.yaml and install/update build tools in cache")
     {
         Options.Add(PrereleaseOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(

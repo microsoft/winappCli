@@ -7,7 +7,7 @@ namespace Winsdk.Cli.Commands;
 internal class PackageCommand : Command
 {
     public static Argument<string> InputFolderArgument { get; }
-    public static Option<string> OutputFolderOption { get; }
+    public static Option<string?> OutputOption { get; }
     public static Option<string?> NameOption { get; }
     public static Option<bool> SkipPriOption { get; }
     public static Option<string?> CertOption { get; }
@@ -22,23 +22,12 @@ internal class PackageCommand : Command
     {
         InputFolderArgument = new Argument<string>("input-folder")
         {
-            Description = "Input folder with package layout (default: .winsdk folder in current project)",
-            Arity = ArgumentArity.ZeroOrOne,
-            DefaultValueFactory = (argumentResult) =>
-            {
-                // Try to find .winsdk directory in current project
-                var projectManifest = MsixService.FindProjectManifest();
-                if (projectManifest != null)
-                {
-                    return Path.GetDirectoryName(projectManifest)!; // Return manifest directory
-                }
-                return Directory.GetCurrentDirectory(); // Fallback to current directory
-            }
+            Description = "Input folder with package layout",
+            Arity = ArgumentArity.ExactlyOne
         };
-        OutputFolderOption = new Option<string>("--output-folder")
+        OutputOption = new Option<string?>("--output")
         {
-            Description = "Output folder for the generated package",
-            DefaultValueFactory = (argumentResult) => Directory.GetCurrentDirectory()
+            Description = "Output msix file name for the generated package (defaults to <name>.msix)",
         };
 
         NameOption = new Option<string?>("--name")
@@ -84,7 +73,7 @@ internal class PackageCommand : Command
         : base("package", "Create an MSIX package from a prepared package directory")
     {
         Arguments.Add(InputFolderArgument);
-        Options.Add(OutputFolderOption);
+        Options.Add(OutputOption);
         Options.Add(NameOption);
         Options.Add(SkipPriOption);
         Options.Add(CertOption);
@@ -94,18 +83,14 @@ internal class PackageCommand : Command
         Options.Add(PublisherOption);
         Options.Add(ManifestOption);
         Options.Add(SelfContainedOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(IMsixService msixService) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var inputFolder = parseResult.GetValue(InputFolderArgument) ?? 
-                              (MsixService.FindProjectManifest() != null ? 
-                               Path.GetDirectoryName(MsixService.FindProjectManifest()!)! : 
-                               Directory.GetCurrentDirectory());
-            var outputFolder = parseResult.GetRequiredValue(OutputFolderOption);
+            var inputFolder = parseResult.GetRequiredValue(InputFolderArgument);
+            var output = parseResult.GetValue(OutputOption);
             var name = parseResult.GetValue(NameOption);
             var skipPri = parseResult.GetValue(SkipPriOption);
             var certPath = parseResult.GetValue(CertOption);
@@ -122,7 +107,7 @@ internal class PackageCommand : Command
                 // Auto-sign if certificate is provided or if generate-cert is specified
                 var autoSign = !string.IsNullOrEmpty(certPath) || generateCert;
 
-                var result = await msixService.CreateMsixPackageAsync(inputFolder, outputFolder, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, verbose, cancellationToken);
+                var result = await msixService.CreateMsixPackageAsync(inputFolder, output, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, verbose, cancellationToken);
 
                 Console.WriteLine("✅ MSIX package created successfully!");
 

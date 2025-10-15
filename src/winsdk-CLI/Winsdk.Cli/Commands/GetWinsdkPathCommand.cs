@@ -19,7 +19,6 @@ internal class GetWinsdkPathCommand : Command
     public GetWinsdkPathCommand() : base("get-winsdk-path", "Get the path to the .winsdk directory (local by default, global with --global)")
     {
         Options.Add(GlobalOption);
-        Options.Add(WinSdkRootCommand.VerboseOption);
     }
 
     public class Handler(IWinsdkDirectoryService winsdkDirectoryService) : AsynchronousCommandLineAction
