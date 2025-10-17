@@ -22,7 +22,7 @@ internal interface ICertificateService
         int validDays = 365,
         CancellationToken cancellationToken = default);
 
-    public Task<bool> InstallCertificateAsync(string certPath, string password, bool force, CancellationToken cancellationToken = default);
+    public bool InstallCertificate(string certPath, string password, bool force);
 
     public Task SignFileAsync(string filePath, string certificatePath, string? password = "password", string? timestampUrl = null, CancellationToken cancellationToken = default);
 }

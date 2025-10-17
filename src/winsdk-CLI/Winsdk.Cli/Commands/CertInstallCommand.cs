@@ -39,7 +39,7 @@ internal class CertInstallCommand : Command
 
     public class Handler(ICertificateService certificateService, ILogger<CertInstallCommand> logger) : AsynchronousCommandLineAction
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var certPath = parseResult.GetRequiredValue(CertPathArgument);
             var password = parseResult.GetRequiredValue(PasswordOption);
@@ -47,7 +47,7 @@ internal class CertInstallCommand : Command
 
             try
             {
-                var result = await certificateService.InstallCertificateAsync(certPath, password, force, cancellationToken);
+                var result = certificateService.InstallCertificate(certPath, password, force);
                 if (!result)
                 {
                     logger.LogInformation("ℹ️ Certificate is already installed");
@@ -57,12 +57,12 @@ internal class CertInstallCommand : Command
                     logger.LogInformation("✅ Certificate installed successfully!");
                 }
 
-                return 0;
+                return Task.FromResult(0);
             }
             catch (Exception error)
             {
                 logger.LogError("❌ Failed to install certificate: {ErrorMessage}", error.Message);
-                return 1;
+                return Task.FromResult(1);
             }
         }
     }

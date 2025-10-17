@@ -2,24 +2,17 @@ using Winsdk.Cli.Helpers;
 using System.Diagnostics.Eventing.Reader;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Winsdk.Cli.Services;
 
 internal partial class CertificateService(
     IBuildToolsService buildToolsService,
-    IPowerShellService powerShellService,
     IGitignoreService gitignoreService,
     ILogger<CertificateService> logger) : ICertificateService
 {
     public const string DefaultCertFileName = "devcert.pfx";
-
-    private static Dictionary<string, string> GetCertificateEnvironmentVariables()
-    {
-        return new Dictionary<string, string>
-        {
-            ["PSModulePath"] = "C:\\Program Files\\WindowsPowerShell\\Modules;C:\\WINDOWS\\system32\\WindowsPowerShell\\v1.0\\Modules"
-        };
-    }
 
     public record CertificateResult(
         string CertificatePath,
@@ -53,21 +46,43 @@ internal partial class CertificateService(
         // Ensure we have a proper CN format
         var subjectName = $"CN={cleanPublisher}";
 
-        var command = $"$dest='{outputPath}';$cert=New-SelfSignedCertificate -Type Custom -Subject '{subjectName}' -KeyUsage DigitalSignature -FriendlyName 'MSIX Dev Certificate' -CertStoreLocation 'Cert:\\CurrentUser\\My' -KeyProtection None -KeyExportPolicy Exportable -Provider 'Microsoft Software Key Storage Provider' -TextExtension @('2.5.29.37={{text}}1.3.6.1.5.5.7.3.3', '2.5.29.19={{text}}') -NotAfter (Get-Date).AddDays({validDays}); Export-PfxCertificate -Cert $cert -FilePath $dest -Password (ConvertTo-SecureString -String '{password}' -Force -AsPlainText) -Force";
-
         try
         {
-            var (exitCode, output) = await powerShellService.RunCommandAsync(command, environmentVariables: GetCertificateEnvironmentVariables(), cancellationToken: cancellationToken);
-
-            if (exitCode != 0)
+            // 1) Create a persisted CNG key in MS Software KSP with AllowExport
+            var creationParams = new CngKeyCreationParameters
             {
-                var message = $"PowerShell command failed with exit code {exitCode}";
-                if (logger.IsEnabled(LogLevel.Debug))
-                {
-                    message += $": {output}";
-                }
-                throw new InvalidOperationException(message);
+                Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
+                ExportPolicy = CngExportPolicies.AllowExport,
+                KeyCreationOptions = CngKeyCreationOptions.None,
+                KeyUsage = CngKeyUsages.Signing
+            };
+            // Set length = 2048
+            creationParams.Parameters.Add(new CngProperty("Length", BitConverter.GetBytes(2048), CngPropertyOptions.None));
+
+            using var cngKey = CngKey.Create(CngAlgorithm.Rsa, $"MSIXDev-{Guid.NewGuid()}", creationParams);
+            using var rsa = new RSACng(cngKey);
+
+            // 2) Build req to mirror PS flags
+            var req = new CertificateRequest(subjectName, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: false));
+            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                new OidCollection { new Oid("1.3.6.1.5.5.7.3.3") }, critical: false));
+            // BasicConstraints like PS default (non-CA, non-critical)
+            req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+
+            var notBefore = DateTimeOffset.UtcNow;
+            var notAfter = DateTimeOffset.UtcNow.AddDays(validDays);
+            using var cert = req.CreateSelfSigned(notBefore, notAfter);
+            cert.FriendlyName = "MSIX Dev Certificate";
+
+            using (var store = new X509Store(StoreName.My, StoreLocation.CurrentUser))
+            {
+                store.Open(OpenFlags.ReadWrite);
+                store.Add(cert);
             }
+
+            var pfx = cert.Export(X509ContentType.Pfx, password);
+            await File.WriteAllBytesAsync(outputPath, pfx, cancellationToken);
 
             logger.LogDebug("Certificate generated: {OutputPath}", outputPath);
 
@@ -84,7 +99,7 @@ internal partial class CertificateService(
         }
     }
 
-    public async Task<bool> InstallCertificateAsync(string certPath, string password, bool force, CancellationToken cancellationToken = default)
+    public bool InstallCertificate(string certPath, string password, bool force)
     {
         if (!Path.IsPathRooted(certPath))
         {
@@ -103,31 +118,57 @@ internal partial class CertificateService(
             // Check if certificate is already installed (unless force is true)
             if (!force)
             {
-                var certName = Path.GetFileNameWithoutExtension(certPath);
-                var checkCommand = $"Get-ChildItem -Path 'Cert:\\LocalMachine\\TrustedPeople' | Where-Object {{ $_.Subject -like '*{certName}*' }}";
-
                 try
                 {
-                    var (_, result) = await powerShellService.RunCommandAsync(checkCommand, environmentVariables: GetCertificateEnvironmentVariables(), cancellationToken: cancellationToken);
+                    // Load the certificate to get its thumbprint/subject for comparison
+                    using var certToCheck = X509CertificateLoader.LoadPkcs12FromFile(
+                        certPath,
+                        password,
+                        X509KeyStorageFlags.Exportable);
 
-                    if (!string.IsNullOrWhiteSpace(result))
+                    // Check if this certificate is already in the TrustedPeople store
+                    using var store = new X509Store(StoreName.TrustedPeople, StoreLocation.LocalMachine);
+                    store.Open(OpenFlags.ReadOnly);
+
+                    var existingCerts = store.Certificates.Find(
+                        X509FindType.FindByThumbprint,
+                        certToCheck.Thumbprint,
+                        validOnly: false);
+
+                    if (existingCerts.Count > 0)
                     {
                         logger.LogDebug("Certificate appears to already be installed");
                         return false;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     // Continue with installation if check fails
+                    logger.LogDebug("Could not check existing certificates: {Message}", ex.Message);
                 }
             }
 
             // Install to TrustedPeople store (required for MSIX sideloading)
-            // Create the PowerShell command directly
+            // Load the certificate from the PFX file
             var absoluteCertPath = Path.GetFullPath(certPath);
-            var installCommand = $"Import-PfxCertificate -FilePath '{absoluteCertPath}' -CertStoreLocation 'Cert:\\LocalMachine\\TrustedPeople' -Password (ConvertTo-SecureString -String '{password}' -Force -AsPlainText)";
+            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
+                absoluteCertPath,
+                password,
+                X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet);
 
-            await powerShellService.RunCommandAsync(installCommand, elevated: true, cancellationToken: cancellationToken);
+            // Install to LocalMachine\TrustedPeople store (requires elevation)
+            try
+            {
+                using var store = new X509Store(StoreName.TrustedPeople, StoreLocation.LocalMachine);
+                store.Open(OpenFlags.ReadWrite);
+                store.Add(cert);
+            }
+            catch (CryptographicException ex) when (ex.Message.Contains("Access is denied"))
+            {
+                throw new InvalidOperationException(
+                    "Failed to install certificate: Administrator privileges are required to install certificates to the LocalMachine store. " +
+                    "Please run this command as an administrator.", ex);
+            }
 
             logger.LogDebug("Certificate installed successfully to TrustedPeople store");
 
@@ -286,7 +327,7 @@ internal partial class CertificateService(
             {
                 logger.LogDebug("Installing certificate...");
 
-                var installResult = await InstallCertificateAsync(result.CertificatePath, password, false, cancellationToken);
+                var installResult = InstallCertificate(result.CertificatePath, password, false);
                 if (installResult)
                 {
                     logger.LogInformation("✅ Certificate installed successfully!");
@@ -328,8 +369,8 @@ internal partial class CertificateService(
 
         try
         {
-            using var cert = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12FromFile(
-                certificatePath, password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.Exportable);
+            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
+                certificatePath, password, X509KeyStorageFlags.Exportable);
 
             var subject = cert.Subject;
             if (string.IsNullOrWhiteSpace(subject))

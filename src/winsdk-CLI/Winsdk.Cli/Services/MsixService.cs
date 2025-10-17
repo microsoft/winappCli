@@ -1034,7 +1034,7 @@ internal partial class MsixService(
         // Install certificate if requested
         if (installDevCert)
         {
-            var result = await certificateService.InstallCertificateAsync(certPath, certificatePassword, false, cancellationToken);
+            var result = certificateService.InstallCertificate(certPath, certificatePassword, false);
         }
 
         // Sign the package
