@@ -99,7 +99,7 @@ internal class CertGenerateCommand : Command
                 }
                 else if (ifExists == IfExists.Skip)
                 {
-                    logger.LogInformation("✅ Certificate file already exists: {Output}", output);
+                    logger.LogInformation("✅ Certificate file already exists, skipping generation: {Output}", output);
                     return 0;
                 }
                 else if (ifExists == IfExists.Overwrite)
