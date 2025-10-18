@@ -91,14 +91,15 @@ internal class CertGenerateCommand : Command
             // Check if certificate file already exists
             if (File.Exists(output))
             {
-                logger.LogError("❌ Certificate file already exists: {Output}", output);
                 if (ifExists == IfExists.Error)
                 {
+                    logger.LogError("❌ Certificate file already exists: {Output}", output);
                     logger.LogError("Please specify a different output path or remove the existing file.");
                     return 1;
                 }
                 else if (ifExists == IfExists.Skip)
                 {
+                    logger.LogInformation("✅ Certificate file already exists: {Output}", output);
                     return 0;
                 }
                 else if (ifExists == IfExists.Overwrite)
