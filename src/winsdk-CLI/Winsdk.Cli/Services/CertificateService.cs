@@ -333,11 +333,11 @@ internal partial class CertificateService(
                 var installResult = InstallCertificate(result.CertificatePath, password, false);
                 if (installResult)
                 {
-                    logger.LogInformation("✅ Certificate installed successfully!");
+                    logger.LogInformation("{UISymbol} Certificate installed successfully!", UiSymbols.Check);
                 }
                 else
                 {
-                    logger.LogInformation("ℹ️ Certificate was already installed");
+                    logger.LogInformation("{UISymbol} Certificate was already installed", UiSymbols.Info);
                 }
             }
             else
@@ -349,7 +349,7 @@ internal partial class CertificateService(
         }
         catch (Exception ex)
         {
-            logger.LogError("❌ Failed to generate development certificate: {Message}", ex.Message);
+            logger.LogError("{UISymbol} Failed to generate development certificate: {Message}", UiSymbols.Error, ex.Message);
             logger.LogDebug(ex, "Certificate generation failed with exception");
             throw; // Re-throw for callers that want to handle the error differently
         }

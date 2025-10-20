@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -111,19 +112,19 @@ internal class PackageCommand : Command
 
                 var result = await msixService.CreateMsixPackageAsync(inputFolder, output, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, cancellationToken);
 
-                logger.LogInformation("✅ MSIX package created successfully!");
+                logger.LogInformation("{UISymbol} MSIX package created successfully!", UiSymbols.Check);
 
-                logger.LogInformation("📦 Package: {PackagePath}", result.MsixPath);
+                logger.LogInformation("{UISymbol} Package: {PackagePath}", UiSymbols.Package, result.MsixPath);
                 if (result.Signed)
                 {
-                    logger.LogInformation("🔐 Package has been signed");
+                    logger.LogInformation("{UISymbol} Package has been signed", UiSymbols.Lock);
                 }
 
                 return 0;
             }
             catch (Exception ex)
             {
-                logger.LogError("❌ Failed to create MSIX package: {ErrorMessage}", ex.Message);
+                logger.LogError("{UISymbol} Failed to create MSIX package: {ErrorMessage}", UiSymbols.Error, ex.Message);
                 logger.LogDebug("Stack Trace: {StackTrace}", ex.StackTrace);
                 return 1;
             }

@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -63,14 +64,14 @@ internal class CreateDebugIdentityCommand : Command
             {
                 var result = await msixService.AddMsixIdentityToExeAsync(executablePath, manifest, noInstall, location, cancellationToken);
 
-                logger.LogInformation("✅ MSIX identity added successfully!");
-                logger.LogInformation("📦 Package: {PackageName}", result.PackageName);
-                logger.LogInformation("👤 Publisher: {Publisher}", result.Publisher);
-                logger.LogInformation("🆔 App ID: {ApplicationId}", result.ApplicationId);
+                logger.LogInformation("{UISymbol} MSIX identity added successfully!", UiSymbols.Check);
+                logger.LogInformation("{UISymbol} Package: {PackageName}", UiSymbols.Package, result.PackageName);
+                logger.LogInformation("{UISymbol} Publisher: {Publisher}", UiSymbols.User, result.Publisher);
+                logger.LogInformation("{UISymbol} App ID: {ApplicationId}", UiSymbols.Id, result.ApplicationId);
             }
             catch (Exception error)
             {
-                logger.LogError("❌ Failed to add MSIX identity: {ErrorMessage}", error.Message);
+                logger.LogError("{UISymbol} Failed to add MSIX identity: {ErrorMessage}", UiSymbols.Error, error.Message);
                 return 1;
             }
 

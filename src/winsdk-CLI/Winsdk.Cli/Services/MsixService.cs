@@ -1287,7 +1287,7 @@ $1");
 
         if (winAppSdkInfo == null)
         {
-            logger.LogDebug("⚠️  Could not determine Windows App SDK version, skipping dependency update");
+            logger.LogDebug("{UISymbol} Could not determine Windows App SDK version, skipping dependency update", UiSymbols.Warning);
             return manifestContent;
         }
 
@@ -1413,7 +1413,7 @@ $1");
         // Load the locked config to get the actual package versions
         if (!configService.Exists())
         {
-            logger.LogDebug("⚠️  No winsdk.yaml found, cannot determine locked Windows App SDK version");
+            logger.LogDebug("{UISymbol} No winsdk.yaml found, cannot determine locked Windows App SDK version", UiSymbols.Warning);
             return (null, null);
         }
 
@@ -1423,7 +1423,7 @@ $1");
         var mainVersion = config.GetVersion("Microsoft.WindowsAppSDK");
         if (string.IsNullOrEmpty(mainVersion))
         {
-            logger.LogDebug("⚠️  No Microsoft.WindowsAppSDK package found in winsdk.yaml");
+            logger.LogDebug("{UISymbol} No Microsoft.WindowsAppSDK package found in winsdk.yaml", UiSymbols.Warning);
             return (null, null);
         }
 
@@ -1654,7 +1654,7 @@ $1");
     /// <returns>True if package was found and unregistered, false if no package was found</returns>
     public async Task<bool> UnregisterExistingPackageAsync(string packageName, CancellationToken cancellationToken = default)
     {
-        logger.LogDebug("🗑️  Checking for existing package...");
+        logger.LogDebug("{UISymbol} Checking for existing package...", UiSymbols.Trash);
 
         try
         {
@@ -1696,7 +1696,7 @@ $1");
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task RegisterSparsePackageAsync(string manifestPath, string externalLocation, CancellationToken cancellationToken = default)
     {
-        logger.LogDebug("📋 Registering sparse package with external location...");
+        logger.LogDebug("{UISymbol} Registering sparse package with external location...", UiSymbols.Clipboard);
 
         var registerCommand = $"Add-AppxPackage -Path '{manifestPath}' -ExternalLocation '{externalLocation}' -Register -ForceUpdateFromAnyVersion";
 
@@ -1709,7 +1709,7 @@ $1");
                 throw new InvalidOperationException($"PowerShell command failed with exit code {exitCode}");
             }
 
-            logger.LogDebug("✅ Sparse package registered successfully");
+            logger.LogDebug("{UISymbol} Sparse package registered successfully", UiSymbols.Check);
         }
         catch (Exception ex)
         {

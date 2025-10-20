@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -118,7 +119,7 @@ internal class ManifestGenerateCommand : Command
             }
             catch (Exception ex)
             {
-                logger.LogError("❌ Error generating manifest: {ErrorMessage}", ex.Message);
+                logger.LogError("{UISymbol} Error generating manifest: {ErrorMessage}", UiSymbols.Error, ex.Message);
                 logger.LogDebug("Stack Trace: {StackTrace}", ex.StackTrace);
                 return 1;
             }

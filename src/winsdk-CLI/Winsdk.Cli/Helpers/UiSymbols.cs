@@ -42,7 +42,13 @@ internal static class UiSymbols
     public static string Save => UseEmoji ? "💾" : "[SAVE]";
     public static string Party => UseEmoji ? "🎉" : "[DONE]";
     public static string Warning => UseEmoji ? "⚠️" : "[WARN]";
+    public static string Error => UseEmoji ? "❌" : "[ERR]";
+    public static string Info => UseEmoji ? "ℹ️" : "[INFO]";
     public static string Trash => UseEmoji ? "🗑️" : "[DEL]";
     public static string Sync => UseEmoji ? "🔄" : "[SYNC]";
     public static string Add => UseEmoji ? "➕" : "[ADD]";
+    public static string Lock => UseEmoji ? "🔐" : "[LOCK]";
+    public static string User => UseEmoji ? "👤" : "[USER]";
+    public static string Id => UseEmoji ? "🆔" : "[ID]";
+    public static string Clipboard => UseEmoji ? "📋" : "[CLIP]";
 }

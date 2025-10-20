@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -57,7 +58,7 @@ internal class SignCommand : Command
             {
                 await certificateService.SignFileAsync(filePath, certPath, password, timestamp, cancellationToken);
 
-                logger.LogInformation("🔐 Signed file: {FilePath}", filePath);
+                logger.LogInformation("{UISymbol} Signed file: {FilePath}", UiSymbols.Lock, filePath);
                 return 0;
             }
             catch (InvalidOperationException error)
@@ -67,7 +68,7 @@ internal class SignCommand : Command
             }
             catch (Exception error)
             {
-                logger.LogError("❌ Failed to sign file: {ErrorMessage}", error.Message);
+                logger.LogError("{UISymbol} Failed to sign file: {ErrorMessage}", UiSymbols.Error, error.Message);
                 return 1;
             }
         }

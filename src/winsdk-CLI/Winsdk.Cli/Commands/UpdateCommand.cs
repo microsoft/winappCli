@@ -135,7 +135,7 @@ internal class UpdateCommand : Command
                 }
                 else
                 {
-                    logger.LogError("❌ Failed to install/update build tools");
+                    logger.LogError("{UISymbol} Failed to install/update build tools", UiSymbols.Error);
                     return 1;
                 }
 
@@ -161,7 +161,7 @@ internal class UpdateCommand : Command
             }
                 catch (Exception error)
             {
-                logger.LogError("❌ Update failed: {ErrorMessage}", error.Message);
+                logger.LogError("{UISymbol} Update failed: {ErrorMessage}", UiSymbols.Error, error.Message);
                 logger.LogDebug("{ErrorStackTrace}", error.StackTrace);
                 return 1;
             }

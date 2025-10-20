@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -91,19 +92,20 @@ internal class CertGenerateCommand : Command
             // Check if certificate file already exists
             if (File.Exists(output))
             {
-                logger.LogError("❌ Certificate file already exists: {Output}", output);
                 if (ifExists == IfExists.Error)
                 {
+                    logger.LogError("{UISymbol} Certificate file already exists: {Output}", UiSymbols.Error, output);
                     logger.LogError("Please specify a different output path or remove the existing file.");
                     return 1;
                 }
                 else if (ifExists == IfExists.Skip)
                 {
+                    logger.LogInformation("{UISymbol} Certificate file already exists: {Output}", UiSymbols.Warning, output);
                     return 0;
                 }
                 else if (ifExists == IfExists.Overwrite)
                 {
-                    logger.LogWarning("⚠️ Overwriting existing certificate file: {Output}", output);
+                    logger.LogInformation("{UISymbol} Overwriting existing certificate file: {Output}", UiSymbols.Warning, output);
                 }
             }
 

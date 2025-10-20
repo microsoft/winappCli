@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -51,14 +52,14 @@ internal class GetWinsdkPathCommand : Command
                 
                 if (string.IsNullOrEmpty(winsdkDir))
                 {
-                    logger.LogError("❌ {DirectoryType} .winsdk directory path could not be determined", directoryType);
+                    logger.LogError("{UISymbol} {DirectoryType} .winsdk directory path could not be determined", UiSymbols.Error, directoryType);
                     return Task.FromResult(1);
                 }
 
                 // For global directories, check if they exist
                 if (global && !Directory.Exists(winsdkDir))
                 {
-                    logger.LogError("❌ {DirectoryType} .winsdk directory not found: {WinsdkDir}", directoryType, winsdkDir);
+                    logger.LogError("{UISymbol} {DirectoryType} .winsdk directory not found: {WinsdkDir}", UiSymbols.Error, directoryType, winsdkDir);
                     logger.LogError("   Make sure to run 'winsdk init' first");
                     return Task.FromResult(1);
                 }
@@ -68,13 +69,13 @@ internal class GetWinsdkPathCommand : Command
 
                 var exists = Directory.Exists(winsdkDir);
                 var status = exists ? "exists" : "does not exist";
-                logger.LogDebug("📂 {DirectoryType} .winsdk directory: {WinsdkDir} ({Status})", directoryType, winsdkDir, status);
+                logger.LogDebug("{UISymbol} {DirectoryType} .winsdk directory: {WinsdkDir} ({Status})", UiSymbols.Folder, directoryType, winsdkDir, status);
 
                 return Task.FromResult(0);
             }
             catch (Exception ex)
             {
-                logger.LogError("❌ Error getting {DirectoryType} winsdk directory: {ErrorMessage}", (global ? "global" : "local"), ex.Message);
+                logger.LogError("{UISymbol} Error getting {DirectoryType} winsdk directory: {ErrorMessage}", UiSymbols.Error, (global ? "global" : "local"), ex.Message);
                 return Task.FromResult(1);
             }
         }

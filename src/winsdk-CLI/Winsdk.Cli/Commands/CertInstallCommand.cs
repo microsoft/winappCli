@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using Winsdk.Cli.Helpers;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -53,18 +54,18 @@ internal class CertInstallCommand : Command
                 var result = certificateService.InstallCertificate(certPath, password, force);
                 if (!result)
                 {
-                    logger.LogInformation("ℹ️ Certificate is already installed");
+                    logger.LogInformation("{UISymbol} Certificate is already installed", UiSymbols.Info);
                 }
                 else
                 {
-                    logger.LogInformation("✅ Certificate installed successfully!");
+                    logger.LogInformation("{UISymbol} Certificate installed successfully!", UiSymbols.Check);
                 }
 
                 return Task.FromResult(0);
             }
             catch (Exception error)
             {
-                logger.LogError("❌ Failed to install certificate: {ErrorMessage}", error.Message);
+                logger.LogError("{UISymbol} Failed to install certificate: {ErrorMessage}", UiSymbols.Error, error.Message);
                 return Task.FromResult(1);
             }
         }
