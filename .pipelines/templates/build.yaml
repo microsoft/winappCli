@@ -7,7 +7,7 @@ steps:
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
-    arguments: '-Stable $(stable)'
+    arguments: '-Stable $${ parameters.stable }}'
 - task: CopyFiles@2
   displayName: Copy Artifacts - Test Results
   inputs:
