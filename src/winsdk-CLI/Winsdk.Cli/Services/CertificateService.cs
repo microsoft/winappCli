@@ -431,7 +431,7 @@ internal partial class CertificateService(
                     $"Error: Publisher in {manifestPath} (CN={normalizedManifestPublisher}) does not match the publisher in the certificate {certificatePath} (CN={normalizedCertPublisher}).");
             }
         }
-        catch (Exception ex) when (!(ex is InvalidOperationException))
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             throw new InvalidOperationException($"Failed to validate publisher match: {ex.Message}", ex);
         }
@@ -494,6 +494,6 @@ internal partial class CertificateService(
         return defaultPublisher;
     }
 
-    [GeneratedRegexAttribute(@"CN=([^,]+)", RegexOptions.IgnoreCase, "en-US")]
+    [GeneratedRegex(@"CN=([^,]+)", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex CnFieldRegex();
 }

@@ -6,7 +6,9 @@ using Microsoft.Extensions.Logging;
 using System.Text;
 using Winsdk.Cli.Commands;
 using Winsdk.Cli.Helpers;
+using Winsdk.Cli.Telemetry;
 using Winsdk.Cli.Telemetry.Events;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Winsdk.Cli;
 
@@ -62,9 +64,22 @@ internal static class Program
 
         var parseResult = rootCommand.Parse(args);
 
-        CommandExecutedEvent.Log(parseResult.CommandResult.Command.GetType().FullName!);
+        try
+        {
+            CommandInvokedEvent.Log(parseResult.CommandResult);
 
-        return await parseResult.InvokeAsync();
+            var returnCode = await parseResult.InvokeAsync();
+
+            CommandCompletedEvent.Log(parseResult.CommandResult, returnCode);
+
+            return returnCode;
+        }
+        catch (Exception ex)
+        {
+            TelemetryFactory.Get<ITelemetry>().LogException(parseResult.CommandResult.Command.Name, ex);
+            Console.Error.WriteLine($"An unexpected error occurred: {ex.Message}");
+            return 1;
+        }
     }
 
     internal static bool PromptYesNo(string message)

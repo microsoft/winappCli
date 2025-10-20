@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
+using Winsdk.Cli.Telemetry.Events;
 
 namespace Winsdk.Cli.Telemetry;
 

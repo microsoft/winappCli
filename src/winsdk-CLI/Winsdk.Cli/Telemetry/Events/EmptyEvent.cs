@@ -4,19 +4,14 @@
 using Microsoft.Diagnostics.Telemetry.Internal;
 using System.Diagnostics.Tracing;
 
-namespace Winsdk.Cli.Telemetry;
+namespace Winsdk.Cli.Telemetry.Events;
 
 [EventData]
-internal class EmptyEvent : EventBase
+internal class EmptyEvent(PartA_PrivTags tags) : EventBase
 {
-    public override PartA_PrivTags PartA_PrivTags { get; }
+    public override PartA_PrivTags PartA_PrivTags { get; } = tags;
 
-    public EmptyEvent(PartA_PrivTags tags)
-    {
-        PartA_PrivTags = tags;
-    }
-
-    public override void ReplaceSensitiveStrings(Func<string?, string?> replaceSensitiveStrings)
+    public override void ReplaceSensitiveStrings(Func<string, string> replaceSensitiveStrings)
     {
         // No sensitive string
     }

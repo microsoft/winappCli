@@ -6,6 +6,7 @@ using Microsoft.Diagnostics.Telemetry.Internal;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
 using System.Text;
+using Winsdk.Cli.Telemetry.Events;
 
 namespace Winsdk.Cli.Telemetry;
 
@@ -136,7 +137,8 @@ internal sealed class Telemetry : ITelemetry
     /// <param name="relatedActivityId">Optional relatedActivityId which will allow to correlate this telemetry with other telemetry in the same action/activity or thread and corelate them</param>
     public void LogException(string action, Exception e, Guid? relatedActivityId = null)
     {
-        var innerMessage = this.ReplaceSensitiveStrings(e.InnerException?.Message);
+        var message = e.InnerException?.Message;
+        var innerMessage = message != null ? this.ReplaceSensitiveStrings(message) : null;
         StringBuilder innerStackTrace = new();
         Exception? innerException = e.InnerException;
         while (innerException != null)
@@ -239,35 +241,32 @@ internal sealed class Telemetry : ITelemetry
     /// </summary>
     /// <param name="message">Before, unstripped string.</param>
     /// <returns>After, stripped string</returns>
-    private string? ReplaceSensitiveStrings(string? message)
+    private string ReplaceSensitiveStrings(string message)
     {
-        if (message != null)
+        foreach (KeyValuePair<string, string> pair in this.sensitiveStrings)
         {
-            foreach (KeyValuePair<string, string> pair in this.sensitiveStrings)
+            // There's no String.Replace() with case insensitivity.
+            // We could use Regular Expressions here for searching for case-insensitive string matches,
+            // but it's not easy to specify the RegEx timeout value for .net 4.0.  And we were worried
+            // about rare cases where the user could accidentally lock us up with RegEx, since we're using strings
+            // provided by the user, so just use a simple non-RegEx replacement algorithm instead.
+            var sb = new StringBuilder();
+            var i = 0;
+            while (true)
             {
-                // There's no String.Replace() with case insensitivity.
-                // We could use Regular Expressions here for searching for case-insensitive string matches,
-                // but it's not easy to specify the RegEx timeout value for .net 4.0.  And we were worried
-                // about rare cases where the user could accidentally lock us up with RegEx, since we're using strings
-                // provided by the user, so just use a simple non-RegEx replacement algorithm instead.
-                var sb = new StringBuilder();
-                var i = 0;
-                while (true)
+                // Find the string to strip out.
+                var foundPosition = message.IndexOf(pair.Key, i, StringComparison.OrdinalIgnoreCase);
+                if (foundPosition < 0)
                 {
-                    // Find the string to strip out.
-                    var foundPosition = message.IndexOf(pair.Key, i, StringComparison.OrdinalIgnoreCase);
-                    if (foundPosition < 0)
-                    {
-                        sb.Append(message, i, message.Length - i);
-                        message = sb.ToString();
-                        break;
-                    }
-
-                    // Replace the string.
-                    sb.Append(message, i, foundPosition - i);
-                    sb.Append(pair.Value);
-                    i = foundPosition + pair.Key.Length;
+                    sb.Append(message, i, message.Length - i);
+                    message = sb.ToString();
+                    break;
                 }
+
+                // Replace the string.
+                sb.Append(message, i, foundPosition - i);
+                sb.Append(pair.Value);
+                i = foundPosition + pair.Key.Length;
             }
         }
 
@@ -300,22 +299,13 @@ internal sealed class Telemetry : ITelemetry
                 }
             }
 
-            switch (level)
+            telemetryOptions = level switch
             {
-                case LogLevel.Critical:
-                    telemetryOptions = isError ? Telemetry.CriticalDataErrorOption : Telemetry.CriticalDataOption;
-                    break;
-                case LogLevel.Measure:
-                    telemetryOptions = isError ? Telemetry.MeasureErrorOption : Telemetry.MeasureOption;
-                    break;
-                case LogLevel.Info:
-                    telemetryOptions = isError ? Telemetry.InfoErrorOption : Telemetry.InfoOption;
-                    break;
-                case LogLevel.Local:
-                default:
-                    telemetryOptions = isError ? Telemetry.LocalErrorOption : Telemetry.LocalOption;
-                    break;
-            }
+                LogLevel.Critical => isError ? Telemetry.CriticalDataErrorOption : Telemetry.CriticalDataOption,
+                LogLevel.Measure => isError ? Telemetry.MeasureErrorOption : Telemetry.MeasureOption,
+                LogLevel.Info => isError ? Telemetry.InfoErrorOption : Telemetry.InfoOption,
+                _ => isError ? Telemetry.LocalErrorOption : Telemetry.LocalOption,
+            };
         }
         else
         {
@@ -338,6 +328,12 @@ internal sealed class Telemetry : ITelemetry
             this.AddSensitiveString(Environment.UserName, "<UserName>");
             var currentUserName = System.Security.Principal.WindowsIdentity.GetCurrent().Name.Split('\\').Last();
             this.AddSensitiveString(currentUserName, "<CurrentUserName>");
+
+            // Add machine name
+            this.AddSensitiveString(Environment.MachineName, "<MachineName>");
+
+            // Add CWD
+            this.AddSensitiveString(Environment.CurrentDirectory, "<CurrentDirectory>");
         }
         catch (Exception e)
         {

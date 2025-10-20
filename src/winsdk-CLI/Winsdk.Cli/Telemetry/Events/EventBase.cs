@@ -4,7 +4,7 @@
 using Microsoft.Diagnostics.Telemetry.Internal;
 using System.Diagnostics.Tracing;
 
-namespace Winsdk.Cli.Telemetry;
+namespace Winsdk.Cli.Telemetry.Events;
 
 /// <summary>
 /// Base class for all telemetry events to ensure they are properly tagged.
@@ -27,6 +27,13 @@ public abstract class EventBase
     }
 
     /// <summary>
+    /// Gets the app version from the assembly.
+    /// </summary>
+    public string AppVersion { get; } = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
+
+    public bool CI { get; } = CIEnvironmentDetectorForTelemetry.IsCIEnvironment();
+
+    /// <summary>
     /// Replaces all the strings in this event that may contain PII using the provided function.
     /// </summary>
     /// <remarks>
@@ -37,5 +44,5 @@ public abstract class EventBase
     /// <param name="replaceSensitiveStrings">
     /// A function that replaces all the sensitive strings in a given string with tokens
     /// </param>
-    public abstract void ReplaceSensitiveStrings(Func<string?, string?> replaceSensitiveStrings);
+    public abstract void ReplaceSensitiveStrings(Func<string, string> replaceSensitiveStrings);
 }
