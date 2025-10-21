@@ -36,8 +36,15 @@ internal class CommandInvokedEvent : EventBase
         StartedTime = startedTime;
     }
 
-    private string? GetValue(OptionResult o) => GetValue(o.Option.ValueType, o.Implicit, o.GetValueOrDefault<object?>());
-    private string? GetValue(ArgumentResult a) => GetValue(a.Argument.ValueType, a.Implicit, a.GetValueOrDefault<object?>());
+    private string? GetValue(OptionResult o)
+    {
+        return !o.Errors.Any() ? GetValue(o.Option.ValueType, o.Implicit, o.GetValueOrDefault<object?>()) : "[error]";
+    }
+
+    private string? GetValue(ArgumentResult a)
+    {
+        return !a.Errors.Any() ? GetValue(a.Argument.ValueType, a.Implicit, a.GetValueOrDefault<object?>()) : "[error]";
+    }
 
     private static string? GetValue(Type valueType, bool isImplicit, object? value)
     {

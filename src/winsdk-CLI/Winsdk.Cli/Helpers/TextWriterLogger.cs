@@ -62,15 +62,33 @@ public sealed class TextWriterLoggerProvider : ILoggerProvider, ISupportExternal
             var writer = logLevel >= LogLevel.Error ? _stderr : _stdout;
 
             var sb = new StringBuilder(256);
-            if (logLevel != LogLevel.Information)
-            {
-                var lvl = logLevel.ToString().ToUpperInvariant();
-
-                sb.Append('[').Append(lvl).Append("] - ");
-            }
 
             // Message
             var message = formatter(state, exception);
+
+            bool firstCharIsEmojiOrOpenBracket = false;
+            if (message.Length > 0)
+            {
+                var firstChar = message[0];
+                firstCharIsEmojiOrOpenBracket = char.IsSurrogate(firstChar)
+                                             || char.GetUnicodeCategory(firstChar) == System.Globalization.UnicodeCategory.OtherSymbol
+                                             || firstChar == '[';
+            }
+
+            if (logLevel != LogLevel.Information && !firstCharIsEmojiOrOpenBracket)
+            {
+                if (logLevel == LogLevel.Debug)
+                {
+                    sb.Append(UiSymbols.Verbose).Append(' ');
+                }
+                else
+                {
+                    var lvl = logLevel.ToString().ToUpperInvariant();
+
+                    sb.Append('[').Append(lvl).Append("] - ");
+                }
+            }
+
             sb.Append(message);
 
             // Scopes (if any)

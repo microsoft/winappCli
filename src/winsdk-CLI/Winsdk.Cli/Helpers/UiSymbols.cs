@@ -32,7 +32,7 @@ internal static class UiSymbols
     public static string Wrench => UseEmoji ? "🔧" : "[TOOL]";
     public static string Package => UseEmoji ? "📦" : "[PKG]";
     public static string Bullet => UseEmoji ? "•" : "-";
-    public static string Skip => UseEmoji ? "⏭" : "SKIP";
+    public static string Skip => UseEmoji ? "⏭" : "[SKIP]";
     public static string Tools => UseEmoji ? "🛠️" : "[TOOL]";
     public static string Files => UseEmoji ? "📁" : "[COPY]";
     public static string Check => UseEmoji ? "✅" : "[OK]";
@@ -51,4 +51,5 @@ internal static class UiSymbols
     public static string User => UseEmoji ? "👤" : "[USER]";
     public static string Id => UseEmoji ? "🆔" : "[ID]";
     public static string Clipboard => UseEmoji ? "📋" : "[CLIP]";
+    public static string Verbose => UseEmoji ? "🔍" : "[VERBOSE]";
 }
