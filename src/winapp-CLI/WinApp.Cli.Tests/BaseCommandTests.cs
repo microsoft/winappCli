@@ -19,6 +19,8 @@ public abstract class BaseCommandTests(bool configPaths = true)
     protected StringWriter ConsoleStdOut { private set; get; } = null!;
     protected StringWriter ConsoleStdErr { private set; get; } = null!;
 
+    public TestContext TestContext { get; set; } = null!;
+
     [TestInitialize]
     public void SetupBase()
     {

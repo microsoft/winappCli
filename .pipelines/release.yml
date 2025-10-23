@@ -46,9 +46,9 @@ extends:
         steps:
           - checkout: self
           - task: UseDotNet@2
-            displayName: Setup .NET 9
+            displayName: Setup .NET 10
             inputs:
-              version: 9.0.x
+              version: 10.0.x
           - ${{ if eq(parameters.DoEsrp, 'true') }}:
             - task: UseDotNet@2
               displayName: Setup .NET 6.0 (For ESRP Task)

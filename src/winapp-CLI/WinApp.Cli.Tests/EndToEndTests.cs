@@ -49,7 +49,7 @@ public class EndToEndTests : BaseCommandTests
         var binFolder = new DirectoryInfo(Path.Combine(projectDir.FullName, "bin", "Release"));
         Assert.IsTrue(binFolder.Exists, "Build output directory should exist");
         
-        // Find the target framework folder (e.g., net9.0-windows)
+        // Find the target framework folder (e.g., net10.0-windows)
         var targetFrameworkFolder = binFolder.GetDirectories("net*-windows").FirstOrDefault();
         Assert.IsNotNull(targetFrameworkFolder, "Target framework folder should exist");
 
@@ -68,7 +68,7 @@ public class EndToEndTests : BaseCommandTests
         };
 
         var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);
-        var manifestExitCode = await manifestParseResult.InvokeAsync();
+        var manifestExitCode = await manifestParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(0, manifestExitCode, "Manifest generate command should complete successfully");
 
         // Verify manifest generated the necessary files
@@ -90,7 +90,7 @@ public class EndToEndTests : BaseCommandTests
         };
 
         var packageParseResult = packageCommand.Parse(packageArgs);
-        var packageExitCode = await packageParseResult.InvokeAsync();
+        var packageExitCode = await packageParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(0, packageExitCode, "Package command should complete successfully");
 
         // Step 6: Verify the MSIX package was created
@@ -100,7 +100,7 @@ public class EndToEndTests : BaseCommandTests
         Assert.IsGreaterThan(0, fileInfo.Length, "MSIX package should not be empty");
 
         // Verify the MSIX contains expected files
-        using var archive = ZipFile.OpenRead(packageOutputPath);
+        using var archive = await ZipFile.OpenReadAsync(packageOutputPath, TestContext.CancellationToken);
         var entries = archive.Entries.Select(e => e.FullName).ToList();
 
         Assert.IsTrue(entries.Any(e => e.EndsWith("AppxManifest.xml", StringComparison.OrdinalIgnoreCase)), 
@@ -140,7 +140,7 @@ public class EndToEndTests : BaseCommandTests
         var manifestArgs = new[]
         {
             projectDir.FullName,
-            "--package-name", "net9.0-windows",
+            "--package-name", "net10.0-windows",
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.5.0.0",
             "--description", "Custom test application",
@@ -149,15 +149,15 @@ public class EndToEndTests : BaseCommandTests
         };
 
         var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);
-        var manifestExitCode = await manifestParseResult.InvokeAsync();
+        var manifestExitCode = await manifestParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(0, manifestExitCode, "Manifest generate command should complete successfully");
 
         // Verify custom options were applied
         var manifestPath = Path.Combine(projectDir.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "Manifest should be created");
         
-        var manifestContent = await File.ReadAllTextAsync(manifestPath);
-        Assert.IsTrue(manifestContent.Contains("Id=\"net9.A0Windows\"", StringComparison.OrdinalIgnoreCase), 
+        var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
+        Assert.IsTrue(manifestContent.Contains("Id=\"net10.A0Windows\"", StringComparison.OrdinalIgnoreCase), 
             "Manifest should contain custom package name");
         Assert.IsTrue(manifestContent.Contains("CN=TestPublisher", StringComparison.Ordinal), 
             "Manifest should contain custom publisher");
@@ -176,7 +176,7 @@ public class EndToEndTests : BaseCommandTests
         };
 
         var packageParseResult = packageCommand.Parse(packageArgs);
-        var packageExitCode = await packageParseResult.InvokeAsync();
+        var packageExitCode = await packageParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(0, packageExitCode, "Package command should complete successfully");
 
         Assert.IsTrue(File.Exists(packageOutputPath), "MSIX package should be created");
@@ -208,7 +208,7 @@ def main():
 if __name__ == ""__main__"":
     sys.exit(main())
 ";
-        await File.WriteAllTextAsync(scriptPath, pythonScript);
+        await File.WriteAllTextAsync(scriptPath, pythonScript, TestContext.CancellationToken);
         Assert.IsTrue(File.Exists(scriptPath), "Python script should be created");
 
         // Step 2: Run 'winapp manifest generate --template hostedapp --entrypoint main.py'
@@ -222,14 +222,14 @@ if __name__ == ""__main__"":
         };
 
         var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);
-        var manifestExitCode = await manifestParseResult.InvokeAsync();
+        var manifestExitCode = await manifestParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(0, manifestExitCode, "Manifest generate command should complete successfully");
 
         // Verify manifest was created with hosted app configuration
         var manifestPath = Path.Combine(projectDir.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "Manifest should be created");
 
-        var manifestContent = await File.ReadAllTextAsync(manifestPath);
+        var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.IsTrue(manifestContent.Contains("Python314", StringComparison.OrdinalIgnoreCase) || 
                       manifestContent.Contains("Python", StringComparison.OrdinalIgnoreCase),
             "Manifest should contain Python runtime dependency");
@@ -247,7 +247,7 @@ if __name__ == ""__main__"":
         };
 
         var debugIdentityParseResult = createDebugIdentityCommand.Parse(debugIdentityArgs);
-        var debugIdentityExitCode = await debugIdentityParseResult.InvokeAsync();
+        var debugIdentityExitCode = await debugIdentityParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(0, debugIdentityExitCode, "Create debug identity command should complete successfully");
 
         // Verify the debug identity package was created (sparse package registration)
@@ -258,7 +258,7 @@ if __name__ == ""__main__"":
     /// <summary>
     /// Helper method to run dotnet commands
     /// </summary>
-    private async Task<(int ExitCode, string Output, string Error)> RunDotnetCommandAsync(
+    private static async Task<(int ExitCode, string Output, string Error)> RunDotnetCommandAsync(
         DirectoryInfo workingDirectory, 
         string arguments)
     {

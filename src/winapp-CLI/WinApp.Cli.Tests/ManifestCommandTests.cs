@@ -22,7 +22,7 @@ public class ManifestCommandTests : BaseCommandTests
     /// <summary>
     /// Creates a minimal fake logo file for testing
     /// </summary>
-    private void CreateFakeLogoFile(string path)
+    private static void CreateFakeLogoFile(string path)
     {
         // Create a minimal PNG-like file (just enough for file existence tests)
         var pngHeader = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }; // PNG signature
@@ -54,7 +54,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
@@ -72,7 +72,7 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task ManifestGenerateCommandWithCustomOptionsShouldUseThoseValues()
     {
         var exeFilePath = Path.Combine(_tempDirectory.FullName, "TestApp.exe");
-        await File.WriteAllTextAsync(exeFilePath, "fake exe content");
+        await File.WriteAllTextAsync(exeFilePath, "fake exe content", TestContext.CancellationToken);
 
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
@@ -89,7 +89,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
@@ -99,7 +99,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify manifest content contains our custom values
-        var manifestContent = await File.ReadAllTextAsync(manifestPath);
+        var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.Contains("TestPackage", manifestContent, "Manifest should contain custom package name");
         Assert.Contains("CN=TestPublisher", manifestContent, "Manifest should contain custom publisher");
         Assert.Contains("2.0.0.0", manifestContent, "Manifest should contain custom version");
@@ -121,7 +121,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
@@ -131,7 +131,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify sparse package specific content
-        var manifestContent = await File.ReadAllTextAsync(manifestPath);
+        var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.Contains("uap10:AllowExternalContent", manifestContent, "Sparse manifest should contain AllowExternalContent");
         Assert.Contains("packagedClassicApp", manifestContent, "Sparse manifest should contain packagedClassicApp");
     }
@@ -150,7 +150,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
@@ -170,7 +170,7 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange - Create an existing manifest
         var existingManifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
-        await File.WriteAllTextAsync(existingManifestPath, "<Package>Existing</Package>");
+        await File.WriteAllTextAsync(existingManifestPath, "<Package>Existing</Package>", TestContext.CancellationToken);
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
@@ -181,7 +181,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(1, exitCode, "Generate command should fail when manifest already exists");
@@ -191,7 +191,7 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task ManifestGenerateCommandParseArgumentsShouldHandleAllOptions()
     {
         var exeFilePath = Path.Combine(_tempDirectory.FullName, "app.exe");
-        await File.WriteAllTextAsync(exeFilePath, "fake exe content");
+        await File.WriteAllTextAsync(exeFilePath, "fake exe content", TestContext.CancellationToken);
 
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
@@ -251,7 +251,7 @@ public class ManifestCommandTests : BaseCommandTests
         };
 
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
@@ -292,7 +292,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully even with non-existent logo");
@@ -342,7 +342,7 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange - Create a Python script file
         var pythonScriptPath = Path.Combine(_tempDirectory.FullName, "app.py");
-        await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')");
+        await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')", TestContext.CancellationToken);
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
@@ -354,7 +354,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
@@ -364,7 +364,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify hosted app specific content
-        var manifestContent = await File.ReadAllTextAsync(manifestPath);
+        var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.Contains("uap10:HostId", manifestContent, "HostedApp manifest should contain HostId");
         Assert.Contains("uap10:Parameters", manifestContent, "HostedApp manifest should contain Parameters");
         Assert.Contains("uap10:HostRuntimeDependency", manifestContent, "HostedApp manifest should contain HostRuntimeDependency");
@@ -377,7 +377,7 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange - Create a Python script file and manifest
         var pythonScriptPath = Path.Combine(_tempDirectory.FullName, "app.py");
-        await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')");
+        await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')", TestContext.CancellationToken);
 
         // First, generate a hosted app manifest
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
@@ -389,7 +389,7 @@ public class ManifestCommandTests : BaseCommandTests
         };
 
         var generateParseResult = generateCommand.Parse(generateArgs);
-        var generateExitCode = await generateParseResult.InvokeAsync();
+        var generateExitCode = await generateParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(0, generateExitCode, "Manifest generation should succeed");
 
         var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
@@ -405,7 +405,7 @@ public class ManifestCommandTests : BaseCommandTests
         };
 
         var debugParseResult = debugIdentityCommand.Parse(debugArgs);
-        var debugExitCode = await debugParseResult.InvokeAsync();
+        var debugExitCode = await debugParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, debugExitCode, "Create debug identity should complete successfully");
@@ -416,7 +416,7 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange - Create a JavaScript file
         var jsScriptPath = Path.Combine(_tempDirectory.FullName, "app.js");
-        await File.WriteAllTextAsync(jsScriptPath, "// JavaScript\nconsole.log('Hello, World!');");
+        await File.WriteAllTextAsync(jsScriptPath, "// JavaScript\nconsole.log('Hello, World!');", TestContext.CancellationToken);
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
@@ -428,7 +428,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
@@ -438,7 +438,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify hosted app specific content for Node.js
-        var manifestContent = await File.ReadAllTextAsync(manifestPath);
+        var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.Contains("Nodejs22", manifestContent, "HostedApp manifest should reference Nodejs22 host");
         Assert.Contains("app.js", manifestContent, "HostedApp manifest should reference the JavaScript file");
     }
@@ -457,7 +457,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreNotEqual(0, exitCode, "Generate command should fail when entry point file doesn't exist");
@@ -468,7 +468,7 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange - Create a file with unsupported extension
         var unsupportedFilePath = Path.Combine(_tempDirectory.FullName, "app.exe");
-        await File.WriteAllTextAsync(unsupportedFilePath, "fake exe content");
+        await File.WriteAllTextAsync(unsupportedFilePath, "fake exe content", TestContext.CancellationToken);
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
@@ -480,7 +480,7 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Act
         var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreNotEqual(0, exitCode, "Generate command should fail for unsupported hosted app entry point type");
