@@ -9,7 +9,7 @@
 .PARAMETER SkipTests
     Skip running unit tests
 .PARAMETER FailOnTestFailure
-    Exit with error code if tests fail (default: false, only warns)
+    Exit with error code if tests fail (default: true, stops build on test failures)
 .PARAMETER SkipMsix
     Skip MSIX bundle creation
 .PARAMETER Stable
@@ -27,7 +27,7 @@
 param(
     [switch]$Clean = $false,
     [switch]$SkipTests = $false,
-    [switch]$FailOnTestFailure = $false,
+    [switch]$FailOnTestFailure = $true,
     [switch]$SkipMsix = $true,
     [switch]$Stable = $false
 )
