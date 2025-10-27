@@ -20,6 +20,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IConfigService, ConfigService>()
             .AddSingleton<ICppWinrtService, CppWinrtService>()
             .AddSingleton<IDevModeService, DevModeService>()
+            .AddSingleton<IDirectoryPackagesService, DirectoryPackagesService>()
             .AddSingleton<IManifestTemplateService, ManifestTemplateService>()
             .AddSingleton<IManifestService, ManifestService>()
             .AddSingleton<IMsixService, MsixService>()

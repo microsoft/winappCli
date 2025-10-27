@@ -41,6 +41,7 @@ internal class WorkspaceSetupService(
     IManifestService manifestService,
     IDevModeService devModeService,
     IGitignoreService gitignoreService,
+    IDirectoryPackagesService directoryPackagesService,
     ILogger<WorkspaceSetupService> logger) : IWorkspaceSetupService
 {
     public async Task<int> SetupWorkspaceAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken = default)
@@ -426,7 +427,7 @@ internal class WorkspaceSetupService(
                 if (!options.NoCert)
                 {
                     var certPath = Path.Combine(options.BaseDirectory, CertificateService.DefaultCertFileName);
-                    
+
                     await certificateService.GenerateDevCertificateWithInferenceAsync(
                         outputPath: certPath,
                         explicitPublisher: null,
@@ -441,11 +442,27 @@ internal class WorkspaceSetupService(
 
                 logger.LogInformation("{UISymbol} winsdk init completed.", UiSymbols.Party);
             }
-            else
-            {
-                // Restore: We're done
-                logger.LogInformation("{UISymbol} Restore completed successfully!", UiSymbols.Party);
+            
+            // Update Directory.Packages.props versions to match winsdk.yaml if needed
+            {                
+                try
+                {
+                    var packageVersions = config.Packages.ToDictionary(
+                        p => p.Name, 
+                        p => p.Version, 
+                        StringComparer.OrdinalIgnoreCase);
+                    
+                    directoryPackagesService.UpdatePackageVersions(options.ConfigDir, packageVersions);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug("{UISymbol} Failed to update Directory.Packages.props: {Message}", UiSymbols.Note, ex.Message);
+                    // Don't fail the restore if Directory.Packages.props update fails
+                }
             }
+
+            // Restore: We're done
+            logger.LogInformation("{UISymbol} Restore completed successfully!", UiSymbols.Party);
 
             return 0;
         }

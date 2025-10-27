@@ -22,7 +22,7 @@ npm run package-msix
 # FOR x64 ONLY: Build and create the MSIX package
 npm run package-msix:x64
 
-# Install your dev cert if you haven't already (requires Sudo is enabled)
+# Install your dev cert if you haven't already (If Sudo isn't enabled, use an admin prompt)
 sudo pwsh -c "npx winsdk cert install .\devcert.pfx ; pause"
 
 # Deploy the MSIX to local machine
