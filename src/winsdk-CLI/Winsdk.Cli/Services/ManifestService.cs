@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 using Winsdk.Cli.Helpers;
+using Winsdk.Cli.Models;
 
 namespace Winsdk.Cli.Services;
 
@@ -17,8 +18,8 @@ internal partial class ManifestService(
         string? publisherName,
         string version,
         string description,
-        string? executable,
-        bool sparse,
+        string? entryPoint,
+        ManifestTemplates manifestTemplate,
         string? logoPath,
         bool yes,
         CancellationToken cancellationToken = default)
@@ -35,7 +36,7 @@ internal partial class ManifestService(
         // Interactive mode if not --yes (get defaults for prompts)
         packageName ??= SystemDefaultsHelper.GetDefaultPackageName(directory);
         publisherName ??= SystemDefaultsHelper.GetDefaultPublisherCN();
-        executable ??= $"{packageName}.exe";
+        entryPoint ??= $"{packageName}.exe";
 
         // Interactive mode if not --yes
         if (!yes)
@@ -44,12 +45,53 @@ internal partial class ManifestService(
             publisherName = PromptForValue("Publisher name", publisherName);
             version = PromptForValue("Version", version);
             description = PromptForValue("Description", description);
-            executable = PromptForValue("Executable", executable);
+            entryPoint = PromptForValue("EntryPoint/Executable", entryPoint);
         }
 
         logger.LogDebug("Logo path: {LogoPath}", logoPath ?? "None");
 
         packageName = CleanPackageName(packageName);
+
+        string? hostId = null;
+        string? hostParameters = null;
+        string? hostRuntimeDependencyPackageName = null;
+        string? hostRuntimeDependencyPublisherName = null;
+        string? hostRuntimeDependencyMinVersion = null;
+        if (manifestTemplate == ManifestTemplates.HostedApp)
+        {
+            var entryPointAbsolute = Path.IsPathRooted(entryPoint)
+                ? entryPoint
+                : Path.GetFullPath(Path.Combine(directory, entryPoint));
+            if (!File.Exists(entryPointAbsolute))
+            {
+                logger.LogDebug("Hosted app entry point file not found: {EntryPointAbsolute}", entryPointAbsolute);
+                throw new FileNotFoundException($"Hosted app entry point file not found.", entryPointAbsolute);
+            }
+
+            var relativeEntryPoint = Path.GetRelativePath(directory, entryPointAbsolute);
+
+            // TODO: generalize this mapping or move to a config file
+            if (entryPoint.EndsWith(".py", StringComparison.OrdinalIgnoreCase))
+            {
+                hostId = "Python314";
+                hostParameters = $"$(package.effectivePath)\\{relativeEntryPoint}";
+                hostRuntimeDependencyPackageName = "Python314";
+                hostRuntimeDependencyPublisherName = "Test Publisher";
+                hostRuntimeDependencyMinVersion = "3.14.0.0";
+            }
+            else if (entryPoint.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+            {
+                hostId = "Nodejs22";
+                hostParameters = $"$(package.effectivePath)\\{relativeEntryPoint}";
+                hostRuntimeDependencyPackageName = "Nodejs22";
+                hostRuntimeDependencyPublisherName = "Test Publisher";
+                hostRuntimeDependencyMinVersion = "22.21.0.0";
+            }
+            else
+            {
+                throw new InvalidOperationException("Unsupported hosted app executable type. Only .py and .js are supported.");
+            }
+        }
 
         // Generate complete manifest using shared service
         await manifestTemplateService.GenerateCompleteManifestAsync(
@@ -57,9 +99,14 @@ internal partial class ManifestService(
             packageName,
             publisherName,
             version,
-            executable,
-            sparse,
+            entryPoint,
+            manifestTemplate,
             description,
+            hostId,
+            hostParameters,
+            hostRuntimeDependencyPackageName,
+            hostRuntimeDependencyPublisherName,
+            hostRuntimeDependencyMinVersion,
             cancellationToken);
 
         // If logo path is provided, copy it as additional asset

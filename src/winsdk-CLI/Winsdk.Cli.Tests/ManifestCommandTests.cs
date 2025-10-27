@@ -106,7 +106,7 @@ public class ManifestCommandTests : BaseCommandTests
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.0.0.0",
             "--description", "Test Application",
-            "--executable", "TestApp.exe",
+            "--entrypoint", "TestApp.exe",
             "--yes" // Skip interactive prompts
         };
 
@@ -138,7 +138,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory,
-            "--sparse",
+            "--template", "sparse",
             "--yes" // Skip interactive prompts
         };
 
@@ -222,8 +222,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--publisher-name", "CN=TestPub",
             "--version", "1.2.3.4",
             "--description", "Test Description",
-            "--executable", "test.exe",
-            "--sparse",
+            "--entrypoint", "test.exe",
+            "--template", "sparse",
             "--logo-path", "/test/logo.png",
             "--yes",
             "--verbose"
@@ -355,5 +355,154 @@ public class ManifestCommandTests : BaseCommandTests
         // Assert
         Assert.IsNotNull(parseResult, "Parse result should not be null");
         // The help option should be recognized and not produce errors
+    }
+
+    [TestMethod]
+    public async Task ManifestGenerateCommandWithHostedAppTemplateShouldCreateHostedAppManifest()
+    {
+        // Arrange - Create a Python script file
+        var pythonScriptPath = Path.Combine(_tempDirectory, "app.py");
+        await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')");
+
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
+        var args = new[]
+        {
+            _tempDirectory,
+            "--template", "hostedapp",
+            "--entrypoint", "app.py"
+        };
+
+        // Act
+        var parseResult = generateCommand.Parse(args);
+        var exitCode = await parseResult.InvokeAsync();
+
+        // Assert
+        Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
+
+        // Verify manifest was created
+        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
+
+        // Verify hosted app specific content
+        var manifestContent = await File.ReadAllTextAsync(manifestPath);
+        Assert.Contains("uap10:HostId", manifestContent, "HostedApp manifest should contain HostId");
+        Assert.Contains("uap10:Parameters", manifestContent, "HostedApp manifest should contain Parameters");
+        Assert.Contains("uap10:HostRuntimeDependency", manifestContent, "HostedApp manifest should contain HostRuntimeDependency");
+        Assert.Contains("Python314", manifestContent, "HostedApp manifest should reference Python314 host");
+        Assert.Contains("app.py", manifestContent, "HostedApp manifest should reference the Python script");
+    }
+
+    [TestMethod]
+    public async Task CreateDebugIdentityForHostedAppShouldSucceed()
+    {
+        // Arrange - Create a Python script file and manifest
+        var pythonScriptPath = Path.Combine(_tempDirectory, "app.py");
+        await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')");
+
+        // First, generate a hosted app manifest
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
+        var generateArgs = new[]
+        {
+            _tempDirectory,
+            "--template", "hostedapp",
+            "--entrypoint", "app.py"
+        };
+
+        var generateParseResult = generateCommand.Parse(generateArgs);
+        var generateExitCode = await generateParseResult.InvokeAsync();
+        Assert.AreEqual(0, generateExitCode, "Manifest generation should succeed");
+
+        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        Assert.IsTrue(File.Exists(manifestPath), "Manifest should exist");
+
+        // Act - Create debug identity
+        var debugIdentityCommand = GetRequiredService<CreateDebugIdentityCommand>();
+        var debugArgs = new[]
+        {
+            "--entrypoint", pythonScriptPath,
+            "--manifest", manifestPath,
+            "--no-install" // Skip actual installation in test
+        };
+
+        var debugParseResult = debugIdentityCommand.Parse(debugArgs);
+        var debugExitCode = await debugParseResult.InvokeAsync();
+
+        // Assert
+        Assert.AreEqual(0, debugExitCode, "Create debug identity should complete successfully");
+    }
+
+    [TestMethod]
+    public async Task ManifestGenerateCommandWithHostedAppTemplateAndJavaScriptShouldSucceed()
+    {
+        // Arrange - Create a JavaScript file
+        var jsScriptPath = Path.Combine(_tempDirectory, "app.js");
+        await File.WriteAllTextAsync(jsScriptPath, "// JavaScript\nconsole.log('Hello, World!');");
+
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
+        var args = new[]
+        {
+            _tempDirectory,
+            "--template", "hostedapp",
+            "--entrypoint", "app.js"
+        };
+
+        // Act
+        var parseResult = generateCommand.Parse(args);
+        var exitCode = await parseResult.InvokeAsync();
+
+        // Assert
+        Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
+
+        // Verify manifest was created
+        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
+
+        // Verify hosted app specific content for Node.js
+        var manifestContent = await File.ReadAllTextAsync(manifestPath);
+        Assert.Contains("Nodejs22", manifestContent, "HostedApp manifest should reference Nodejs22 host");
+        Assert.Contains("app.js", manifestContent, "HostedApp manifest should reference the JavaScript file");
+    }
+
+    [TestMethod]
+    public async Task ManifestGenerateCommandWithHostedAppTemplateAndNonExistentEntryShouldFail()
+    {
+        // Arrange - Don't create the Python file
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
+        var args = new[]
+        {
+            _tempDirectory,
+            "--template", "hostedapp",
+            "--entrypoint", "nonexistent.py"
+        };
+
+        // Act
+        var parseResult = generateCommand.Parse(args);
+        var exitCode = await parseResult.InvokeAsync();
+
+        // Assert
+        Assert.AreNotEqual(0, exitCode, "Generate command should fail when entry point file doesn't exist");
+    }
+
+    [TestMethod]
+    public async Task ManifestGenerateCommandWithHostedAppTemplateAndUnsupportedTypeShouldFail()
+    {
+        // Arrange - Create a file with unsupported extension
+        var unsupportedFilePath = Path.Combine(_tempDirectory, "app.exe");
+        await File.WriteAllTextAsync(unsupportedFilePath, "fake exe content");
+
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
+        var args = new[]
+        {
+            _tempDirectory,
+            "--template", "hostedapp",
+            "--entrypoint", "app.exe"
+        };
+
+        // Act
+        var parseResult = generateCommand.Parse(args);
+        var exitCode = await parseResult.InvokeAsync();
+
+        // Assert
+        Assert.AreNotEqual(0, exitCode, "Generate command should fail for unsupported hosted app entry point type");
     }
 }

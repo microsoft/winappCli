@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.Reflection;
 using System.Text;
+using Winsdk.Cli.Models;
 
 namespace Winsdk.Cli.Services;
 
@@ -19,7 +20,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     /// </summary>
     /// <param name="endsWith">The suffix to search for</param>
     /// <returns>Resource name if found, null otherwise</returns>
-    public static string? FindResourceEnding(string endsWith)
+    private static string? FindResourceEnding(string endsWith)
     {
         var asm = Assembly.GetExecutingAssembly();
         return asm.GetManifestResourceNames()
@@ -31,7 +32,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     /// </summary>
     /// <param name="input">Input string to convert</param>
     /// <returns>camelCase formatted string</returns>
-    public static string ToCamelCase(string input)
+    private static string ToCamelCase(string input)
     {
         if (string.IsNullOrEmpty(input))
         {
@@ -40,7 +41,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
 
         var words = input.Split(WordSeparators, StringSplitOptions.RemoveEmptyEntries);
         var result = new StringBuilder();
-        
+
         for (int i = 0; i < words.Length; i++)
         {
             var word = words[i];
@@ -53,7 +54,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
                 result.Append(char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant());
             }
         }
-        
+
         return result.ToString();
     }
 
@@ -65,8 +66,8 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     public static string StripCnPrefix(string publisher)
     {
         var trimmed = publisher.Trim().Trim('"', '\'');
-        return trimmed.StartsWith("CN=", StringComparison.OrdinalIgnoreCase) 
-            ? trimmed[3..] 
+        return trimmed.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)
+            ? trimmed[3..]
             : trimmed;
     }
 
@@ -75,11 +76,11 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     /// </summary>
     /// <param name="publisher">Publisher string</param>
     /// <returns>Publisher with CN= prefix</returns>
-    public static string NormalizePublisher(string publisher)
+    private static string NormalizePublisher(string publisher)
     {
         var trimmed = publisher.Trim().Trim('"', '\'');
-        return trimmed.StartsWith("CN=", StringComparison.OrdinalIgnoreCase) 
-            ? trimmed 
+        return trimmed.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
             : "CN=" + trimmed;
     }
 
@@ -90,12 +91,12 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Template content as string</returns>
     /// <exception cref="FileNotFoundException">Thrown when template is not found</exception>
-    public static Task<string> LoadManifestTemplateAsync(string templateSuffix, CancellationToken cancellationToken = default)
+    private static Task<string> LoadManifestTemplateAsync(string templateSuffix, CancellationToken cancellationToken = default)
     {
         return LoadTemplateAsync($"appxmanifest.{templateSuffix}.xml", cancellationToken);
     }
-    
-    public static async Task<string> LoadTemplateAsync(string template, CancellationToken cancellationToken = default)
+
+    private static async Task<string> LoadTemplateAsync(string template, CancellationToken cancellationToken = default)
     {
         var templateResName = FindResourceEnding($".Templates.{template}")
                               ?? throw new FileNotFoundException($"Embedded template not found: {template}");
@@ -107,35 +108,34 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
 
         return await reader.ReadToEndAsync(cancellationToken);
     }
-    
-    /// <summary>
-    /// Applies common template replacements to manifest content
-    /// </summary>
-    /// <param name="template">Template content</param>
-    /// <param name="packageName">Package name</param>
-    /// <param name="publisherName">Publisher name (without CN= prefix)</param>
-    /// <param name="version">Version string</param>
-    /// <param name="executable">Executable name</param>
-    /// <param name="description">Package description</param>
-    /// <returns>Template with replacements applied</returns>
-    public static string ApplyTemplateReplacements(
-        string template, 
-        string packageName, 
-        string publisherName, 
-        string version, 
-        string executable, 
-        string description)
+
+    private static string ApplyTemplateReplacements(
+        string template,
+        string packageName,
+        string publisherName,
+        string version,
+        string entryPoint,
+        string description,
+        string? hostId,
+        string? hostParameters,
+        string? hostRuntimeDependencyPackageName,
+        string? hostRuntimeDependencyPublisherName,
+        string? hostRuntimeDependencyMinVersion)
     {
         var packageNameCamel = ToCamelCase(packageName);
-        
+
         var result = template
             .Replace("{PackageName}", packageName)
             .Replace("{PackageNameCamelCase}", packageNameCamel)
             .Replace("{PublisherName}", publisherName)
             .Replace("Version=\"1.0.0.0\"", $"Version=\"{version}\"")
-            .Replace("{ExecutableName}", executable)
-            .Replace("{Executable}", executable)
-            .Replace("{Description}", description);
+            .Replace("{Executable}", entryPoint)
+            .Replace("{Description}", description)
+            .Replace("{HostId}", hostId)
+            .Replace("{HostParameters}", hostParameters)
+            .Replace("{HostRuntimeDependencyPackageName}", hostRuntimeDependencyPackageName)
+            .Replace("{HostRuntimeDependencyPublisherName}", hostRuntimeDependencyPublisherName)
+            .Replace("{HostRuntimeDependencyMinVersion}", hostRuntimeDependencyMinVersion);
 
         return result;
     }
@@ -161,11 +161,11 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
             var fileName = res.Substring(res.LastIndexOf(resPrefix, StringComparison.OrdinalIgnoreCase) + resPrefix.Length);
             var target = Path.Combine(assetsDir, fileName);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            
+
             await using var s = asm.GetManifestResourceStream(res)!;
             await using var fs = File.Create(target);
             await s.CopyToAsync(fs, cancellationToken);
-            
+
             logger.LogDebug("✓ Generated asset: {FileName}", fileName);
         }
     }
@@ -177,18 +177,23 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     /// <param name="packageName">Package name (null for auto-generated from directory)</param>
     /// <param name="publisherName">Publisher name (null for current user default)</param>
     /// <param name="version">Version string</param>
-    /// <param name="executable">Executable name (null for auto-generated from package name)</param>
-    /// <param name="sparse">Whether to generate sparse package manifest</param>
+    /// <param name="entryPoint">Entry point / executable name (null for auto-generated from package name)</param>
+    /// <param name="manifestTemplate">Manifest template type</param>
     /// <param name="description">Description for manifest</param>
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task GenerateCompleteManifestAsync(
         string outputDirectory,
         string packageName,
-        string publisherName, 
+        string publisherName,
         string version,
-        string executable,
-        bool sparse,
+        string entryPoint,
+        ManifestTemplates manifestTemplate,
         string description,
+        string? hostId,
+        string? hostParameters,
+        string? hostRuntimeDependencyPackageName,
+        string? hostRuntimeDependencyPublisherName,
+        string? hostRuntimeDependencyMinVersion,
         CancellationToken cancellationToken = default)
     {
         // Normalize publisher name
@@ -198,23 +203,50 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
         logger.LogDebug("Publisher: {PublisherName}", publisherName);
         logger.LogDebug("Version: {Version}", version);
         logger.LogDebug("Description: {Description}", description);
-        logger.LogDebug("Executable: {ExecutableName}", executable);
-        logger.LogDebug("Sparse: {Sparse}", sparse);
+        if (!string.IsNullOrEmpty(hostId))
+        {
+            logger.LogDebug("Host ID: {HostId}", hostId);
+        }
+        if (!string.IsNullOrEmpty(hostParameters))
+        {
+            logger.LogDebug("Host Parameters: {HostParameters}", hostParameters);
+        }
+        if (!string.IsNullOrEmpty(hostRuntimeDependencyPackageName))
+        {
+            logger.LogDebug("Host Runtime Dependency Package Name: {HostRuntimeDependencyPackageName}", hostRuntimeDependencyPackageName);
+        }
+        if (!string.IsNullOrEmpty(hostRuntimeDependencyPublisherName))
+        {
+            hostRuntimeDependencyPublisherName = StripCnPrefix(NormalizePublisher(hostRuntimeDependencyPublisherName));
+            logger.LogDebug("Host Runtime Dependency Publisher Name: {HostRuntimeDependencyPublisherName}", hostRuntimeDependencyPublisherName);
+        }
+        if (!string.IsNullOrEmpty(hostRuntimeDependencyMinVersion))
+        {
+            logger.LogDebug("Host Runtime Dependency Min Version: {HostRuntimeDependencyMinVersion}", hostRuntimeDependencyMinVersion);
+        }
+
+        logger.LogDebug("EntryPoint/Executable: {EntryPoint}", entryPoint);
+        logger.LogDebug("Manifest template: {ManifestTemplate}", manifestTemplate);
 
         // Create output directory if needed
         Directory.CreateDirectory(outputDirectory);
 
         // Generate manifest content using templates
-        var templateSuffix = sparse ? "sparse" : "packaged";
+        string templateSuffix = manifestTemplate.ToString().ToLower();
         var template = await LoadManifestTemplateAsync(templateSuffix, cancellationToken);
-        
+
         var content = ApplyTemplateReplacements(
-            template, 
-            packageName, 
-            publisherName, 
-            version, 
-            executable, 
-            description);
+            template,
+            packageName,
+            publisherName,
+            version,
+            entryPoint,
+            description,
+            hostId,
+            hostParameters,
+            hostRuntimeDependencyPackageName,
+            hostRuntimeDependencyPublisherName,
+            hostRuntimeDependencyMinVersion);
 
         // Write manifest file
         var manifestPath = Path.Combine(outputDirectory, "appxmanifest.xml");

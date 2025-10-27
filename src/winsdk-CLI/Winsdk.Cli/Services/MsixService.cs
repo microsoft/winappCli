@@ -32,7 +32,7 @@ internal partial class MsixService(
     private static partial Regex AppxPackageNameRegex();
     [GeneratedRegex(@"Publisher\s*=\s*[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AppxPackagePublisherRegex();
-    [GeneratedRegex(@"<Application[^>]*Id\s*=\s*[""']([^""']*)[""'][^>]*>", RegexOptions.IgnoreCase, "en-US")]
+    [GeneratedRegex(@"<Application[^>]*\sId\s*=\s*[""']([^""']*)[""'][^>]*>", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AppxApplicationIdRegex();
     [GeneratedRegex(@"<Identity[^>]*Name\s*=\s*[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AppxPackageIdentityNameRegex();
@@ -42,10 +42,14 @@ internal partial class MsixService(
     private static partial Regex AppxPackageApplicationExecutableRegex();
     [GeneratedRegex(@"(<Identity[^>]*Name\s*=\s*)[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AppxPackageIdentityNameAssignmentRegex();
-    [GeneratedRegex(@"(<Application[^>]*Id\s*=\s*)[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
+    [GeneratedRegex(@"(<Application[^>]*\sId\s*=\s*)[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AppxApplicationIdAssignmentRegex();
     [GeneratedRegex(@"(<Application[^>]*Executable\s*=\s*)[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AppxPackageApplicationExecutableAssignmentRegex();
+    [GeneratedRegex(@"(<Application[^>]*\s*uap10:HostId\s*=\s*)[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
+    private static partial Regex AppxPackageApplicationHostIdAssignmentRegex();
+    [GeneratedRegex(@"(<Application[^>]*\s*uap10:Parameters\s*=\s*)[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
+    private static partial Regex AppxPackageApplicationParametersAssignmentRegex();
     [GeneratedRegex(@"(<Package[^>]*)(>)", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AppxPackageElementOpenTagRegex();
     [GeneratedRegex(@"(<Package[^>]*)(>)", RegexOptions.IgnoreCase, "en-US")]
@@ -229,7 +233,7 @@ internal partial class MsixService(
         return new MsixIdentityResult(packageName, publisher, applicationId);
     }
 
-    public async Task<MsixIdentityResult> AddMsixIdentityToExeAsync(string exePath, string appxManifestPath, bool noInstall, string? applicationLocation = null, CancellationToken cancellationToken = default)
+    public async Task<MsixIdentityResult> AddMsixIdentityAsync(string? entryPointPath, string appxManifestPath, bool noInstall, string? applicationLocation = null, CancellationToken cancellationToken = default)
     {
         if (!Path.IsPathRooted(appxManifestPath))
         {
@@ -237,28 +241,60 @@ internal partial class MsixService(
         }
 
         // Validate inputs
-        if (!File.Exists(exePath))
-        {
-            throw new FileNotFoundException($"Executable not found at: {exePath}");
-        }
-
         if (!File.Exists(appxManifestPath))
         {
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}. You can generate one using 'winsdk manifest generate'.");
         }
 
-        logger.LogDebug("Processing executable: {ExecutablePath}", exePath);
+        if (entryPointPath == null)
+        {
+            var manifestContent = await File.ReadAllTextAsync(appxManifestPath, Encoding.UTF8, cancellationToken);
+            var executableMatch = AppxPackageApplicationExecutableRegex().Match(manifestContent);
+            if (executableMatch.Success)
+            {
+                entryPointPath = executableMatch.Groups[1].Value;
+            }
+            else
+            {
+                var hostIdMatch = AppxPackageApplicationHostIdAssignmentRegex().Match(manifestContent);
+                if (hostIdMatch.Success)
+                {
+                    // check HostParameter
+                    var parametersMatch = AppxPackageApplicationParametersAssignmentRegex().Match(manifestContent);
+                    if (parametersMatch.Success)
+                    {
+                        entryPointPath = parametersMatch.Groups[2].Value;
+                        var prefix = @"$(package.effectivePath)\";
+                        if (entryPointPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            entryPointPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), entryPointPath[prefix.Length..]));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate inputs
+        if (!File.Exists(entryPointPath))
+        {
+            throw new FileNotFoundException($"EntryPoint/Executable not found at: {entryPointPath}");
+        }
+
+        logger.LogDebug("Processing entryPoint/executable: {EntryPointPath}", entryPointPath);
         logger.LogDebug("Using AppX manifest: {AppXManifestPath}", appxManifestPath);
 
         // Generate sparse package structure
         var (debugManifestPath, debugIdentity) = await GenerateSparsePackageStructureAsync(
             appxManifestPath,
-            exePath,
+            entryPointPath,
             applicationLocation,
             cancellationToken);
 
         // Update executable with debug identity
-        await EmbedMsixIdentityToExeAsync(exePath, debugIdentity, applicationLocation, cancellationToken);
+        if (Path.HasExtension(entryPointPath) && string.Equals(Path.GetExtension(entryPointPath), ".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            await EmbedMsixIdentityToExeAsync(entryPointPath, debugIdentity, applicationLocation, cancellationToken);
+        }
 
         if (noInstall)
         {
@@ -267,7 +303,7 @@ internal partial class MsixService(
         else
         {
             // Register the debug appxmanifest
-            var workingDirectory = applicationLocation ?? Path.GetDirectoryName(exePath) ?? Directory.GetCurrentDirectory();
+            var workingDirectory = applicationLocation ?? Path.GetDirectoryName(entryPointPath) ?? Directory.GetCurrentDirectory();
 
             // Unregister any existing package first
             await UnregisterExistingPackageAsync(debugIdentity.PackageName, cancellationToken);
@@ -1138,13 +1174,13 @@ internal partial class MsixService(
     /// Generates a sparse package structure for debug purposes
     /// </summary>
     /// <param name="originalManifestPath">Path to the original appxmanifest.xml</param>
-    /// <param name="executablePath">Path to the executable that the manifest should reference</param>
+    /// <param name="entryPointPath">Path to the entryPoint/executable that the manifest should reference</param>
     /// <param name="baseDirectory">Base directory to create the debug structure in</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Tuple containing the debug manifest path and modified identity info</returns>
     public async Task<(string debugManifestPath, MsixIdentityResult debugIdentity)> GenerateSparsePackageStructureAsync(
         string originalManifestPath,
-        string executablePath,
+        string entryPointPath,
         string? baseDirectory = null,
         CancellationToken cancellationToken = default)
     {
@@ -1175,7 +1211,7 @@ internal partial class MsixService(
         var debugManifestContent = UpdateAppxManifestContent(
             originalManifestContent,
             debugIdentity,
-            executablePath,
+            entryPointPath,
             baseDirectory,
             sparse: true,
             selfContained: false);
@@ -1216,7 +1252,7 @@ internal partial class MsixService(
     private string UpdateAppxManifestContent(
         string originalAppxManifestContent,
         MsixIdentityResult? identity,
-        string? executablePath,
+        string? entryPointPath,
         string? baseDirectory,
         bool sparse,
         bool selfContained)
@@ -1232,7 +1268,7 @@ internal partial class MsixService(
             modifiedContent = AppxApplicationIdAssignmentRegex().Replace(modifiedContent, $@"$1""{identity.ApplicationId}""");
         }
 
-        if (executablePath != null)
+        if (entryPointPath != null)
         {
             // Replace executable path with relative path from package root
             var workingDir = baseDirectory ?? Directory.GetCurrentDirectory();
@@ -1241,7 +1277,7 @@ internal partial class MsixService(
             try
             {
                 // Calculate relative path from the working directory (package root) to the executable
-                relativeExecutablePath = Path.GetRelativePath(workingDir, executablePath);
+                relativeExecutablePath = Path.GetRelativePath(workingDir, entryPointPath);
 
                 // Ensure we use forward slashes for consistency in manifest
                 relativeExecutablePath = relativeExecutablePath.Replace('\\', '/');
@@ -1249,11 +1285,13 @@ internal partial class MsixService(
             catch
             {
                 // Fallback to just the filename if relative path calculation fails
-                relativeExecutablePath = Path.GetFileName(executablePath);
+                relativeExecutablePath = Path.GetFileName(entryPointPath);
             }
 
             modifiedContent = AppxPackageApplicationExecutableAssignmentRegex().Replace(modifiedContent, $@"$1""{relativeExecutablePath}""");
         }
+
+        bool isExe = Path.HasExtension(entryPointPath) && string.Equals(Path.GetExtension(entryPointPath), ".exe", StringComparison.OrdinalIgnoreCase);
 
         // Only apply sparse packaging modifications if sparse is true
         if (sparse)
@@ -1278,7 +1316,7 @@ $1");
             }
 
             // Ensure Application has sparse packaging attributes
-            if (!modifiedContent.Contains("uap10:TrustLevel"))
+            if (!modifiedContent.Contains("uap10:TrustLevel") && isExe)
             {
                 modifiedContent = AppxApplicationOpenTagRegex().Replace(modifiedContent, @"$1 uap10:TrustLevel=""mediumIL"" uap10:RuntimeBehavior=""packagedClassicApp""$2");
             }
@@ -1302,7 +1340,7 @@ $1");
         }
 
         // Update or insert Windows App SDK dependency (skip for self-contained packages)
-        if (!selfContained)
+        if (!selfContained && (entryPointPath == null || isExe))
         {
             modifiedContent = UpdateWindowsAppSdkDependency(modifiedContent);
         }

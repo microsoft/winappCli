@@ -60,6 +60,39 @@ This command will:
   
 > **Tip:** Modify `winsdk.yaml` to change SDK versions, then run `winsdk init` or `winsdk restore` to update your project.
 
+### Hosted Apps (Python/Node.js scripts)
+
+The CLI supports packaging Python and Node.js scripts as MSIX packages using the [Hosted App model](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/hosted-apps). This allows your scripts to gain Windows app identity and capabilities without bundling a full runtime.
+
+#### Generate a Hosted App manifest
+
+```bash
+winsdk manifest generate --template hostedapp --entrypoint app.py
+```
+
+This command will:
+* ✅ Create an `appxmanifest.xml` configured for hosted apps
+* ✅ Auto-detect the script type (Python `.py` or JavaScript `.js`)
+* ✅ Configure the appropriate host runtime dependency (Python314 or Nodejs22)
+* ✅ Generate required assets in the `Assets` folder
+
+**Supported script types:**
+- **Python scripts** (`.py`) - Uses Python314 host runtime
+- **JavaScript/Node.js scripts** (`.js`) - Uses Nodejs22 host runtime
+
+#### Debug identity for hosted apps
+
+You can also create debug identity for hosted apps to test them without full MSIX packaging:
+
+```bash
+# Generate hosted app manifest
+winsdk manifest generate --template hostedapp --entrypoint app.py
+
+# Create debug identity (registers as a sparse package)
+winsdk create-debug-identity
+```
+
+> **Note:** The hosted app model requires the appropriate runtime (Python 3.14+ or Node.js 22+) to be installed on the target system. The manifest specifies this as a runtime dependency.
 
 ### Generate app identity
 
