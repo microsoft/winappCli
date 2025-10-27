@@ -24,14 +24,15 @@ npm install winsdk
 
 #### `node create-addon`
 
-Generate native C++ addon files for an Electron project.
+Generate native C++ or C# addon files for an Electron project.
 
 ```bash
-npx winsdk node create-addon --name myAddon
+npx winsdk node create-addon --name myAddon --template=cs
 ```
 
 **Options:**
 - `--name <name>`: Addon name (default: `nativeWindowsAddon`)
+- `--template=cs`: Create a C# addon.  If omitted, a C++ addon is created.
 - `--verbose`: Enable verbose output (default: true)
 - `--help`: Show help
 
@@ -45,47 +46,15 @@ npx winsdk node create-addon --name myAddon
 const myAddon = require('./myAddon/build/Release/myAddon.node');
 ```
 
----
-
-#### `node create-cs-addon`
-
-Generate C# addon files for an Electron project using node-api-dotnet.
-
-```bash
-npx winsdk node create-cs-addon --name MyCsAddon
-```
-
-**Options:**
-- `--name <name>`: Addon name (default: `csAddon`) - must be a valid C# namespace/class name
-- `--verbose`: Enable verbose output (default: true)
-- `--help`: Show help
-
-**Requirements:**
+**Requirements for C# addon:**
 - .NET 8.0 SDK or later must be installed
 
-**What it does:**
+**How a C# addon is different than native:**
 1. Creates a new C# addon directory with `.csproj` and `addon.cs` files
 2. Installs `node-api-dotnet` package
-3. Adds build and clean scripts to `package.json`
+3. Adds build and clean scripts to `package.json`.  The build script will publish your C# project
+as NAOT, so it won't have a dependency on the .net runtime.
 4. Updates `.gitignore` with C# build artifacts
-
-**Build the addon:**
-```bash
-npm run build-MyCsAddon
-```
-
-**Usage in JavaScript:**
-```javascript
-const dotnet = require('node-api-dotnet');
-const MyCsAddon = dotnet.require('./build/Release/MyCsAddon');
-
-// C# method names are automatically converted to camelCase in JavaScript
-console.log(MyCsAddon.Addon.hello('World'));
-// Output: Hello from C#, World!
-
-console.log(MyCsAddon.Addon.add(5, 3));
-// Output: 8
-```
 
 **C# Code Example:**
 ```csharp

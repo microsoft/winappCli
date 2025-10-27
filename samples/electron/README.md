@@ -2,6 +2,39 @@
 
 This sample demonstrates usage of the winsdk npm package with an Electron app.
 
+## 🚀 Quick Start: How to build and run the sample
+Here's how you can build, package, deploy, and run the sample (more detail in below sections):
+
+```pwsh
+# Enter pwsh and cd to this sample
+pwsh
+cd <reporoot>\samples\electron
+
+# Build the winsdk CLI
+..\..\build-cli.ps1
+
+# Install/restore the project dependencies
+npm install
+
+# FOR ARM64 ONLY: Build and create the MSIX package 
+npm run package-msix
+
+# FOR x64 ONLY: Build and create the MSIX package
+npm run package-msix:x64
+
+# Install your dev cert if you haven't already (requires Sudo is enabled)
+sudo pwsh -c "npx winsdk cert install .\devcert.pfx ; pause"
+
+# Deploy the MSIX to local machine
+add-appxpackage out\electronWinsdkSample.msix
+
+# Find "Electron winsdk sample" in your start menu and run!
+# (note that first launch will be slow)
+```
+
+
+## Overview
+
 The sample is a default Electron Forge generated application with the following modifications:
 
 1. **Initialized a winsdk project** by running `npx winsdk init`. This generates:
@@ -13,9 +46,12 @@ The sample is a default Electron Forge generated application with the following 
    
    The `.winsdk` folder and `devcert.pfx` are added to `.gitignore` to ensure they are not committed to git. Running `npx winsdk restore` will restore them (this is added as a postinstall script in `package.json`).
 
-2. **Generated a native addon** using `npx winsdk node generate-addon` to call APIs from the Windows SDK and Windows App SDK. The addon folder contains the generated addon alongside the `build-addon` script added to `package.json`. The addon contains a function to raise a Windows notification, and the JavaScript code has been modified to call this function.
+2. **Generated a native addon** using `npx winsdk node create-addon` to call APIs from the Windows SDK and Windows App SDK. The addon folder contains the generated addon alongside the `build-addon` script added to `package.json`. The addon contains a function to raise a Windows notification, and the JavaScript code has been modified to call this function.
 
-3. **Modified `forge.config.js`** to ignore the `.winsdk`, `devcert.pfx`, and `winsdk.yaml` files from the final package, and to copy the `appxmanifest.xml` and `Assets` folder to the final package.
+3. **Generated a C# addon** using `npx winsdk node create-addon --template=cs`.  This generates a simple c# addon using the node-api-dotnet project.  When you build the C# addon, this will use NAOT to produce
+a .node file that is trimmed and doesn't require the .net runtime to be installed on the target machine.
+
+4. **Modified `forge.config.js`** to ignore the `.winsdk`, `devcert.pfx`, and `winsdk.yaml` files from the final package, and to copy the `appxmanifest.xml` and `Assets` folder to the final package.
 
 ## Prerequisites
 

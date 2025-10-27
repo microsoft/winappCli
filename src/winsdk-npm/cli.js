@@ -104,12 +104,11 @@ async function showCombinedHelp() {
   console.log('');
   console.log('Node.js Subcommands:');
   console.log('  node create-addon         Generate native addon files for Electron');
-  console.log('  node create-cs-addon      Generate C# addon files for Electron');
   console.log('  node add-electron-debug-identity  Add MSIX identity to Electron debug process');
   console.log('');
   console.log('Examples:');
   console.log(`  ${CLI_NAME} node create-addon --name myAddon`);
-  console.log(`  ${CLI_NAME} node create-cs-addon --name MyCsAddon`);
+  console.log(`  ${CLI_NAME} node create-addon --template cs --name myAddon`);
   console.log(`  ${CLI_NAME} node add-electron-debug-identity`);
 }
 
