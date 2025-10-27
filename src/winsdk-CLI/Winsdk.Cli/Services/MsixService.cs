@@ -1323,8 +1323,8 @@ $1");
             else
             {
                 // Add new dependency to existing Dependencies section
-                manifestContent = AppxPackageDependenciesCloseTagRegex().Replace(manifestContent, $@"    <PackageDependency Name=""{winAppSdkInfo.RuntimeName}"" MinVersion=""{winAppSdkInfo.MinVersion}"" Publisher=""CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"" />
-$1");
+                manifestContent = AppxPackageDependenciesCloseTagRegex().Replace(manifestContent, $@"
+    <PackageDependency Name=""{winAppSdkInfo.RuntimeName}"" MinVersion=""{winAppSdkInfo.MinVersion}"" Publisher=""CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"" />$1");
 
                 logger.LogDebug("{UISymbols} Added Windows App SDK dependency {RuntimeName} to existing Dependencies section (v{MinVersion})", UiSymbols.Add, winAppSdkInfo.RuntimeName, winAppSdkInfo.MinVersion);
             }

@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using System.IO.Compression;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.RegularExpressions;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Tests;
@@ -14,6 +16,7 @@ public class PackageCommandTests : BaseCommandTests
     private IConfigService _configService = null!;
     private IBuildToolsService _buildToolsService = null!;
     private IMsixService _msixService = null!;
+    private IWorkspaceSetupService _workspaceSetupService = null!;
     private ICertificateService _certificateService = null!;
 
     /// <summary>
@@ -62,6 +65,7 @@ public class PackageCommandTests : BaseCommandTests
 
         _buildToolsService = GetRequiredService<IBuildToolsService>();
         _msixService = GetRequiredService<IMsixService>();
+        _workspaceSetupService = GetRequiredService<IWorkspaceSetupService>();
         _certificateService = GetRequiredService<ICertificateService>();
     }
 
@@ -271,7 +275,7 @@ public class PackageCommandTests : BaseCommandTests
         {
             await _msixService.CreateMsixPackageAsync(
                 inputFolder: nonExistentDir,
-                outputPath: null,
+                outputPath: _tempDirectory,
                 packageName: "TestPackage",
                 skipPri: true,
                 autoSign: false,
@@ -295,7 +299,7 @@ public class PackageCommandTests : BaseCommandTests
         {
             await _msixService.CreateMsixPackageAsync(
                 inputFolder: packageDir,
-                outputPath: null,
+                outputPath: _tempDirectory,
                 packageName: "TestPackage",
                 skipPri: true,
                 autoSign: false,
@@ -335,7 +339,7 @@ public class PackageCommandTests : BaseCommandTests
 
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
-            outputPath: null,
+            outputPath: _tempDirectory,
             packageName: "ExternalTestPackage",
             skipPri: true,
             autoSign: false,
@@ -375,7 +379,7 @@ public class PackageCommandTests : BaseCommandTests
         // Act & Assert - This should succeed because publishers match
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
-            outputPath: null,
+            outputPath: _tempDirectory,
             packageName: "SigningTestPackage",
             skipPri: true,
             autoSign: true,
@@ -413,7 +417,7 @@ public class PackageCommandTests : BaseCommandTests
         {
             await _msixService.CreateMsixPackageAsync(
                 inputFolder: packageDir,
-                outputPath: null,
+                outputPath: _tempDirectory,
                 packageName: "MismatchedSigningTest",
                 skipPri: true,
                 autoSign: true,
@@ -460,7 +464,7 @@ public class PackageCommandTests : BaseCommandTests
         {
             await _msixService.CreateMsixPackageAsync(
                 inputFolder: packageDir,
-                outputPath: null,
+                outputPath: _tempDirectory,
                 packageName: "ExternalMismatchTest",
                 skipPri: true,
                 autoSign: true,
@@ -578,5 +582,95 @@ public class PackageCommandTests : BaseCommandTests
         // Verify error message format matches requirement
         Assert.Contains($"Error: Publisher in {manifestPath} (CN=ManifestPublisher)", ex.Message);
         Assert.Contains($"does not match the publisher in the certificate {certPath} (CN=CertificatePublisher)", ex.Message);
+    }
+
+    [TestMethod]
+    public async Task CreateMsixPackageAsync_WithWindowsAppSdkDependency_AddsPackageDependencyOnNewLine()
+    {
+        // Arrange - Create package structure with a manifest that has Dependencies but no WinAppSDK dependency
+        var packageDir = Path.Combine(_tempDirectory, "WinAppSdkDependencyTest");
+        Directory.CreateDirectory(packageDir);
+
+        File.WriteAllText(Path.Combine(packageDir, "AppxManifest.xml"), StandardTestManifestContent);
+
+        // Create Assets directory and files
+        var assetsDir = Path.Combine(packageDir, "Assets");
+        Directory.CreateDirectory(assetsDir);
+        File.WriteAllText(Path.Combine(assetsDir, "Logo.png"), "fake png content");
+        File.WriteAllText(Path.Combine(packageDir, "TestApp.exe"), "fake exe content");
+
+        // Create winsdk.yaml with Windows App SDK package to trigger dependency injection
+        var configContent = @"packages:
+  - name: Microsoft.WindowsAppSDK
+    version: 2.0.250930001-experimental1";
+        await File.WriteAllTextAsync(_configService.ConfigPath, configContent);
+
+        // Restore
+        await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
+        {
+            BaseDirectory = _tempDirectory,
+            ConfigDir = _tempDirectory,
+            RequireExistingConfig = true,
+            ForceLatestBuildTools = false
+        }, CancellationToken.None);
+
+        // Act - Create package (this should trigger the Windows App SDK dependency injection)
+        var result = await _msixService.CreateMsixPackageAsync(
+            inputFolder: packageDir,
+            outputPath: _tempDirectory,
+            packageName: "WinAppSdkDependencyTest",
+            skipPri: true,
+            autoSign: false,
+            selfContained: false,
+            cancellationToken: CancellationToken.None
+        );
+
+        // Assert - Read the manifest from the package and verify PackageDependency is on its own line
+        Assert.IsNotNull(result, "Result should not be null");
+        Assert.IsTrue(File.Exists(result.MsixPath), "MSIX package file should exist");
+
+        // Extract and read the manifest from the created package
+        var extractDir = Path.Combine(_tempDirectory, "extracted");
+        Directory.CreateDirectory(extractDir);
+        ZipFile.ExtractToDirectory(result.MsixPath, extractDir);
+
+        var extractedManifestPath = Path.Combine(extractDir, "AppxManifest.xml");
+        Assert.IsTrue(File.Exists(extractedManifestPath), "Extracted manifest should exist");
+
+        var finalManifestContent = await File.ReadAllTextAsync(extractedManifestPath);
+
+        // Verify the PackageDependency exists
+        Assert.Contains("<PackageDependency Name=\"Microsoft.WindowsAppRuntime", finalManifestContent,
+            "Manifest should contain Windows App SDK PackageDependency");
+
+        // Verify it's on its own line (not on the same line as </Dependencies>)
+        // The pattern we're checking: there should be a newline after the PackageDependency closing tag
+        // and before the </Dependencies> tag
+        var dependenciesSectionPattern = @"<Dependencies>.*?</Dependencies>";
+        var dependenciesMatch = Regex.Match(finalManifestContent, dependenciesSectionPattern, RegexOptions.Singleline);
+        Assert.IsTrue(dependenciesMatch.Success, "Should find Dependencies section");
+
+        var dependenciesSection = dependenciesMatch.Value;
+
+        // Check that PackageDependency and </Dependencies> are NOT on the same line
+        var lines = dependenciesSection.Split('\n');
+        var packageDependencyLine = lines.FirstOrDefault(l => l.Contains("<PackageDependency"));
+        var closingTagLine = lines.FirstOrDefault(l => l.Trim() == "</Dependencies>");
+
+        Assert.IsNotNull(packageDependencyLine, "Should find PackageDependency line");
+        Assert.IsNotNull(closingTagLine, "Should find closing Dependencies tag line");
+
+        // Verify they are different lines
+        Assert.AreNotEqual(packageDependencyLine, closingTagLine,
+            "PackageDependency and </Dependencies> should be on separate lines");
+
+        // Also verify proper formatting - there should be whitespace/newline between them
+        var packageDependencyIndex = dependenciesSection.IndexOf("<PackageDependency", StringComparison.InvariantCulture);
+        var closingBracketIndex = dependenciesSection.IndexOf("/>", packageDependencyIndex, StringComparison.InvariantCulture) + 2;
+        var closingTagIndex = dependenciesSection.IndexOf("</Dependencies>", closingBracketIndex, StringComparison.InvariantCulture);
+
+        var betweenContent = dependenciesSection.Substring(closingBracketIndex, closingTagIndex - closingBracketIndex);
+        Assert.Contains("\n", betweenContent,
+            "There should be a newline between PackageDependency closing and </Dependencies> tag");
     }
 }
