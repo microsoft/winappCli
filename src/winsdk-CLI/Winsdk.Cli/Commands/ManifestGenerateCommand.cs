@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using Winsdk.Cli.Helpers;
+using Winsdk.Cli.Models;
 using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Commands;
@@ -16,8 +17,8 @@ internal class ManifestGenerateCommand : Command
     public static Option<string> PublisherNameOption { get; }
     public static Option<string> VersionOption { get; }
     public static Option<string> DescriptionOption { get; }
-    public static Option<string?> ExecutableOption { get; }
-    public static Option<bool> SparseOption { get; }
+    public static Option<string?> EntryPointOption { get; }
+    public static Option<ManifestTemplates> TemplateOption { get; }
     public static Option<string?> LogoPathOption { get; }
     public static Option<bool> YesOption { get; }
 
@@ -52,14 +53,15 @@ internal class ManifestGenerateCommand : Command
             DefaultValueFactory = (argumentResult) => "My Application"
         };
 
-        ExecutableOption = new Option<string?>("--executable")
+        EntryPointOption = new Option<string?>("--entrypoint", "--executable")
         {
-            Description = "Executable path/name (default: <package-name>.exe)"
+            Description = "Entry point of the application (e.g., executable path / name, or .py/.js script if template is HostedApp). Default: <package-name>.exe"
         };
 
-        SparseOption = new Option<bool>("--sparse")
+        TemplateOption = new Option<ManifestTemplates>("--template")
         {
-            Description = "Generate sparse package manifest"
+            Description = "Generate manifest using specified template",
+            DefaultValueFactory = (argumentResult) => ManifestTemplates.Packaged
         };
 
         LogoPathOption = new Option<string?>("--logo-path")
@@ -80,8 +82,8 @@ internal class ManifestGenerateCommand : Command
         Options.Add(PublisherNameOption);
         Options.Add(VersionOption);
         Options.Add(DescriptionOption);
-        Options.Add(ExecutableOption);
-        Options.Add(SparseOption);
+        Options.Add(EntryPointOption);
+        Options.Add(TemplateOption);
         Options.Add(LogoPathOption);
         Options.Add(YesOption);
     }
@@ -95,8 +97,8 @@ internal class ManifestGenerateCommand : Command
             var publisherName = parseResult.GetValue(PublisherNameOption);
             var version = parseResult.GetRequiredValue(VersionOption);
             var description = parseResult.GetRequiredValue(DescriptionOption);
-            var executable = parseResult.GetValue(ExecutableOption);
-            var sparse = parseResult.GetValue(SparseOption);
+            var entryPoint = parseResult.GetValue(EntryPointOption);
+            var template = parseResult.GetValue(TemplateOption);
             var logoPath = parseResult.GetValue(LogoPathOption);
             var yes = parseResult.GetValue(YesOption);
             try
@@ -107,8 +109,8 @@ internal class ManifestGenerateCommand : Command
                     publisherName,
                     version,
                     description,
-                    executable,
-                    sparse,
+                    entryPoint,
+                    template,
                     logoPath,
                     yes,
                     cancellationToken);

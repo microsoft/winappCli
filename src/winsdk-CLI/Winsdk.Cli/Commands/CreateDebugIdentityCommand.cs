@@ -11,16 +11,16 @@ namespace Winsdk.Cli.Commands;
 
 internal class CreateDebugIdentityCommand : Command
 {
-    public static Argument<string> ExecutableArgument { get; }
+    public static Option<string> EntryPointOption { get; }
     public static Option<string> ManifestOption { get; }
     public static Option<bool> NoInstallOption { get; }
     public static Option<string> LocationOption { get; }
 
     static CreateDebugIdentityCommand()
     {
-        ExecutableArgument = new Argument<string>("executable")
+        EntryPointOption = new Option<string>("--entrypoint")
         {
-            Description = "Path to the .exe that will need to run with identity"
+            Description = "Path to the .exe that will need to run with identity, or entrypoint script."
         };
         ManifestOption = new Option<string>("--manifest")
         {
@@ -39,7 +39,7 @@ internal class CreateDebugIdentityCommand : Command
 
     public CreateDebugIdentityCommand() : base("create-debug-identity", "Create and install a temporary package for debugging. Must be called every time the appxmanifest.xml is modified for changes to take effect.")
     {
-        Arguments.Add(ExecutableArgument);
+        Options.Add(EntryPointOption);
         Options.Add(ManifestOption);
         Options.Add(NoInstallOption);
         Options.Add(LocationOption);
@@ -49,20 +49,20 @@ internal class CreateDebugIdentityCommand : Command
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var executablePath = parseResult.GetRequiredValue(ExecutableArgument);
+            var entryPointPath = parseResult.GetValue(EntryPointOption);
             var manifest = parseResult.GetRequiredValue(ManifestOption);
             var noInstall = parseResult.GetValue(NoInstallOption);
             var location = parseResult.GetValue(LocationOption);
 
-            if (!File.Exists(executablePath))
+            if (entryPointPath != null && !File.Exists(entryPointPath))
             {
-                logger.LogError("Executable not found: {ExecutablePath}", executablePath);
+                logger.LogError("EntryPoint/Executable not found: {EntryPointPath}", entryPointPath);
                 return 1;
             }
 
             try
             {
-                var result = await msixService.AddMsixIdentityToExeAsync(executablePath, manifest, noInstall, location, cancellationToken);
+                var result = await msixService.AddMsixIdentityAsync(entryPointPath, manifest, noInstall, location, cancellationToken);
 
                 logger.LogInformation("{UISymbol} MSIX identity added successfully!", UiSymbols.Check);
                 logger.LogInformation("{UISymbol} Package: {PackageName}", UiSymbols.Package, result.PackageName);
