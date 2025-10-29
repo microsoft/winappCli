@@ -45,3 +45,5 @@ extends:
           - template: ./.pipelines/templates/build.yaml@self
             parameters:
               stable: 'false'
+              DoEsrp: false
+              signingIdentity: {}

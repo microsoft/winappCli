@@ -1,4 +1,4 @@
-trigger:
+﻿trigger:
   branches:
     include:
       - rel/v*
@@ -10,6 +10,20 @@ resources:
     type: git
     name: 1ESPipelineTemplates/1ESPipelineTemplates
     ref: refs/tags/release
+
+parameters:
+  - name: DoEsrp
+    type: boolean
+    default: true
+  - name: signingIdentity
+    type: object
+    default:
+      serviceName: $(SigningServiceName)
+      appId: $(SigningAppId)
+      tenantId: $(SigningTenantId)
+      akvName: $(SigningAKVName)
+      authCertName: $(SigningAuthCertName)
+      signCertName: $(SigningSignCertName)
 
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
@@ -34,6 +48,12 @@ extends:
             displayName: Setup .NET 9
             inputs:
               version: 9.0.x
+          - ${{ if eq(parameters.DoEsrp, 'true') }}:
+            - task: UseDotNet@2
+              displayName: Setup .NET 6.0 (For ESRP Task)
+              inputs:
+                packageType: runtime
+                version: 6.0.x
           - task: UseNode@1
             displayName: Setup Node.js 24
             inputs:
@@ -48,3 +68,101 @@ extends:
           - template: ./.pipelines/templates/build.yaml@self
             parameters:
               stable: 'true'
+              DoEsrp: ${{ parameters.DoEsrp }}
+              signingIdentity: ${{ parameters.signingIdentity }}
+          - task: PowerShell@2
+            name: SetMeta
+            displayName: Build + compute versions
+            inputs:
+              targetType: inline
+              script: |
+                # Get version info
+                $versionJson = Get-Content "version.json" | ConvertFrom-Json
+                $baseVersion = $versionJson.version
+                $buildNumber = & ".\scripts\get-build-number.ps1"
+                $fullVersion = "$baseVersion-prerelease.$buildNumber"
+
+                Write-Host "BaseVersion: $baseVersion"
+                Write-Host "BuildNumber: $buildNumber"
+                Write-Host "FullVersion: $fullVersion"
+
+                # Export as **output variables** for other stages/jobs
+                Write-Host "##vso[task.setvariable variable=version;isOutput=true]$fullVersion"
+                Write-Host "##vso[task.setvariable variable=base_version;isOutput=true]$baseVersion"
+                Write-Host "##vso[task.setvariable variable=build_number;isOutput=true]$buildNumber"
+
+    - stage: Release
+      displayName: Create GitHub Pre-release
+      dependsOn: Build
+      variables:
+        version:       $[ stageDependencies.Build.Build.outputs['SetMeta.version'] ]
+        base_version:  $[ stageDependencies.Build.Build.outputs['SetMeta.base_version'] ]
+        build_number:  $[ stageDependencies.Build.Build.outputs['SetMeta.build_number'] ]
+      jobs:
+      - job: create_release
+        displayName: GitHub Pre-release
+        templateContext:
+          type: releaseJob
+          inputs:
+          - input: pipelineArtifact
+            artifactName: cli-binaries
+            targetPath: $(Pipeline.Workspace)/cli-binaries
+          - input: pipelineArtifact
+            artifactName: npm-package
+            targetPath: $(Pipeline.Workspace)/npm-package
+        steps:
+          - task: ArchiveFiles@2
+            displayName: Archive CLI binaries - x64
+            inputs:
+              rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-x64
+              includeRootFolder: false
+              archiveFile: $(Pipeline.Workspace)/winappcli-x64.zip
+
+          - task: ArchiveFiles@2
+            displayName: Archive CLI binaries - arm64
+            inputs:
+              rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/arm64
+              includeRootFolder: false
+              archiveFile: $(Pipeline.Workspace)/winappcli-arm64.zip
+
+          - task: GitHubRelease@1
+            displayName: "Create GitHub Pre-release"
+            inputs:
+              gitHubConnection: 'github-service-connection'
+              repositoryName: 'microsoft/winappcli'
+              action: 'create'
+              target: '$(Build.SourceVersion)'
+              tagSource: 'manual'
+              tag: 'v$(version)'
+              title: 'Pre-release v$(version)'
+              isPreRelease: true
+              assets: |
+                $(Pipeline.Workspace)/winappcli-x64.zip
+                $(Pipeline.Workspace)/winappcli-arm64.zip
+                $(Pipeline.Workspace)/npm-package/*.tgz
+              assetUploadMode: 'delete'
+              addChangeLog: false
+              releaseNotesSource: 'inline'
+              releaseNotesInline: |
+                🚀 **Automated Pre-release Build**
+
+                Version: `$(version)`
+                Base Version: `$(base_version)`
+                Build Number: `$(build_number)`
+                Commit: `$(Build.SourceVersion)`
+
+                ## Installation Options
+
+                ### 📦 Standalone CLI Binaries
+                1. Download `winappcli-x64.zip` for x64 or `winappcli-arm64.zip` for ARM64
+                2. Extract to your desired location
+                3. Add to PATH or run directly: `winapp.exe`
+
+                ### 📚 NPM Package (for Electron or NodeJS)
+                ```bash
+                npm install microsoft-winappcli-$(version).tgz
+                ```
+
+                ## What's Included
+                - ✅ Standalone CLI binaries (x64 and ARM64)
+                - ✅ NPM package for NodeJS/Electron integration
