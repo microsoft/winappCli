@@ -27,8 +27,7 @@ internal class ManifestGenerateCommand : Command
         DirectoryArgument = new Argument<DirectoryInfo>("directory")
         {
             Description = "Directory to generate manifest in",
-            Arity = ArgumentArity.ZeroOrOne,
-            DefaultValueFactory = (argumentResult) => new DirectoryInfo(Directory.GetCurrentDirectory())
+            Arity = ArgumentArity.ZeroOrOne
         };
         DirectoryArgument.AcceptExistingOnly();
 
@@ -90,11 +89,11 @@ internal class ManifestGenerateCommand : Command
         Options.Add(YesOption);
     }
 
-    public class Handler(IManifestService manifestService, ILogger<ManifestGenerateCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<ManifestGenerateCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var directory = parseResult.GetRequiredValue(DirectoryArgument);
+            var directory = parseResult.GetValue(DirectoryArgument) ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
             var packageName = parseResult.GetValue(PackageNameOption);
             var publisherName = parseResult.GetValue(PublisherNameOption);
             var version = parseResult.GetRequiredValue(VersionOption);

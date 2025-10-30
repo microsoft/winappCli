@@ -10,9 +10,9 @@ internal sealed class ConfigService : IConfigService
 {
     public FileInfo ConfigPath { get; set; }
 
-    public ConfigService()
+    public ConfigService(ICurrentDirectoryProvider currentDirectoryProvider)
     {
-        var workingDir = Directory.GetCurrentDirectory();
+        var workingDir = currentDirectoryProvider.GetCurrentDirectory();
         ConfigPath = new FileInfo(Path.Combine(workingDir, "winsdk.yaml"));
     }
 

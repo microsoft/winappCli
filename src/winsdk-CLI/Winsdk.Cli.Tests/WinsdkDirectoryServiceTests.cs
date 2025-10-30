@@ -8,29 +8,9 @@ namespace Winsdk.Cli.Tests;
 [TestClass]
 public class WinsdkDirectoryServiceTests :  BaseCommandTests
 {
-    private DirectoryInfo _tempDirectory = null!;
-    private DirectoryInfo _testWinsdkDirectory = null!;
-
-    [TestInitialize]
-    public void Setup()
+    public WinsdkDirectoryServiceTests()
+        : base(configPaths: false)
     {
-        // Create a temp directory for each test to isolate them
-        _tempDirectory = new DirectoryInfo(Path.Combine(Path.GetTempPath(), "WinsdkDirectoryServiceTests", Guid.NewGuid().ToString()));
-        _tempDirectory.Create();
-
-        // Set up a temporary winsdk directory for testing (isolates tests from real winsdk directory)
-        _testWinsdkDirectory = _tempDirectory.CreateSubdirectory(".winsdk");
-    }
-
-    [TestCleanup]
-    public void Cleanup()
-    {
-        // Clean up temporary files and directories
-        _tempDirectory.Refresh();
-        if (_tempDirectory.Exists)
-        {
-            _tempDirectory.Delete(true);
-        }
     }
 
     [TestMethod]
@@ -185,7 +165,7 @@ public class WinsdkDirectoryServiceTests :  BaseCommandTests
         var result = directoryService.GetLocalWinsdkDirectory(null);
 
         // Assert
-        var expectedPath = new DirectoryInfo(Path.Combine(Directory.GetCurrentDirectory(), ".winsdk"));
+        var expectedPath = new DirectoryInfo(Path.Combine(GetRequiredService<ICurrentDirectoryProvider>().GetCurrentDirectory(), ".winsdk"));
         Assert.AreEqual(expectedPath.FullName, result.FullName);
     }
 }

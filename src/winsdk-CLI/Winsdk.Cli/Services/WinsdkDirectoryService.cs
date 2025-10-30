@@ -6,7 +6,7 @@ namespace Winsdk.Cli.Services;
 /// <summary>
 /// Service responsible for resolving winsdk directory paths
 /// </summary>
-internal class WinsdkDirectoryService : IWinsdkDirectoryService
+internal class WinsdkDirectoryService(ICurrentDirectoryProvider currentDirectoryProvider) : IWinsdkDirectoryService
 {
     private DirectoryInfo? _globalOverride;
 
@@ -41,7 +41,7 @@ internal class WinsdkDirectoryService : IWinsdkDirectoryService
 
     public DirectoryInfo GetLocalWinsdkDirectory(DirectoryInfo? baseDirectory = null)
     {
-        baseDirectory ??= new DirectoryInfo(Directory.GetCurrentDirectory());
+        baseDirectory ??= new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
 
         var originalBaseDir = new DirectoryInfo(baseDirectory.FullName);
         var dir = originalBaseDir;

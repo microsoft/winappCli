@@ -40,8 +40,7 @@ internal class CertGenerateCommand : Command
         ManifestOption.AcceptLegalFilePathsOnly();
         OutputOption = new Option<FileInfo>("--output")
         {
-            Description = "Output path for the generated PFX file",
-            DefaultValueFactory = (argumentResult) => new FileInfo(CertificateService.DefaultCertFileName)
+            Description = "Output path for the generated PFX file"
         };
         OutputOption.AcceptLegalFileNamesOnly();
         PasswordOption = new Option<string>("--password")
@@ -78,13 +77,13 @@ internal class CertGenerateCommand : Command
         Options.Add(IfExistsOption);
     }
 
-    public class Handler(ICertificateService certificateService, ILogger<CertGenerateCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(ICertificateService certificateService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<CertGenerateCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var publisher = parseResult.GetValue(PublisherOption);
             var manifestPath = parseResult.GetValue(ManifestOption);
-            var output = parseResult.GetRequiredValue(OutputOption);
+            var output = parseResult.GetValue(OutputOption) ?? new FileInfo(Path.Combine(currentDirectoryProvider.GetCurrentDirectory(), CertificateService.DefaultCertFileName));
             var password = parseResult.GetRequiredValue(PasswordOption);
             var validDays = parseResult.GetRequiredValue(ValidDaysOption);
             var install = parseResult.GetRequiredValue(InstallOption);

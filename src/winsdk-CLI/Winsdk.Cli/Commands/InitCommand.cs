@@ -28,8 +28,7 @@ internal class InitCommand : Command
         BaseDirectoryArgument.AcceptExistingOnly();
         ConfigDirOption = new Option<DirectoryInfo>("--config-dir")
         {
-            Description = "Directory to read/store configuration (default: current directory)",
-            DefaultValueFactory = (argumentResult) => new DirectoryInfo(Directory.GetCurrentDirectory())
+            Description = "Directory to read/store configuration (default: current directory)"
         };
         ConfigDirOption.AcceptExistingOnly();
         PrereleaseOption = new Option<bool>("--prerelease")
@@ -70,12 +69,12 @@ internal class InitCommand : Command
         Options.Add(ConfigOnlyOption);
     }
 
-    public class Handler(IWorkspaceSetupService workspaceSetupService) : AsynchronousCommandLineAction
+    public class Handler(IWorkspaceSetupService workspaceSetupService, ICurrentDirectoryProvider currentDirectoryProvider) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var baseDirectory = parseResult.GetValue(BaseDirectoryArgument);
-            var configDir = parseResult.GetRequiredValue(ConfigDirOption);
+            var configDir = parseResult.GetValue(ConfigDirOption) ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
             var prerelease = parseResult.GetValue(PrereleaseOption);
             var ignoreConfig = parseResult.GetValue(IgnoreConfigOption);
             var noGitignore = parseResult.GetValue(NoGitignoreOption);
@@ -85,7 +84,7 @@ internal class InitCommand : Command
 
             var options = new WorkspaceSetupOptions
             {
-                BaseDirectory = baseDirectory ?? new DirectoryInfo(Directory.GetCurrentDirectory()),
+                BaseDirectory = baseDirectory ?? currentDirectoryProvider.GetCurrentDirectoryInfo(),
                 ConfigDir = configDir,
                 IncludeExperimental = prerelease,
                 IgnoreConfig = ignoreConfig,

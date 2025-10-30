@@ -11,10 +11,6 @@ namespace Winsdk.Cli.Tests;
 [TestClass]
 public class PackageCommandTests : BaseCommandTests
 {
-    private DirectoryInfo _tempDirectory = null!;
-    private DirectoryInfo _testWinsdkDirectory = null!;
-    private IConfigService _configService = null!;
-    private IBuildToolsService _buildToolsService = null!;
     private IMsixService _msixService = null!;
     private IWorkspaceSetupService _workspaceSetupService = null!;
     private ICertificateService _certificateService = null!;
@@ -48,21 +44,6 @@ public class PackageCommandTests : BaseCommandTests
     [TestInitialize]
     public void Setup()
     {
-        // Create a temporary directory for testing
-        _tempDirectory = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"WinsdkPackageTest_{Guid.NewGuid():N}"));
-        _tempDirectory.Create();
-
-        // Set up a temporary winsdk directory for testing (isolates tests from real winsdk directory)
-        _testWinsdkDirectory = _tempDirectory.CreateSubdirectory(".winsdk");
-
-        // Set up services with test cache directory
-        _configService = GetRequiredService<IConfigService>();
-        _configService.ConfigPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "winsdk.yaml"));
-
-        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
-        directoryService.SetCacheDirectoryForTesting(_testWinsdkDirectory);
-
-        _buildToolsService = GetRequiredService<IBuildToolsService>();
         _msixService = GetRequiredService<IMsixService>();
         _workspaceSetupService = GetRequiredService<IWorkspaceSetupService>();
         _certificateService = GetRequiredService<ICertificateService>();
@@ -90,19 +71,6 @@ public class PackageCommandTests : BaseCommandTests
         foreach (var publisher in testCertificatePublishers)
         {
             CleanupInvalidTestCertificatesFromStore(publisher);
-        }
-
-        // Clean up temporary files and directories
-        if (_tempDirectory.Exists)
-        {
-            try
-            {
-                _tempDirectory.Delete(true);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
         }
     }
 
@@ -242,6 +210,8 @@ public class PackageCommandTests : BaseCommandTests
         // Create a minimal winsdk.yaml to satisfy config requirements
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []");
 
+        var currentDir = GetRequiredService<ICurrentDirectoryProvider>().GetCurrentDirectory();
+
         // Convert expected relative path to absolute path based on current directory
         string expectedMsixPath;
         if (Path.IsPathRooted(expectedRelativePath))
@@ -252,12 +222,12 @@ public class PackageCommandTests : BaseCommandTests
         else
         {
             // Relative - make absolute based on current directory
-            expectedMsixPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), expectedRelativePath));
+            expectedMsixPath = Path.GetFullPath(Path.Combine(currentDir, expectedRelativePath));
         }
 
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
-            outputPath: string.IsNullOrEmpty(outputPath) ? null : new FileInfo(outputPath),
+            outputPath: string.IsNullOrEmpty(outputPath) ? null : new FileInfo(Path.IsPathRooted(outputPath) ? outputPath : Path.Combine(currentDir, outputPath)),
             packageName: "TestPackage",
             skipPri: true,
             autoSign: false,

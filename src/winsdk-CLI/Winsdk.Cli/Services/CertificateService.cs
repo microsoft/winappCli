@@ -13,6 +13,7 @@ namespace Winsdk.Cli.Services;
 internal partial class CertificateService(
     IBuildToolsService buildToolsService,
     IGitignoreService gitignoreService,
+    ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<CertificateService> logger) : ICertificateService
 {
     public const string DefaultCertFileName = "devcert.pfx";
@@ -304,7 +305,7 @@ internal partial class CertificateService(
             // Add certificate to .gitignore
             if (updateGitignore)
             {
-                var baseDirectory = outputPath.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+                var baseDirectory = outputPath.Directory ?? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
                 var certFileName = result.CertificatePath.Name;
                 gitignoreService.AddCertificateToGitignore(baseDirectory, certFileName);
             }
@@ -464,7 +465,7 @@ internal partial class CertificateService(
         }
 
         // 3. If appxmanifest.xml is found in the current project, use that
-        var projectManifestPath = MsixService.FindProjectManifest();
+        var projectManifestPath = MsixService.FindProjectManifest(currentDirectoryProvider);
         if (projectManifestPath != null)
         {
             try

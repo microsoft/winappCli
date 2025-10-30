@@ -9,40 +9,14 @@ namespace Winsdk.Cli.Tests;
 [TestClass]
 public class ManifestCommandTests : BaseCommandTests
 {
-    private string _tempDirectory = null!;
     private string _testLogoPath = null!;
-
+    
     [TestInitialize]
     public void Setup()
     {
-        // Create a temporary directory for testing
-        _tempDirectory = Path.Combine(Path.GetTempPath(), $"WinsdkManifestTest_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_tempDirectory);
-
-        // Set up a temporary winsdk directory for testing (isolates tests from real winsdk directory)
-        var testWinsdkDirectory = Path.Combine(_tempDirectory, ".winsdk");
-        Directory.CreateDirectory(testWinsdkDirectory);
-
         // Create a fake logo file for testing
-        _testLogoPath = Path.Combine(_tempDirectory, "testlogo.png");
+        _testLogoPath = Path.Combine(_tempDirectory.FullName, "testlogo.png");
         CreateFakeLogoFile(_testLogoPath);
-    }
-
-    [TestCleanup]
-    public void Cleanup()
-    {
-        // Clean up temporary files and directories
-        if (Directory.Exists(_tempDirectory))
-        {
-            try
-            {
-                Directory.Delete(_tempDirectory, true);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-        }
     }
 
     /// <summary>
@@ -74,7 +48,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--yes" // Skip interactive prompts
         };
 
@@ -86,25 +60,25 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
         // Verify manifest was created
-        var expectedManifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var expectedManifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(expectedManifestPath), "AppxManifest.xml should be created");
 
         // Verify Assets directory was created
-        var assetsDir = Path.Combine(_tempDirectory, "Assets");
+        var assetsDir = Path.Combine(_tempDirectory.FullName, "Assets");
         Assert.IsTrue(Directory.Exists(assetsDir), "Assets directory should be created");
     }
 
     [TestMethod]
     public async Task ManifestGenerateCommandWithCustomOptionsShouldUseThoseValues()
     {
-        var exeFilePath = Path.Combine(_tempDirectory, "TestApp.exe");
+        var exeFilePath = Path.Combine(_tempDirectory.FullName, "TestApp.exe");
         await File.WriteAllTextAsync(exeFilePath, "fake exe content");
 
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--package-name", "TestPackage",
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.0.0.0",
@@ -121,7 +95,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
         // Verify manifest was created
-        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify manifest content contains our custom values
@@ -140,7 +114,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--template", "sparse",
             "--yes" // Skip interactive prompts
         };
@@ -153,7 +127,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
         // Verify manifest was created
-        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify sparse package specific content
@@ -169,7 +143,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--logo-path", _testLogoPath,
             "--yes" // Skip interactive prompts
         };
@@ -182,11 +156,11 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
         // Verify manifest was created
-        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify logo was copied to Assets directory
-        var assetsDir = Path.Combine(_tempDirectory, "Assets");
+        var assetsDir = Path.Combine(_tempDirectory.FullName, "Assets");
         var copiedLogoPath = Path.Combine(assetsDir, "testlogo.png");
         Assert.IsTrue(File.Exists(copiedLogoPath), "Logo should be copied to Assets directory");
     }
@@ -195,13 +169,13 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task ManifestGenerateCommandShouldFailIfManifestAlreadyExists()
     {
         // Arrange - Create an existing manifest
-        var existingManifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var existingManifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         await File.WriteAllTextAsync(existingManifestPath, "<Package>Existing</Package>");
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--yes" // Skip interactive prompts
         };
 
@@ -216,14 +190,14 @@ public class ManifestCommandTests : BaseCommandTests
     [TestMethod]
     public async Task ManifestGenerateCommandParseArgumentsShouldHandleAllOptions()
     {
-        var exeFilePath = Path.Combine(_tempDirectory, "app.exe");
+        var exeFilePath = Path.Combine(_tempDirectory.FullName, "app.exe");
         await File.WriteAllTextAsync(exeFilePath, "fake exe content");
 
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--package-name", "TestPkg",
             "--publisher-name", "CN=TestPub",
             "--version", "1.2.3.4",
@@ -271,7 +245,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--verbose",
             "--yes" // Skip interactive prompts
         };
@@ -307,11 +281,11 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task ManifestGenerateCommandWithNonExistentLogoShouldIgnoreLogo()
     {
         // Arrange
-        var nonExistentLogoPath = Path.Combine(_tempDirectory, "nonexistent.png");
+        var nonExistentLogoPath = Path.Combine(_tempDirectory.FullName, "nonexistent.png");
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--logo-path", nonExistentLogoPath,
             "--yes" // Skip interactive prompts
         };
@@ -324,11 +298,11 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully even with non-existent logo");
 
         // Verify manifest was created
-        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify no logo was copied (since it doesn't exist)
-        var assetsDir = Path.Combine(_tempDirectory, "Assets");
+        var assetsDir = Path.Combine(_tempDirectory.FullName, "Assets");
         var wouldBeCopiedLogoPath = Path.Combine(assetsDir, "nonexistent.png");
         Assert.IsFalse(File.Exists(wouldBeCopiedLogoPath), "Non-existent logo should not be copied");
     }
@@ -367,13 +341,13 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task ManifestGenerateCommandWithHostedAppTemplateShouldCreateHostedAppManifest()
     {
         // Arrange - Create a Python script file
-        var pythonScriptPath = Path.Combine(_tempDirectory, "app.py");
+        var pythonScriptPath = Path.Combine(_tempDirectory.FullName, "app.py");
         await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')");
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--template", "hostedapp",
             "--entrypoint", pythonScriptPath
         };
@@ -386,7 +360,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
         // Verify manifest was created
-        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify hosted app specific content
@@ -402,14 +376,14 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task CreateDebugIdentityForHostedAppShouldSucceed()
     {
         // Arrange - Create a Python script file and manifest
-        var pythonScriptPath = Path.Combine(_tempDirectory, "app.py");
+        var pythonScriptPath = Path.Combine(_tempDirectory.FullName, "app.py");
         await File.WriteAllTextAsync(pythonScriptPath, "# Python script\nprint('Hello, World!')");
 
         // First, generate a hosted app manifest
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var generateArgs = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--template", "hostedapp",
             "--entrypoint", pythonScriptPath
         };
@@ -418,7 +392,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateExitCode = await generateParseResult.InvokeAsync();
         Assert.AreEqual(0, generateExitCode, "Manifest generation should succeed");
 
-        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "Manifest should exist");
 
         // Act - Create debug identity
@@ -441,13 +415,13 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task ManifestGenerateCommandWithHostedAppTemplateAndJavaScriptShouldSucceed()
     {
         // Arrange - Create a JavaScript file
-        var jsScriptPath = Path.Combine(_tempDirectory, "app.js");
+        var jsScriptPath = Path.Combine(_tempDirectory.FullName, "app.js");
         await File.WriteAllTextAsync(jsScriptPath, "// JavaScript\nconsole.log('Hello, World!');");
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--template", "hostedapp",
             "--entrypoint", jsScriptPath
         };
@@ -460,7 +434,7 @@ public class ManifestCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
         // Verify manifest was created
-        var manifestPath = Path.Combine(_tempDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
         // Verify hosted app specific content for Node.js
@@ -476,7 +450,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--template", "hostedapp",
             "--entrypoint", "nonexistent.py"
         };
@@ -493,13 +467,13 @@ public class ManifestCommandTests : BaseCommandTests
     public async Task ManifestGenerateCommandWithHostedAppTemplateAndUnsupportedTypeShouldFail()
     {
         // Arrange - Create a file with unsupported extension
-        var unsupportedFilePath = Path.Combine(_tempDirectory, "app.exe");
+        var unsupportedFilePath = Path.Combine(_tempDirectory.FullName, "app.exe");
         await File.WriteAllTextAsync(unsupportedFilePath, "fake exe content");
 
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory,
+            _tempDirectory.FullName,
             "--template", "hostedapp",
             "--entrypoint", "app.exe"
         };

@@ -22,8 +22,7 @@ internal class RestoreCommand : Command
 
         ConfigDirOption = new Option<DirectoryInfo>("--config-dir")
         {
-            Description = "Directory to read configuration from (default: current directory)",
-            DefaultValueFactory = (argumentResult) => new DirectoryInfo(Directory.GetCurrentDirectory())
+            Description = "Directory to read configuration from (default: current directory)"
         };
         ConfigDirOption.AcceptExistingOnly();
     }
@@ -34,16 +33,16 @@ internal class RestoreCommand : Command
         Options.Add(ConfigDirOption);
     }
 
-    public class Handler(IWorkspaceSetupService workspaceSetupService) : AsynchronousCommandLineAction
+    public class Handler(IWorkspaceSetupService workspaceSetupService, ICurrentDirectoryProvider currentDirectoryProvider) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var baseDirectory = parseResult.GetValue(BaseDirectoryArgument);
-            var configDir = parseResult.GetRequiredValue(ConfigDirOption);
+            var baseDirectory = parseResult.GetValue(BaseDirectoryArgument) ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
+            var configDir = parseResult.GetValue(ConfigDirOption) ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
 
             var options = new WorkspaceSetupOptions
             {
-                BaseDirectory = baseDirectory ?? new DirectoryInfo(Directory.GetCurrentDirectory()),
+                BaseDirectory = baseDirectory,
                 ConfigDir = configDir,
                 RequireExistingConfig = true,
                 ForceLatestBuildTools = false // Will be determined from config

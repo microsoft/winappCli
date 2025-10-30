@@ -10,6 +10,7 @@ namespace Winsdk.Cli.Services;
 
 internal partial class ManifestService(
     IManifestTemplateService manifestTemplateService,
+    ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<ManifestService> logger) : IManifestService
 {
     public async Task GenerateManifestAsync(
@@ -27,7 +28,7 @@ internal partial class ManifestService(
         logger.LogDebug("Generating manifest in directory: {Directory}", directory);
 
         // Check if manifest already exists
-        var manifestPath = MsixService.FindProjectManifest(directory);
+        var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, directory);
         if (manifestPath?.Exists == true)
         {
             throw new InvalidOperationException($"Manifest already exists at: {manifestPath}");
@@ -52,6 +53,12 @@ internal partial class ManifestService(
 
         packageName = CleanPackageName(packageName);
 
+        var entryPointAbsolute = Path.IsPathRooted(entryPoint)
+                ? entryPoint
+                : Path.GetFullPath(Path.Combine(directory.FullName, entryPoint));
+
+        entryPoint = Path.GetRelativePath(directory.FullName, entryPointAbsolute);
+
         string? hostId = null;
         string? hostParameters = null;
         string? hostRuntimeDependencyPackageName = null;
@@ -59,22 +66,17 @@ internal partial class ManifestService(
         string? hostRuntimeDependencyMinVersion = null;
         if (manifestTemplate == ManifestTemplates.HostedApp)
         {
-            var entryPointAbsolute = Path.IsPathRooted(entryPoint)
-                ? entryPoint
-                : Path.GetFullPath(Path.Combine(directory.FullName, entryPoint));
             if (!File.Exists(entryPointAbsolute))
             {
                 logger.LogDebug("Hosted app entry point file not found: {EntryPointAbsolute}", entryPointAbsolute);
                 throw new FileNotFoundException($"Hosted app entry point file not found.", entryPointAbsolute);
             }
 
-            var relativeEntryPoint = Path.GetRelativePath(directory.FullName, entryPointAbsolute);
-
             // TODO: generalize this mapping or move to a config file
             if (entryPoint.EndsWith(".py", StringComparison.OrdinalIgnoreCase))
             {
                 hostId = "Python314";
-                hostParameters = $"$(package.effectivePath)\\{relativeEntryPoint}";
+                hostParameters = $"$(package.effectivePath)\\{entryPoint}";
                 hostRuntimeDependencyPackageName = "Python314";
                 hostRuntimeDependencyPublisherName = "Test Publisher";
                 hostRuntimeDependencyMinVersion = "3.14.0.0";
@@ -82,7 +84,7 @@ internal partial class ManifestService(
             else if (entryPoint.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
             {
                 hostId = "Nodejs22";
-                hostParameters = $"$(package.effectivePath)\\{relativeEntryPoint}";
+                hostParameters = $"$(package.effectivePath)\\{entryPoint}";
                 hostRuntimeDependencyPackageName = "Nodejs22";
                 hostRuntimeDependencyPublisherName = "Test Publisher";
                 hostRuntimeDependencyMinVersion = "22.21.0.0";

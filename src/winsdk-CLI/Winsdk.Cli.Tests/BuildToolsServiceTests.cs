@@ -1,55 +1,12 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Winsdk.Cli.Services;
-
 namespace Winsdk.Cli.Tests;
 
 [TestClass]
 [DoNotParallelize]
 public class BuildToolsServiceTests : BaseCommandTests
 {
-    private DirectoryInfo _tempDirectory = null!;
-    private DirectoryInfo _testWinsdkDirectory = null!;
-    private IConfigService _configService = null!;
-    private IBuildToolsService _buildToolsService = null!;
-
-    [TestInitialize]
-    public void Setup()
-    {
-        // Create a temporary directory for testing
-        _tempDirectory = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"WinsdkBuildToolsTest_{Guid.NewGuid():N}"));
-        _tempDirectory.Create();
-
-        // Set up a temporary winsdk directory for testing (isolates tests from real winsdk directory)
-        _testWinsdkDirectory = _tempDirectory.CreateSubdirectory(".winsdk");
-
-        // Set up services with test cache directory
-        _configService = GetRequiredService<IConfigService>();
-        _configService.ConfigPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "winsdk.yaml"));
-
-        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
-        directoryService.SetCacheDirectoryForTesting(_testWinsdkDirectory);
-        _buildToolsService = GetRequiredService<IBuildToolsService>();
-    }
-
-    [TestCleanup]
-    public void Cleanup()
-    {
-        // Clean up temporary files and directories
-        if (_tempDirectory.Exists)
-        {
-            try
-            {
-                _tempDirectory.Delete(true);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-        }
-    }
-
     [TestMethod]
     public void BuildToolsService_WithTestCacheDirectory_UsesOverriddenDirectory()
     {

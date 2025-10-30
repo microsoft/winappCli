@@ -25,8 +25,7 @@ internal class CreateDebugIdentityCommand : Command
         EntryPointArgument.AcceptExistingOnly();
         ManifestOption = new Option<FileInfo>("--manifest")
         {
-            Description = "Path to the appxmanifest.xml",
-            DefaultValueFactory = (argumentResult) => new FileInfo(".\\appxmanifest.xml")
+            Description = "Path to the appxmanifest.xml"
         };
         ManifestOption.AcceptExistingOnly();
         NoInstallOption = new Option<bool>("--no-install")
@@ -42,12 +41,12 @@ internal class CreateDebugIdentityCommand : Command
         Options.Add(NoInstallOption);
     }
 
-    public class Handler(IMsixService msixService, ILogger<CreateDebugIdentityCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IMsixService msixService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<CreateDebugIdentityCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var entryPointPath = parseResult.GetValue(EntryPointArgument);
-            var manifest = parseResult.GetRequiredValue(ManifestOption);
+            var manifest = parseResult.GetValue(ManifestOption) ?? new FileInfo(Path.Combine(currentDirectoryProvider.GetCurrentDirectory(), "appxmanifest.xml"));
             var noInstall = parseResult.GetValue(NoInstallOption);
 
             if (entryPointPath != null && !entryPointPath.Exists)

@@ -41,6 +41,7 @@ internal class WorkspaceSetupService(
     IManifestService manifestService,
     IDevModeService devModeService,
     IGitignoreService gitignoreService,
+    ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<WorkspaceSetupService> logger) : IWorkspaceSetupService
 {
     public async Task<int> SetupWorkspaceAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken = default)
@@ -357,7 +358,7 @@ internal class WorkspaceSetupService(
             if (!options.RequireExistingConfig)
             {
                 // Check if manifest already exists
-                var manifestPath = MsixService.FindProjectManifest(options.BaseDirectory);
+                var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, options.BaseDirectory);
                 if (manifestPath?.Exists != true)
                 {
                     try

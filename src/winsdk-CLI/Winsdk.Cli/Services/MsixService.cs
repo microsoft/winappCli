@@ -20,6 +20,7 @@ internal partial class MsixService(
     ICertificateService certificateService,
     IPackageCacheService packageCacheService,
     IWorkspaceSetupService workspaceSetupService,
+    ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<MsixService> logger) : IMsixService
 {
     [GeneratedRegex(@"PublicFolder\s*=\s*[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
@@ -259,7 +260,9 @@ internal partial class MsixService(
                         var prefix = @"$(package.effectivePath)\";
                         if (entryPointPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                         {
-                            entryPointPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), entryPointPath[prefix.Length..]));
+                            var appxManifestDir = Path.GetDirectoryName(appxManifestPath.FullName);
+                            var appxManifestLocation = string.IsNullOrEmpty(appxManifestDir) ? currentDirectoryProvider.GetCurrentDirectory() : appxManifestDir;
+                            entryPointPath = Path.GetFullPath(Path.Combine(appxManifestLocation, entryPointPath[prefix.Length..]));
                         }
                     }
                 }
@@ -296,7 +299,7 @@ internal partial class MsixService(
         {
             // Register the debug appxmanifest
             var entryPointDir = Path.GetDirectoryName(entryPointPath);
-            var externalLocation = new DirectoryInfo(string.IsNullOrEmpty(entryPointDir) ? Directory.GetCurrentDirectory() : entryPointDir);
+            var externalLocation = new DirectoryInfo(string.IsNullOrEmpty(entryPointDir) ? currentDirectoryProvider.GetCurrentDirectory() : entryPointDir);
 
             // Unregister any existing package first
             await UnregisterExistingPackageAsync(debugIdentity.PackageName, cancellationToken);
@@ -532,7 +535,7 @@ internal partial class MsixService(
             throw new FileNotFoundException($"PRI configuration file not found: {priConfigPath}");
         }
 
-        var arguments = $@"new /pr ""{packageDir}"" /cf ""{priConfigPath}"" /of ""{priOutputPath}"" /o";
+        var arguments = $@"new /pr ""{Path.TrimEndingDirectorySeparator(packageDir.FullName)}"" /cf ""{priConfigPath.FullName}"" /of ""{priOutputPath.FullName}"" /o";
 
         logger.LogDebug("Generating PRI file...");
 
@@ -629,7 +632,7 @@ internal partial class MsixService(
             }
             else
             {
-                var currentDirManifest = new FileInfo(Path.Combine(Directory.GetCurrentDirectory(), "appxmanifest.xml"));
+                var currentDirManifest = new FileInfo(Path.Combine(currentDirectoryProvider.GetCurrentDirectory(), "appxmanifest.xml"));
                 if (currentDirManifest.Exists)
                 {
                     resolvedManifestPath = currentDirManifest;
@@ -690,7 +693,7 @@ internal partial class MsixService(
         DirectoryInfo outputFolder;
         if (outputPath == null)
         {
-            outputFolder = new DirectoryInfo(Directory.GetCurrentDirectory());
+            outputFolder = currentDirectoryProvider.GetCurrentDirectoryInfo();
             outputMsixPath = new FileInfo(Path.Combine(outputFolder.FullName, $"{finalPackageName}.msix"));
         }
         else
@@ -1087,7 +1090,7 @@ internal partial class MsixService(
     private async Task CreateMsixPackageFromFolderAsync(DirectoryInfo inputFolder, FileInfo outputMsixPath, CancellationToken cancellationToken)
     {
         // Create MSIX package
-        var makeappxArguments = $@"pack /o /d ""{inputFolder.FullName}"" /nv /p ""{outputMsixPath.FullName}""";
+        var makeappxArguments = $@"pack /o /d ""{Path.TrimEndingDirectorySeparator(inputFolder.FullName)}"" /nv /p ""{outputMsixPath.FullName}""";
 
         logger.LogDebug("Creating MSIX package...");
 
@@ -1121,9 +1124,9 @@ internal partial class MsixService(
     /// </summary>
     /// <param name="startDirectory">The directory to start searching from. If null, uses current directory.</param>
     /// <returns>Path to the project's appxmanifest.xml file, or null if not found</returns>
-    public static FileInfo? FindProjectManifest(DirectoryInfo? startDirectory = null)
+    public static FileInfo? FindProjectManifest(ICurrentDirectoryProvider currentDirectoryProvider, DirectoryInfo? startDirectory = null)
     {
-        var directory = startDirectory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+        var directory = startDirectory ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
 
         while (directory != null)
         {
@@ -1236,7 +1239,7 @@ internal partial class MsixService(
         {
             // Replace executable path with relative path from package root
             var entryPointDir = Path.GetDirectoryName(entryPointPath);
-            var workingDir = string.IsNullOrEmpty(entryPointDir) ? Directory.GetCurrentDirectory() : entryPointDir;
+            var workingDir = string.IsNullOrEmpty(entryPointDir) ? currentDirectoryProvider.GetCurrentDirectory() : entryPointDir;
             string relativeExecutablePath;
 
             try

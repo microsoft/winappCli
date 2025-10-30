@@ -10,23 +10,13 @@ namespace Winsdk.Cli.Tests;
 [TestClass]
 public class SignCommandTests : BaseCommandTests
 {
-    private DirectoryInfo _tempDirectory = null!;
     private FileInfo _testExecutablePath = null!;
     private FileInfo _testCertificatePath = null!;
-    private IConfigService _configService = null!;
-    private IBuildToolsService _buildToolsService = null!;
     private ICertificateService _certificateService = null!;
 
     [TestInitialize]
     public async Task Setup()
     {
-        // Create a temporary directory for testing
-        _tempDirectory = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"WinsdkSignTest_{Guid.NewGuid():N}"));
-        _tempDirectory.Create();
-
-        // Set up a temporary winsdk directory for testing (isolates tests from real winsdk directory)
-        var testWinsdkDirectory = _tempDirectory.CreateSubdirectory(".winsdk");
-
         // Create a fake executable file to sign
         _testExecutablePath = new FileInfo(Path.Combine(_tempDirectory.FullName, "TestApp.exe"));
         await CreateFakeExecutableAsync(_testExecutablePath);
@@ -34,12 +24,6 @@ public class SignCommandTests : BaseCommandTests
         // Set up certificate path
         _testCertificatePath = new FileInfo(Path.Combine(_tempDirectory.FullName, "TestCert.pfx"));
 
-        // Set up services
-        _configService = GetRequiredService<IConfigService>();
-        _configService.ConfigPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "winsdk.yaml"));
-        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
-        directoryService.SetCacheDirectoryForTesting(testWinsdkDirectory);
-        _buildToolsService = GetRequiredService<IBuildToolsService>();
         _certificateService = GetRequiredService<ICertificateService>();
 
         // Create a temporary certificate for testing
@@ -49,19 +33,6 @@ public class SignCommandTests : BaseCommandTests
     [TestCleanup]
     public void Cleanup()
     {
-        // Clean up temporary files and directories
-        if (_tempDirectory.Exists)
-        {
-            try
-            {
-                _tempDirectory.Delete(true);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-        }
-
         // Clean up any test certificates that might have been left in the certificate store
         // This is optional but helps keep the certificate store clean during development
         CleanupInvalidTestCertificatesFromStore("CN=WinsdkTestPublisher");
