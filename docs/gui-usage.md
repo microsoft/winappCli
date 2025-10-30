@@ -14,10 +14,10 @@ The Windows Development CLI **must** be in your [PATH](#adding-to-path) for the 
   <table>
     <tr>
       <td width="50%">
-        <img src="./docs/images/identity-gui-tool.png" alt="Windows Identity Tool Interface" width="100%" />
+        <img src="./images/identity-gui-tool.png" alt="Windows Identity Tool Interface" width="100%" />
       </td>
       <td width="50%">
-        <img src="./docs/images/identity-gui-tool-options.png" alt="Windows Identity Tool Options" width="100%" />
+        <img src="./images/identity-gui-tool-options.png" alt="Windows Identity Tool Options" width="100%" />
       </td>
     </tr>
   </table>
