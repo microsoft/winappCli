@@ -110,6 +110,8 @@ This is an **experimental** app (GUI) that wraps the CLI and provides an intuiti
 - Drop in an MSIX to sign and register it locally in a single click
 - Drop in a Python (.py) file to add debug identity in a single click
 
+The Windows Development CLI **must** be in your [PATH](#adding-to-path) for the Identity Tool to function since it relies calling `winsdk.cli`.
+
 <div align="center">
   <table>
     <tr>
