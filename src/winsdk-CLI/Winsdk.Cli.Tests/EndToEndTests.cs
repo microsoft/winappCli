@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.DependencyInjection;
 using System.IO.Compression;
 using Winsdk.Cli.Commands;
+using Winsdk.Cli.Services;
 
 namespace Winsdk.Cli.Tests;
 
@@ -13,6 +15,12 @@ namespace Winsdk.Cli.Tests;
 [TestClass]
 public class EndToEndTests : BaseCommandTests
 {
+    protected override IServiceCollection ConfigureServices(IServiceCollection services)
+    {
+        return services
+            .AddSingleton<IPowerShellService, FakePowerShellService>();
+    }
+
     [TestMethod]
     public async Task E2E_WinFormsApp_CreateBuildManifestAndPackage_ShouldSucceed()
     {

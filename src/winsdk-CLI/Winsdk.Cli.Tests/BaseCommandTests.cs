@@ -34,7 +34,9 @@ public abstract class BaseCommandTests(bool configPaths = true)
 
         var services = new ServiceCollection()
             .ConfigureServices()
-            .ConfigureCommands()
+            .ConfigureCommands();
+        services =
+            ConfigureServices(services)
             // Override services
             .AddSingleton<ICurrentDirectoryProvider>(sp => new CurrentDirectoryProvider(_tempDirectory.FullName))
             .AddLogging(b =>
@@ -56,6 +58,11 @@ public abstract class BaseCommandTests(bool configPaths = true)
             directoryService.SetCacheDirectoryForTesting(_testWinsdkDirectory);
             _buildToolsService = GetRequiredService<IBuildToolsService>();
         }
+    }
+
+    protected virtual IServiceCollection ConfigureServices(IServiceCollection services)
+    {
+        return services;
     }
 
     [TestCleanup]
