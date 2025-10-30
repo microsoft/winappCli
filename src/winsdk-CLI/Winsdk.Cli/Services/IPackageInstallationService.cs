@@ -5,17 +5,17 @@ namespace Winsdk.Cli.Services;
 
 internal interface IPackageInstallationService
 {
-    void InitializeWorkspace(string rootDirectory);
+    void InitializeWorkspace(DirectoryInfo rootDirectory);
     
     Task<Dictionary<string, string>> InstallPackagesAsync(
-        string rootDirectory,
+        DirectoryInfo rootDirectory,
         IEnumerable<string> packages,
         bool includeExperimental = false,
         bool ignoreConfig = false,
         CancellationToken cancellationToken = default);
     
     Task<bool> EnsurePackageAsync(
-        string rootDirectory,
+        DirectoryInfo rootDirectory,
         string packageName,
         string? version = null,
         bool includeExperimental = false,

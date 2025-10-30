@@ -11,16 +11,17 @@ namespace Winsdk.Cli.Commands;
 
 internal class CertInstallCommand : Command
 {
-    public static Argument<string> CertPathArgument { get; }
+    public static Argument<FileInfo> CertPathArgument { get; }
     public static Option<string> PasswordOption { get; }
     public static Option<bool> ForceOption { get; }
 
     static CertInstallCommand()
     {
-        CertPathArgument = new Argument<string>("cert-path")
+        CertPathArgument = new Argument<FileInfo>("cert-path")
         {
             Description = "Path to the certificate file (PFX or CER)"
         };
+        CertPathArgument.AcceptExistingOnly();
         PasswordOption = new Option<string>("--password")
         {
             Description = "Password for the PFX file",

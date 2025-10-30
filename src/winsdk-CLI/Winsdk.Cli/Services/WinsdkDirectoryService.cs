@@ -6,23 +6,23 @@ namespace Winsdk.Cli.Services;
 /// <summary>
 /// Service responsible for resolving winsdk directory paths
 /// </summary>
-internal class WinsdkDirectoryService : IWinsdkDirectoryService
+internal class WinsdkDirectoryService(ICurrentDirectoryProvider currentDirectoryProvider) : IWinsdkDirectoryService
 {
-    private string? _globalOverride;
+    private DirectoryInfo? _globalOverride;
 
     /// <summary>
     /// Method to override the cache directory for testing purposes
     /// </summary>
     /// <param name="cacheDirectory">The directory to use as the winsdk cache</param>
-    public void SetCacheDirectoryForTesting(string cacheDirectory)
+    public void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory)
     {
         _globalOverride = cacheDirectory;
     }
 
-    public string GetGlobalWinsdkDirectory()
+    public DirectoryInfo GetGlobalWinsdkDirectory()
     {
         // Instance override takes precedence (for testing)
-        if (!string.IsNullOrEmpty(_globalOverride))
+        if (_globalOverride != null)
         {
             return _globalOverride;
         }
@@ -31,33 +31,30 @@ internal class WinsdkDirectoryService : IWinsdkDirectoryService
         var cacheDirectory = Environment.GetEnvironmentVariable("WINSDK_CACHE_DIRECTORY");
         if (!string.IsNullOrEmpty(cacheDirectory))
         {
-            return cacheDirectory;
+            return new DirectoryInfo(cacheDirectory);
         }
 
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var winsdkDir = Path.Combine(userProfile, ".winsdk");
-        return winsdkDir;
+        return new DirectoryInfo(winsdkDir);
     }
 
-    public string GetLocalWinsdkDirectory(string? baseDirectoryStr = null)
+    public DirectoryInfo GetLocalWinsdkDirectory(DirectoryInfo? baseDirectory = null)
     {
-        if (string.IsNullOrEmpty(baseDirectoryStr))
-        {
-            baseDirectoryStr = Directory.GetCurrentDirectory();
-        }
+        baseDirectory ??= new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
 
-        var originalBaseDir = new DirectoryInfo(baseDirectoryStr);
-        var baseDirectory = originalBaseDir;
-        while (baseDirectory != null)
+        var originalBaseDir = new DirectoryInfo(baseDirectory.FullName);
+        var dir = originalBaseDir;
+        while (dir != null)
         {
-            var winsdkDirectory = Path.Combine(baseDirectory.FullName, ".winsdk");
+            var winsdkDirectory = Path.Combine(dir.FullName, ".winsdk");
             if (Directory.Exists(winsdkDirectory))
             {
-                return winsdkDirectory;
+                return new DirectoryInfo(winsdkDirectory);
             }
-            baseDirectory = baseDirectory.Parent;
+            dir = dir.Parent;
         }
 
-        return Path.Combine(originalBaseDir.FullName, ".winsdk");
+        return new DirectoryInfo(Path.Combine(originalBaseDir.FullName, ".winsdk"));
     }
 }

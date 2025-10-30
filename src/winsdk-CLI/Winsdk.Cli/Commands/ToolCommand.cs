@@ -40,7 +40,7 @@ internal class ToolCommand : Command
 
                 var processStartInfo = new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = toolPath,
+                    FileName = toolPath.FullName,
                     Arguments = string.Join(" ", toolArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)),
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

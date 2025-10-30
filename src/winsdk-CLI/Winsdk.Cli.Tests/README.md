@@ -7,8 +7,11 @@ This test project provides comprehensive unit tests for the Winsdk CLI applicati
 ### Test Files
 
 - **`SignCommandTests.cs`** - Main test class testing the `sign` command functionality
-- **`TestCertificateUtils.cs`** - Utility class for certificate operations and signature verification
+- **`ManifestCommandTests.cs`** - Tests for manifest generation and manipulation
+- **`PackageCommandTests.cs`** - Tests for MSIX package creation
+- **`EndToEndTests.cs`** - End-to-end integration tests simulating complete workflows
 - **`GlobalTestSetup.cs`** - Global test initialization and cleanup
+- **`BaseCommandTests.cs`** - Base class for command tests with service provider setup
 
 ### Key Features Tested
 
@@ -27,11 +30,20 @@ This test project provides comprehensive unit tests for the Winsdk CLI applicati
 - ✅ Password protection verification
 - ✅ Integration with signing operations
 
+#### End-to-End Integration Tests
+- ✅ Complete WinForms app creation using `dotnet new winforms`
+- ✅ Building .NET applications with `dotnet build`
+- ✅ Running `winsdk init` to setup workspace
+- ✅ Running `winsdk package` to create MSIX packages
+- ✅ Verification of complete packaging workflow
+- ✅ MSIX package content validation
+
 #### Test Infrastructure
 - ✅ Temporary directory creation and cleanup
 - ✅ Fake executable file creation for testing
 - ✅ Test certificate generation during setup
 - ✅ Environment isolation using `InternalsVisibleTo`
+- ✅ Dotnet CLI integration for E2E tests
 
 ## Test Approach
 
@@ -65,26 +77,31 @@ The tests use a pragmatic approach that acknowledges the complexities of testing
 
 ```bash
 # Build the test project
-dotnet build Winsdk.Cli.Tests\Winsdk.Cli.Tests.csproj
+dotnet build src\winsdk-CLI\Winsdk.Cli.Tests\Winsdk.Cli.Tests.csproj
 
 # Run all tests
-dotnet test Winsdk.Cli.Tests\Winsdk.Cli.Tests.csproj
+dotnet test src\winsdk-CLI\Winsdk.Cli.Tests\Winsdk.Cli.Tests.csproj
 
 # Run with verbose output
-dotnet test Winsdk.Cli.Tests\Winsdk.Cli.Tests.csproj --verbosity normal
+dotnet test src\winsdk-CLI\Winsdk.Cli.Tests\Winsdk.Cli.Tests.csproj --verbosity normal
+
+# Run specific tests by name pattern
+dotnet test src\winsdk-CLI\Winsdk.Cli.Tests\Winsdk.Cli.Tests.csproj --filter "FullyQualifiedName~E2E"
 ```
 
 ## Test Results Summary
 
-Current test coverage includes **11 test methods** covering:
+Current test coverage includes comprehensive testing across multiple areas:
 
-- Command parsing and validation
-- Certificate generation and validation  
-- File path handling (absolute and relative)
-- Error scenarios (missing files, wrong passwords)
-- Service integration and dependency management
+- **Command parsing and validation** - Sign, Init, Package, Manifest commands
+- **Certificate generation and validation** - PowerShell-based cert creation and signing
+- **File path handling** - Both absolute and relative paths
+- **Error scenarios** - Missing files, wrong passwords, invalid inputs
+- **Service integration** - BuildTools, MSIX, Certificate, Config services
+- **End-to-end workflows** - Complete app creation → build → init → package flows
+- **MSIX package validation** - Package creation and content verification
 
-All tests pass consistently, providing confidence in the core signing command functionality.
+The E2E tests provide comprehensive coverage of real-world scenarios, ensuring the CLI works correctly for typical developer workflows.
 
 ## Framework Used
 

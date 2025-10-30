@@ -24,14 +24,14 @@ internal partial class PackageCacheJsonContext : JsonSerializerContext
 internal sealed class PackageCacheService : IPackageCacheService
 {
     private const string CacheFileName = "package-cache.json";
-    private readonly string _cacheFilePath;
+    private readonly FileInfo _cacheFilePath;
     private readonly ILogger<PackageCacheService> _logger;
 
     public PackageCacheService(IWinsdkDirectoryService directoryService, ILogger<PackageCacheService> logger)
     {
         var globalWinsdkDirectory = directoryService.GetGlobalWinsdkDirectory();
-        var packagesDir = Path.Combine(globalWinsdkDirectory, "packages");
-        _cacheFilePath = Path.Combine(packagesDir, CacheFileName);
+        var packagesDir = Path.Combine(globalWinsdkDirectory.FullName, "packages");
+        _cacheFilePath = new FileInfo(Path.Combine(packagesDir, CacheFileName));
         _logger = logger;
     }
 
@@ -42,14 +42,15 @@ internal sealed class PackageCacheService : IPackageCacheService
     /// <returns>The cached package information</returns>
     public async Task<PackageCache> LoadAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(_cacheFilePath))
+        _cacheFilePath.Refresh();
+        if (!_cacheFilePath.Exists)
         {
             return new PackageCache();
         }
 
         try
         {
-            using var fileStream = new FileStream(_cacheFilePath, FileMode.Open, FileAccess.Read);
+            using var fileStream = _cacheFilePath.OpenRead();
             return await JsonSerializer.DeserializeAsync(fileStream, PackageCacheJsonContext.Default.PackageCache, cancellationToken) ?? new PackageCache();
         }
         catch (Exception ex)
@@ -69,13 +70,13 @@ internal sealed class PackageCacheService : IPackageCacheService
         try
         {
             // Ensure the packages directory exists
-            var packagesDir = Path.GetDirectoryName(_cacheFilePath);
-            if (!string.IsNullOrEmpty(packagesDir))
+            if (_cacheFilePath.Directory?.Exists != true)
             {
-                Directory.CreateDirectory(packagesDir);
+                _cacheFilePath.Directory?.Create();
             }
 
-            using var stream = new FileStream(_cacheFilePath, FileMode.Create, FileAccess.Write);
+            using var stream = _cacheFilePath.Open(FileMode.Create, FileAccess.Write);
+            _cacheFilePath.Refresh();
             await JsonSerializer.SerializeAsync(stream, cache, PackageCacheJsonContext.Default.PackageCache, cancellationToken);
 
             _logger.LogInformation("{UISymbol} Package cache updated", UiSymbols.Save);

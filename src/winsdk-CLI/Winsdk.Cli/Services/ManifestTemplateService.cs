@@ -145,10 +145,9 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     /// </summary>
     /// <param name="outputDirectory">Directory to generate assets in</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    private async Task GenerateDefaultAssetsAsync(string outputDirectory, CancellationToken cancellationToken = default)
+    private async Task GenerateDefaultAssetsAsync(DirectoryInfo outputDirectory, CancellationToken cancellationToken = default)
     {
-        var assetsDir = Path.Combine(outputDirectory, "Assets");
-        Directory.CreateDirectory(assetsDir);
+        var assetsDir = outputDirectory.CreateSubdirectory("Assets");
 
         var asm = Assembly.GetExecutingAssembly();
         var resPrefix = ".Assets.msix_default_assets.";
@@ -159,7 +158,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
         foreach (var res in assetNames)
         {
             var fileName = res.Substring(res.LastIndexOf(resPrefix, StringComparison.OrdinalIgnoreCase) + resPrefix.Length);
-            var target = Path.Combine(assetsDir, fileName);
+            var target = Path.Combine(assetsDir.FullName, fileName);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
 
             await using var s = asm.GetManifestResourceStream(res)!;
@@ -182,7 +181,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
     /// <param name="description">Description for manifest</param>
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task GenerateCompleteManifestAsync(
-        string outputDirectory,
+        DirectoryInfo outputDirectory,
         string packageName,
         string publisherName,
         string version,
@@ -229,7 +228,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
         logger.LogDebug("Manifest template: {ManifestTemplate}", manifestTemplate);
 
         // Create output directory if needed
-        Directory.CreateDirectory(outputDirectory);
+        outputDirectory.Create();
 
         // Generate manifest content using templates
         string templateSuffix = manifestTemplate.ToString().ToLower();
@@ -249,7 +248,7 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
             hostRuntimeDependencyMinVersion);
 
         // Write manifest file
-        var manifestPath = Path.Combine(outputDirectory, "appxmanifest.xml");
+        var manifestPath = Path.Combine(outputDirectory.FullName, "appxmanifest.xml");
         await File.WriteAllTextAsync(manifestPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
         // Generate default assets

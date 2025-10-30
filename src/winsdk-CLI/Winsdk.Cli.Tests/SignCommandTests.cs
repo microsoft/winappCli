@@ -10,37 +10,20 @@ namespace Winsdk.Cli.Tests;
 [TestClass]
 public class SignCommandTests : BaseCommandTests
 {
-    private string _tempDirectory = null!;
-    private string _testExecutablePath = null!;
-    private string _testCertificatePath = null!;
-    private IConfigService _configService = null!;
-    private IBuildToolsService _buildToolsService = null!;
+    private FileInfo _testExecutablePath = null!;
+    private FileInfo _testCertificatePath = null!;
     private ICertificateService _certificateService = null!;
 
     [TestInitialize]
     public async Task Setup()
     {
-        // Create a temporary directory for testing
-        _tempDirectory = Path.Combine(Path.GetTempPath(), $"WinsdkSignTest_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_tempDirectory);
-
-        // Set up a temporary winsdk directory for testing (isolates tests from real winsdk directory)
-        var testWinsdkDirectory = Path.Combine(_tempDirectory, ".winsdk");
-        Directory.CreateDirectory(testWinsdkDirectory);
-
         // Create a fake executable file to sign
-        _testExecutablePath = Path.Combine(_tempDirectory, "TestApp.exe");
+        _testExecutablePath = new FileInfo(Path.Combine(_tempDirectory.FullName, "TestApp.exe"));
         await CreateFakeExecutableAsync(_testExecutablePath);
 
         // Set up certificate path
-        _testCertificatePath = Path.Combine(_tempDirectory, "TestCert.pfx");
+        _testCertificatePath = new FileInfo(Path.Combine(_tempDirectory.FullName, "TestCert.pfx"));
 
-        // Set up services
-        _configService = GetRequiredService<IConfigService>();
-        _configService.ConfigPath = Path.Combine(_tempDirectory, "winsdk.yaml");
-        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
-        directoryService.SetCacheDirectoryForTesting(testWinsdkDirectory);
-        _buildToolsService = GetRequiredService<IBuildToolsService>();
         _certificateService = GetRequiredService<ICertificateService>();
 
         // Create a temporary certificate for testing
@@ -50,19 +33,6 @@ public class SignCommandTests : BaseCommandTests
     [TestCleanup]
     public void Cleanup()
     {
-        // Clean up temporary files and directories
-        if (Directory.Exists(_tempDirectory))
-        {
-            try
-            {
-                Directory.Delete(_tempDirectory, true);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-        }
-
         // Clean up any test certificates that might have been left in the certificate store
         // This is optional but helps keep the certificate store clean during development
         CleanupInvalidTestCertificatesFromStore("CN=WinsdkTestPublisher");
@@ -72,11 +42,11 @@ public class SignCommandTests : BaseCommandTests
     /// Creates a minimal fake executable file that can be used for testing
     /// Note: This won't be signable by signtool, but it's enough for testing command logic
     /// </summary>
-    private async Task CreateFakeExecutableAsync(string path)
+    private async Task CreateFakeExecutableAsync(FileInfo path)
     {
         // Create a simple file that looks like an executable (for path validation tests)
         var content = new byte[] { 0x4D, 0x5A }; // MZ signature
-        await File.WriteAllBytesAsync(path, content);
+        await File.WriteAllBytesAsync(path.FullName, content);
     }
 
     /// <summary>
@@ -95,11 +65,12 @@ public class SignCommandTests : BaseCommandTests
         if (HasValidTestCertificateInStore(testPublisher))
         {
             // We have a valid certificate in the store, just create the PFX file if it doesn't exist
-            if (!File.Exists(_testCertificatePath) || !IsCertificateFileValid(_testCertificatePath, testPassword))
+            if (!_testCertificatePath.Exists || !IsCertificateFileValid(_testCertificatePath, testPassword))
             {
                 // Export the existing certificate from the store to create the PFX file
                 ExportCertificateFromStore(testPublisher, testPassword, _testCertificatePath);
             }
+            _testCertificatePath.Refresh();
             return;
         }
 
@@ -111,7 +82,8 @@ public class SignCommandTests : BaseCommandTests
             validDays: 30);
 
         Assert.IsNotNull(result, "Certificate generation should succeed");
-        Assert.IsTrue(File.Exists(_testCertificatePath), "Certificate file should exist");
+        _testCertificatePath.Refresh();
+        Assert.IsTrue(_testCertificatePath.Exists, "Certificate file should exist");
     }
 
     /// <summary>
@@ -120,9 +92,9 @@ public class SignCommandTests : BaseCommandTests
     /// <param name="certPath">Path to the certificate file</param>
     /// <param name="password">Certificate password</param>
     /// <returns>True if the certificate file is valid and usable</returns>
-    private static bool IsCertificateFileValid(string certPath, string password)
+    private static bool IsCertificateFileValid(FileInfo certPath, string password)
     {
-        if (!File.Exists(certPath))
+        if (!certPath.Exists)
         {
             return false;
         }
@@ -130,14 +102,14 @@ public class SignCommandTests : BaseCommandTests
         try
         {
             // Check if certificate can be loaded with the correct password
-            if (!TestCertificateUtils.CanLoadCertificate(certPath, password))
+            if (!CanLoadCertificate(certPath, password))
             {
                 return false;
             }
 
             // Check if certificate is not expired
             using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                certPath, password, X509KeyStorageFlags.Exportable);
+                certPath.FullName, password, X509KeyStorageFlags.Exportable);
 
             var now = DateTime.UtcNow;
             return now >= cert.NotBefore && now <= cert.NotAfter;
@@ -215,7 +187,7 @@ public class SignCommandTests : BaseCommandTests
     /// </summary>
     /// <param name="subjectName">Certificate subject name</param>
     /// <param name="password">Password for the PFX file</param>
-    private static void ExportCertificateFromStore(string subjectName, string password, string outputPath)
+    private static void ExportCertificateFromStore(string subjectName, string password, FileInfo outputPath)
     {
         try
         {
@@ -231,7 +203,7 @@ public class SignCommandTests : BaseCommandTests
                 {
                     // Export the certificate as PFX
                     var pfxData = cert.Export(X509ContentType.Pfx, password);
-                    File.WriteAllBytes(outputPath, pfxData);
+                    File.WriteAllBytes(outputPath.FullName, pfxData);
                     return;
                 }
             }
@@ -241,6 +213,31 @@ public class SignCommandTests : BaseCommandTests
         catch (Exception ex)
         {
             throw new InvalidOperationException($"Failed to export certificate from store: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Verifies that a certificate file exists and can be loaded
+    /// </summary>
+    /// <param name="certPath">Path to the certificate file</param>
+    /// <param name="password">Certificate password</param>
+    /// <returns>True if the certificate can be loaded</returns>
+    private static bool CanLoadCertificate(FileInfo certPath, string password)
+    {
+        if (!certPath.Exists)
+        {
+            return false;
+        }
+
+        try
+        {
+            // Use the modern X509CertificateLoader API instead of the obsolete constructor
+            using var cert = X509CertificateLoader.LoadPkcs12FromFile(certPath.FullName, password, X509KeyStorageFlags.Exportable);
+            return cert.HasPrivateKey;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -255,8 +252,8 @@ public class SignCommandTests : BaseCommandTests
         var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
-            _testExecutablePath,
-            _testCertificatePath,
+            _testExecutablePath.FullName,
+            _testCertificatePath.FullName,
             "--password", "testpassword",
             "--verbose"
         };
@@ -275,7 +272,8 @@ public class SignCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode, "Sign command should fail gracefully for invalid executable format");
 
         // Verify that the original file still exists
-        Assert.IsTrue(File.Exists(_testExecutablePath), "Original executable should still exist after failed signing");
+        _testExecutablePath.Refresh();
+        Assert.IsTrue(_testExecutablePath.Exists, "Original executable should still exist after failed signing");
     }
 
     [TestMethod]
@@ -283,11 +281,11 @@ public class SignCommandTests : BaseCommandTests
     {
         // Arrange
         var command = GetRequiredService<SignCommand>();
-        var nonExistentFile = Path.Combine(_tempDirectory, "NonExistent.exe");
+        var nonExistentFile = Path.Combine(_tempDirectory.FullName, "NonExistent.exe");
         var args = new[]
         {
             nonExistentFile,
-            _testCertificatePath,
+            _testCertificatePath.FullName,
             "--password", "testpassword"
         };
 
@@ -304,10 +302,10 @@ public class SignCommandTests : BaseCommandTests
     {
         // Arrange
         var command = GetRequiredService<SignCommand>();
-        var nonExistentCert = Path.Combine(_tempDirectory, "NonExistent.pfx");
+        var nonExistentCert = Path.Combine(_tempDirectory.FullName, "NonExistent.pfx");
         var args = new[]
         {
-            _testExecutablePath,
+            _testExecutablePath.FullName,
             nonExistentCert,
             "--password", "testpassword"
         };
@@ -327,8 +325,8 @@ public class SignCommandTests : BaseCommandTests
         var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
-            _testExecutablePath,
-            _testCertificatePath,
+            _testExecutablePath.FullName,
+            _testCertificatePath.FullName,
             "--password", "wrongpassword"
         };
 
@@ -350,8 +348,8 @@ public class SignCommandTests : BaseCommandTests
         var timestampUrl = "http://timestamp.digicert.com";
         var args = new[]
         {
-            _testExecutablePath,
-            _testCertificatePath,
+            _testExecutablePath.FullName,
+            _testCertificatePath.FullName,
             "--password", "testpassword",
             "--timestamp", timestampUrl,
             "--verbose"
@@ -367,7 +365,8 @@ public class SignCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode, "Sign command with timestamp should fail gracefully for invalid executable format");
 
         // Verify that the file still exists
-        Assert.IsTrue(File.Exists(_testExecutablePath), "Original executable should still exist after failed signing");
+        _testExecutablePath.Refresh();
+        Assert.IsTrue(_testExecutablePath.Exists, "Original executable should still exist after failed signing");
     }
 
     [TestMethod]
@@ -377,8 +376,8 @@ public class SignCommandTests : BaseCommandTests
         var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
-            "test.exe",
-            "cert.pfx",
+            _testExecutablePath.FullName,
+            _testCertificatePath.FullName,
             "--password", "mypassword",
             "--timestamp", "http://timestamp.example.com",
             "--verbose"
@@ -442,19 +441,19 @@ public class SignCommandTests : BaseCommandTests
         // Create test files with relative names in temp directory
         var relativeExePath = "RelativeTestApp.exe";
         var relativeCertPath = "RelativeTestCert.pfx";
-        var relativeExeFullPath = Path.Combine(_tempDirectory, relativeExePath);
-        var relativeCertFullPath = Path.Combine(_tempDirectory, relativeCertPath);
+        var relativeExeFullPath = new FileInfo(Path.Combine(_tempDirectory.FullName, relativeExePath));
+        var relativeCertFullPath = new FileInfo(Path.Combine(_tempDirectory.FullName, relativeCertPath));
 
         // Create the files in the temp directory
         await CreateFakeExecutableAsync(relativeExeFullPath);
-        File.Copy(_testCertificatePath, relativeCertFullPath, overwrite: true);
+        _testCertificatePath.CopyTo(relativeCertFullPath.FullName, overwrite: true);
 
         // Arrange
         var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
-            relativeExeFullPath, // Use full paths to avoid directory changes
-            relativeCertFullPath,
+            relativeExeFullPath.FullName, // Use full paths to avoid directory changes
+            relativeCertFullPath.FullName,
             "--password", "testpassword"
         };
 
@@ -467,8 +466,10 @@ public class SignCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode, "Command should fail gracefully with relative-named paths");
 
         // Verify the files still exist
-        Assert.IsTrue(File.Exists(relativeExeFullPath), "Relative executable should still exist after failed signing");
-        Assert.IsTrue(File.Exists(relativeCertFullPath), "Relative certificate should still exist after failed signing");
+        relativeExeFullPath.Refresh();
+        Assert.IsTrue(relativeExeFullPath.Exists, "Relative executable should still exist after failed signing");
+        relativeCertFullPath.Refresh();
+        Assert.IsTrue(relativeCertFullPath.Exists, "Relative certificate should still exist after failed signing");
     }
 
     [TestMethod]
@@ -477,14 +478,15 @@ public class SignCommandTests : BaseCommandTests
         // This test verifies that the certificate creation worked properly
 
         // Assert
-        Assert.IsTrue(File.Exists(_testCertificatePath), "Certificate file should exist");
+        _testCertificatePath.Refresh();
+        Assert.IsTrue(_testCertificatePath.Exists, "Certificate file should exist");
 
         // Verify the certificate can be loaded (this tests our certificate generation)
-        var canLoad = TestCertificateUtils.CanLoadCertificate(_testCertificatePath, "testpassword");
+        var canLoad = CanLoadCertificate(_testCertificatePath, "testpassword");
         Assert.IsTrue(canLoad, "Generated certificate should be loadable with correct password");
 
         // Verify wrong password fails
-        var canLoadWrong = TestCertificateUtils.CanLoadCertificate(_testCertificatePath, "wrongpassword");
+        var canLoadWrong = CanLoadCertificate(_testCertificatePath, "wrongpassword");
         Assert.IsFalse(canLoadWrong, "Certificate should not load with wrong password");
     }
 
@@ -506,7 +508,8 @@ public class SignCommandTests : BaseCommandTests
         }
         else
         {
-            Assert.IsTrue(File.Exists(toolPath), "If BuildToolsService reports a tool path, the file should exist");
+            toolPath.Refresh();
+            Assert.IsTrue(toolPath.Exists, "If BuildToolsService reports a tool path, the file should exist");
         }
     }
 
@@ -515,8 +518,7 @@ public class SignCommandTests : BaseCommandTests
     {
         // Arrange - Create an MSIX package with one publisher
         var msixService = GetRequiredService<IMsixService>();
-        var packageDir = Path.Combine(_tempDirectory, "TestMsixPackage");
-        Directory.CreateDirectory(packageDir);
+        var packageDir = _tempDirectory.CreateSubdirectory("TestMsixPackage");
 
         // Create a test manifest with "CN=Right" as publisher
         var manifestContent = @"<?xml version=""1.0"" encoding=""utf-8""?>
@@ -542,24 +544,24 @@ public class SignCommandTests : BaseCommandTests
   </Applications>
 </Package>";
 
-        var manifestPath = Path.Combine(packageDir, "AppxManifest.xml");
+        var manifestPath = Path.Combine(packageDir.FullName, "AppxManifest.xml");
         await File.WriteAllTextAsync(manifestPath, manifestContent);
 
         // Create Assets directory and files
-        var assetsDir = Path.Combine(packageDir, "Assets");
+        var assetsDir = Path.Combine(packageDir.FullName, "Assets");
         Directory.CreateDirectory(assetsDir);
         await File.WriteAllBytesAsync(Path.Combine(assetsDir, "Logo.png"), new byte[] { 0x89, 0x50, 0x4E, 0x47 }); // Fake PNG header
 
         // Create fake executable
-        await File.WriteAllBytesAsync(Path.Combine(packageDir, "TestApp.exe"), new byte[] { 0x4D, 0x5A }); // Fake MZ header
+        await File.WriteAllBytesAsync(Path.Combine(packageDir.FullName, "TestApp.exe"), new byte[] { 0x4D, 0x5A }); // Fake MZ header
 
         // Create a minimal winsdk.yaml for the MSIX service
         var configService = GetRequiredService<IConfigService>();
-        configService.ConfigPath = Path.Combine(_tempDirectory, "winsdk.yaml");
-        await File.WriteAllTextAsync(configService.ConfigPath, "packages: []");
+        configService.ConfigPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "winsdk.yaml"));
+        await File.WriteAllTextAsync(configService.ConfigPath.FullName, "packages: []");
 
         // Create MSIX package (unsigned first)
-        var msixPath = Path.Combine(_tempDirectory, "TestPackage.msix");
+        var msixPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "TestPackage.msix"));
         var msixResult = await msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
             outputPath: msixPath,
@@ -570,7 +572,7 @@ public class SignCommandTests : BaseCommandTests
         );
 
         // Create a certificate with "CN=Wrong" as publisher (different from manifest)
-        var wrongCertPath = Path.Combine(_tempDirectory, "WrongCert.pfx");
+        var wrongCertPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "WrongCert.pfx"));
         await _certificateService.GenerateDevCertificateAsync(
             publisher: "CN=Wrong",
             outputPath: wrongCertPath,
@@ -581,8 +583,8 @@ public class SignCommandTests : BaseCommandTests
         var command = GetRequiredService<SignCommand>();
         var args = new[]
         {
-            msixResult.MsixPath,
-            wrongCertPath,
+            msixResult.MsixPath.FullName,
+            wrongCertPath.FullName,
             "--password", "testpassword",
             "--verbose"
         };

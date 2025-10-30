@@ -13,12 +13,13 @@ namespace Winsdk.Cli.Services;
 internal partial class CertificateService(
     IBuildToolsService buildToolsService,
     IGitignoreService gitignoreService,
+    ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<CertificateService> logger) : ICertificateService
 {
     public const string DefaultCertFileName = "devcert.pfx";
 
     public record CertificateResult(
-        string CertificatePath,
+        FileInfo CertificatePath,
         string Password,
         string Publisher,
         string SubjectName
@@ -26,21 +27,13 @@ internal partial class CertificateService(
 
     public async Task<CertificateResult> GenerateDevCertificateAsync(
         string publisher,
-        string outputPath,
+        FileInfo outputPath,
         string password = "password",
         int validDays = 365,
         CancellationToken cancellationToken = default)
     {
-        if (!Path.IsPathRooted(outputPath))
-        {
-            outputPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), outputPath));
-        }
         // Ensure output directory exists
-        var outputDir = Path.GetDirectoryName(outputPath);
-        if (!string.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
-        {
-            Directory.CreateDirectory(outputDir);
-        }
+        outputPath.Directory?.Create();
 
         // Clean up the publisher name to ensure proper CN format
         // Remove any existing CN= prefix and clean up quotes
@@ -85,7 +78,7 @@ internal partial class CertificateService(
             }
 
             var pfx = cert.Export(X509ContentType.Pfx, password);
-            await File.WriteAllBytesAsync(outputPath, pfx, cancellationToken);
+            await File.WriteAllBytesAsync(outputPath.FullName, pfx, cancellationToken);
 
             logger.LogDebug("Certificate generated: {OutputPath}", outputPath);
 
@@ -102,14 +95,10 @@ internal partial class CertificateService(
         }
     }
 
-    public bool InstallCertificate(string certPath, string password, bool force)
+    public bool InstallCertificate(FileInfo certPath, string password, bool force)
     {
-        if (!Path.IsPathRooted(certPath))
-        {
-            certPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), certPath));
-        }
-
-        if (!File.Exists(certPath))
+        certPath.Refresh();
+        if (!certPath.Exists)
         {
             throw new FileNotFoundException($"Certificate file not found: {certPath}");
         }
@@ -125,7 +114,7 @@ internal partial class CertificateService(
                 {
                     // Load the certificate to get its thumbprint/subject for comparison
                     using var certToCheck = X509CertificateLoader.LoadPkcs12FromFile(
-                        certPath,
+                        certPath.FullName,
                         password,
                         X509KeyStorageFlags.Exportable);
 
@@ -153,9 +142,8 @@ internal partial class CertificateService(
 
             // Install to TrustedPeople store (required for MSIX sideloading)
             // Load the certificate from the PFX file
-            var absoluteCertPath = Path.GetFullPath(certPath);
             using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                absoluteCertPath,
+                certPath.FullName,
                 password,
                 X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet);
 
@@ -192,14 +180,16 @@ internal partial class CertificateService(
     /// <param name="password">Certificate password</param>
     /// <param name="timestampUrl">Timestamp server URL (optional)</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task SignFileAsync(string filePath, string certificatePath, string? password = "password", string? timestampUrl = null, CancellationToken cancellationToken = default)
+    public async Task SignFileAsync(FileInfo filePath, FileInfo certificatePath, string? password = "password", string? timestampUrl = null, CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(filePath))
+        filePath.Refresh();
+        if (!filePath.Exists)
         {
             throw new FileNotFoundException($"File not found: {filePath}");
         }
 
-        if (!File.Exists(certificatePath))
+        certificatePath.Refresh();
+        if (!certificatePath.Exists)
         {
             throw new FileNotFoundException($"Certificate file not found: {certificatePath}");
         }
@@ -270,9 +260,9 @@ internal partial class CertificateService(
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Certificate generation result, or null if skipped</returns>
     public async Task<CertificateResult?> GenerateDevCertificateWithInferenceAsync(
-        string outputPath,
+        FileInfo outputPath,
         string? explicitPublisher = null,
-        string? manifestPath = null,
+        FileInfo? manifestPath = null,
         string password = "password",
         int validDays = 365,
         bool skipIfExists = true,
@@ -283,7 +273,8 @@ internal partial class CertificateService(
         try
         {
             // Skip if certificate already exists and skipIfExists is true
-            if (skipIfExists && File.Exists(outputPath))
+            outputPath.Refresh();
+            if (skipIfExists && outputPath.Exists)
             {
                 logger.LogInformation("{UISymbol} Development certificate already exists: {OutputPath}", UiSymbols.Note, outputPath);
                 return null;
@@ -314,8 +305,8 @@ internal partial class CertificateService(
             // Add certificate to .gitignore
             if (updateGitignore)
             {
-                var baseDirectory = Path.GetDirectoryName(outputPath) ?? Directory.GetCurrentDirectory();
-                var certFileName = Path.GetFileName(result.CertificatePath);
+                var baseDirectory = outputPath.Directory ?? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
+                var certFileName = result.CertificatePath.Name;
                 gitignoreService.AddCertificateToGitignore(baseDirectory, certFileName);
             }
 
@@ -363,9 +354,10 @@ internal partial class CertificateService(
     /// <returns>Publisher name (without CN= prefix)</returns>
     /// <exception cref="FileNotFoundException">Certificate file not found</exception>
     /// <exception cref="InvalidOperationException">Certificate cannot be loaded or has no subject</exception>
-    public static string ExtractPublisherFromCertificate(string certificatePath, string password)
+    public static string ExtractPublisherFromCertificate(FileInfo certificatePath, string password)
     {
-        if (!File.Exists(certificatePath))
+        certificatePath.Refresh();
+        if (!certificatePath.Exists)
         {
             throw new FileNotFoundException($"Certificate file not found: {certificatePath}");
         }
@@ -373,7 +365,7 @@ internal partial class CertificateService(
         try
         {
             using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                certificatePath, password, X509KeyStorageFlags.Exportable);
+                certificatePath.FullName, password, X509KeyStorageFlags.Exportable);
 
             var subject = cert.Subject;
             if (string.IsNullOrWhiteSpace(subject))
@@ -409,7 +401,7 @@ internal partial class CertificateService(
     /// <param name="manifestPath">Path to the AppX manifest file</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <exception cref="InvalidOperationException">Publishers don't match or validation failed</exception>
-    public static async Task ValidatePublisherMatchAsync(string certificatePath, string password, string manifestPath, CancellationToken cancellationToken = default)
+    public static async Task ValidatePublisherMatchAsync(FileInfo certificatePath, string password, FileInfo manifestPath, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -446,7 +438,7 @@ internal partial class CertificateService(
     /// </summary>
     private async Task<string> InferPublisherAsync(
         string? explicitPublisher,
-        string? manifestPath,
+        FileInfo? manifestPath,
         string defaultPublisher,
         CancellationToken cancellationToken)
     {
@@ -457,7 +449,7 @@ internal partial class CertificateService(
         }
 
         // 2. If manifest path is provided, extract publisher from that manifest
-        if (!string.IsNullOrWhiteSpace(manifestPath))
+        if (manifestPath != null)
         {
             try
             {
@@ -473,7 +465,7 @@ internal partial class CertificateService(
         }
 
         // 3. If appxmanifest.xml is found in the current project, use that
-        var projectManifestPath = MsixService.FindProjectManifest();
+        var projectManifestPath = MsixService.FindProjectManifest(currentDirectoryProvider);
         if (projectManifestPath != null)
         {
             try

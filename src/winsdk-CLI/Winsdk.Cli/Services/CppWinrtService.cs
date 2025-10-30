@@ -9,7 +9,7 @@ namespace Winsdk.Cli.Services;
 
 internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWinrtService
 {
-    public string? FindCppWinrtExe(string packagesDir, IDictionary<string, string> usedVersions)
+    public FileInfo? FindCppWinrtExe(DirectoryInfo packagesDir, IDictionary<string, string> usedVersions)
     {
         var pkgName = "Microsoft.Windows.CppWinRT";
         if (!usedVersions.TryGetValue(pkgName, out var v))
@@ -17,15 +17,15 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
             return null;
         }
 
-        var baseDir = Path.Combine(packagesDir, $"{pkgName}.{v}");
-        var exe = Path.Combine(baseDir, "bin", "cppwinrt.exe");
-        return File.Exists(exe) ? exe : null;
+        var baseDir = Path.Combine(packagesDir.FullName, $"{pkgName}.{v}");
+        var exe = new FileInfo(Path.Combine(baseDir, "bin", "cppwinrt.exe"));
+        return exe.Exists ? exe : null;
     }
 
-    public async Task RunWithRspAsync(string cppwinrtExe, IEnumerable<string> winmdInputs, string outputDir, string workingDirectory, CancellationToken cancellationToken = default)
+    public async Task RunWithRspAsync(FileInfo cppwinrtExe, IEnumerable<FileInfo> winmdInputs, DirectoryInfo outputDir, DirectoryInfo workingDirectory, CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(outputDir);
-        var rspPath = Path.Combine(outputDir, ".cppwinrt.rsp");
+        outputDir.Create();
+        var rspPath = new FileInfo(Path.Combine(outputDir.FullName, ".cppwinrt.rsp"));
 
         var sb = new StringBuilder();
         sb.AppendLine("-input sdk+");
@@ -40,19 +40,19 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
             sb.AppendLine("-verbose");
         }
 
-        await File.WriteAllTextAsync(rspPath, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+        await File.WriteAllTextAsync(rspPath.FullName, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
         logger.LogDebug("cppwinrt: {CppWinrtExe} @{RspPath}", cppwinrtExe, rspPath);
 
         var psi = new ProcessStartInfo
         {
-            FileName = cppwinrtExe,
+            FileName = cppwinrtExe.FullName,
             Arguments = $"@{rspPath}",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = workingDirectory
+            WorkingDirectory = workingDirectory.FullName
         };
 
         using var p = Process.Start(psi)!;

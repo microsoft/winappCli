@@ -3,4 +3,4 @@
 
 namespace Winsdk.Cli.Models;
 
-internal record CreateMsixPackageResult(string MsixPath, bool Signed);
+internal record CreateMsixPackageResult(FileInfo MsixPath, bool Signed);

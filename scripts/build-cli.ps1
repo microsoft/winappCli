@@ -80,19 +80,7 @@ try
         dotnet test $CliSolutionPath -c Release --no-build --results-directory .\TestResults -- --report-trx
         $TestExitCode = $LASTEXITCODE
     
-        if ($TestExitCode -ne 0) {
-            Write-Warning "Tests failed with exit code $TestExitCode"
-            if ($FailOnTestFailure) {
-                Write-Error "Stopping build due to test failures (FailOnTestFailure flag set)"
-                exit 1
-            } else {
-                Write-Host "[TEST] Continuing build despite test failures..." -ForegroundColor Yellow
-            }
-        } else {
-            Write-Host "[TEST] Tests passed!" -ForegroundColor Green
-        }
-    
-        # Copy test results to artifacts - find all TRX files
+        # Copy test results to artifacts BEFORE checking for failure - find all TRX files
         Write-Host "[TEST] Collecting test results..." -ForegroundColor Blue
         $TrxFiles = Get-ChildItem -Path "src\winsdk-CLI" -Filter "*.trx" -Recurse -File
         if ($TrxFiles) {
@@ -104,6 +92,19 @@ try
             Write-Host "[TEST] Test results copied successfully ($($TrxFiles.Count) file(s))" -ForegroundColor Green
         } else {
             Write-Warning "No TRX test result files found in src\winsdk-CLI"
+        }
+
+        # Now check test results and decide whether to exit
+        if ($TestExitCode -ne 0) {
+            Write-Warning "Tests failed with exit code $TestExitCode"
+            if ($FailOnTestFailure) {
+                Write-Error "Stopping build due to test failures (FailOnTestFailure flag set)"
+                exit 1
+            } else {
+                Write-Host "[TEST] Continuing build despite test failures..." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "[TEST] Tests passed!" -ForegroundColor Green
         }
     } else {
         Write-Host "[TEST] Skipping tests (SkipTests flag set)" -ForegroundColor Yellow

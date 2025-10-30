@@ -11,21 +11,23 @@ namespace Winsdk.Cli.Commands;
 
 internal class SignCommand : Command
 {
-    public static Argument<string> FilePathArgument { get; }
-    public static Argument<string> CertPathArgument { get; }
+    public static Argument<FileInfo> FilePathArgument { get; }
+    public static Argument<FileInfo> CertPathArgument { get; }
     public static Option<string> PasswordOption { get; }
     public static Option<string> TimestampOption { get; }
 
     static SignCommand()
     {
-        FilePathArgument = new Argument<string>("file-path")
+        FilePathArgument = new Argument<FileInfo>("file-path")
         {
             Description = "Path to the file/package to sign"
         };
-        CertPathArgument = new Argument<string>("cert-path")
+        FilePathArgument.AcceptExistingOnly();
+        CertPathArgument = new Argument<FileInfo>("cert-path")
         {
             Description = "Path to the certificate file (PFX format)"
         };
+        CertPathArgument.AcceptExistingOnly();
         PasswordOption = new Option<string>("--password")
         {
             Description = "Certificate password",

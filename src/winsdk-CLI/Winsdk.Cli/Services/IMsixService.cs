@@ -8,24 +8,23 @@ namespace Winsdk.Cli.Services;
 internal interface IMsixService
 {
     public Task<CreateMsixPackageResult> CreateMsixPackageAsync(
-        string inputFolder,
-        string? outputPath,
+        DirectoryInfo inputFolder,
+        FileSystemInfo? outputPath,
         string? packageName = null,
         bool skipPri = false,
         bool autoSign = false,
-        string? certificatePath = null,
+        FileInfo? certificatePath = null,
         string certificatePassword = "password",
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
-        string? manifestPath = null,
+        FileInfo? manifestPath = null,
         bool selfContained = false,
         CancellationToken cancellationToken = default);
 
     public Task<MsixIdentityResult> AddMsixIdentityAsync(
         string? entryPointPath,
-        string appxManifestPath,
+        FileInfo appxManifestPath,
         bool noInstall,
-        string? applicationLocation = null,
         CancellationToken cancellationToken = default);
 }

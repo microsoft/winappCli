@@ -11,26 +11,27 @@ namespace Winsdk.Cli.Commands;
 
 internal class PackageCommand : Command
 {
-    public static Argument<string> InputFolderArgument { get; }
-    public static Option<string?> OutputOption { get; }
+    public static Argument<DirectoryInfo> InputFolderArgument { get; }
+    public static Option<FileInfo> OutputOption { get; }
     public static Option<string?> NameOption { get; }
     public static Option<bool> SkipPriOption { get; }
-    public static Option<string?> CertOption { get; }
+    public static Option<FileInfo> CertOption { get; }
     public static Option<string> CertPasswordOption { get; }
     public static Option<bool> GenerateCertOption { get; }
     public static Option<bool> InstallCertOption { get; }
     public static Option<string?> PublisherOption { get; }
-    public static Option<string?> ManifestOption { get; }
+    public static Option<FileInfo> ManifestOption { get; }
     public static Option<bool> SelfContainedOption { get; }
 
     static PackageCommand()
     {
-        InputFolderArgument = new Argument<string>("input-folder")
+        InputFolderArgument = new Argument<DirectoryInfo>("input-folder")
         {
             Description = "Input folder with package layout",
             Arity = ArgumentArity.ExactlyOne
         };
-        OutputOption = new Option<string?>("--output")
+        InputFolderArgument.AcceptExistingOnly();
+        OutputOption = new Option<FileInfo>("--output")
         {
             Description = "Output msix file name for the generated package (defaults to <name>.msix)",
         };
@@ -43,10 +44,11 @@ internal class PackageCommand : Command
         {
             Description = "Skip PRI file generation"
         };
-        CertOption = new Option<string?>("--cert")
+        CertOption = new Option<FileInfo>("--cert")
         {
             Description = "Path to signing certificate (will auto-sign if provided)"
         };
+        CertOption.AcceptExistingOnly();
         CertPasswordOption = new Option<string>("--cert-password")
         {
             Description = "Certificate password (default: password)",
@@ -64,10 +66,11 @@ internal class PackageCommand : Command
         {
             Description = "Publisher name for certificate generation"
         };
-        ManifestOption = new Option<string?>("--manifest")
+        ManifestOption = new Option<FileInfo>("--manifest")
         {
             Description = "Path to AppX manifest file (default: auto-detect from input folder or current directory)"
         };
+        ManifestOption.AcceptExistingOnly();
         SelfContainedOption = new Option<bool>("--self-contained")
         {
             Description = "Bundle Windows App SDK runtime for self-contained deployment"
@@ -108,7 +111,7 @@ internal class PackageCommand : Command
             try
             {
                 // Auto-sign if certificate is provided or if generate-cert is specified
-                var autoSign = !string.IsNullOrEmpty(certPath) || generateCert;
+                var autoSign = certPath != null || generateCert;
 
                 var result = await msixService.CreateMsixPackageAsync(inputFolder, output, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, cancellationToken);
 

@@ -13,8 +13,8 @@ namespace Winsdk.Cli.Services;
 /// </summary>
 internal class WorkspaceSetupOptions
 {
-    public required string BaseDirectory { get; set; }
-    public required string ConfigDir { get; set; }
+    public required DirectoryInfo BaseDirectory { get; set; }
+    public required DirectoryInfo ConfigDir { get; set; }
     public bool IncludeExperimental { get; set; }
     public bool IgnoreConfig { get; set; }
     public bool NoGitignore { get; set; }
@@ -41,11 +41,12 @@ internal class WorkspaceSetupService(
     IManifestService manifestService,
     IDevModeService devModeService,
     IGitignoreService gitignoreService,
+    ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<WorkspaceSetupService> logger) : IWorkspaceSetupService
 {
     public async Task<int> SetupWorkspaceAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken = default)
     {
-        configService.ConfigPath = Path.Combine(options.ConfigDir, "winsdk.yaml");
+        configService.ConfigPath = new FileInfo(Path.Combine(options.ConfigDir.FullName, "winsdk.yaml"));
 
         try
         {
@@ -193,14 +194,10 @@ internal class WorkspaceSetupService(
             packageInstallationService.InitializeWorkspace(globalWinsdkDir);
 
             // Create all standard workspace directories for full setup/restore
-            var pkgsDir = Path.Combine(globalWinsdkDir, "packages");
-            var includeOut = Path.Combine(localWinsdkDir, "include");
-            var libOut = Path.Combine(localWinsdkDir, "lib");
-            var binOut = Path.Combine(localWinsdkDir, "bin");
-
-            Directory.CreateDirectory(includeOut);
-            Directory.CreateDirectory(libOut);
-            Directory.CreateDirectory(binOut);
+            var pkgsDir = globalWinsdkDir.CreateSubdirectory("packages");
+            var includeOut = localWinsdkDir.CreateSubdirectory("include");
+            var libRoot = localWinsdkDir.CreateSubdirectory("lib");
+            var binRoot = localWinsdkDir.CreateSubdirectory("bin");
 
             // Step 4: Install packages
             logger.LogInformation("{UISymbol} Installing SDK packages → {PkgsDir}", UiSymbols.Package, pkgsDir);
@@ -243,16 +240,14 @@ internal class WorkspaceSetupService(
             packageLayoutService.CopyIncludesFromPackages(pkgsDir, includeOut);
             logger.LogInformation("{UISymbol} Headers ready → {IncludeOut}", UiSymbols.Check, includeOut);
 
-            var libRoot = Path.Combine(localWinsdkDir, "lib");
             logger.LogInformation("{UISymbol} Copying import libs by arch → {LibRoot}", UiSymbols.Books, libRoot);
             packageLayoutService.CopyLibsAllArch(pkgsDir, libRoot);
-            var libArchs = Directory.Exists(libRoot) ? string.Join(", ", Directory.EnumerateDirectories(libRoot).Select(Path.GetFileName)) : "(none)";
+            var libArchs = libRoot.Exists ? string.Join(", ", libRoot.EnumerateDirectories().Select(d => d.Name)) : "(none)";
             logger.LogInformation("{UISymbol} Import libs ready for archs: {LibArchs}", UiSymbols.Books, libArchs);
 
-            var binRoot = Path.Combine(localWinsdkDir, "bin");
             logger.LogInformation("{UISymbol} Copying runtime binaries by arch → {BinRoot}", UiSymbols.Gear, binRoot);
             packageLayoutService.CopyRuntimesAllArch(pkgsDir, binRoot);
-            var binArchs = Directory.Exists(binRoot) ? string.Join(", ", Directory.EnumerateDirectories(binRoot).Select(Path.GetFileName)) : "(none)";
+            var binArchs = binRoot.Exists ? string.Join(", ", binRoot.EnumerateDirectories().Select(d => d.Name)) : "(none)";
             logger.LogInformation("{UISymbol} Runtime binaries ready for archs: {BinArchs}", UiSymbols.Gear, binArchs);
 
             // Copy Windows App SDK license
@@ -260,11 +255,11 @@ internal class WorkspaceSetupService(
             {
                 if (usedVersions.TryGetValue("Microsoft.WindowsAppSDK", out var wasdkVersion))
                 {
-                    var pkgDir = Path.Combine(pkgsDir, $"Microsoft.WindowsAppSDK.{wasdkVersion}");
+                    var pkgDir = Path.Combine(pkgsDir.FullName, $"Microsoft.WindowsAppSDK.{wasdkVersion}");
                     var licenseSrc = Path.Combine(pkgDir, "license.txt");
                     if (File.Exists(licenseSrc))
                     {
-                        var shareDir = Path.Combine(localWinsdkDir, "share", "Microsoft.WindowsAppSDK");
+                        var shareDir = Path.Combine(localWinsdkDir.FullName, "share", "Microsoft.WindowsAppSDK");
                         Directory.CreateDirectory(shareDir);
                         var licenseDst = Path.Combine(shareDir, "copyright");
                         File.Copy(licenseSrc, licenseDst, overwrite: true);
@@ -363,8 +358,8 @@ internal class WorkspaceSetupService(
             if (!options.RequireExistingConfig)
             {
                 // Check if manifest already exists
-                var manifestPath = MsixService.FindProjectManifest(options.BaseDirectory);
-                if (!File.Exists(manifestPath))
+                var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, options.BaseDirectory);
+                if (manifestPath?.Exists != true)
                 {
                     try
                     {
@@ -415,17 +410,16 @@ internal class WorkspaceSetupService(
                 // Update .gitignore to exclude .winsdk folder (unless --no-gitignore is specified)
                 if (!options.NoGitignore)
                 {
-                    var path = new DirectoryInfo(localWinsdkDir);
-                    if (path.Parent != null)
+                    if (localWinsdkDir.Parent != null)
                     {
-                        gitignoreService.UpdateGitignore(path.Parent.FullName);
+                        gitignoreService.UpdateGitignore(localWinsdkDir.Parent);
                     }
                 }
 
                 // Step 8: Generate development certificate (unless --no-cert is specified)
                 if (!options.NoCert)
                 {
-                    var certPath = Path.Combine(options.BaseDirectory, CertificateService.DefaultCertFileName);
+                    var certPath = new FileInfo(Path.Combine(options.BaseDirectory.FullName, CertificateService.DefaultCertFileName));
                     
                     await certificateService.GenerateDevCertificateWithInferenceAsync(
                         outputPath: certPath,
@@ -479,18 +473,18 @@ internal class WorkspaceSetupService(
     /// <param name="msixDir">Directory containing the MSIX packages</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of package entries, or null if not found</returns>
-    public static async Task<List<MsixPackageEntry>?> ParseMsixInventoryAsync(ILogger logger, string msixDir, CancellationToken cancellationToken)
+    public static async Task<List<MsixPackageEntry>?> ParseMsixInventoryAsync(ILogger logger, DirectoryInfo msixDir, CancellationToken cancellationToken)
     {
         var architecture = GetSystemArchitecture();
         
         logger.LogDebug("{UISymbol} Detected system architecture: {Architecture}", UiSymbols.Note, architecture);
 
         // Look for MSIX packages for the current architecture
-        var msixArchDir = Path.Combine(msixDir, $"win10-{architecture}");
+        var msixArchDir = Path.Combine(msixDir.FullName, $"win10-{architecture}");
         if (!Directory.Exists(msixArchDir))
         {
             logger.LogDebug("{UISymbol} No MSIX packages found for architecture {Architecture}", UiSymbols.Note, architecture);
-            logger.LogDebug("{UISymbol} Available directories: {Directories}", UiSymbols.Note, string.Join(", ", Directory.GetDirectories(msixDir).Select(Path.GetFileName)));
+            logger.LogDebug("{UISymbol} Available directories: {Directories}", UiSymbols.Note, string.Join(", ", msixDir.GetDirectories().Select(d => d.Name)));
             return null;
         }
 
@@ -526,7 +520,7 @@ internal class WorkspaceSetupService(
     /// </summary>
     /// <param name="msixDir">Directory containing the MSIX packages</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task InstallWindowsAppRuntimeAsync(string msixDir, CancellationToken cancellationToken)
+    public async Task InstallWindowsAppRuntimeAsync(DirectoryInfo msixDir, CancellationToken cancellationToken)
     {
         var architecture = GetSystemArchitecture();
 
@@ -537,7 +531,7 @@ internal class WorkspaceSetupService(
             return;
         }
 
-        var msixArchDir = Path.Combine(msixDir, $"win10-{architecture}");
+        var msixArchDir = Path.Combine(msixDir.FullName, $"win10-{architecture}");
 
         // Build package data for PowerShell script
         var packageData = new List<string>();
@@ -698,12 +692,12 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
     /// </summary>
     /// <param name="usedVersions">Optional dictionary of package versions to look for specific installed packages</param>
     /// <returns>The path to the MSIX directory, or null if not found</returns>
-    public string? FindWindowsAppSdkMsixDirectory(Dictionary<string, string>? usedVersions = null)
+    public DirectoryInfo? FindWindowsAppSdkMsixDirectory(Dictionary<string, string>? usedVersions = null)
     {
         var globalWinsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
-        var pkgsDir = Path.Combine(globalWinsdkDir, "packages");
+        var pkgsDir = new DirectoryInfo(Path.Combine(globalWinsdkDir.FullName, "packages"));
         
-        if (!Directory.Exists(pkgsDir))
+        if (!pkgsDir.Exists)
         {
             return null;
         }
@@ -733,7 +727,7 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
         }
 
         // General scan approach: Look for Microsoft.WindowsAppSDK.Runtime packages first (WinAppSDK 1.8+)
-        var runtimePackages = Directory.GetDirectories(pkgsDir, "Microsoft.WindowsAppSDK.Runtime.*");
+        var runtimePackages = pkgsDir.GetDirectories("Microsoft.WindowsAppSDK.Runtime.*");
         foreach (var runtimePkg in runtimePackages.OrderByDescending(p => p))
         {
             var msixDir = TryGetMsixDirectoryFromPath(runtimePkg);
@@ -744,8 +738,8 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
         }
 
         // Fallback: check if runtime is included in the main WindowsAppSDK package (for older versions)
-        var mainPackages = Directory.GetDirectories(pkgsDir, "Microsoft.WindowsAppSDK.*")
-            .Where(p => !Path.GetFileName(p).Contains("Runtime", StringComparison.OrdinalIgnoreCase));
+        var mainPackages = pkgsDir.GetDirectories("Microsoft.WindowsAppSDK.*")
+            .Where(p => !p.Name.Contains("Runtime", StringComparison.OrdinalIgnoreCase));
         
         foreach (var mainPkg in mainPackages.OrderByDescending(p => p))
         {
@@ -765,9 +759,9 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
     /// <param name="pkgsDir">The packages directory</param>
     /// <param name="packageDirName">The package directory name</param>
     /// <returns>The MSIX directory path if it exists, null otherwise</returns>
-    private static string? TryGetMsixDirectory(string pkgsDir, string packageDirName)
+    private static DirectoryInfo? TryGetMsixDirectory(DirectoryInfo pkgsDir, string packageDirName)
     {
-        var pkgDir = Path.Combine(pkgsDir, packageDirName);
+        var pkgDir = new DirectoryInfo(Path.Combine(pkgsDir.FullName, packageDirName));
         return TryGetMsixDirectoryFromPath(pkgDir);
     }
 
@@ -776,9 +770,9 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
     /// </summary>
     /// <param name="packagePath">The full path to the package directory</param>
     /// <returns>The MSIX directory path if it exists, null otherwise</returns>
-    private static string? TryGetMsixDirectoryFromPath(string packagePath)
+    private static DirectoryInfo? TryGetMsixDirectoryFromPath(DirectoryInfo packagePath)
     {
-        var msixDir = Path.Combine(packagePath, "tools", "MSIX");
-        return Directory.Exists(msixDir) ? msixDir : null;
+        var msixDir = new DirectoryInfo(Path.Combine(packagePath.FullName, "tools", "MSIX"));
+        return msixDir.Exists ? msixDir : null;
     }
 }

@@ -54,7 +54,7 @@ internal static class Program
             .AddLogging(b =>
             {
                 b.ClearProviders();
-                b.AddTextWriterLogger(Console.Out, Console.Error);
+                b.AddTextWriterLogger([Console.Out], [Console.Error]);
                 b.SetMinimumLevel(minimumLogLevel);
             });
 

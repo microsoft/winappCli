@@ -8,7 +8,7 @@ namespace Winsdk.Cli.Services;
 internal interface IManifestTemplateService
 {
     Task GenerateCompleteManifestAsync(
-        string outputDirectory,
+        DirectoryInfo outputDirectory,
         string packageName,
         string publisherName,
         string version,

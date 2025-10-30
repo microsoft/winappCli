@@ -10,9 +10,9 @@ internal static partial class SystemDefaultsHelper
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 
-    public static string GetDefaultPackageName(string dir)
+    public static string GetDefaultPackageName(DirectoryInfo dir)
     {
-        var folder = new DirectoryInfo(dir).Name;
+        var folder = dir.Name;
         var normalized = WhitespaceRegex().Replace(folder.Trim(), "-").ToLowerInvariant();
         return string.IsNullOrWhiteSpace(normalized) ? "app" : normalized;
     }

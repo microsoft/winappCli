@@ -5,6 +5,6 @@ namespace Winsdk.Cli.Services;
 
 internal interface ICppWinrtService
 {
-    public string? FindCppWinrtExe(string packagesDir, IDictionary<string, string> usedVersions);
-    public Task RunWithRspAsync(string cppwinrtExe, IEnumerable<string> winmdInputs, string outputDir, string workingDirectory, CancellationToken cancellationToken = default);
+    public FileInfo? FindCppWinrtExe(DirectoryInfo packagesDir, IDictionary<string, string> usedVersions);
+    public Task RunWithRspAsync(FileInfo cppwinrtExe, IEnumerable<FileInfo> winmdInputs, DirectoryInfo outputDir, DirectoryInfo workingDirectory, CancellationToken cancellationToken = default);
 }

@@ -12,24 +12,24 @@ namespace Winsdk.Cli.Commands;
 
 internal class ManifestGenerateCommand : Command
 {
-    public static Argument<string> DirectoryArgument { get; }
+    public static Argument<DirectoryInfo> DirectoryArgument { get; }
     public static Option<string> PackageNameOption { get; }
     public static Option<string> PublisherNameOption { get; }
     public static Option<string> VersionOption { get; }
     public static Option<string> DescriptionOption { get; }
-    public static Option<string?> EntryPointOption { get; }
+    public static Option<FileInfo> EntryPointOption { get; }
     public static Option<ManifestTemplates> TemplateOption { get; }
-    public static Option<string?> LogoPathOption { get; }
+    public static Option<FileInfo> LogoPathOption { get; }
     public static Option<bool> YesOption { get; }
 
     static ManifestGenerateCommand()
     {
-        DirectoryArgument = new Argument<string>("directory")
+        DirectoryArgument = new Argument<DirectoryInfo>("directory")
         {
             Description = "Directory to generate manifest in",
-            Arity = ArgumentArity.ZeroOrOne,
-            DefaultValueFactory = (argumentResult) => Directory.GetCurrentDirectory()
+            Arity = ArgumentArity.ZeroOrOne
         };
+        DirectoryArgument.AcceptExistingOnly();
 
         PackageNameOption = new Option<string>("--package-name")
         {
@@ -53,10 +53,11 @@ internal class ManifestGenerateCommand : Command
             DefaultValueFactory = (argumentResult) => "My Application"
         };
 
-        EntryPointOption = new Option<string?>("--entrypoint", "--executable")
+        EntryPointOption = new Option<FileInfo>("--entrypoint", "--executable")
         {
             Description = "Entry point of the application (e.g., executable path / name, or .py/.js script if template is HostedApp). Default: <package-name>.exe"
         };
+        EntryPointOption.AcceptExistingOnly();
 
         TemplateOption = new Option<ManifestTemplates>("--template")
         {
@@ -64,7 +65,7 @@ internal class ManifestGenerateCommand : Command
             DefaultValueFactory = (argumentResult) => ManifestTemplates.Packaged
         };
 
-        LogoPathOption = new Option<string?>("--logo-path")
+        LogoPathOption = new Option<FileInfo>("--logo-path")
         {
             Description = "Path to logo image file"
         };
@@ -88,11 +89,11 @@ internal class ManifestGenerateCommand : Command
         Options.Add(YesOption);
     }
 
-    public class Handler(IManifestService manifestService, ILogger<ManifestGenerateCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<ManifestGenerateCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var directory = parseResult.GetRequiredValue(DirectoryArgument);
+            var directory = parseResult.GetValue(DirectoryArgument) ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
             var packageName = parseResult.GetValue(PackageNameOption);
             var publisherName = parseResult.GetValue(PublisherNameOption);
             var version = parseResult.GetRequiredValue(VersionOption);
@@ -109,7 +110,7 @@ internal class ManifestGenerateCommand : Command
                     publisherName,
                     version,
                     description,
-                    entryPoint,
+                    entryPoint?.ToString(),
                     template,
                     logoPath,
                     yes,

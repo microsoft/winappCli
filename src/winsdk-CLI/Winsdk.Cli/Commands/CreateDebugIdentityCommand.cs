@@ -11,30 +11,26 @@ namespace Winsdk.Cli.Commands;
 
 internal class CreateDebugIdentityCommand : Command
 {
-    public static Argument<string> EntryPointArgument { get; }
-    public static Option<string> ManifestOption { get; }
+    public static Argument<FileInfo> EntryPointArgument { get; }
+    public static Option<FileInfo> ManifestOption { get; }
     public static Option<bool> NoInstallOption { get; }
-    public static Option<string> LocationOption { get; }
 
     static CreateDebugIdentityCommand()
     {
-        EntryPointArgument = new Argument<string>("entrypoint")
+        EntryPointArgument = new Argument<FileInfo>("entrypoint")
         {
             Description = "Path to the .exe that will need to run with identity, or entrypoint script.",
             Arity = ArgumentArity.ZeroOrOne
         };
-        ManifestOption = new Option<string>("--manifest")
+        EntryPointArgument.AcceptExistingOnly();
+        ManifestOption = new Option<FileInfo>("--manifest")
         {
-            Description = "Path to the appxmanifest.xml",
-            DefaultValueFactory = (argumentResult) => ".\\appxmanifest.xml"
+            Description = "Path to the appxmanifest.xml"
         };
+        ManifestOption.AcceptExistingOnly();
         NoInstallOption = new Option<bool>("--no-install")
         {
             Description = "Do not install the package after creation."
-        };
-        LocationOption = new Option<string>("--location")
-        {
-            Description = "Root path of the application. Default is parent directory of the executable."
         };
     }
 
@@ -43,19 +39,17 @@ internal class CreateDebugIdentityCommand : Command
         Arguments.Add(EntryPointArgument);
         Options.Add(ManifestOption);
         Options.Add(NoInstallOption);
-        Options.Add(LocationOption);
     }
 
-    public class Handler(IMsixService msixService, ILogger<CreateDebugIdentityCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IMsixService msixService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<CreateDebugIdentityCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var entryPointPath = parseResult.GetValue(EntryPointArgument);
-            var manifest = parseResult.GetRequiredValue(ManifestOption);
+            var manifest = parseResult.GetValue(ManifestOption) ?? new FileInfo(Path.Combine(currentDirectoryProvider.GetCurrentDirectory(), "appxmanifest.xml"));
             var noInstall = parseResult.GetValue(NoInstallOption);
-            var location = parseResult.GetValue(LocationOption);
 
-            if (entryPointPath != null && !File.Exists(entryPointPath))
+            if (entryPointPath != null && !entryPointPath.Exists)
             {
                 logger.LogError("EntryPoint/Executable not found: {EntryPointPath}", entryPointPath);
                 return 1;
@@ -63,7 +57,7 @@ internal class CreateDebugIdentityCommand : Command
 
             try
             {
-                var result = await msixService.AddMsixIdentityAsync(entryPointPath, manifest, noInstall, location, cancellationToken);
+                var result = await msixService.AddMsixIdentityAsync(entryPointPath?.ToString(), manifest, noInstall, cancellationToken);
 
                 logger.LogInformation("{UISymbol} MSIX identity added successfully!", UiSymbols.Check);
                 logger.LogInformation("{UISymbol} Package: {PackageName}", UiSymbols.Package, result.PackageName);

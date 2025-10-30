@@ -37,6 +37,7 @@ async function callWinsdkCli(args, options = {}) {
     
     const child = spawn(winsdkCliPath, args, {
       stdio: verbose ? 'inherit' : 'pipe',
+      cwd: process.cwd(),
       shell: false
     });
     

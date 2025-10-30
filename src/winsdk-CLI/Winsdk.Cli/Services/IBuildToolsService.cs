@@ -12,7 +12,7 @@ internal interface IBuildToolsService
     /// </summary>
     /// <param name="toolName">Name of the tool (e.g., 'mt.exe', 'signtool.exe')</param>
     /// <returns>Full path to the executable if found, null otherwise</returns>
-    string? GetBuildToolPath(string toolName);
+    FileInfo? GetBuildToolPath(string toolName);
 
     /// <summary>
     /// Ensures a build tool is available by finding it or installing BuildTools if necessary.
@@ -23,8 +23,8 @@ internal interface IBuildToolsService
     /// <returns>Full path to the executable</returns>
     /// <exception cref="FileNotFoundException">Tool not found even after installation</exception>
     /// <exception cref="InvalidOperationException">BuildTools installation failed</exception>
-    Task<string> EnsureBuildToolAvailableAsync(string toolName, CancellationToken cancellationToken = default);
+    Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, CancellationToken cancellationToken = default);
 
-    Task<string?> EnsureBuildToolsAsync(bool forceLatest = false, CancellationToken cancellationToken = default);
+    Task<DirectoryInfo?> EnsureBuildToolsAsync(bool forceLatest = false, CancellationToken cancellationToken = default);
     Task<(string stdout, string stderr)> RunBuildToolAsync(string toolName, string arguments, CancellationToken cancellationToken = default);
 }

@@ -9,8 +9,8 @@ namespace Winsdk.Cli.Commands;
 
 internal class InitCommand : Command
 {
-    public static Argument<string> BaseDirectoryArgument { get; }
-    public static Option<string> ConfigDirOption { get; }
+    public static Argument<DirectoryInfo> BaseDirectoryArgument { get; }
+    public static Option<DirectoryInfo> ConfigDirOption { get; }
     public static Option<bool> PrereleaseOption { get; }
     public static Option<bool> IgnoreConfigOption { get; }
     public static Option<bool> NoGitignoreOption { get; }
@@ -20,16 +20,17 @@ internal class InitCommand : Command
 
     static InitCommand()
     {
-        BaseDirectoryArgument = new Argument<string>("base-directory")
+        BaseDirectoryArgument = new Argument<DirectoryInfo>("base-directory")
         {
             Description = "Base/root directory for the winsdk workspace, for consumption or installation.",
             Arity = ArgumentArity.ZeroOrOne
         };
-        ConfigDirOption = new Option<string>("--config-dir")
+        BaseDirectoryArgument.AcceptExistingOnly();
+        ConfigDirOption = new Option<DirectoryInfo>("--config-dir")
         {
-            Description = "Directory to read/store configuration (default: current directory)",
-            DefaultValueFactory = (argumentResult) => Directory.GetCurrentDirectory()
+            Description = "Directory to read/store configuration (default: current directory)"
         };
+        ConfigDirOption.AcceptExistingOnly();
         PrereleaseOption = new Option<bool>("--prerelease")
         {
             Description = "Include prerelease packages from NuGet"
@@ -68,12 +69,12 @@ internal class InitCommand : Command
         Options.Add(ConfigOnlyOption);
     }
 
-    public class Handler(IWorkspaceSetupService workspaceSetupService) : AsynchronousCommandLineAction
+    public class Handler(IWorkspaceSetupService workspaceSetupService, ICurrentDirectoryProvider currentDirectoryProvider) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var baseDirectory = parseResult.GetValue(BaseDirectoryArgument);
-            var configDir = parseResult.GetRequiredValue(ConfigDirOption);
+            var configDir = parseResult.GetValue(ConfigDirOption) ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
             var prerelease = parseResult.GetValue(PrereleaseOption);
             var ignoreConfig = parseResult.GetValue(IgnoreConfigOption);
             var noGitignore = parseResult.GetValue(NoGitignoreOption);
@@ -83,7 +84,7 @@ internal class InitCommand : Command
 
             var options = new WorkspaceSetupOptions
             {
-                BaseDirectory = baseDirectory ?? Directory.GetCurrentDirectory(),
+                BaseDirectory = baseDirectory ?? currentDirectoryProvider.GetCurrentDirectoryInfo(),
                 ConfigDir = configDir,
                 IncludeExperimental = prerelease,
                 IgnoreConfig = ignoreConfig,

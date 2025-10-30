@@ -7,7 +7,7 @@ namespace Winsdk.Cli.Services;
 
 internal interface IConfigService
 {
-    string ConfigPath { get; set; }
+    FileInfo ConfigPath { get; set; }
     bool Exists();
     WinsdkConfig Load();
     void Save(WinsdkConfig cfg);

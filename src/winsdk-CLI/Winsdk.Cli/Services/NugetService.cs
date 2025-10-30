@@ -25,9 +25,9 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         $"{BuildToolsService.CPP_SDK_PACKAGE}.arm64"
     };
 
-    public async Task EnsureNugetExeAsync(string winsdkDir, CancellationToken cancellationToken = default)
+    public async Task EnsureNugetExeAsync(DirectoryInfo winsdkDir, CancellationToken cancellationToken = default)
     {
-        var toolsDir = Path.Combine(winsdkDir, "tools");
+        var toolsDir = Path.Combine(winsdkDir.FullName, "tools");
         var nugetExe = Path.Combine(toolsDir, "nuget.exe");
         if (File.Exists(nugetExe))
         {
@@ -77,20 +77,20 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         return list[^1];
     }
 
-    public async Task<Dictionary<string, string>> InstallPackageAsync(string winsdkDir, string package, string version, string outputDir, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo winsdkDir, string package, string version, DirectoryInfo outputDir, CancellationToken cancellationToken = default)
     {
         var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        var nugetExe = Path.Combine(winsdkDir, "tools", "nuget.exe");
+        var nugetExe = Path.Combine(winsdkDir.FullName, "tools", "nuget.exe");
         if (!File.Exists(nugetExe))
         {
             throw new FileNotFoundException("nuget.exe missing; call EnsureNugetExeAsync first", nugetExe);
         }
 
-        Directory.CreateDirectory(outputDir);
+        outputDir.Create();
 
         // If already installed, skip
-        var expectedFolder = Path.Combine(outputDir, $"{package}.{version}");
+        var expectedFolder = Path.Combine(outputDir.FullName, $"{package}.{version}");
         if (Directory.Exists(expectedFolder))
         {
             logger.LogInformation("{UISymbol} {Package} {Version} already present", UiSymbols.Skip, package, version);
@@ -101,12 +101,12 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         var psi = new ProcessStartInfo
         {
             FileName = nugetExe,
-            Arguments = $"install {EscapeArg(package)} -Version {EscapeArg(version)} -OutputDirectory {Quote(outputDir)} -NonInteractive -ForceEnglishOutput",
+            Arguments = $"install {EscapeArg(package)} -Version {EscapeArg(version)} -OutputDirectory {Quote(outputDir.FullName)} -NonInteractive -ForceEnglishOutput",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = outputDir,
+            WorkingDirectory = outputDir.FullName,
         };
         using var p = Process.Start(psi)!;
         var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);

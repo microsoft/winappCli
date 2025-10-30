@@ -15,6 +15,7 @@ internal static class StoreHostBuilderExtensions
     public static IServiceCollection ConfigureServices(this IServiceCollection services)
     {
         return services
+            .AddSingleton<ICurrentDirectoryProvider>(sp => new CurrentDirectoryProvider(Directory.GetCurrentDirectory()))
             .AddSingleton<IBuildToolsService, BuildToolsService>()
             .AddSingleton<ICertificateService, CertificateService>()
             .AddSingleton<IConfigService, ConfigService>()

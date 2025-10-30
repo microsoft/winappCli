@@ -1,56 +1,12 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Winsdk.Cli.Services;
-
 namespace Winsdk.Cli.Tests;
 
 [TestClass]
 [DoNotParallelize]
 public class BuildToolsServiceTests : BaseCommandTests
 {
-    private string _tempDirectory = null!;
-    private string _testWinsdkDirectory = null!;
-    private IConfigService _configService = null!;
-    private IBuildToolsService _buildToolsService = null!;
-
-    [TestInitialize]
-    public void Setup()
-    {
-        // Create a temporary directory for testing
-        _tempDirectory = Path.Combine(Path.GetTempPath(), $"WinsdkBuildToolsTest_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_tempDirectory);
-
-        // Set up a temporary winsdk directory for testing (isolates tests from real winsdk directory)
-        _testWinsdkDirectory = Path.Combine(_tempDirectory, ".winsdk");
-        Directory.CreateDirectory(_testWinsdkDirectory);
-
-        // Set up services with test cache directory
-        _configService = GetRequiredService<IConfigService>();
-        _configService.ConfigPath = Path.Combine(_tempDirectory, "winsdk.yaml");
-
-        var directoryService = GetRequiredService<IWinsdkDirectoryService>();
-        directoryService.SetCacheDirectoryForTesting(_testWinsdkDirectory);
-        _buildToolsService = GetRequiredService<IBuildToolsService>();
-    }
-
-    [TestCleanup]
-    public void Cleanup()
-    {
-        // Clean up temporary files and directories
-        if (Directory.Exists(_tempDirectory))
-        {
-            try
-            {
-                Directory.Delete(_tempDirectory, true);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-        }
-    }
-
     [TestMethod]
     public void BuildToolsService_WithTestCacheDirectory_UsesOverriddenDirectory()
     {
@@ -65,7 +21,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         Assert.IsNull(result);
 
         // Additional verification: Create a fake bin directory structure and verify it's found
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -75,14 +31,14 @@ public class BuildToolsServiceTests : BaseCommandTests
 
         // Now it should find the tool in our test directory
         var result2 = _buildToolsService.GetBuildToolPath("mt.exe");
-        Assert.AreEqual(fakeToolPath, result2);
+        Assert.AreEqual(fakeToolPath, result2?.FullName);
     }
 
     [TestMethod]
     public void GetBuildToolPath_WithNonExistentTool_ReturnsNull()
     {
         // Arrange - Create package structure but without the requested tool
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -101,7 +57,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public void GetBuildToolPath_WithMultipleVersions_ReturnsLatestVersion()
     {
         // Arrange - Create multiple package versions
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         
         // Create older version
         var olderPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.22000.1");
@@ -121,14 +77,14 @@ public class BuildToolsServiceTests : BaseCommandTests
         var result = _buildToolsService.GetBuildToolPath("mt.exe");
 
         // Assert - Should return the newer version
-        Assert.AreEqual(newerToolPath, result);
+        Assert.AreEqual(newerToolPath, result!.FullName);
     }
 
     [TestMethod]
     public void GetBuildToolPath_WithPinnedVersion_ReturnsPinnedVersion()
     {
         // Arrange - Create multiple package versions
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         
         // Create older version
         var olderPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.22000.1742");
@@ -148,7 +104,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         var configContent = @"packages:
   Microsoft.Windows.SDK.BuildTools: 10.0.22000.1742
 ";
-        File.WriteAllText(_configService.ConfigPath, configContent);
+        File.WriteAllText(_configService.ConfigPath.FullName, configContent);
 
         // Act
         var result = _buildToolsService.GetBuildToolPath("mt.exe");
@@ -157,14 +113,14 @@ public class BuildToolsServiceTests : BaseCommandTests
         // Note: This may not work as expected due to how the service resolves pinned versions
         // The test demonstrates the intended behavior but implementation may vary
         Assert.IsNotNull(result);
-        Assert.Contains("mt.exe", result);
+        Assert.Contains("mt.exe", result.Name);
     }
 
     [TestMethod]
     public void GetBuildToolPath_WithMultipleArchitectures_ReturnsCorrectArchitecture()
     {
         // Arrange - Create package with multiple architectures
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binVersionDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0");
         
@@ -184,14 +140,14 @@ public class BuildToolsServiceTests : BaseCommandTests
 
         // Assert - Should return x64 version (since that's typically the system architecture)
         Assert.IsNotNull(result);
-        Assert.IsTrue(result.Contains("x64") || result.Contains("x86")); // Should contain one of the architectures
+        Assert.IsTrue(result.FullName.Contains("x64") || result.FullName.Contains("x86")); // Should contain one of the architectures
     }
 
     [TestMethod]
     public async Task RunBuildToolAsync_WithValidTool_ReturnsOutput()
     {
         // Arrange - Create a fake tool that outputs to stdout
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -233,14 +189,14 @@ public class BuildToolsServiceTests : BaseCommandTests
         // Assert - Result can be either null (if installation fails) or a path (if successful)
         // The important part is that the method completes without throwing
         // In isolated test environment, it may actually install packages
-        Assert.IsTrue(result == null || Directory.Exists(result));
+        Assert.IsTrue(result == null || result.Exists);
     }
 
     [TestMethod]
     public async Task EnsureBuildToolsAsync_WithExistingPackage_ReturnsExistingPath()
     {
         // Arrange - Create existing package structure
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -249,14 +205,14 @@ public class BuildToolsServiceTests : BaseCommandTests
         var result = await _buildToolsService.EnsureBuildToolsAsync();
 
         // Assert - Should find and return the existing bin path
-        Assert.AreEqual(binDir, result);
+        Assert.AreEqual(binDir, result!.FullName);
     }
 
     [TestMethod]
     public async Task EnsureBuildToolsAsync_WithForceLatest_ShouldAttemptReinstallation()
     {
         // Arrange - Create existing package structure
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -266,14 +222,14 @@ public class BuildToolsServiceTests : BaseCommandTests
 
         // Assert - Result can be either null (if installation fails) or a path (if successful)
         // The important part is that the method completes and attempts reinstallation
-        Assert.IsTrue(result == null || Directory.Exists(result));
+        Assert.IsTrue(result == null || result.Exists);
     }
 
     [TestMethod]
     public async Task EnsureBuildToolAvailableAsync_WithExistingTool_ReturnsToolPath()
     {
         // Arrange - Create package structure with a tool
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -285,14 +241,14 @@ public class BuildToolsServiceTests : BaseCommandTests
         var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt.exe");
 
         // Assert
-        Assert.AreEqual(toolPath, result);
+        Assert.AreEqual(toolPath, result!.FullName);
     }
 
     [TestMethod]
     public async Task EnsureBuildToolAvailableAsync_WithToolNameWithoutExtension_AddsExtensionAndReturnsPath()
     {
         // Arrange - Create package structure with a tool
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -304,7 +260,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt");
 
         // Assert
-        Assert.AreEqual(toolPath, result);
+        Assert.AreEqual(toolPath, result.FullName);
     }
 
     [TestMethod]
@@ -320,8 +276,8 @@ public class BuildToolsServiceTests : BaseCommandTests
             
             // Assert - If we get here, installation was successful and we got a path
             Assert.IsNotNull(result);
-            Assert.IsTrue(File.Exists(result));
-            Assert.Contains("mt.exe", result);
+            Assert.IsTrue(result.Exists);
+            Assert.AreEqual("mt.exe", result.Name);
         }
         catch (InvalidOperationException)
         {
@@ -339,7 +295,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task EnsureBuildToolAvailableAsync_WithNonExistentTool_ThrowsFileNotFoundException()
     {
         // Arrange - Create package structure but without the requested tool
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -382,7 +338,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task RunBuildToolAsync_WithExistingTool_RunsDirectly()
     {
         // Arrange - Create package structure with a working batch file
-        var packagesDir = Path.Combine(_testWinsdkDirectory, "packages");
+        var packagesDir = Path.Combine(_testWinsdkDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);

@@ -100,10 +100,10 @@ internal class UpdateCommand : Command
                             logger.LogInformation("{UISymbol} Installing updated packages...", UiSymbols.Package);
                             var packageNames = updatedConfig.Packages.Select(p => p.Name).ToArray();
                             
-                            var winsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
+                            var globalWinsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
 
                             var installedVersions = await packageInstallationService.InstallPackagesAsync(
-                                winsdkDir,
+                                globalWinsdkDir,
                                 packageNames,
                                 includeExperimental: prerelease,
                                 ignoreConfig: false, // Use the updated config

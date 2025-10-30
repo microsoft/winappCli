@@ -8,7 +8,7 @@ namespace Winsdk.Cli.Services;
 /// </summary>
 internal interface IWinsdkDirectoryService
 {
-    string GetGlobalWinsdkDirectory();
-    string GetLocalWinsdkDirectory(string? baseDirectoryStr = null);
-    void SetCacheDirectoryForTesting(string cacheDirectory);
+    DirectoryInfo GetGlobalWinsdkDirectory();
+    DirectoryInfo GetLocalWinsdkDirectory(DirectoryInfo? baseDirectory = null);
+    void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory);
 }

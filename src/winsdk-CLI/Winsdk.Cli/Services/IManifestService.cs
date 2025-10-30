@@ -8,14 +8,14 @@ namespace Winsdk.Cli.Services;
 internal interface IManifestService
 {
     public Task GenerateManifestAsync(
-        string directory,
+        DirectoryInfo directory,
         string? packageName,
         string? publisherName,
         string version,
         string description,
         string? entryPoint,
         ManifestTemplates manifestTemplate,
-        string? logoPath,
+        FileInfo? logoPath,
         bool yes,
         CancellationToken cancellationToken = default);
 }

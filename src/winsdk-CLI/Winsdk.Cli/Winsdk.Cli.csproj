@@ -19,8 +19,6 @@
     <PublishSingleFile>true</PublishSingleFile>
     <InvariantGlobalization>true</InvariantGlobalization>
     <TrimmerRootDescriptor>TrimRoots.xml</TrimmerRootDescriptor>
-    <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <StackTraceSupport>false</StackTraceSupport>
     <OptimizationPreference>Size</OptimizationPreference>
     <TrimMode>full</TrimMode>
 
@@ -31,6 +29,11 @@
 
     <!-- The *first* DefineConstants is removed during Official Release Builds (.pipelines/Unstub.ps1)-->
     <DefineConstants>TELEMETRYEVENTSOURCE_PUBLIC</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>false</StackTraceSupport>
   </PropertyGroup>
 
   <ItemGroup>

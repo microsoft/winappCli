@@ -13,11 +13,11 @@ internal class GitignoreService(ILogger<GitignoreService> logger) : IGitignoreSe
     /// </summary>
     /// <param name="projectDirectory">Directory containing the project</param>
     /// <returns>True if gitignore was updated, false if entry already existed</returns>
-    public bool UpdateGitignore(string projectDirectory)
+    public bool UpdateGitignore(DirectoryInfo projectDirectory)
     {
         try
         {
-            var gitignorePath = Path.Combine(projectDirectory, ".gitignore");
+            var gitignorePath = Path.Combine(projectDirectory.FullName, ".gitignore");
             var gitignoreContent = "";
             var gitignoreExists = File.Exists(gitignorePath);
 
@@ -77,11 +77,11 @@ internal class GitignoreService(ILogger<GitignoreService> logger) : IGitignoreSe
     /// <param name="projectDirectory">Directory containing the project</param>
     /// <param name="certificateFileName">Name of the certificate file to add</param>
     /// <returns>True if gitignore was updated, false if entry already existed</returns>
-    public bool AddCertificateToGitignore(string projectDirectory, string certificateFileName)
+    public bool AddCertificateToGitignore(DirectoryInfo projectDirectory, string certificateFileName)
     {
         try
         {
-            var gitignorePath = Path.Combine(projectDirectory, ".gitignore");
+            var gitignorePath = Path.Combine(projectDirectory.FullName, ".gitignore");
             var gitignoreContent = "";
             var gitignoreExists = File.Exists(gitignorePath);
 

@@ -17,15 +17,14 @@ internal sealed class PackageInstallationService(
     /// Initialize workspace and ensure required directories exist
     /// </summary>
     /// <param name="rootDirectory">The Root Directory path</param>
-    public void InitializeWorkspace(string rootDirectory)
+    public void InitializeWorkspace(DirectoryInfo rootDirectory)
     {
-        if (!Directory.Exists(rootDirectory))
+        if (!rootDirectory.Exists)
         {
-            Directory.CreateDirectory(rootDirectory);
+            rootDirectory.Create();
         }
 
-        var packagesDir = Path.Combine(rootDirectory, "packages");
-        Directory.CreateDirectory(packagesDir);
+        var packagesDir = rootDirectory.CreateSubdirectory("packages");
     }
 
     /// <summary>
@@ -38,13 +37,13 @@ internal sealed class PackageInstallationService(
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The installed version</returns>
     private async Task<string> InstallPackageAsync(
-        string rootDirectory,
+        DirectoryInfo rootDirectory,
         string packageName,
         string? version = null,
         bool includeExperimental = false,
         CancellationToken cancellationToken = default)
     {
-        var packagesDir = Path.Combine(rootDirectory, "packages");
+        var packagesDir = new DirectoryInfo(Path.Combine(rootDirectory.FullName, "packages"));
 
         // Ensure nuget.exe is available
         await nugetService.EnsureNugetExeAsync(rootDirectory, cancellationToken);
@@ -56,7 +55,7 @@ internal sealed class PackageInstallationService(
         }
 
         // Check if already installed
-        var expectedFolder = Path.Combine(packagesDir, $"{packageName}.{version}");
+        var expectedFolder = Path.Combine(packagesDir.FullName, $"{packageName}.{version}");
         if (Directory.Exists(expectedFolder))
         {
             logger.LogInformation("{UISymbol} {PackageName} {Version} already present", UiSymbols.Skip, packageName, version);
@@ -80,13 +79,13 @@ internal sealed class PackageInstallationService(
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Dictionary of installed packages and their versions</returns>
     public async Task<Dictionary<string, string>> InstallPackagesAsync(
-        string rootDirectory,
+        DirectoryInfo rootDirectory,
         IEnumerable<string> packages,
         bool includeExperimental = false,
         bool ignoreConfig = false,
         CancellationToken cancellationToken = default)
     {
-        var packagesDir = Path.Combine(rootDirectory, "packages");
+        var packagesDir = new DirectoryInfo(Path.Combine(rootDirectory.FullName, "packages"));
         var allInstalledVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Ensure nuget.exe is available once for all packages
@@ -122,7 +121,7 @@ internal sealed class PackageInstallationService(
             }
 
             // Check if already installed
-            var expectedFolder = Path.Combine(packagesDir, $"{packageName}.{version}");
+            var expectedFolder = Path.Combine(packagesDir.FullName, $"{packageName}.{version}");
             if (Directory.Exists(expectedFolder))
             {
                 logger.LogInformation("{UISymbol} {PackageName} {Version} already present", UiSymbols.Skip, packageName, version);
@@ -193,7 +192,7 @@ internal sealed class PackageInstallationService(
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if the package was installed successfully, false otherwise</returns>
     public async Task<bool> EnsurePackageAsync(
-        string rootDirectory,
+        DirectoryInfo rootDirectory,
         string packageName,
         string? version = null,
         bool includeExperimental = false,

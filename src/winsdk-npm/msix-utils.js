@@ -10,10 +10,9 @@ const { callWinsdkCli } = require('./winsdk-cli-utils');
  * @param {string} appxManifestPath - Path to the appxmanifest.xml file containing MSIX identity data
  * @param {Object} options - Optional configuration
  * @param {boolean} options.verbose - Enable verbose logging (default: true)
- * @param {string} options.location - Directory for temporary files (default: same as exe directory)
  */
 async function addMsixIdentityToExe(exePath, appxManifestPath, options = {}) {
-  const { verbose = true, location } = options;
+  const { verbose = true } = options;
   
   if (verbose) {
     console.log('Adding MSIX identity to executable using native CLI...');
@@ -30,10 +29,6 @@ async function addMsixIdentityToExe(exePath, appxManifestPath, options = {}) {
   args.push('--no-install');
 
   // Add optional arguments
-  if (location) {
-    args.push('--location', location);
-  }
-  
   if (verbose) {
     args.push('--verbose');
   }
@@ -91,11 +86,9 @@ async function addElectronDebugIdentity(options = {}) {
       console.log('🔐 Creating debug identity using native CLI...');
     }
     
-    const currentDir = process.cwd();
     await callWinsdkCli([
       'create-debug-identity',
       electronExePath,
-      '--location', currentDir,
       verbose ? '-v' : ''
     ], { verbose });
     

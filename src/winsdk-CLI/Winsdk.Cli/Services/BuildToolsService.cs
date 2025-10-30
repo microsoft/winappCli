@@ -26,18 +26,18 @@ internal partial class BuildToolsService(
     /// <param name="finalSubPath">Optional final subdirectory (e.g., "winrt" for schemas, "Include" for SDK)</param>
     /// <param name="requireArchitecture">Whether to append architecture directory for bin paths</param>
     /// <returns>Full path to the requested location, or null if not found</returns>
-    private string? FindPackagePath(string packageName, string subPath, string? finalSubPath = null, bool requireArchitecture = false)
+    private DirectoryInfo? FindPackagePath(string packageName, string subPath, string? finalSubPath = null, bool requireArchitecture = false)
     {
-        var winsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
-        var packagesDir = Path.Combine(winsdkDir, "packages");
-        if (!Directory.Exists(packagesDir))
+        var globalWinsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
+        var packagesDir = new DirectoryInfo(Path.Combine(globalWinsdkDir.FullName, "packages"));
+        if (!packagesDir.Exists)
         {
             return null;
         }
 
         // Find the package directory
-        var packageDirs = Directory.EnumerateDirectories(packagesDir)
-            .Where(d => Path.GetFileName(d).StartsWith($"{packageName}.", StringComparison.OrdinalIgnoreCase))
+        var packageDirs = packagesDir.EnumerateDirectories()
+            .Where(d => d.Name.StartsWith($"{packageName}.", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         if (packageDirs.Length == 0)
@@ -51,7 +51,7 @@ internal partial class BuildToolsService(
             pinnedConfig = configService.Load();
         }
 
-        string? selectedPackageDir = null;
+        DirectoryInfo? selectedPackageDir = null;
 
         // Check if we have a pinned version in config
         if (pinnedConfig != null)
@@ -61,7 +61,7 @@ internal partial class BuildToolsService(
             {
                 // Look for the specific pinned version
                 selectedPackageDir = packageDirs
-                    .FirstOrDefault(d => Path.GetFileName(d).EndsWith($".{pinnedVersion}", StringComparison.OrdinalIgnoreCase));
+                    .FirstOrDefault(d => d.Name.EndsWith($".{pinnedVersion}", StringComparison.OrdinalIgnoreCase));
 
                 // If pinned version is specified but not found for bin path, return null (strict requirement)
                 // For other paths, continue to try latest
@@ -74,18 +74,18 @@ internal partial class BuildToolsService(
 
         // No pinned version specified, use latest
         selectedPackageDir ??= packageDirs
-            .OrderByDescending(d => ExtractVersion(Path.GetFileName(d)))
+            .OrderByDescending(d => ExtractVersion(d.Name))
             .First();
 
-        var basePath = Path.Combine(selectedPackageDir, subPath);
-        if (!Directory.Exists(basePath))
+        var basePath = new DirectoryInfo(Path.Combine(selectedPackageDir.FullName, subPath));
+        if (!basePath.Exists)
         {
             return null;
         }
 
         // Find the version folder (should be something like 10.0.26100.0)
-        var versionFolders = Directory.EnumerateDirectories(basePath)
-            .Where(d => VersionFolderRegex().IsMatch(Path.GetFileName(d)))
+        var versionFolders = basePath.EnumerateDirectories()
+            .Where(d => VersionFolderRegex().IsMatch(d.Name))
             .ToArray();
 
         if (versionFolders.Length == 0)
@@ -95,18 +95,18 @@ internal partial class BuildToolsService(
 
         // Use the latest version (sort by version number)
         var latestVersion = versionFolders
-            .OrderByDescending(d => ParseVersion(Path.GetFileName(d)))
+            .OrderByDescending(d => ParseVersion(d.Name))
             .First();
 
         if (requireArchitecture)
         {
             // For bin paths, need to find architecture directory
             var currentArch = WorkspaceSetupService.GetSystemArchitecture();
-            var archPath = Path.Combine(latestVersion, currentArch);
+            var archPath = Path.Combine(latestVersion.FullName, currentArch);
 
             if (Directory.Exists(archPath))
             {
-                return archPath;
+                return new DirectoryInfo(archPath);
             }
 
             // If the detected architecture isn't available, fall back to common architectures
@@ -115,10 +115,10 @@ internal partial class BuildToolsService(
             {
                 if (arch != currentArch) // Skip the one we already tried
                 {
-                    var fallbackArchPath = Path.Combine(latestVersion, arch);
+                    var fallbackArchPath = Path.Combine(latestVersion.FullName, arch);
                     if (Directory.Exists(fallbackArchPath))
                     {
-                        return fallbackArchPath;
+                        return new DirectoryInfo(fallbackArchPath);
                     }
                 }
             }
@@ -127,8 +127,8 @@ internal partial class BuildToolsService(
         else if (!string.IsNullOrEmpty(finalSubPath))
         {
             // For schemas path or SDK Include path with final subdirectory
-            var finalPath = Path.Combine(latestVersion, finalSubPath);
-            return Directory.Exists(finalPath) ? finalPath : null;
+            var finalPath = new DirectoryInfo(Path.Combine(latestVersion.FullName, finalSubPath));
+            return finalPath.Exists ? finalPath : null;
         }
         else
         {
@@ -137,7 +137,7 @@ internal partial class BuildToolsService(
         }
     }
 
-    private string? FindBuildToolsBinPath()
+    private DirectoryInfo? FindBuildToolsBinPath()
     {
         return FindPackagePath(BUILD_TOOLS_PACKAGE, "bin", requireArchitecture: true);
     }
@@ -169,10 +169,10 @@ internal partial class BuildToolsService(
     /// </summary>
     /// <param name="toolName">Name of the tool (e.g., 'mt.exe', 'signtool.exe')</param>
     /// <returns>Full path to the executable if found, null otherwise</returns>
-    public string? GetBuildToolPath(string toolName)
+    public FileInfo? GetBuildToolPath(string toolName)
     {
-        var winsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
-        if (winsdkDir == null)
+        var globalWinsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
+        if (globalWinsdkDir == null)
         {
             return null;
         }
@@ -183,8 +183,8 @@ internal partial class BuildToolsService(
             return null;
         }
 
-        var toolPath = Path.Combine(binPath, toolName);
-        return File.Exists(toolPath) ? toolPath : null;
+        var toolPath = new FileInfo(Path.Combine(binPath.FullName, toolName));
+        return toolPath.Exists ? toolPath : null;
     }
 
     /// <summary>
@@ -195,7 +195,7 @@ internal partial class BuildToolsService(
     /// <returns>Full path to the executable. Throws an exception if the tool cannot be found or installed.</returns>
     /// <exception cref="FileNotFoundException">Thrown when the tool cannot be found even after installing BuildTools</exception>
     /// <exception cref="InvalidOperationException">Thrown when BuildTools installation fails</exception>
-    public async Task<string> EnsureBuildToolAvailableAsync(string toolName, CancellationToken cancellationToken = default)
+    public async Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, CancellationToken cancellationToken = default)
     {
         // First, try to find the tool in existing installation
         var toolPath = GetBuildToolPath(toolName);
@@ -236,7 +236,7 @@ internal partial class BuildToolsService(
     /// <param name="forceLatest">Force installation of the latest version, even if a version is already installed</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Path to BuildTools bin directory if successful, null otherwise</returns>
-    public async Task<string?> EnsureBuildToolsAsync(bool forceLatest = false, CancellationToken cancellationToken = default)
+    public async Task<DirectoryInfo?> EnsureBuildToolsAsync(bool forceLatest = false, CancellationToken cancellationToken = default)
     {
         // Check if BuildTools are already installed (unless forcing latest)
         var existingBinPath = FindBuildToolsBinPath();
@@ -258,10 +258,10 @@ internal partial class BuildToolsService(
         var versionInfo = !string.IsNullOrWhiteSpace(pinnedVersion) ? $" (pinned version {pinnedVersion})" : forceLatest ? " (latest version)" : "";
         logger.LogInformation("{UISymbol} {ActionMessage} {BUILD_TOOLS_PACKAGE}{VersionInfo}...", UiSymbols.Wrench, actionMessage, BUILD_TOOLS_PACKAGE, versionInfo);
 
-        var winsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
+        var globalWinsdkDir = winsdkDirectoryService.GetGlobalWinsdkDirectory();
 
         var success = await packageInstallationService.EnsurePackageAsync(
-            winsdkDir,
+            globalWinsdkDir,
             BUILD_TOOLS_PACKAGE,
             version: pinnedVersion,
             includeExperimental: false,
@@ -298,7 +298,7 @@ internal partial class BuildToolsService(
 
         var psi = new ProcessStartInfo
         {
-            FileName = toolPath,
+            FileName = toolPath.FullName,
             Arguments = arguments,
             UseShellExecute = false,
             RedirectStandardOutput = true,

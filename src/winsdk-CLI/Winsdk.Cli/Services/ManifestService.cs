@@ -10,25 +10,26 @@ namespace Winsdk.Cli.Services;
 
 internal partial class ManifestService(
     IManifestTemplateService manifestTemplateService,
+    ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<ManifestService> logger) : IManifestService
 {
     public async Task GenerateManifestAsync(
-        string directory,
+        DirectoryInfo directory,
         string? packageName,
         string? publisherName,
         string version,
         string description,
         string? entryPoint,
         ManifestTemplates manifestTemplate,
-        string? logoPath,
+        FileInfo? logoPath,
         bool yes,
         CancellationToken cancellationToken = default)
     {
         logger.LogDebug("Generating manifest in directory: {Directory}", directory);
 
         // Check if manifest already exists
-        var manifestPath = MsixService.FindProjectManifest(directory);
-        if (File.Exists(manifestPath))
+        var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, directory);
+        if (manifestPath?.Exists == true)
         {
             throw new InvalidOperationException($"Manifest already exists at: {manifestPath}");
         }
@@ -48,9 +49,15 @@ internal partial class ManifestService(
             entryPoint = PromptForValue("EntryPoint/Executable", entryPoint);
         }
 
-        logger.LogDebug("Logo path: {LogoPath}", logoPath ?? "None");
+        logger.LogDebug("Logo path: {LogoPath}", logoPath?.FullName ?? "None");
 
         packageName = CleanPackageName(packageName);
+
+        var entryPointAbsolute = Path.IsPathRooted(entryPoint)
+                ? entryPoint
+                : Path.GetFullPath(Path.Combine(directory.FullName, entryPoint));
+
+        entryPoint = Path.GetRelativePath(directory.FullName, entryPointAbsolute);
 
         string? hostId = null;
         string? hostParameters = null;
@@ -59,22 +66,17 @@ internal partial class ManifestService(
         string? hostRuntimeDependencyMinVersion = null;
         if (manifestTemplate == ManifestTemplates.HostedApp)
         {
-            var entryPointAbsolute = Path.IsPathRooted(entryPoint)
-                ? entryPoint
-                : Path.GetFullPath(Path.Combine(directory, entryPoint));
             if (!File.Exists(entryPointAbsolute))
             {
                 logger.LogDebug("Hosted app entry point file not found: {EntryPointAbsolute}", entryPointAbsolute);
                 throw new FileNotFoundException($"Hosted app entry point file not found.", entryPointAbsolute);
             }
 
-            var relativeEntryPoint = Path.GetRelativePath(directory, entryPointAbsolute);
-
             // TODO: generalize this mapping or move to a config file
             if (entryPoint.EndsWith(".py", StringComparison.OrdinalIgnoreCase))
             {
                 hostId = "Python314";
-                hostParameters = $"$(package.effectivePath)\\{relativeEntryPoint}";
+                hostParameters = $"$(package.effectivePath)\\{entryPoint}";
                 hostRuntimeDependencyPackageName = "Python314";
                 hostRuntimeDependencyPublisherName = "Test Publisher";
                 hostRuntimeDependencyMinVersion = "3.14.0.0";
@@ -82,7 +84,7 @@ internal partial class ManifestService(
             else if (entryPoint.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
             {
                 hostId = "Nodejs22";
-                hostParameters = $"$(package.effectivePath)\\{relativeEntryPoint}";
+                hostParameters = $"$(package.effectivePath)\\{entryPoint}";
                 hostRuntimeDependencyPackageName = "Nodejs22";
                 hostRuntimeDependencyPublisherName = "Test Publisher";
                 hostRuntimeDependencyMinVersion = "22.21.0.0";
@@ -110,7 +112,7 @@ internal partial class ManifestService(
             cancellationToken);
 
         // If logo path is provided, copy it as additional asset
-        if (!string.IsNullOrEmpty(logoPath) && File.Exists(logoPath))
+        if (logoPath?.Exists == true)
         {
             await CopyLogoAsAdditionalAssetAsync(directory, logoPath, cancellationToken);
         }
@@ -169,15 +171,14 @@ internal partial class ManifestService(
         return cleaned;
     }
 
-    private async Task CopyLogoAsAdditionalAssetAsync(string directory, string logoPath, CancellationToken cancellationToken = default)
+    private async Task CopyLogoAsAdditionalAssetAsync(DirectoryInfo directory, FileInfo logoPath, CancellationToken cancellationToken = default)
     {
-        var assetsDir = Path.Combine(directory, "Assets");
-        Directory.CreateDirectory(assetsDir);
+        var assetsDir = directory.CreateSubdirectory("Assets");
 
-        var logoFileName = Path.GetFileName(logoPath);
-        var destinationPath = Path.Combine(assetsDir, logoFileName);
+        var logoFileName = logoPath.Name;
+        var destinationPath = Path.Combine(assetsDir.FullName, logoFileName);
 
-        using var sourceStream = new FileStream(logoPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+        using var sourceStream = new FileStream(logoPath.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
         using var destinationStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
 
         await sourceStream.CopyToAsync(destinationStream, cancellationToken);

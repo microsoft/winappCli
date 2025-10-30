@@ -8,15 +8,19 @@ namespace Winsdk.Cli.Services;
 
 internal sealed class ConfigService : IConfigService
 {
-    public string ConfigPath { get; set; }
+    public FileInfo ConfigPath { get; set; }
 
-    public ConfigService()
+    public ConfigService(ICurrentDirectoryProvider currentDirectoryProvider)
     {
-        var workingDir = Directory.GetCurrentDirectory();
-        ConfigPath = Path.Combine(workingDir, "winsdk.yaml");
+        var workingDir = currentDirectoryProvider.GetCurrentDirectory();
+        ConfigPath = new FileInfo(Path.Combine(workingDir, "winsdk.yaml"));
     }
 
-    public bool Exists() => File.Exists(ConfigPath);
+    public bool Exists()
+    {
+        ConfigPath.Refresh();
+        return ConfigPath.Exists;
+    }
 
     public WinsdkConfig Load()
     {
@@ -25,14 +29,15 @@ internal sealed class ConfigService : IConfigService
             return new WinsdkConfig();
         }
 
-        var text = File.ReadAllText(ConfigPath);
+        var text = File.ReadAllText(ConfigPath.FullName);
         return Parse(text);
     }
 
     public void Save(WinsdkConfig cfg)
     {
         var yaml = Stringify(cfg);
-        File.WriteAllText(ConfigPath, yaml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.WriteAllText(ConfigPath.FullName, yaml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        ConfigPath.Refresh();
     }
 
     private static WinsdkConfig Parse(string yaml)

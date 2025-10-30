@@ -12,8 +12,8 @@ namespace Winsdk.Cli.Commands;
 internal class CertGenerateCommand : Command
 {
     public static Option<string> PublisherOption { get; }
-    public static Option<string> ManifestOption { get; }
-    public static Option<string> OutputOption { get; }
+    public static Option<FileInfo> ManifestOption { get; }
+    public static Option<FileInfo> OutputOption { get; }
     public static Option<string> PasswordOption { get; }
     public static Option<int> ValidDaysOption { get; }
     public static Option<bool> InstallOption { get; }
@@ -32,15 +32,15 @@ internal class CertGenerateCommand : Command
         {
             Description = "Publisher name for the generated certificate. If not specified, will be inferred from manifest."
         };
-        ManifestOption = new Option<string>("--manifest")
+        ManifestOption = new Option<FileInfo>("--manifest")
         {
             Description = "Path to appxmanifest.xml file to extract publisher information from"
         };
+        ManifestOption.AcceptExistingOnly();
         ManifestOption.AcceptLegalFilePathsOnly();
-        OutputOption = new Option<string>("--output")
+        OutputOption = new Option<FileInfo>("--output")
         {
-            Description = "Output path for the generated PFX file",
-            DefaultValueFactory = (argumentResult) => CertificateService.DefaultCertFileName
+            Description = "Output path for the generated PFX file"
         };
         OutputOption.AcceptLegalFileNamesOnly();
         PasswordOption = new Option<string>("--password")
@@ -77,20 +77,20 @@ internal class CertGenerateCommand : Command
         Options.Add(IfExistsOption);
     }
 
-    public class Handler(ICertificateService certificateService, ILogger<CertGenerateCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(ICertificateService certificateService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<CertGenerateCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var publisher = parseResult.GetValue(PublisherOption);
             var manifestPath = parseResult.GetValue(ManifestOption);
-            var output = parseResult.GetRequiredValue(OutputOption);
+            var output = parseResult.GetValue(OutputOption) ?? new FileInfo(Path.Combine(currentDirectoryProvider.GetCurrentDirectory(), CertificateService.DefaultCertFileName));
             var password = parseResult.GetRequiredValue(PasswordOption);
             var validDays = parseResult.GetRequiredValue(ValidDaysOption);
             var install = parseResult.GetRequiredValue(InstallOption);
             var ifExists = parseResult.GetRequiredValue(IfExistsOption);
 
             // Check if certificate file already exists
-            if (File.Exists(output))
+            if (output.Exists)
             {
                 if (ifExists == IfExists.Error)
                 {

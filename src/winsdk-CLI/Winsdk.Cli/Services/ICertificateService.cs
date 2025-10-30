@@ -8,9 +8,9 @@ namespace Winsdk.Cli.Services;
 internal interface ICertificateService
 {
     public Task<CertificateResult?> GenerateDevCertificateWithInferenceAsync(
-        string outputPath,
+        FileInfo outputPath,
         string? explicitPublisher = null,
-        string? manifestPath = null,
+        FileInfo? manifestPath = null,
         string password = "password",
         int validDays = 365,
         bool skipIfExists = true,
@@ -20,12 +20,12 @@ internal interface ICertificateService
 
     public Task<CertificateResult> GenerateDevCertificateAsync(
         string publisher,
-        string outputPath,
+        FileInfo outputPath,
         string password = "password",
         int validDays = 365,
         CancellationToken cancellationToken = default);
 
-    public bool InstallCertificate(string certPath, string password, bool force);
+    public bool InstallCertificate(FileInfo certPath, string password, bool force);
 
-    public Task SignFileAsync(string filePath, string certificatePath, string? password = "password", string? timestampUrl = null, CancellationToken cancellationToken = default);
+    public Task SignFileAsync(FileInfo filePath, FileInfo certificatePath, string? password = "password", string? timestampUrl = null, CancellationToken cancellationToken = default);
 }

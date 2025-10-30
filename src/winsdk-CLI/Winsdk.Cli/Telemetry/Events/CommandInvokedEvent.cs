@@ -48,7 +48,9 @@ internal class CommandInvokedEvent : EventBase
 
     private static string? GetValue(Type valueType, bool isImplicit, object? value)
     {
-        return isImplicit ? null : (valueType == typeof(string) ? "[string]" : value)?.ToString();
+        return isImplicit ? null : ((valueType == typeof(string) ||
+                                     valueType == typeof(FileInfo) ||
+                                     valueType == typeof(DirectoryInfo)) ? "[string]" : value)?.ToString();
     }
 
     public string CommandName { get; private set; }

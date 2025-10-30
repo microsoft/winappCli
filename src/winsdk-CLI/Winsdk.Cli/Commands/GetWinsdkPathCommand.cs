@@ -34,7 +34,7 @@ internal class GetWinsdkPathCommand : Command
 
             try
             {
-                string winsdkDir;
+                DirectoryInfo winsdkDir;
                 string directoryType;
                 
                 if (global)
@@ -46,18 +46,12 @@ internal class GetWinsdkPathCommand : Command
                 else
                 {
                     // Get the local .winsdk directory
-                    winsdkDir = winsdkDirectoryService.GetLocalWinsdkDirectory(Directory.GetCurrentDirectory());
+                    winsdkDir = winsdkDirectoryService.GetLocalWinsdkDirectory();
                     directoryType = "Local";
                 }
                 
-                if (string.IsNullOrEmpty(winsdkDir))
-                {
-                    logger.LogError("{UISymbol} {DirectoryType} .winsdk directory path could not be determined", UiSymbols.Error, directoryType);
-                    return Task.FromResult(1);
-                }
-
                 // For global directories, check if they exist
-                if (global && !Directory.Exists(winsdkDir))
+                if (global && !winsdkDir.Exists)
                 {
                     logger.LogError("{UISymbol} {DirectoryType} .winsdk directory not found: {WinsdkDir}", UiSymbols.Error, directoryType, winsdkDir);
                     logger.LogError("   Make sure to run 'winsdk init' first");
@@ -67,8 +61,7 @@ internal class GetWinsdkPathCommand : Command
                 // Output just the path for easy consumption by scripts
                 logger.LogInformation("{WinSdkDir}", winsdkDir);
 
-                var exists = Directory.Exists(winsdkDir);
-                var status = exists ? "exists" : "does not exist";
+                var status = winsdkDir.Exists ? "exists" : "does not exist";
                 logger.LogDebug("{UISymbol} {DirectoryType} .winsdk directory: {WinsdkDir} ({Status})", UiSymbols.Folder, directoryType, winsdkDir, status);
 
                 return Task.FromResult(0);
