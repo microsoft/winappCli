@@ -12,20 +12,20 @@ public sealed class TextWriterLoggerOptions
 
 public sealed class TextWriterLoggerProvider : ILoggerProvider, ISupportExternalScope
 {
-    private readonly TextWriter _stdout;
-    private readonly TextWriter _stderr;
+    private readonly TextWriter[] _stdouts;
+    private readonly TextWriter[] _stderrs;
     private readonly TextWriterLoggerOptions _options;
     private IExternalScopeProvider? _scopes;
 
-    public TextWriterLoggerProvider(TextWriter stdout, TextWriter stderr, TextWriterLoggerOptions? options = null)
+    public TextWriterLoggerProvider(TextWriter[] stdout, TextWriter[] stderr, TextWriterLoggerOptions? options = null)
     {
-        _stdout = stdout ?? throw new ArgumentNullException(nameof(stdout));
-        _stderr = stderr ?? throw new ArgumentNullException(nameof(stderr));
+        _stdouts = stdout ?? throw new ArgumentNullException(nameof(stdout));
+        _stderrs = stderr ?? throw new ArgumentNullException(nameof(stderr));
         _options = options ?? new TextWriterLoggerOptions();
     }
 
     public ILogger CreateLogger(string categoryName) =>
-        new TextWriterLogger(_stdout, _stderr, _options, _scopes);
+        new TextWriterLogger(_stdouts, _stderrs, _options, _scopes);
 
     public void Dispose() { /* writers are owned by caller */ }
 
@@ -33,16 +33,16 @@ public sealed class TextWriterLoggerProvider : ILoggerProvider, ISupportExternal
 
     private sealed class TextWriterLogger : ILogger
     {
-        private readonly TextWriter _stdout;
-        private readonly TextWriter _stderr;
+        private readonly TextWriter[] _stdouts;
+        private readonly TextWriter[] _stderrs;
         private readonly TextWriterLoggerOptions _options;
         private readonly IExternalScopeProvider? _scopes;
 
-        public TextWriterLogger(TextWriter stdout, TextWriter stderr,
+        public TextWriterLogger(TextWriter[] stdouts, TextWriter[] stderrs,
                                 TextWriterLoggerOptions options, IExternalScopeProvider? scopes)
         {
-            _stdout = stdout;
-            _stderr = stderr;
+            _stdouts = stdouts;
+            _stderrs = stderrs;
             _options = options;
             _scopes = scopes;
         }
@@ -59,7 +59,7 @@ public sealed class TextWriterLoggerProvider : ILoggerProvider, ISupportExternal
                 return;
             }
 
-            var writer = logLevel >= LogLevel.Error ? _stderr : _stdout;
+            var writer = logLevel >= LogLevel.Error ? _stderrs : _stdouts;
 
             var sb = new StringBuilder(256);
 
@@ -106,8 +106,11 @@ public sealed class TextWriterLoggerProvider : ILoggerProvider, ISupportExternal
             }
 
             // Write atomically
-            writer.WriteLine(sb.ToString());
-            writer.Flush();
+            foreach (var w in writer)
+            {
+                w.WriteLine(sb.ToString());
+                w.Flush();
+            }
         }
 
         private sealed class NullScope : IDisposable
@@ -122,11 +125,11 @@ public static class TextWriterLoggerExtensions
 {
     public static ILoggingBuilder AddTextWriterLogger(
         this ILoggingBuilder builder,
-        TextWriter stdout,
-        TextWriter stderr)
+        TextWriter[] stdouts,
+        TextWriter[] stderrs)
     {
         var options = new TextWriterLoggerOptions();
-        builder.AddProvider(new TextWriterLoggerProvider(stdout, stderr, options));
+        builder.AddProvider(new TextWriterLoggerProvider(stdouts, stderrs, options));
         return builder;
     }
 }

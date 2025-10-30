@@ -40,7 +40,7 @@ public abstract class BaseCommandTests(bool configPaths = true)
             .AddLogging(b =>
             {
                 b.ClearProviders();
-                b.AddTextWriterLogger(ConsoleStdOut, ConsoleStdErr);
+                b.AddTextWriterLogger([Console.Out, ConsoleStdOut], [Console.Error, ConsoleStdErr]);
                 b.SetMinimumLevel(LogLevel.Debug);
             });
 
