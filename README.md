@@ -13,7 +13,7 @@
   <span> . </span>
   <a href="./docs/usage.md">Documentation</a>
   <span> . </span>
-  <a href="">GUI (Experimental)</a>
+  <a href="#-windows-identity-tool">GUI (App)</a>
   <span> . </span>
   <a href="#feedback">Feedback</a>
 </h3>
@@ -102,7 +102,7 @@ The full CLI usage can be found here: [Documentation](/docs/usage.md)
 
 ## 🧪 Windows Identity Tool
 
-This is an experimental app (GUI) that wraps the CLI and provides an intuitive, drag-and-drop experience with the following features:
+This is an **experimental** app (GUI) that wraps the CLI and provides an intuitive, drag-and-drop experience with the following features:
 
 - Supports .NET (Winforms, WPF..etc) apps, Python scripts/folders, MSIX
 - Drop in a WinForms, WPF executable (.exe) to add development/debug app identity (via external location/sparse packaging) in a single click!
