@@ -1271,7 +1271,7 @@ internal partial class MsixService(
         if (entryPointPath != null)
         {
             // Replace executable path with relative path from package root
-            var workingDir = baseDirectory ?? Directory.GetCurrentDirectory();
+            var workingDir = baseDirectory ?? Path.GetDirectoryName(entryPointPath) ?? Directory.GetCurrentDirectory();
             string relativeExecutablePath;
 
             try
@@ -1769,9 +1769,12 @@ $1");
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task RegisterSparsePackageAsync(string manifestPath, string externalLocation, CancellationToken cancellationToken = default)
     {
+        var manifestFullPath = Path.GetFullPath(manifestPath);
+        var absoluteExternalLocation = Path.GetFullPath(externalLocation);
+
         logger.LogDebug("{UISymbol} Registering sparse package with external location...", UiSymbols.Clipboard);
 
-        var registerCommand = $"Add-AppxPackage -Path '{manifestPath}' -ExternalLocation '{externalLocation}' -Register -ForceUpdateFromAnyVersion";
+        var registerCommand = $"Add-AppxPackage -Path '{manifestFullPath}' -ExternalLocation '{absoluteExternalLocation}' -Register -ForceUpdateFromAnyVersion";
 
         try
         {

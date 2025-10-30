@@ -419,7 +419,7 @@ public class ManifestCommandTests : BaseCommandTests
         var debugIdentityCommand = GetRequiredService<CreateDebugIdentityCommand>();
         var debugArgs = new[]
         {
-            "--entrypoint", pythonScriptPath,
+            pythonScriptPath,
             "--manifest", manifestPath,
             "--no-install" // Skip actual installation in test
         };

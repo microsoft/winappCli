@@ -11,16 +11,17 @@ namespace Winsdk.Cli.Commands;
 
 internal class CreateDebugIdentityCommand : Command
 {
-    public static Option<string> EntryPointOption { get; }
+    public static Argument<string> EntryPointArgument { get; }
     public static Option<string> ManifestOption { get; }
     public static Option<bool> NoInstallOption { get; }
     public static Option<string> LocationOption { get; }
 
     static CreateDebugIdentityCommand()
     {
-        EntryPointOption = new Option<string>("--entrypoint")
+        EntryPointArgument = new Argument<string>("entrypoint")
         {
-            Description = "Path to the .exe that will need to run with identity, or entrypoint script."
+            Description = "Path to the .exe that will need to run with identity, or entrypoint script.",
+            Arity = ArgumentArity.ZeroOrOne
         };
         ManifestOption = new Option<string>("--manifest")
         {
@@ -39,7 +40,7 @@ internal class CreateDebugIdentityCommand : Command
 
     public CreateDebugIdentityCommand() : base("create-debug-identity", "Create and install a temporary package for debugging. Must be called every time the appxmanifest.xml is modified for changes to take effect.")
     {
-        Options.Add(EntryPointOption);
+        Arguments.Add(EntryPointArgument);
         Options.Add(ManifestOption);
         Options.Add(NoInstallOption);
         Options.Add(LocationOption);
@@ -49,7 +50,7 @@ internal class CreateDebugIdentityCommand : Command
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var entryPointPath = parseResult.GetValue(EntryPointOption);
+            var entryPointPath = parseResult.GetValue(EntryPointArgument);
             var manifest = parseResult.GetRequiredValue(ManifestOption);
             var noInstall = parseResult.GetValue(NoInstallOption);
             var location = parseResult.GetValue(LocationOption);
