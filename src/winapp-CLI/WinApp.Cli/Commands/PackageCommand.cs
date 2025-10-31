@@ -80,6 +80,7 @@ internal class PackageCommand : Command
     public PackageCommand()
         : base("package", "Create an MSIX package from a prepared package directory")
     {
+        Aliases.Add("pack");
         Arguments.Add(InputFolderArgument);
         Options.Add(OutputOption);
         Options.Add(NameOption);
