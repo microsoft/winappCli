@@ -12,7 +12,7 @@
     "build-addon": "node-gyp clean configure build --directory=addon",
     "setup-debug": "winapp node add-electron-debug-identity",
     "package-msix": "npm run build-addon && npm run package & winapp package ./out/sample-electron-app-win32-arm64/ --output ./out --cert ./devcert.pfx --manifest appxmanifest.xml",
-    "postinstall": "winapp restore && winapp cert generate && npm run setup-debug"
+    "postinstall": "winapp restore && winapp cert generate --if-exists skip && npm run setup-debug"
   },
   "keywords": [],
   "author": "Sample Author",

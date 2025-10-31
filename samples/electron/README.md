@@ -1,6 +1,6 @@
-# winapp Electron Sample
+# Electron Sample
 
-This sample demonstrates usage of the winapp npm package with an Electron app.
+This sample demonstrates usage of the @microsoft/winappcli npm package with an Electron app.
 
 The sample is a default Electron Forge generated application with the following modifications:
 
