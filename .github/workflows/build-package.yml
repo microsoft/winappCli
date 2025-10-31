@@ -118,7 +118,7 @@ jobs:
           
           ### 📚 NPM Package (for Electron or NodeJS)
           ```bash
-          npm install microsoft-winapp-${{ steps.build.outputs.version }}.tgz
+          npm install microsoft-winappcli-${{ steps.build.outputs.version }}.tgz
           ```
           
           ## What's Included
