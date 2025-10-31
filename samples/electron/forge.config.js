@@ -8,8 +8,11 @@ module.exports = {
     asar: true,
     ignore: [
       /^\/\.winapp($|\/)/,
+      /^\/winapp\.yaml$/,
       /\.pfx$/,
-      /^\/winapp\.yaml$/
+      /\.pdb$/,      
+      /\/obj($|\/)/,
+      /\/bin($|\/)/      
     ]
   },
   rebuildConfig: {},

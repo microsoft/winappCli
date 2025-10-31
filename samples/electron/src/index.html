@@ -9,9 +9,15 @@
     <h1>💖 Hello World!</h1>
     <p>Welcome to your Electron application.</p>
     <button id="show-notification">Show Notification</button>
+    <button id="show-runtime-version">Show Runtime Version from C#</button>
     <script defer>
       document.getElementById('show-notification').addEventListener('click', () => {
         window.electronAPI.showNotification('Hello', 'This is a WinRT notification from Electron!');
+      });
+      
+      document.getElementById('show-runtime-version').addEventListener('click', async () => {
+        var version = await window.electronAPI.getWindowsAppRuntimeVersion();
+        alert("We're running with WindowsAppRuntime version " + version);
       });
     </script>
   </body>

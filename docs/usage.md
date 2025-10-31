@@ -368,7 +368,7 @@ npx winapp node create-addon [options]
 **Options:**
 
 - `--name <name>` - Addon name (default: "nativeWindowsAddon")
-- `--template` - Select type of addon. Options are `cs` or `cpp`
+- `--template` - Select type of addon. Options are `cs` or `cpp` (default: `cpp`)
 - `--verbose` - Enable verbose output
 
 **What it does:**

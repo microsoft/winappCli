@@ -49,6 +49,8 @@
     "winapp-path-utils.js",
     "addon-utils.js",
     "addon-template/",
+    "cs-addon-utils.js",
+    "cs-addon-template/",
     "utils.js",
     "bin/**/*.exe",
     "README.md",

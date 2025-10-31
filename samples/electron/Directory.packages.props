@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <!-- Enable central package versioning -->
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- These versions are updated automatically during winapp restore to match winapp.yaml -->
+    <PackageVersion Include="Microsoft.JavaScript.NodeApi" Version="0.9.17" />
+    <PackageVersion Include="Microsoft.JavaScript.NodeApi.Generator" Version="0.9.17" />
+
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.0.250930001-experimental1" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.6584" />
+  </ItemGroup>
+</Project>

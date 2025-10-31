@@ -98,7 +98,7 @@ npx winapp --help
 
 **Node.js/Electron Specific:**
 
-- [`node create-addon`](./docs/usage.md#node-create-addon) - Generate native C++ addons
+- [`node create-addon`](./docs/usage.md#node-create-addon) - Generate native C# or C++ addons
 - [`node add-electron-debug-identity`](./docs/usage.md#node-add-electron-debug-identity) - Add identity to Electron processes
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
@@ -127,6 +127,14 @@ provided by the bot. You will only need to do this once across all repos using o
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+
+To build the CLI:
+```
+# Build the CLI and package for npm from the repo root
+.\scripts\build-cli.ps1
+```
+
+The binaries and packages will be placed in the `artifacts` folder
 
 ## Trademarks
 

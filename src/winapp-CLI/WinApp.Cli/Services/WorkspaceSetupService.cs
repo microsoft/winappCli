@@ -41,6 +41,7 @@ internal class WorkspaceSetupService(
     IManifestService manifestService,
     IDevModeService devModeService,
     IGitignoreService gitignoreService,
+    IDirectoryPackagesService directoryPackagesService,
     ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<WorkspaceSetupService> logger) : IWorkspaceSetupService
 {
@@ -435,11 +436,27 @@ internal class WorkspaceSetupService(
 
                 logger.LogInformation("{UISymbol} winapp init completed.", UiSymbols.Party);
             }
-            else
-            {
-                // Restore: We're done
-                logger.LogInformation("{UISymbol} Restore completed successfully!", UiSymbols.Party);
+            
+            // Update Directory.Packages.props versions to match winapp.yaml if needed
+            {                
+                try
+                {
+                    var packageVersions = config.Packages.ToDictionary(
+                        p => p.Name, 
+                        p => p.Version, 
+                        StringComparer.OrdinalIgnoreCase);
+                    
+                    directoryPackagesService.UpdatePackageVersions(options.ConfigDir, packageVersions);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug("{UISymbol} Failed to update Directory.Packages.props: {Message}", UiSymbols.Note, ex.Message);
+                    // Don't fail the restore if Directory.Packages.props update fails
+                }
             }
+
+            // Restore: We're done
+            logger.LogInformation("{UISymbol} Restore completed successfully!", UiSymbols.Party);
 
             return 0;
         }

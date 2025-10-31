@@ -1,0 +1,46 @@
+using System;
+using Microsoft.JavaScript.NodeApi;
+
+namespace {AddonName}
+{
+    /// <summary>
+    /// Sample C# addon for Node.js using node-api-dotnet.
+    /// This class demonstrates how to export C# methods to JavaScript.
+    /// </summary>
+    [JSExport]
+    public class Addon
+    {
+        /// <summary>
+        /// A simple hello function that returns a greeting message.
+        /// </summary>
+        /// <param name="name">The name to greet</param>
+        /// <returns>A greeting message</returns>
+        [JSExport]
+        public static string Hello(string name)
+        {
+            return $"Hello from C#, {name}!";
+        }
+
+        /// <summary>
+        /// A sample function that adds two numbers.
+        /// </summary>
+        /// <param name="a">First number</param>
+        /// <param name="b">Second number</param>
+        /// <returns>The sum of a and b</returns>
+        [JSExport]
+        public static int Add(int a, int b)
+        {
+            return a + b;
+        }
+
+        /// <summary>
+        /// A sample function that returns the current date and time.
+        /// </summary>
+        /// <returns>Current date and time as a string</returns>
+        [JSExport]
+        public static string GetCurrentTime()
+        {
+            return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        }
+    }
+}

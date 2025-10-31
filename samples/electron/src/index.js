@@ -3,6 +3,16 @@ const path = require('node:path');
 
 const addon = require('../addon/build/Release/addon.node');
 
+let csAddon = undefined; 
+
+function getCsAddon() {
+  const csAddonPath = '../csAddon/dist/csAddon.node';
+  if (csAddon === undefined) {
+    csAddon = require(csAddonPath);
+  }
+  return csAddon;
+}
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -49,3 +59,7 @@ app.on('window-all-closed', () => {
 ipcMain.handle('show-notification', async (event, title, body) => {
   addon.showNotification(title, body);
 });
+
+ipcMain.handle('get-windows-app-runtime-version', async () => {
+  return getCsAddon().Addon.getWindowsAppRuntimeVersion();
+}); 

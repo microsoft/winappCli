@@ -96,3 +96,9 @@ out/
 
 # Development certificate
 devcert.pfx
+
+# C# build artifacts
+bin/
+obj/
+*.user
+*.suo
