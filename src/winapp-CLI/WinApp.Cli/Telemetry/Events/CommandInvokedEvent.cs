@@ -4,6 +4,7 @@
 using Microsoft.Diagnostics.Telemetry;
 using Microsoft.Diagnostics.Telemetry.Internal;
 using System.CommandLine;
+using System.CommandLine.Help;
 using System.CommandLine.Parsing;
 using System.Diagnostics.Tracing;
 using System.Text.Json;
@@ -25,32 +26,43 @@ internal class CommandInvokedEvent : EventBase
     internal CommandInvokedEvent(CommandResult commandResult, DateTime startedTime)
     {
         CommandName = commandResult.Command.GetType().FullName!;
-        var argumentsDict = commandResult.Children
-            .OfType<ArgumentResult>()
-            .ToDictionary(a => a.Argument.Name, GetValue);
-        var optionsDict = commandResult.Children
-            .OfType<OptionResult>()
-            .ToDictionary(o => o.Option.Name, GetValue);
-        var commandExecutionContext = new CommandExecutionContext(argumentsDict, optionsDict);
-        Context = JsonSerializer.Serialize(commandExecutionContext, CommandInvokedEventJsonContext.Default.CommandExecutionContext);
+        try
+        {
+            var argumentsDict = commandResult.Children
+                .OfType<ArgumentResult>()
+                .ToDictionary(a => a.Argument.Name, GetValue);
+            var optionsDict = commandResult.Children
+                .OfType<OptionResult>()
+                .ToDictionary(o => o.Option.Name, GetValue);
+            var commandExecutionContext = new CommandExecutionContext(argumentsDict, optionsDict);
+            Context = JsonSerializer.Serialize(commandExecutionContext, CommandInvokedEventJsonContext.Default.CommandExecutionContext);
+        }
+        catch (Exception ex)
+        {
+            Context = $"[error parsing context]: {ex.Message}";
+        }
         StartedTime = startedTime;
     }
 
     private string? GetValue(OptionResult o)
     {
-        return !o.Errors.Any() ? GetValue(o.Option.ValueType, o.Implicit, o.GetValueOrDefault<object?>()) : "[error]";
+        return o.Option is HelpOption
+            ? "true"
+            : !o.Errors.Any() ? GetValue(o.Option.ValueType, o.Implicit, () => o.GetValueOrDefault<object?>()) : "[error]";
     }
 
     private string? GetValue(ArgumentResult a)
     {
-        return !a.Errors.Any() ? GetValue(a.Argument.ValueType, a.Implicit, a.GetValueOrDefault<object?>()) : "[error]";
+        return !a.Errors.Any()
+            ? GetValue(a.Argument.ValueType, a.Implicit, () => a.GetValueOrDefault<object?>())
+            : (a.Errors.Any(e => e.Message.StartsWith("Required argument missing for command:")) ? null : "[error]");
     }
 
-    private static string? GetValue(Type valueType, bool isImplicit, object? value)
+    private static string? GetValue(Type valueType, bool isImplicit, Func<object?> value)
     {
         return isImplicit ? null : ((valueType == typeof(string) ||
                                      valueType == typeof(FileInfo) ||
-                                     valueType == typeof(DirectoryInfo)) ? "[string]" : value)?.ToString();
+                                     valueType == typeof(DirectoryInfo)) ? "[string]" : value != null ? value() : null)?.ToString();
     }
 
     public string CommandName { get; private set; }
