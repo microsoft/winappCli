@@ -7,8 +7,11 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- RuntimeIdentifier can be overridden via -r parameter -->
-    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <!-- RuntimeIdentifier defaults to current architecture, can be overridden via -r parameter.
+         By default, we build for the current architecture. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(PROCESSOR_ARCHITECTURE)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(PROCESSOR_ARCHITECTURE)' == 'AMD64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(PROCESSOR_ARCHITECTURE)' == 'x86'">win-x86</RuntimeIdentifier>
     <NodeApiJSModuleType>CommonJs</NodeApiJSModuleType>
 
     <!-- Allows us to run dotnet publish to generate an AOT .node file that doesn't depend on the .net runtime -->
