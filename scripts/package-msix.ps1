@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Package Windows SDK CLI as MSIX bundle
+    Package Windows App Development CLI as MSIX bundle
 .DESCRIPTION
     This script creates an MSIX bundle from pre-built CLI binaries for x64 and arm64 architectures.
 .PARAMETER CliBinariesPath
@@ -75,16 +75,16 @@ Write-Host "  - x64: $X64Path" -ForegroundColor Gray
 Write-Host "  - arm64: $Arm64Path" -ForegroundColor Gray
 
 # Validate that the main executable exists in both folders
-$X64Exe = Join-Path $X64Path "Winsdk.Cli.exe"
-$Arm64Exe = Join-Path $Arm64Path "Winsdk.Cli.exe"
+$X64Exe = Join-Path $X64Path "winapp.exe"
+$Arm64Exe = Join-Path $Arm64Path "winapp.exe"
 
 if (-not (Test-Path $X64Exe)) {
-    Write-Error "Winsdk.Cli.exe not found in x64 folder: $X64Exe"
+    Write-Error "winapp.exe not found in x64 folder: $X64Exe"
     exit 1
 }
 
 if (-not (Test-Path $Arm64Exe)) {
-    Write-Error "Winsdk.Cli.exe not found in arm64 folder: $Arm64Exe"
+    Write-Error "winapp.exe not found in arm64 folder: $Arm64Exe"
     exit 1
 }
 
@@ -207,17 +207,17 @@ function New-MsixPackageLayout {
     Write-Host "[COPY] Creating $Architecture package layout..." -ForegroundColor Blue
     
     # Copy only the exe from the source
-    Write-Host "  - Copying Winsdk.Cli.exe from $SourceBinPath..." -ForegroundColor Gray
-    $SourceExe = Join-Path $SourceBinPath "Winsdk.Cli.exe"
-    $TargetExe = Join-Path $LayoutPath "Winsdk.Cli.exe"
+    Write-Host "  - Copying winapp.exe from $SourceBinPath..." -ForegroundColor Gray
+    $SourceExe = Join-Path $SourceBinPath "winapp.exe"
+    $TargetExe = Join-Path $LayoutPath "winapp.exe"
     
     if (-not (Test-Path $SourceExe)) {
-        Write-Error "Winsdk.Cli.exe not found at $SourceExe"
+        Write-Error "winapp.exe not found at $SourceExe"
         return
     }
     
     Copy-Item $SourceExe $TargetExe -Force
-    Write-Host "  - Copied Winsdk.Cli.exe" -ForegroundColor Gray
+    Write-Host "  - Copied winapp.exe" -ForegroundColor Gray
     
     # Copy Assets folder
     $TargetAssetsPath = Join-Path $LayoutPath "Assets"
@@ -295,7 +295,7 @@ if (Test-Path $DevCertPath) {
 
 # Package x64
 Write-Host "[PACKAGE] Creating x64 MSIX package..." -ForegroundColor Blue
-$X64PackageCmd = "& `"$CliExe`" package `"$X64LayoutPath`" --name winsdk_x64 --output-folder `"$PackagesPath`" $CertParam"
+$X64PackageCmd = "& `"$CliExe`" package `"$X64LayoutPath`" --name winapp_x64 --output-folder `"$PackagesPath`" $CertParam"
 Write-Host "  Command: $X64PackageCmd" -ForegroundColor Gray
 Invoke-Expression $X64PackageCmd
 if ($LASTEXITCODE -ne 0) {
@@ -307,7 +307,7 @@ Write-Host ""
 
 # Package arm64
 Write-Host "[PACKAGE] Creating arm64 MSIX package..." -ForegroundColor Blue
-$Arm64PackageCmd = "& `"$CliExe`" package `"$Arm64LayoutPath`" --name winsdk_arm64 --output-folder `"$PackagesPath`" $CertParam"
+$Arm64PackageCmd = "& `"$CliExe`" package `"$Arm64LayoutPath`" --name winapp_arm64 --output-folder `"$PackagesPath`" $CertParam"
 Write-Host "  Command: $Arm64PackageCmd" -ForegroundColor Gray
 Invoke-Expression $Arm64PackageCmd
 if ($LASTEXITCODE -ne 0) {
@@ -331,15 +331,15 @@ New-Item -ItemType Directory -Path $DistributionPath -Force | Out-Null
 
 # Create the MSIX bundle directly in the distribution folder
 Write-Host "[BUNDLE] Creating MSIX bundle..." -ForegroundColor Blue
-$BundleName = "winsdk_$($MsixVersion -replace '\.', '_')"
+$BundleName = "winapp_$($MsixVersion -replace '\.', '_')"
 $BundleOutputPath = Join-Path $DistributionPath "$BundleName.msixbundle"
 
 # Create mapping file for makeappx
 $MappingFilePath = Join-Path $PackagesPath "bundle_mapping.txt"
 $MappingContent = @"
 [Files]
-"$PackagesPath\winsdk_x64.msix" "winsdk_x64.msix"
-"$PackagesPath\winsdk_arm64.msix" "winsdk_arm64.msix"
+"$PackagesPath\winapp_x64.msix" "winapp_x64.msix"
+"$PackagesPath\winapp_arm64.msix" "winapp_arm64.msix"
 "@
 $MappingContent | Set-Content $MappingFilePath -Encoding ASCII
 
@@ -409,7 +409,7 @@ $ReadmeDest = Join-Path $DistributionPath "README.md"
 # Read the template README and replace version placeholder
 $ReadmeContent = Get-Content $ReadmeSource -Raw
 $ReadmeContent = $ReadmeContent -replace '\[version\]', $MsixVersion
-$ReadmeContent = $ReadmeContent -replace 'winsdk_\[version\]\.msixbundle', (Split-Path $BundleOutputPath -Leaf)
+$ReadmeContent = $ReadmeContent -replace 'winapp\_[version]\.msixbundle', (Split-Path $BundleOutputPath -Leaf)
 
 $ReadmeContent | Set-Content $ReadmeDest -Encoding UTF8
 Write-Host "  - Added README.md" -ForegroundColor Gray

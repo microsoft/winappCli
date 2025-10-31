@@ -1,9 +1,0 @@
-{
-  "name": "winsdk",
-  "version": "0.1.0",
-  "description": "The Windows App SDK empowers all Windows Desktop apps with modern Windows UI, APIs, and platform features, including back-compat support.",
-  "homepage": "https://github.com/microsoft/winsdk",
-  "documentation": "https://docs.microsoft.com/windows/apps/windows-app-sdk/",
-  "license": null,
-  "supports": "windows"
-}

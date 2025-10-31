@@ -4,9 +4,9 @@
 # Unstub managed telemetry
 #
 
-Remove-Item "$($PSScriptRoot)\..\src\winsdk-CLI\Winsdk.Cli\Telemetry\TelemetryEventSource.cs"
+Remove-Item "$($PSScriptRoot)\..\src\winapp-CLI\WinApp.Cli\Telemetry\TelemetryEventSource.cs"
 
-$projFile = "$($PSScriptRoot)\..\src\winsdk-CLI\Winsdk.Cli\Winsdk.Cli.csproj"
+$projFile = "$($PSScriptRoot)\..\src\winapp-CLI\WinApp.Cli\WinApp.Cli.csproj"
 $projFileContent = Get-Content $projFile -Encoding UTF8 -Raw
 
 $xml = [xml]$projFileContent

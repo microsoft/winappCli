@@ -14,7 +14,7 @@ This package contains a pre-release development build of the Windows Development
 
 ## What's Included
 
-- **winsdk_[version].msixbundle** - The MSIX bundle with x64 and ARM64 packages
+- **winapp_[version].msixbundle** - The MSIX bundle with x64 and ARM64 packages
 - **install.cmd** - Double-click installer (easiest method)
 - **install.ps1** - PowerShell installer script (alternative method)
 
@@ -38,4 +38,4 @@ If you see a script execution error, Right-click `install.ps1` â†’ Properties â†
 
 ## Support
 
-For more information, visit: https://github.com/microsoft/winsdk
+For more information, visit: https://github.com/microsoft/WindowsDevCLI

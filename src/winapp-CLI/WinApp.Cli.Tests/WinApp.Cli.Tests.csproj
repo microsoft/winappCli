@@ -1,0 +1,24 @@
+﻿<Project Sdk="MSTest.Sdk/4.0.1">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Enable Code Analysis -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Recommended</AnalysisMode>
+    
+    <!-- Suppress specific warnings -->
+    <NoWarn>CA1822;CA1852;CA1707;IDE1006</NoWarn>
+    
+    <!-- Test discovery and execution -->
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinApp.Cli\WinApp.Cli.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -114,11 +114,11 @@ jobs:
           ### 📦 Standalone CLI Binaries
           1. Download `binaries-${{ steps.build.outputs.version }}.zip`
           2. Extract to your desired location
-          3. Add to PATH or run directly: `win-x64\Winsdk.Cli.exe` or `win-arm64\Winsdk.Cli.exe`
+          3. Add to PATH or run directly: `win-x64\winapp.exe` or `win-arm64\winapp.exe`
           
           ### 📚 NPM Package (for Electron or NodeJS)
           ```bash
-          npm install microsoft-winsdk-${{ steps.build.outputs.version }}.tgz
+          npm install microsoft-winapp-${{ steps.build.outputs.version }}.tgz
           ```
           
           ## What's Included

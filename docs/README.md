@@ -1,6 +1,6 @@
 # Windows Development CLI Documentation
 
-The winsdk command line utility provides tools and helpers for building and packaging Windows applications. It helps with:
+The winapp command line utility provides tools and helpers for building and packaging Windows applications. It helps with:
 * **Using modern Windows APIs** - bootstrapping and setup of the Windows SDK and Windows App SDK
 * **MSIX Packaging** - generating and signing MSIX packages 
 * **App Identity** - setting up identity for debugging, or for generating sparse packages for app identity with other packaging formats
@@ -14,20 +14,20 @@ If you're building a Windows application with cross-platform frameworks like Ele
 
 ```bash
 # install
-winget install Microsoft.winsdk
+winget install Microsoft.winapp
 
 # call the cli
-winsdk --help
+winapp --help
 ```
 
 or if using Electron
 
 ```bash
 # install
-npm i -D @microsoft/winsdk
+npm i -D @microsoft/winappcli
 
 # call the cli
-npx winsdk --help
+npx winapp --help
 ```
 ## Table of contents
 

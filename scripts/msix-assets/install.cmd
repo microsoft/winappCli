@@ -3,9 +3,9 @@ REM Batch file wrapper to run the PowerShell installer script
 REM This bypasses PowerShell execution policy restrictions
 
 echo.
-echo ========================================
-echo  Windows SDK CLI - MSIX Installation
-echo ========================================
+echo ================================================
+echo  WINDOWS APP DEVELOPMENT CLI - MSIX Installation
+echo ================================================
 echo.
 
 REM Run PowerShell with bypass execution policy

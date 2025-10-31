@@ -1,6 +1,6 @@
 # Windows Development CLI
 
-The winsdk command line utility provides tools and helpers for building and packaging Windows applications. It helps with:
+The winapp command line utility provides tools and helpers for building and packaging Windows applications. It helps with:
 * **Using modern Windows APIs** - bootstrapping and setup of the Windows SDK and Windows App SDK
 * **MSIX Packaging** - generating and signing MSIX packages 
 * **App Identity** - setting up identity for debugging, or for generating sparse packages for app identity with other packaging formats
@@ -20,45 +20,45 @@ Stable releases via WinGet and NPM will be available when the project becomes pu
 
 Download automated nightly builds from GitHub Releases.
 
-**[👉 Download Latest Nightly Build](https://github.com/microsoft/winsdk/releases/latest)**
+**[👉 Download Latest Nightly Build](https://github.com/microsoft/WindowsDevCLI/releases/latest)**
 
 **Available Options:**
 
 | Package | Description | Use Case |
 |---------|-------------|----------|
 | **`binaries-[version].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
-| **`microsoft-winsdk-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
+| **`microsoft-winapp-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
 
 ## Quick start
 
 Once installed (see [Installation](#installation) above), verify the installation by calling the CLI:
 
 ```bash
-winsdk --help
+winapp --help
 ```
 
 or if using Electron/NodeJS
 
 ```bash
-npx winsdk --help
+npx winapp --help
 ```
 
 ### Initialize the project (init)
 
 ```bash
-winsdk init
+winapp init
 
 # or setup with prerelease versions of the sdks
-winsdk init --prerelease
+winapp init --prerelease
 ```
 
 This command will:
 * ✅ Generate an appxmanifest, required assets, and development certificate
 * ✅ Download/generate headers and binaries for Windows App SDK and Windows SDK
 * ✅ Set up your machine for development (build tools, dev mode, runtime)
-* ✅ Create a `winsdk.yaml` configuration file to manage SDK versions
+* ✅ Create a `winapp.yaml` configuration file to manage SDK versions
   
-> **Tip:** Modify `winsdk.yaml` to change SDK versions, then run `winsdk init` or `winsdk restore` to update your project.
+> **Tip:** Modify `winapp.yaml` to change SDK versions, then run `winapp init` or `winapp restore` to update your project.
 
 ### Hosted Apps (Python/Node.js scripts)
 
@@ -67,7 +67,7 @@ The CLI supports packaging Python and Node.js scripts as MSIX packages using the
 #### Generate a Hosted App manifest
 
 ```bash
-winsdk manifest generate --template hostedapp --entrypoint app.py
+winapp manifest generate --template hostedapp --entrypoint app.py
 ```
 
 This command will:
@@ -86,10 +86,10 @@ You can also create debug identity for hosted apps to test them without full MSI
 
 ```bash
 # Generate hosted app manifest
-winsdk manifest generate --template hostedapp --entrypoint app.py
+winapp manifest generate --template hostedapp --entrypoint app.py
 
 # Create debug identity (registers as a sparse package)
-winsdk create-debug-identity
+winapp create-debug-identity
 ```
 
 > **Note:** The hosted app model requires the appropriate runtime (Python 3.14+ or Node.js 22+) to be installed on the target system. The manifest specifies this as a runtime dependency.
@@ -97,7 +97,7 @@ winsdk create-debug-identity
 ### Generate app identity
 
 ```bash
-winsdk create-debug-identity <exe>
+winapp create-debug-identity <exe>
 ```
 
 This command generates a temporary identity for your application to enable debugging with identity. It uses your `appxmanifest.xml` to modify the [side-by-side](https://learn.microsoft.com/en-us/windows/win32/sbscs/application-manifests) manifest in your exe and register a [sparse package](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps). The next time you run your exe, it will have identity, allowing you to debug APIs that require identity without doing a full MSIX packaging.
@@ -106,7 +106,7 @@ This command generates a temporary identity for your application to enable debug
 ### MSIX packaging
 
 ```bash
-winsdk package <folder to package>
+winapp package <folder to package>
 ```
 
 This command generates an MSIX package from a folder. The CLI will:
@@ -119,7 +119,7 @@ This command generates an MSIX package from a folder. The CLI will:
 
 ### Manifests, certificates, and tools
 
-The cli also contains commands for generating, updating, and validating appxmanifests (`winsdk manifest`), creating and installing dev certificates (`winsdk cert`), and calling Windows sdk tools (`winsdk tool`).  
+The cli also contains commands for generating, updating, and validating appxmanifests (`winapp manifest`), creating and installing dev certificates (`winapp cert`), and calling Windows sdk tools (`winapp tool`).  
 
 ## Electron/NodeJS
 
@@ -136,7 +136,7 @@ In addition to the above commands, the npm package contains specific electron co
 ### Generate electron debug identity
 
 ```bash
-npx winsdk node add-electron-debug-identity
+npx winapp node add-electron-debug-identity
 ```
 
 This command registers debug identity for the electron.exe process. When electron.exe runs, it will contain identity, allowing you to debug and step through code that requires app identity without having to package your electron application as MSIX.
@@ -145,7 +145,7 @@ This command registers debug identity for the electron.exe process. When electro
 ### Templates for node addon
 
 ```bash
-npx winsdk node create-addon --name myAddon
+npx winapp node create-addon --name myAddon
 ```
 
 This command will create a new C++ addon with examples of usage to call the Windows App SDK and Windows SDK.

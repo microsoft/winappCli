@@ -1,9 +1,9 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Build script for Windows SDK CLI, npm package, and MSIX bundle
+    Build script for Windows App Development CLI, npm package, and MSIX bundle
 .DESCRIPTION
-    This script builds the Windows SDK CLI for both x64 and arm64 architectures,
+    This script builds the Windows App Development CLI for both x64 and arm64 architectures,
     creates the npm package, creates MSIX bundle with distribution package, and 
     places all artifacts in an artifacts folder. Run this script from the root of the project.
 .PARAMETER SkipTests
@@ -40,9 +40,9 @@ Push-Location $ProjectRoot
 try
 {
     # Define paths
-    $CliSolutionPath = "src\winsdk-CLI\winsdk.sln"
-    $CliProjectPath = "src\winsdk-CLI\Winsdk.Cli\Winsdk.Cli.csproj"
-    $NpmProjectPath = "src\winsdk-npm"
+    $CliSolutionPath = "src\winapp-CLI\winapp.sln"
+    $CliProjectPath = "src\winapp-CLI\WinApp.Cli\WinApp.Cli.csproj"
+    $NpmProjectPath = "src\winapp-npm"
     $ArtifactsPath = "artifacts"
     $TestResultsPath = "TestResults"
 
@@ -82,7 +82,7 @@ try
     
         # Copy test results to artifacts BEFORE checking for failure - find all TRX files
         Write-Host "[TEST] Collecting test results..." -ForegroundColor Blue
-        $TrxFiles = Get-ChildItem -Path "src\winsdk-CLI" -Filter "*.trx" -Recurse -File
+        $TrxFiles = Get-ChildItem -Path "src\winapp-CLI" -Filter "*.trx" -Recurse -File
         if ($TrxFiles) {
             New-Item -ItemType Directory -Path "$ArtifactsPath\TestResults" -Force | Out-Null
             foreach ($trxFile in $TrxFiles) {
@@ -91,7 +91,7 @@ try
             }
             Write-Host "[TEST] Test results copied successfully ($($TrxFiles.Count) file(s))" -ForegroundColor Green
         } else {
-            Write-Warning "No TRX test result files found in src\winsdk-CLI"
+            Write-Warning "No TRX test result files found in src\winapp-CLI"
         }
 
         # Now check test results and decide whether to exit

@@ -92,7 +92,7 @@ typings/
 out/
 
 # Windows SDK packages and generated files
-.winsdk
+.winapp
 
 # Development certificate
 devcert.pfx

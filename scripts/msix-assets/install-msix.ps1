@@ -12,7 +12,7 @@
     Password for the certificate if it's password-protected (optional).
 .EXAMPLE
     .\install-msix.ps1
-    .\install-msix.ps1 -BundlePath "winsdk_0_1_0_1.msixbundle"
+    .\install-msix.ps1 -BundlePath "winapp_0_1_0_1.msixbundle"
 #>
 
 param(
@@ -291,8 +291,8 @@ try {
         Add-AppxPackage -Path $BundlePath -ErrorAction Stop
         Write-Host "[SUCCESS] MSIX bundle installed successfully!" -ForegroundColor Green
         Write-Host ""
-        Write-Host "The Windows SDK CLI has been installed." -ForegroundColor Cyan
-        Write-Host "You can now use 'winsdk' command from your terminal." -ForegroundColor Cyan
+        Write-Host "The Windows App Development CLI has been installed." -ForegroundColor Cyan
+        Write-Host "You can now use 'winapp' command from your terminal." -ForegroundColor Cyan
     } catch {
         Write-Host ""
         Write-Warning "Failed to install MSIX bundle automatically: $_"

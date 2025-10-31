@@ -13,7 +13,7 @@
   IgnorableNamespaces="uap uap2 uap3 rescap desktop desktop6 uap10">
 
   <Identity
-    Name="winsdk"
+    Name="winapp"
     Publisher="CN=nikolame"
     Version="1.0.0.0" 
     ProcessorArchitecture="x64"/>
@@ -33,8 +33,8 @@
   </Resources>
 
   <Applications>
-    <Application Id="winsdk"
-      Executable="Winsdk.Cli.exe"
+    <Application Id="winapp"
+      Executable="winapp.exe"
       EntryPoint="Windows.FullTrustApplication"
       uap10:TrustLevel="mediumIL" >
       <uap:VisualElements
@@ -50,7 +50,7 @@
       <Extensions>
         <uap5:Extension Category="windows.appExecutionAlias">
           <uap5:AppExecutionAlias>
-            <uap5:ExecutionAlias Alias="winsdk.exe" />
+            <uap5:ExecutionAlias Alias="winapp.exe" />
           </uap5:AppExecutionAlias>
         </uap5:Extension>
       </Extensions>

@@ -1,0 +1,5 @@
+<linker>
+    <assembly fullname="WinApp.Cli">
+        <namespace fullname="WinApp.Cli.Telemetry" />
+    </assembly>
+</linker>

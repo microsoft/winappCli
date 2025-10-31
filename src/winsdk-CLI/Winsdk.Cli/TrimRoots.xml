@@ -1,5 +1,0 @@
-<linker>
-    <assembly fullname="Winsdk.Cli">
-        <namespace fullname="Winsdk.Cli.Telemetry" />
-    </assembly>
-</linker>
