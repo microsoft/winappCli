@@ -203,3 +203,6 @@ CMakeCache.txt
 # Development certificate
 devcert.pfx
 *.msix
+
+# GUI app package outputs
+/src/winapp-CLI/Identity.GUI.Experimental/AppPackages
