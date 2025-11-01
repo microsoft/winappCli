@@ -100,6 +100,11 @@ extends:
         build_number:  $[ stageDependencies.Build.Build.outputs['SetMeta.build_number'] ]
       jobs:
       - job: create_release
+        pool:
+          name: Azure-Pipelines-1ESPT-ExDShared
+          image: windows-latest
+          os: windows
+          hostArchitecture: amd64
         displayName: GitHub Pre-release
         templateContext:
           type: releaseJob
