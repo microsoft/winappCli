@@ -138,7 +138,7 @@ extends:
               repositoryName: 'microsoft/winappcli'
               action: 'create'
               target: '$(Build.SourceVersion)'
-              tagSource: 'manual'
+              tagSource: 'userSpecifiedTag'
               tag: 'v$(version)'
               title: 'Pre-release v$(version)'
               isPreRelease: true
