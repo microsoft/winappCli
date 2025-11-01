@@ -127,7 +127,7 @@ extends:
           - task: ArchiveFiles@2
             displayName: Archive CLI binaries - arm64
             inputs:
-              rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/arm64
+              rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-arm64
               includeRootFolder: false
               archiveFile: $(Pipeline.Workspace)/winappcli-arm64.zip
 
