@@ -108,6 +108,9 @@ extends:
           - input: pipelineArtifact
             artifactName: npm-package
             targetPath: $(Pipeline.Workspace)/npm-package
+          - input: pipelineArtifact
+            artifactName: msix-packages
+            targetPath: $(Pipeline.Workspace)/msix-packages
         steps:
           - task: ArchiveFiles@2
             displayName: Archive CLI binaries - x64
@@ -137,6 +140,7 @@ extends:
               assets: |
                 $(Pipeline.Workspace)/winappcli-x64.zip
                 $(Pipeline.Workspace)/winappcli-arm64.zip
+                $(Pipeline.Workspace)/msix-packages/*.msix
                 $(Pipeline.Workspace)/npm-package/*.tgz
               assetUploadMode: 'delete'
               addChangeLog: false

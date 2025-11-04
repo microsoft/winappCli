@@ -28,7 +28,7 @@ param(
     [switch]$Clean = $false,
     [switch]$SkipTests = $false,
     [switch]$FailOnTestFailure = $true,
-    [switch]$SkipMsix = $true,
+    [switch]$SkipMsix = $false,
     [switch]$Stable = $false
 )
 
@@ -251,9 +251,9 @@ try
     
         $PackageMsixScript = Join-Path $PSScriptRoot "package-msix.ps1"
         $CliBinariesPath = Join-Path (Join-Path $ProjectRoot $ArtifactsPath) "cli"
-    
-        & $PackageMsixScript -CliBinariesPath $CliBinariesPath -Version $MsixVersion
-    
+
+        & $PackageMsixScript -CliBinariesPath $CliBinariesPath -Version $MsixVersion -Stable $Stable
+
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "MSIX bundle creation failed, but continuing..."
         } else {

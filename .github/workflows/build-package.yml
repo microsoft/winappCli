@@ -66,14 +66,8 @@ jobs:
         name: npm-package
         path: artifacts/*.tgz
     
-    # - name: Upload MSIX bundle distribution
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: msix-bundle
-    #     path: artifacts/msix-bundle/
-    
-    # - name: Upload MSIX layout
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: msix-layout
-    #     path: artifacts/msix-layout/
+    - name: Upload MSIX packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: msix-packages
+        path: artifacts/msix-packages/*.msix

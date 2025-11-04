@@ -14,18 +14,18 @@
 
   <Identity
     Name="winapp"
-    Publisher="CN=nikolame"
+    Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
     Version="1.0.0.0" 
     ProcessorArchitecture="x64"/>
 
   <Properties>
-    <DisplayName>Windows Development CLI (Dev Build)</DisplayName>
-    <PublisherDisplayName>nikolame</PublisherDisplayName>
+    <DisplayName>Windows App Development CLI</DisplayName>
+    <PublisherDisplayName>Microsoft</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.18362.0" MaxVersionTested="10.0.26100.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19045.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
 
   <Resources>
@@ -38,7 +38,7 @@
       EntryPoint="Windows.FullTrustApplication"
       uap10:TrustLevel="mediumIL" >
       <uap:VisualElements
-        DisplayName="Windows Development CLI (Dev Build)"
+        DisplayName="Windows App Development CLI"
         Description="CLI for Windows development related tasks"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
