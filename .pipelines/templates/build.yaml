@@ -60,7 +60,7 @@ steps:
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\package-msix.ps1
-    arguments: "-Stable:$${{ parameters.stable }} -Version ${{ parameters.version }}"
+    arguments: "-Stable:$${{ parameters.stable }}"
 - ${{ if eq(parameters['DoEsrp'], 'true') }}:
   - task: EsrpCodeSigning@5
     displayName: Code Sign ESRP - MSIX Packages

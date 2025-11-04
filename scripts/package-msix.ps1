@@ -138,7 +138,11 @@ try
         }
         
         # MSIX version format is major.minor.patch.build (e.g., 1.2.3.25)
-        $MsixVersion = "$BaseVersion.$BuildNumber"
+        if ($Stable -eq $false) {
+            $MsixVersion = "$BaseVersion.$BuildNumber"
+        } else {
+            $MsixVersion = "$BaseVersion.0"
+        }
     } else {
         # Use provided version and append .0 for the build number if not already 4 parts
         $VersionParts = $Version.Split('.')
