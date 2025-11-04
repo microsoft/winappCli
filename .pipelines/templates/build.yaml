@@ -15,7 +15,7 @@ steps:
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
-    arguments: '-Stable ${{ parameters.stable }} -SkipMsix'
+    arguments: ${{ parameters.stable && '-Stable' || '' }} -SkipMsix
 - ${{ if eq(parameters['DoEsrp'], 'true') }}:
   - task: EsrpCodeSigning@5
     displayName: Code Sign ESRP - CLI
@@ -60,7 +60,7 @@ steps:
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\package-msix.ps1
-    arguments: '-Stable ${{ parameters.stable }}'
+    arguments: -Version ${{ parameters.version }} ${{ parameters.stable && '-Stable' || '' }}
 - ${{ if eq(parameters['DoEsrp'], 'true') }}:
   - task: EsrpCodeSigning@5
     displayName: Code Sign ESRP - MSIX Packages

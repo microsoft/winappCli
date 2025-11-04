@@ -16,5 +16,6 @@
   </PropertyGroup>
   <PropertyGroup Condition="$(Configuration)=='Release'">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ControlFlowGuard>Guard</ControlFlowGuard>
   </PropertyGroup>
 </Project>
