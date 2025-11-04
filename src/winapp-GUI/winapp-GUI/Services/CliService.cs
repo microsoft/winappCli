@@ -46,7 +46,11 @@ public class CliService
             Arguments = arguments,
             WorkingDirectory = workingDir,
             CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden
+            WindowStyle = ProcessWindowStyle.Hidden,
+            EnvironmentVariables =
+            {
+                ["WINAPP_CLI_CALLER"] = "winapp-GUI"
+            }
         };
         if (runAsAdmin)
         {

@@ -103,7 +103,7 @@ internal sealed class Telemetry : ITelemetry
     /// Gets a value indicating whether telemetry is on
     /// For future use if we add a registry key or some other setting to check if telemetry is turned on.
     /// </summary>
-    public bool IsTelemetryOn { get; } = true;
+    public bool IsTelemetryOn { get; } = Environment.GetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT") != "1";
 
     /// <summary>
     /// Gets or sets a value indicating whether diagnostic telemetry is on.
@@ -213,6 +213,7 @@ internal sealed class Telemetry : ITelemetry
         where T : EventBase
     {
         data.ReplaceSensitiveStrings(this.ReplaceSensitiveStrings);
+        data.Caller = data.Caller != null ? this.ReplaceSensitiveStrings(data.Caller) : null;
         this.LogInternal(eventName, level, data, relatedActivityId, isError: false);
     }
 
@@ -228,6 +229,7 @@ internal sealed class Telemetry : ITelemetry
         where T : EventBase
     {
         data.ReplaceSensitiveStrings(this.ReplaceSensitiveStrings);
+        data.Caller = data.Caller != null ? this.ReplaceSensitiveStrings(data.Caller) : null;
         this.LogInternal(eventName, level, data, relatedActivityId, isError: true);
     }
 

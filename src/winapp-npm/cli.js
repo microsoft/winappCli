@@ -3,7 +3,7 @@
 const { generateAddonFiles } = require('./addon-utils');
 const { generateCsAddonFiles } = require('./cs-addon-utils');
 const { addElectronDebugIdentity } = require('./msix-utils');
-const { getWinappCliPath, callWinappCli } = require('./winapp-cli-utils');
+const { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } = require('./winapp-cli-utils');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -81,7 +81,11 @@ async function showCombinedHelp() {
     await new Promise((resolve, reject) => {
       const child = spawn(winappCliPath, ['--help'], {
         stdio: 'inherit',
-        shell: false
+        shell: false,
+        env: {
+          ...process.env,
+          WINAPP_CLI_CALLER: WINAPP_CLI_CALLER_VALUE
+        }
       });
       
       child.on('close', (code) => {
@@ -133,7 +137,11 @@ async function showVersion() {
     await new Promise((resolve, reject) => {
       const child = spawn(winappCliPath, ['--version'], {
         stdio: 'inherit',
-        shell: false
+        shell: false,
+        env: {
+          ...process.env,
+          WINAPP_CLI_CALLER: WINAPP_CLI_CALLER_VALUE
+        }
       });
       
       child.on('close', (code) => {

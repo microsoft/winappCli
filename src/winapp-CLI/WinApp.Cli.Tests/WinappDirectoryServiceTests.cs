@@ -76,7 +76,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
     public void GetGlobalWinappDirectory_WithEnvironmentVariable_ReturnsEnvironmentVariablePath()
     {
         // Store original environment variable value to restore later
-        var originalValue = Environment.GetEnvironmentVariable("WINAPP_CACHE_DIRECTORY");
+        var originalValue = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
         
         // Arrange - Create a test directory for environment variable
         var envTestDirectory = _tempDirectory.CreateSubdirectory("env-test-winapp");
@@ -84,7 +84,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         try
         {
             // Set environment variable
-            Environment.SetEnvironmentVariable("WINAPP_CACHE_DIRECTORY", envTestDirectory.FullName);
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", envTestDirectory.FullName);
 
             // Act - Create fresh instance to test environment variable behavior
             var directoryService = GetRequiredService<IWinappDirectoryService>();
@@ -96,7 +96,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         finally
         {
             // Cleanup - Restore original environment variable value
-            Environment.SetEnvironmentVariable("WINAPP_CACHE_DIRECTORY", originalValue);
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", originalValue);
         }
     }
 
@@ -105,7 +105,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
     public void SetCacheDirectoryForTesting_TakesPrecedenceOverEnvironmentVariable()
     {
         // Store original environment variable value to restore later
-        var originalValue = Environment.GetEnvironmentVariable("WINAPP_CACHE_DIRECTORY");
+        var originalValue = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
         
         // Arrange - Create test directories
         var envTestDirectory = _tempDirectory.CreateSubdirectory("env-winapp");
@@ -114,7 +114,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         try
         {
             // Set environment variable
-            Environment.SetEnvironmentVariable("WINAPP_CACHE_DIRECTORY", envTestDirectory.FullName);
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", envTestDirectory.FullName);
             
             // Act - Create instance and set override (should take precedence)
             var directoryService = GetRequiredService<IWinappDirectoryService>();
@@ -127,7 +127,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         finally
         {
             // Cleanup - Restore original environment variable value
-            Environment.SetEnvironmentVariable("WINAPP_CACHE_DIRECTORY", originalValue);
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", originalValue);
         }
     }
 

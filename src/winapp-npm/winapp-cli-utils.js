@@ -3,6 +3,8 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 
+const WINAPP_CLI_CALLER_VALUE = 'nodejs-package';
+
 /**
  * Helper function to get the path to the winapp-cli executable
  */
@@ -38,7 +40,11 @@ async function callWinappCli(args, options = {}) {
     const child = spawn(winappCliPath, args, {
       stdio: verbose ? 'inherit' : 'pipe',
       cwd: process.cwd(),
-      shell: false
+      shell: false,
+      env: {
+        ...process.env,
+        WINAPP_CLI_CALLER: WINAPP_CLI_CALLER_VALUE
+      }
     });
     
     // Only capture stderr when not using inherit mode (needed for error messages)
@@ -78,5 +84,6 @@ async function callWinappCli(args, options = {}) {
 
 module.exports = {
   getWinappCliPath: getWinappCliPath,
-  callWinappCli: callWinappCli
+  callWinappCli: callWinappCli,
+  WINAPP_CLI_CALLER_VALUE: WINAPP_CLI_CALLER_VALUE
 };

@@ -33,6 +33,8 @@ public abstract class EventBase
 
     public bool CI { get; } = CIEnvironmentDetectorForTelemetry.IsCIEnvironment();
 
+    public string? Caller { get; set; } = Environment.GetEnvironmentVariable("WINAPP_CLI_CALLER");
+
     /// <summary>
     /// Replaces all the strings in this event that may contain PII using the provided function.
     /// </summary>

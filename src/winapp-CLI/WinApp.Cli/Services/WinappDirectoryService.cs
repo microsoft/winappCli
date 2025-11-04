@@ -28,7 +28,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         }
 
         // Allow override via environment variable (useful for CI/CD)
-        var cacheDirectory = Environment.GetEnvironmentVariable("WINAPP_CACHE_DIRECTORY");
+        var cacheDirectory = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
         if (!string.IsNullOrEmpty(cacheDirectory))
         {
             return new DirectoryInfo(cacheDirectory);
