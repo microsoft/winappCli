@@ -47,7 +47,8 @@ The easiest way to use the CLI is to download the latest build from GitHub Relea
 
 | Package | Description | Use Case |
 |---------|-------------|----------|
-| **`binaries-[version].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
+| **`winapp_[platform]-[version].msix`** | 📦 MSIX Installer |
+| **`winappcli-[platform].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
 | **`microsoft-winappcli-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
 
 ### Adding to Path
