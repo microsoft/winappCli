@@ -47,16 +47,13 @@ The easiest way to use the CLI is to download the latest build from GitHub Relea
 
 | Package | Description | Use Case |
 |---------|-------------|----------|
-| **`binaries-[version].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
+| **`winapp_[platform]-[version].msix`** | 📦 MSIX Installer | Easy to install, automatically added to path, great for general usage |
+| **`winappcli-[platform].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
 | **`microsoft-winappcli-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
 
 ### Adding to Path
 
-The easiest way to use the CLI globally is to add it to the PATH.
-
-**Add to Path**:
-
-Windows Search → Edit the system environment variables → Environment Variables → Path → Edit → New → Add the location (folder) of `winapp.exe`
+The easiest way to use the CLI globally is to install it via the MSIX installer
 
 ## 📋 Usage
 
