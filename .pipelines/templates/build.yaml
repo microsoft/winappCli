@@ -15,7 +15,7 @@ steps:
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
-    arguments: "-Stable:$${{ parameters.stable }} -SkipMsix"
+    arguments: "-Stable:$${{ parameters.stable }} -SkipNpm -SkipMsix"
 - ${{ if eq(parameters['DoEsrp'], 'true') }}:
   - task: EsrpCodeSigning@5
     displayName: Code Sign ESRP - CLI
@@ -55,6 +55,12 @@ steps:
                 "ToolVersion": "1.0"
             }
         ]
+- task: PowerShell@2
+  displayName: Package NPM
+  inputs:
+    pwsh: true
+    filePath: $(System.DefaultWorkingDirectory)\scripts\package-npm.ps1
+    arguments: "-Stable:$${{ parameters.stable }}"
 - task: PowerShell@2
   displayName: Bundle MSIX Packages
   inputs:

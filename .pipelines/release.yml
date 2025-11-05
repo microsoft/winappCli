@@ -24,6 +24,7 @@ parameters:
       akvName: $(SigningAKVName)
       authCertName: $(SigningAuthCertName)
       signCertName: $(SigningSignCertName)
+      signTTSCertName: $(SigningSignTTSCertName)
 
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
@@ -86,7 +87,7 @@ extends:
                 Write-Host "##vso[task.setvariable variable=version;isOutput=true]$fullVersion"
 
     - stage: Release
-      displayName: Create GitHub Pre-release
+      displayName: Create GitHub Release
       dependsOn: Build
       variables:
         version: $[ stageDependencies.Build.Build.outputs['SetMeta.version'] ]
@@ -97,7 +98,7 @@ extends:
           image: windows-latest
           os: windows
           hostArchitecture: amd64
-        displayName: GitHub Pre-release
+        displayName: GitHub Release
         templateContext:
           type: releaseJob
           isProduction: true
@@ -117,17 +118,17 @@ extends:
             inputs:
               rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-x64
               includeRootFolder: false
-              archiveFile: $(Pipeline.Workspace)/winappcli-x64.zip
+              archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-x64.zip
 
           - task: ArchiveFiles@2
             displayName: Archive CLI binaries - arm64
             inputs:
               rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-arm64
               includeRootFolder: false
-              archiveFile: $(Pipeline.Workspace)/winappcli-arm64.zip
+              archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-arm64.zip
 
           - task: GitHubRelease@1
-            displayName: "Create GitHub Pre-release"
+            displayName: "Create GitHub Release"
             inputs:
               gitHubConnection: 'github-service-connection'
               repositoryName: 'microsoft/winappcli'
@@ -135,26 +136,30 @@ extends:
               target: '$(Build.SourceVersion)'
               tagSource: 'userSpecifiedTag'
               tag: 'v$(version)'
-              title: 'Pre-release v$(version)'
+              title: 'Release v$(version)'
               isPreRelease: true
               assets: |
-                $(Pipeline.Workspace)/winappcli-x64.zip
-                $(Pipeline.Workspace)/winappcli-arm64.zip
+                $(Pipeline.Workspace)/winappcli-*.zip
                 $(Pipeline.Workspace)/msix-packages/*.msix
                 $(Pipeline.Workspace)/npm-package/*.tgz
               assetUploadMode: 'delete'
               addChangeLog: false
               releaseNotesSource: 'inline'
               releaseNotesInline: |
-                🚀 **Automated Pre-release Build**
+                🚀 **Automated Release Build**
 
                 Version: `$(version)`
                 Commit: `$(Build.SourceVersion)`
 
                 ## Installation Options
 
+                ### 📦 MSIX Installer (Recommended)
+                1. Download `winappcli_$(version).0_x64.msix` for x64 or `winappcli_$(version).0_arm64.msix` for ARM64
+                2. Double-click to install
+                3. Automatically added to PATH
+
                 ### 📦 Standalone CLI Binaries
-                1. Download `winappcli-x64.zip` for x64 or `winappcli-arm64.zip` for ARM64
+                1. Download `winappcli-$(version)-x64.zip` for x64 or `winappcli-$(version)-arm64.zip` for ARM64
                 2. Extract to your desired location
                 3. Add to PATH or run directly: `winapp.exe`
 
@@ -164,5 +169,26 @@ extends:
                 ```
 
                 ## What's Included
+                - ✅ MSIX installer packages (x64 and ARM64)
                 - ✅ Standalone CLI binaries (x64 and ARM64)
                 - ✅ NPM package for NodeJS/Electron integration
+
+          # Commented out ESRP release to npm for now
+          # - ${{ if eq(parameters.DoEsrp, 'true') }}:
+          #   - task: EsrpRelease@10
+          #     inputs:
+          #       ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+          #       usemanagedidentity: true
+          #       keyvaultname: ${{ parameters.signingIdentity.akvName }}
+          #       signcertname: ${{ parameters.signingIdentity.signTTSCertName }}
+          #       clientid: ${{ parameters.signingIdentity.appId }}
+          #       intent: 'PackageDistribution'
+          #       contenttype: 'npm'
+          #       contentsource: 'Folder'
+          #       folderlocation: $(Pipeline.Workspace)/npm-package/
+          #       waitforreleasecompletion: true
+          #       owners: 'alzollin@microsoft.com'
+          #       approvers: 'alzollin@microsoft.com'
+          #       serviceendpointurl: 'https://api.esrp.microsoft.com'
+          #       mainpublisher: 'winappcli'
+          #       domaintenantid: ${{ parameters.signingIdentity.tenantId }}

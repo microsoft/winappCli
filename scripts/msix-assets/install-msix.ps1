@@ -1,23 +1,23 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Install MSIX bundle and its certificate
+    Install MSIX package and its certificate
 .DESCRIPTION
-    This script extracts and installs the certificate from an MSIX bundle to the local machine's
-    Trusted People certificate store, then installs the bundle itself. This provides a complete
+    This script extracts and installs the certificate from an MSIX package to the local machine's
+    Trusted People certificate store, then installs the package itself. This provides a complete
     installation experience in one command.
-.PARAMETER BundlePath
-    Path to the MSIX bundle file. If not specified, searches for .msixbundle files in the current directory.
+.PARAMETER PackagePath
+    Path to the MSIX package file. If not specified, searches for .msix files in the current directory.
 .PARAMETER CertPassword
     Password for the certificate if it's password-protected (optional).
 .EXAMPLE
     .\install-msix.ps1
-    .\install-msix.ps1 -BundlePath "winapp_0_1_0_1.msixbundle"
+    .\install-msix.ps1 -PackagePath "winappcli_1.0.0.0_x64.msix"
 #>
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$BundlePath,
+    [string]$PackagePath,
     
     [Parameter(Mandatory=$false)]
     [SecureString]$CertPassword,
@@ -83,7 +83,7 @@ trap {
 
 Write-Host ""
 Write-Host "====================================" -ForegroundColor Cyan
-Write-Host "  MSIX Bundle Certificate Installer" -ForegroundColor Cyan
+Write-Host "  MSIX Package Certificate Installer" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -104,15 +104,15 @@ if (-not $isAdmin) {
         Write-Host ""
         
         # Build the arguments to pass to the elevated process
-        # Preserve current directory and bundle path
+        # Preserve current directory and package path
         $currentDir = Get-Location
         $arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"Set-Location '$currentDir'; & '$PSCommandPath' -Elevated"
         
-        if (-not [string]::IsNullOrEmpty($BundlePath)) {
+        if (-not [string]::IsNullOrEmpty($PackagePath)) {
             # Convert to absolute path before passing
-            $BundlePath = Resolve-Path $BundlePath -ErrorAction SilentlyContinue
-            if ($BundlePath) {
-                $arguments += " -BundlePath '$BundlePath'"
+            $PackagePath = Resolve-Path $PackagePath -ErrorAction SilentlyContinue
+            if ($PackagePath) {
+                $arguments += " -PackagePath '$PackagePath'"
             }
         }
         
@@ -133,7 +133,7 @@ if (-not $isAdmin) {
     } else {
         Write-Host ""
         Write-Host "[CANCELLED] Certificate installation requires administrator privileges." -ForegroundColor Yellow
-        Write-Host "The bundle cannot be installed without the certificate in the Trusted People store." -ForegroundColor Yellow
+        Write-Host "The package cannot be installed without the certificate in the Trusted People store." -ForegroundColor Yellow
         Write-Host ""
         exit 1
     }
@@ -142,29 +142,47 @@ if (-not $isAdmin) {
 Write-Host "[INFO] Running with administrator privileges" -ForegroundColor Green
 Write-Host ""
 
-# Find the bundle if not specified
-if ([string]::IsNullOrEmpty($BundlePath)) {
-    Write-Host "[SEARCH] Looking for MSIX bundle in current directory..." -ForegroundColor Blue
-    $bundles = Get-ChildItem -Filter "*.msixbundle" | Select-Object -First 1
+# Find the package if not specified
+if ([string]::IsNullOrEmpty($PackagePath)) {
+    Write-Host "[SEARCH] Looking for MSIX package in current directory..." -ForegroundColor Blue
     
-    if ($null -eq $bundles) {
-        Write-Error "No .msixbundle files found in current directory."
-        Write-Host "Please specify the bundle path with -BundlePath parameter." -ForegroundColor Yellow
-        exit 1
+    # Detect current processor architecture
+    $CurrentArch = $env:PROCESSOR_ARCHITECTURE
+    $ArchPattern = switch ($CurrentArch) {
+        "AMD64" { "*_x64_*.msix" }
+        "ARM64" { "*_arm64_*.msix" }
+        default { "*.msix" }
     }
     
-    $BundlePath = $bundles.FullName
-    Write-Host "[FOUND] Using bundle: $($bundles.Name)" -ForegroundColor Green
+    Write-Host "[INFO] Detected architecture: $CurrentArch, looking for: $ArchPattern" -ForegroundColor Gray
+    
+    $packages = Get-ChildItem -Filter $ArchPattern | Select-Object -First 1
+    
+    if ($null -eq $packages) {
+        Write-Host ""
+        Write-Warning "No matching .msix file found for architecture: $CurrentArch"
+        Write-Host "Looking for any .msix file..." -ForegroundColor Yellow
+        $packages = Get-ChildItem -Filter "*.msix" | Select-Object -First 1
+        
+        if ($null -eq $packages) {
+            Write-Error "No .msix files found in current directory."
+            Write-Host "Please specify the package path with -PackagePath parameter." -ForegroundColor Yellow
+            exit 1
+        }
+    }
+    
+    $PackagePath = $packages.FullName
+    Write-Host "[FOUND] Using package: $($packages.Name)" -ForegroundColor Green
 }
 
-# Validate bundle exists
-if (-not (Test-Path $BundlePath)) {
-    Write-Error "Bundle not found at: $BundlePath"
+# Validate package exists
+if (-not (Test-Path $PackagePath)) {
+    Write-Error "Package not found at: $PackagePath"
     exit 1
 }
 
-$BundlePath = Resolve-Path $BundlePath
-Write-Host "[INFO] Bundle: $BundlePath" -ForegroundColor Gray
+$PackagePath = Resolve-Path $PackagePath
+Write-Host "[INFO] Package: $PackagePath" -ForegroundColor Gray
 Write-Host ""
 
 # Create temporary directory for extraction
@@ -172,86 +190,64 @@ $TempDir = Join-Path $env:TEMP "msix-cert-install-$(Get-Random)"
 New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 
 try {
-    # Extract certificate from the bundle
-    Write-Host "[EXTRACT] Extracting certificate from bundle..." -ForegroundColor Blue
-    
-    # Expand the bundle as a zip file
-    $BundleZip = Join-Path $TempDir "bundle.zip"
-    Copy-Item $BundlePath $BundleZip
-    Expand-Archive -Path $BundleZip -DestinationPath $TempDir -Force
-    
-    # Look for any .msix file in the extracted content
-    $msixFiles = Get-ChildItem -Path $TempDir -Filter "*.msix" -Recurse
-    if ($msixFiles.Count -eq 0) {
-        Write-Error "No MSIX files found in bundle"
-        exit 1
-    }
-    
-    # Use the first MSIX to extract certificate
-    $msixFile = $msixFiles[0]
-    Write-Host "  Using: $($msixFile.Name)" -ForegroundColor Gray
+    # Extract certificate from the package
+    Write-Host "[EXTRACT] Extracting certificate from package..." -ForegroundColor Blue
     
     # Extract the MSIX (rename to .zip first as Expand-Archive doesn't recognize .msix)
     $MsixExtractPath = Join-Path $TempDir "msix"
     New-Item -ItemType Directory -Path $MsixExtractPath -Force | Out-Null
     $MsixAsZip = Join-Path $TempDir "package.zip"
-    Copy-Item $msixFile.FullName $MsixAsZip -Force
+    Copy-Item $PackagePath $MsixAsZip -Force
     Expand-Archive -Path $MsixAsZip -DestinationPath $MsixExtractPath -Force
     
     # Extract certificate from signature
     Write-Host "[CERT] Extracting certificate information..." -ForegroundColor Blue
     
-    # Try to get signature from the bundle file
-    $signature = Get-AuthenticodeSignature -FilePath $BundlePath
+    # Try to get signature from the package file
+    $signature = Get-AuthenticodeSignature -FilePath $PackagePath
     $cert = $null
     
     if ($signature -and $signature.SignerCertificate) {
         $cert = $signature.SignerCertificate
-        Write-Host "  - Found certificate in bundle signature" -ForegroundColor Gray
+        Write-Host "  - Found certificate in package signature" -ForegroundColor Gray
     } else {
         # Try to get signature from the MSIX package
-        Write-Host "  - No signature in bundle, trying MSIX package..." -ForegroundColor Gray
-        $signature = Get-AuthenticodeSignature -FilePath $msixFile.FullName
+        Write-Host "  - No signature in package, trying to extract manually..." -ForegroundColor Gray
         
-        if ($signature -and $signature.SignerCertificate) {
-            $cert = $signature.SignerCertificate
-            Write-Host "  - Found certificate in MSIX package signature" -ForegroundColor Gray
-        } else {
-            # Look for signature file manually
-            $signatureFile = Get-ChildItem -Path $MsixExtractPath -Filter "AppxSignature.p7x" -Recurse | Select-Object -First 1
-            
-            if ($null -eq $signatureFile) {
-                Write-Host ""
-                Write-Warning "No signature found in bundle or MSIX packages."
-                Write-Host ""
-                Write-Host "The bundle may not be signed. To sign the bundle:" -ForegroundColor Yellow
-                Write-Host "  1. Create a code signing certificate" -ForegroundColor Yellow
-                Write-Host "  2. Use the certificate when packaging with package-msix.ps1" -ForegroundColor Yellow
-                Write-Host ""
-                Write-Host "For development, you can create a self-signed certificate:" -ForegroundColor Cyan
-                Write-Host '  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=DevCert" -CertStoreLocation Cert:\CurrentUser\My' -ForegroundColor Gray
-                Write-Host '  Export-PfxCertificate -Cert $cert -FilePath devcert.pfx -Password (ConvertTo-SecureString -String "password" -Force -AsPlainText)' -ForegroundColor Gray
-                Write-Host ""
-                exit 1
-            }
-            
-            Write-Host "  - Found signature file, extracting certificate..." -ForegroundColor Gray
-            # Try to extract certificate from the p7x file
-            try {
-                $p7xBytes = [System.IO.File]::ReadAllBytes($signatureFile.FullName)
-                $signedCms = New-Object System.Security.Cryptography.Pkcs.SignedCms
-                $signedCms.Decode($p7xBytes)
-                $cert = $signedCms.Certificates[0]
-                Write-Host "  - Extracted certificate from AppxSignature.p7x" -ForegroundColor Gray
-            } catch {
-                Write-Error "Failed to extract certificate from signature file: $_"
-                exit 1
-            }
+        # Look for signature file manually
+        $signatureFile = Get-ChildItem -Path $MsixExtractPath -Filter "AppxSignature.p7x" -Recurse | Select-Object -First 1
+        
+        if ($null -eq $signatureFile) {
+            Write-Host ""
+            Write-Warning "No signature found in MSIX package."
+            Write-Host ""
+            Write-Host "The package may not be signed. To sign the package:" -ForegroundColor Yellow
+            Write-Host "  1. Create a code signing certificate" -ForegroundColor Yellow
+            Write-Host "  2. Use the certificate when packaging with package-msix.ps1" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "For development, you can create a self-signed certificate:" -ForegroundColor Cyan
+            Write-Host '  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=DevCert" -CertStoreLocation Cert:\CurrentUser\My' -ForegroundColor Gray
+            Write-Host '  Export-PfxCertificate -Cert $cert -FilePath devcert.pfx -Password (ConvertTo-SecureString -String "password" -Force -AsPlainText)' -ForegroundColor Gray
+            Write-Host ""
+            exit 1
+        }
+        
+        Write-Host "  - Found signature file, extracting certificate..." -ForegroundColor Gray
+        # Try to extract certificate from the p7x file
+        try {
+            $p7xBytes = [System.IO.File]::ReadAllBytes($signatureFile.FullName)
+            $signedCms = New-Object System.Security.Cryptography.Pkcs.SignedCms
+            $signedCms.Decode($p7xBytes)
+            $cert = $signedCms.Certificates[0]
+            Write-Host "  - Extracted certificate from AppxSignature.p7x" -ForegroundColor Gray
+        } catch {
+            Write-Error "Failed to extract certificate from signature file: $_"
+            exit 1
         }
     }
     
     if ($null -eq $cert) {
-        Write-Error "Could not extract certificate from bundle"
+        Write-Error "Could not extract certificate from package"
         exit 1
     }
     Write-Host ""
@@ -281,25 +277,25 @@ try {
     
     Write-Host ""
     
-    # Now install the MSIX bundle
-    Write-Host "[INSTALL] Installing MSIX bundle..." -ForegroundColor Blue
-    Write-Host "  Bundle: $BundlePath" -ForegroundColor Gray
+    # Now install the MSIX package
+    Write-Host "[INSTALL] Installing MSIX package..." -ForegroundColor Blue
+    Write-Host "  Package: $PackagePath" -ForegroundColor Gray
     Write-Host ""
     
-    # Use Add-AppxPackage to install the bundle
+    # Use Add-AppxPackage to install the package
     try {
-        Add-AppxPackage -Path $BundlePath -ErrorAction Stop
-        Write-Host "[SUCCESS] MSIX bundle installed successfully!" -ForegroundColor Green
+        Add-AppxPackage -Path $PackagePath -ErrorAction Stop
+        Write-Host "[SUCCESS] MSIX package installed successfully!" -ForegroundColor Green
         Write-Host ""
         Write-Host "The Windows App Development CLI has been installed." -ForegroundColor Cyan
         Write-Host "You can now use 'winapp' command from your terminal." -ForegroundColor Cyan
     } catch {
         Write-Host ""
-        Write-Warning "Failed to install MSIX bundle automatically: $_"
+        Write-Warning "Failed to install MSIX package automatically: $_"
         Write-Host ""
         Write-Host "You can try installing manually:" -ForegroundColor Yellow
-        Write-Host "  1. Double-click the .msixbundle file" -ForegroundColor Yellow
-        Write-Host "  2. Or run: Add-AppxPackage -Path '$BundlePath'" -ForegroundColor Yellow
+        Write-Host "  1. Double-click the .msix file" -ForegroundColor Yellow
+        Write-Host "  2. Or run: Add-AppxPackage -Path '$PackagePath'" -ForegroundColor Yellow
         Write-Host ""
     }
     

@@ -47,8 +47,8 @@ The easiest way to use the CLI is to download the latest build from GitHub Relea
 
 | Package | Description | Use Case |
 |---------|-------------|----------|
-| **`winapp_[platform]-[version].msix`** | 📦 MSIX Installer | Easy to install, automatically added to path, great for general usage |
-| **`winappcli-[platform].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
+| **`winappcli_[version]_[platform].msix`** | 📦 MSIX Installer | Easy to install, automatically added to path, great for general usage |
+| **`winappcli-[version]-[platform].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
 | **`microsoft-winappcli-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
 
 ### Adding to Path

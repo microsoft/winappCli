@@ -345,8 +345,8 @@ try
     }
     
     # Define final package names with version
-    $X64PackageName = "winapp_x64_$MsixVersion.msix"
-    $Arm64PackageName = "winapp_arm64_$MsixVersion.msix"
+    $X64PackageName = "winappcli_${MsixVersion}_x64.msix"
+    $Arm64PackageName = "winappcli_${MsixVersion}_arm64.msix"
     
     # Package x64 directly to final location
     Write-Host "[PACKAGE] Creating x64 MSIX package..." -ForegroundColor Blue
@@ -399,7 +399,8 @@ try
     # Read the template README and replace version placeholder
     $ReadmeContent = Get-Content $ReadmeSource -Raw
     $ReadmeContent = $ReadmeContent -replace '\[version\]', $MsixVersion
-    $ReadmeContent = $ReadmeContent -replace 'winapp_\[version\]\.msixbundle', "winapp_x64_$($MsixVersion -replace '\.', '_').msix (for x64) or winapp_arm64_$($MsixVersion -replace '\.', '_').msix (for ARM64)"
+    $ReadmeContent = $ReadmeContent -replace 'winappcli_\[version\]_x64\.msix', "winappcli_${MsixVersion}_x64.msix"
+    $ReadmeContent = $ReadmeContent -replace 'winappcli_\[version\]_arm64\.msix', "winappcli_${MsixVersion}_arm64.msix"
     
     $ReadmeContent | Set-Content $ReadmeDest -Encoding UTF8
     Write-Host "  - Added README.md" -ForegroundColor Gray

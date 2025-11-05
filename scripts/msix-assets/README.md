@@ -1,8 +1,8 @@
 # Windows Development CLI MSIX Installation
 
-This package contains a pre-release development build of the Windows Development CLI MSIX bundle. 
+This package contains a pre-release development build of the Windows Development CLI MSIX packages. 
 
-> **Note:** The MSIX bundle is signed with a dev certificate. This is temporary until we can sign with a proper certificate. Installing via the `install.cmd` script will install the dev certificate on your machine.
+> **Note:** The MSIX packages are signed with a dev certificate. This is temporary until we can sign with a proper certificate. Installing via the `install.cmd` script will install the dev certificate on your machine.
 
 ## Quick Installation
 
@@ -14,7 +14,8 @@ This package contains a pre-release development build of the Windows Development
 
 ## What's Included
 
-- **winapp_[version].msixbundle** - The MSIX bundle with x64 and ARM64 packages
+- **winappcli_[version]_x64.msix** - The MSIX package for x64 architecture
+- **winappcli_[version]_arm64.msix** - The MSIX package for ARM64 architecture
 - **install.cmd** - Double-click installer (easiest method)
 - **install.ps1** - PowerShell installer script (alternative method)
 

@@ -1,23 +1,27 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Build script for Windows App Development CLI, npm package, and MSIX bundle
+    Build script for Windows App Development CLI, npm package, and MSIX packages
 .DESCRIPTION
     This script builds the Windows App Development CLI for both x64 and arm64 architectures,
-    creates the npm package, creates MSIX bundle with distribution package, and 
+    creates the npm package, creates MSIX packages with distribution package, and 
     places all artifacts in an artifacts folder. Run this script from the root of the project.
 .PARAMETER SkipTests
     Skip running unit tests
 .PARAMETER FailOnTestFailure
     Exit with error code if tests fail (default: true, stops build on test failures)
+.PARAMETER SkipNpm
+    Skip npm package creation
 .PARAMETER SkipMsix
-    Skip MSIX bundle creation
+    Skip MSIX packages creation
 .PARAMETER Stable
     Use stable build configuration (default: false, uses prerelease config)
 .EXAMPLE
     .\scripts\build-cli.ps1
 .EXAMPLE
     .\scripts\build-cli.ps1 -SkipTests
+.EXAMPLE
+    .\scripts\build-cli.ps1 -SkipNpm
 .EXAMPLE
     .\scripts\build-cli.ps1 -SkipMsix
 .EXAMPLE
@@ -28,6 +32,7 @@ param(
     [switch]$Clean = $false,
     [switch]$SkipTests = $false,
     [switch]$FailOnTestFailure = $true,
+    [switch]$SkipNpm = $false,
     [switch]$SkipMsix = $false,
     [switch]$Stable = $false
 )
@@ -42,7 +47,6 @@ try
     # Define paths
     $CliSolutionPath = "src\winapp-CLI\winapp.sln"
     $CliProjectPath = "src\winapp-CLI\WinApp.Cli\WinApp.Cli.csproj"
-    $NpmProjectPath = "src\winapp-npm"
     $ArtifactsPath = "artifacts"
     $TestResultsPath = "TestResults"
 
@@ -182,62 +186,29 @@ try
         exit 1
     }
 
-    # Step 6: Prepare npm package
-    Write-Host "[NPM] Preparing npm package..." -ForegroundColor Blue
+    # Step 6: Create npm package (optional)
+    if (-not $SkipNpm) {
+        Write-Host ""
+        Write-Host "[NPM] Creating npm package..." -ForegroundColor Blue
+    
+        $PackageNpmScript = Join-Path $PSScriptRoot "package-npm.ps1"
 
-    # Clean npm bin directory first
-    Push-Location $NpmProjectPath
-    npm run clean
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "npm clean failed, continuing..."
+        & $PackageNpmScript -Version $FullVersion -Stable:$Stable
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "npm package creation failed, but continuing..."
+        } else {
+            Write-Host "[NPM] npm package created successfully!" -ForegroundColor Green
+        }
+    } else {
+        Write-Host ""
+        Write-Host "[NPM] Skipping npm package creation (use -SkipNpm:`$false to enable)" -ForegroundColor Gray
     }
 
-    # Backup original package.json
-    Write-Host "[NPM] Setting package version to $FullVersion..." -ForegroundColor Blue
-    $PackageJsonPath = "package.json"
-    Copy-Item $PackageJsonPath "$PackageJsonPath.backup" -Force
-
-    # Update package.json version temporarily
-    $PackageJson = Get-Content $PackageJsonPath | ConvertFrom-Json
-    $OriginalVersion = $PackageJson.version
-    $PackageJson.version = $FullVersion
-    $PackageJson | ConvertTo-Json -Depth 100 | Set-Content $PackageJsonPath
-
-    # Copy the CLI binaries we just built instead of rebuilding them
-    Write-Host "[NPM] Copying CLI binaries to npm package..." -ForegroundColor Blue
-    $NpmBinPath = "bin"
-    New-Item -ItemType Directory -Path "$NpmBinPath\win-x64" -Force | Out-Null
-    New-Item -ItemType Directory -Path "$NpmBinPath\win-arm64" -Force | Out-Null
-
-    # Copy from our artifacts to npm bin folders
-    Copy-Item "$ProjectRoot\$ArtifactsPath\cli\win-x64\*" "$NpmBinPath\win-x64\" -Recurse -Force
-    Copy-Item "$ProjectRoot\$ArtifactsPath\cli\win-arm64\*" "$NpmBinPath\win-arm64\" -Recurse -Force
-
-    Pop-Location
-
-    # Step 7: Create npm package tarball
-    Write-Host "[PACK] Creating npm package tarball..." -ForegroundColor Blue
-    Push-Location $NpmProjectPath
-    npm pack --pack-destination "..\..\$ArtifactsPath"
-    $PackResult = $LASTEXITCODE
-
-    # Restore original package.json
-    Write-Host "[NPM] Restoring original package.json..." -ForegroundColor Blue
-    if (Test-Path "$PackageJsonPath.backup") {
-        Move-Item "$PackageJsonPath.backup" $PackageJsonPath -Force
-    }
-
-    if ($PackResult -ne 0) {
-        Write-Error "Failed to create npm package"
-        Pop-Location
-        exit 1
-    }
-    Pop-Location
-
-    # Step 8: Create MSIX bundle (optional)
+    # Step 7: Create MSIX packages (optional)
     if (-not $SkipMsix) {
         Write-Host ""
-        Write-Host "[MSIX] Creating MSIX bundle..." -ForegroundColor Blue
+        Write-Host "[MSIX] Creating MSIX packages..." -ForegroundColor Blue
     
         # Convert npm version format to MSIX format
         if ($Stable) {
@@ -252,16 +223,16 @@ try
         $PackageMsixScript = Join-Path $PSScriptRoot "package-msix.ps1"
         $CliBinariesPath = Join-Path (Join-Path $ProjectRoot $ArtifactsPath) "cli"
 
-        & $PackageMsixScript -CliBinariesPath $CliBinariesPath -Version $MsixVersion -Stable $Stable
+        & $PackageMsixScript -CliBinariesPath $CliBinariesPath -Version $MsixVersion -Stable:$Stable
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "MSIX bundle creation failed, but continuing..."
+            Write-Warning "MSIX packages creation failed, but continuing..."
         } else {
-            Write-Host "[MSIX] MSIX bundle created successfully!" -ForegroundColor Green
+            Write-Host "[MSIX] MSIX packages created successfully!" -ForegroundColor Green
         }
     } else {
         Write-Host ""
-        Write-Host "[MSIX] Skipping MSIX bundle creation (use -SkipMsix:`$false to enable)" -ForegroundColor Gray
+        Write-Host "[MSIX] Skipping MSIX packages creation (use -SkipMsix:`$false to enable)" -ForegroundColor Gray
     }
 
     # Build process complete - all artifacts are ready
