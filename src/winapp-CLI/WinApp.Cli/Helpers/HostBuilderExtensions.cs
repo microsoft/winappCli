@@ -32,7 +32,8 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IPowerShellService, PowerShellService>()
             .AddSingleton<IWinappDirectoryService, WinappDirectoryService>()
             .AddSingleton<IWorkspaceSetupService, WorkspaceSetupService>()
-            .AddSingleton<IGitignoreService, GitignoreService>();
+            .AddSingleton<IGitignoreService, GitignoreService>()
+            .AddSingleton<IFirstRunService, FirstRunService>();
     }
 
     public static IServiceCollection ConfigureCommands(this IServiceCollection serviceCollection)

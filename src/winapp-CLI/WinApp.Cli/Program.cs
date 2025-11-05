@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using System.Text;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Services;
 using WinApp.Cli.Telemetry;
 using WinApp.Cli.Telemetry.Events;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -59,6 +60,9 @@ internal static class Program
             });
 
         using var serviceProvider = services.BuildServiceProvider();
+
+        var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
+        firstRunService.CheckAndDisplayFirstRunNotice();
 
         var rootCommand = serviceProvider.GetRequiredService<WinAppRootCommand>();
 
