@@ -49,8 +49,6 @@
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="System.Diagnostics.EventLog" />
     <PackageReference Include="SkiaSharp" />
-    <!-- Include SkiaSharp.NativeAssets.Linux for development/testing on Linux -->
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
   </ItemGroup>
 
   <ItemGroup>
