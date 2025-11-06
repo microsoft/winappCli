@@ -21,4 +21,9 @@
     <ProjectReference Include="..\WinApp.Cli\WinApp.Cli.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Include SkiaSharp.NativeAssets.Linux for CI/CD environments running on Linux -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
+  </ItemGroup>
+
 </Project>
