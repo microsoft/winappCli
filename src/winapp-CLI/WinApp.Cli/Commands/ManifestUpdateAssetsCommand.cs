@@ -68,7 +68,6 @@ internal class ManifestUpdateAssetsCommand : Command
             catch (Exception ex)
             {
                 logger.LogError("{UISymbol} Error updating assets: {ErrorMessage}", UiSymbols.Error, ex.Message);
-                logger.LogDebug("Stack Trace: {StackTrace}", ex.StackTrace);
                 return 1;
             }
         }
