@@ -88,8 +88,8 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var updateAssetsCommand = GetRequiredService<ManifestUpdateAssetsCommand>();
         var args = new[]
         {
-            _testManifestPath,
-            _testImagePath
+            _testImagePath,
+            "--manifest", _testManifestPath
         };
 
         // Act
@@ -128,8 +128,8 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var nonExistentManifest = Path.Combine(_tempDirectory.FullName, "nonexistent.xml");
         var args = new[]
         {
-            nonExistentManifest,
-            _testImagePath
+            _testImagePath,
+            "--manifest", nonExistentManifest
         };
 
         // Act
@@ -147,8 +147,8 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var nonExistentImage = Path.Combine(_tempDirectory.FullName, "nonexistent.png");
         var args = new[]
         {
-            _testManifestPath,
-            nonExistentImage
+            nonExistentImage,
+            "--manifest", _testManifestPath
         };
 
         // Act
@@ -165,8 +165,8 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var updateAssetsCommand = GetRequiredService<ManifestUpdateAssetsCommand>();
         var args = new[]
         {
-            _testManifestPath,
-            _testImagePath
+            _testImagePath,
+            "--manifest", _testManifestPath
         };
 
         // Act
@@ -201,8 +201,8 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var updateAssetsCommand = GetRequiredService<ManifestUpdateAssetsCommand>();
         var args = new[]
         {
-            _testManifestPath,
-            _testImagePath
+            _testImagePath,
+            "--manifest", _testManifestPath
         };
 
         // Act
@@ -239,8 +239,8 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var updateAssetsCommand = GetRequiredService<ManifestUpdateAssetsCommand>();
         var args = new[]
         {
-            _testManifestPath,
             _testImagePath,
+            "--manifest", _testManifestPath,
             "--verbose"
         };
 
@@ -254,5 +254,28 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var output = ConsoleStdOut.ToString();
         Assert.Contains("Updating assets", output, "Should log update message");
         Assert.Contains("generated", output.ToLowerInvariant(), "Should log generation progress");
+    }
+
+    [TestMethod]
+    public async Task ManifestUpdateAssetsCommandShouldInferManifestFromCurrentDirectory()
+    {
+        // Arrange
+        var updateAssetsCommand = GetRequiredService<ManifestUpdateAssetsCommand>();
+        // Only provide the image path, manifest should be inferred
+        var args = new[]
+        {
+            _testImagePath
+        };
+
+        // Act
+        var parseResult = updateAssetsCommand.Parse(args);
+        var exitCode = await parseResult.InvokeAsync();
+
+        // Assert
+        Assert.AreEqual(0, exitCode, "Update-assets command should complete successfully when manifest is inferred");
+
+        // Verify Assets directory was created
+        var assetsDir = Path.Combine(_tempDirectory.FullName, "Assets");
+        Assert.IsTrue(Directory.Exists(assetsDir), "Assets directory should be created");
     }
 }

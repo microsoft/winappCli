@@ -12,41 +12,47 @@ namespace WinApp.Cli.Commands;
 
 internal class ManifestUpdateAssetsCommand : Command
 {
-    public static Argument<FileInfo> ManifestArgument { get; }
     public static Argument<FileInfo> ImageArgument { get; }
+    public static Option<FileInfo> ManifestOption { get; }
 
     static ManifestUpdateAssetsCommand()
     {
-        ManifestArgument = new Argument<FileInfo>("manifest-path")
-        {
-            Description = "Path to AppxManifest.xml file"
-        };
-        ManifestArgument.AcceptExistingOnly();
-
         ImageArgument = new Argument<FileInfo>("image-path")
         {
             Description = "Path to source image file"
         };
         ImageArgument.AcceptExistingOnly();
+
+        ManifestOption = new Option<FileInfo>("--manifest")
+        {
+            Description = "Path to AppxManifest.xml file (default: search current directory)"
+        };
+        ManifestOption.AcceptExistingOnly();
     }
 
     public ManifestUpdateAssetsCommand() : base("update-assets", "Update image assets in AppxManifest.xml from a source image")
     {
-        Arguments.Add(ManifestArgument);
         Arguments.Add(ImageArgument);
+        Options.Add(ManifestOption);
     }
 
-    public class Handler(IImageAssetService imageAssetService, ILogger<ManifestUpdateAssetsCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IImageAssetService imageAssetService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<ManifestUpdateAssetsCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var manifestPath = parseResult.GetValue(ManifestArgument);
             var imagePath = parseResult.GetValue(ImageArgument);
+            var manifestPath = parseResult.GetValue(ManifestOption);
 
+            // If manifest path is not provided, try to find it in the current directory
             if (manifestPath == null)
             {
-                logger.LogError("{UISymbol} Manifest path is required", UiSymbols.Error);
-                return 1;
+                manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider);
+                if (manifestPath == null)
+                {
+                    logger.LogError("{UISymbol} Could not find AppxManifest.xml in current directory or parent directories", UiSymbols.Error);
+                    return 1;
+                }
+                logger.LogDebug("Found manifest at: {ManifestPath}", manifestPath.FullName);
             }
 
             if (imagePath == null)
