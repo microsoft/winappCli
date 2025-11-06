@@ -108,9 +108,9 @@ internal class ManifestUpdateAssetsCommand : Command
                     hasAssetReferences = true;
                 }
 
-                if (visualElementsNode != null)
+                if (visualElementsNode?.Attributes != null)
                 {
-                    foreach (XmlAttribute attr in visualElementsNode.Attributes!)
+                    foreach (XmlAttribute attr in visualElementsNode.Attributes)
                     {
                         if (attr.Value.Contains("Assets", StringComparison.OrdinalIgnoreCase))
                         {
