@@ -32,7 +32,7 @@
   </Resources>
 
   <Applications>
-    <Application Id="{PackageNameCamelCase}"
+    <Application Id="{ApplicationId}"
       uap10:HostId="{HostId}"
       uap10:Parameters="{HostParameters}">
       <uap:VisualElements

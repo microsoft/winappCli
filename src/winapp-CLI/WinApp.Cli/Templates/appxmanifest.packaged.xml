@@ -31,7 +31,7 @@
   </Resources>
 
   <Applications>
-    <Application Id="{PackageNameCamelCase}"
+    <Application Id="{ApplicationId}"
       Executable="{Executable}"
       EntryPoint="Windows.FullTrustApplication"
       uap10:TrustLevel="mediumIL" 

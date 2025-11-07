@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
@@ -11,7 +12,7 @@ namespace WinApp.Cli.Services;
 /// <summary>
 /// Shared service for manifest template operations and utilities
 /// </summary>
-internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) : IManifestTemplateService
+internal partial class ManifestTemplateService(ILogger<ManifestTemplateService> logger) : IManifestTemplateService
 {
     private static readonly char[] WordSeparators = [' ', '-', '_'];
 
@@ -122,11 +123,11 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
         string? hostRuntimeDependencyPublisherName,
         string? hostRuntimeDependencyMinVersion)
     {
-        var packageNameCamel = ToCamelCase(packageName);
+        var applicationId = FixAsciiWindowsId(ToCamelCase(packageName));
 
         var result = template
             .Replace("{PackageName}", packageName)
-            .Replace("{PackageNameCamelCase}", packageNameCamel)
+            .Replace("{ApplicationId}", applicationId)
             .Replace("{PublisherName}", publisherName)
             .Replace("Version=\"1.0.0.0\"", $"Version=\"{version}\"")
             .Replace("{Executable}", entryPoint)
@@ -136,6 +137,61 @@ internal class ManifestTemplateService(ILogger<ManifestTemplateService> logger) 
             .Replace("{HostRuntimeDependencyPackageName}", hostRuntimeDependencyPackageName)
             .Replace("{HostRuntimeDependencyPublisherName}", hostRuntimeDependencyPublisherName)
             .Replace("{HostRuntimeDependencyMinVersion}", hostRuntimeDependencyMinVersion);
+
+        return result;
+    }
+
+    [GeneratedRegex(@"[^A-Za-z0-9.]")]
+    private static partial Regex InvalidWindowsIdCharRegex();
+
+    [GeneratedRegex(@"[^A-Za-z0-9]")]
+    private static partial Regex InvalidWindowsIdSegmentCharRegex();
+
+    public static string FixAsciiWindowsId(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return "Default"; // fallback
+        }
+
+        // 1. Replace invalid chars with dot (keep only letters, digits, dot)
+        var cleaned = InvalidWindowsIdCharRegex().Replace(input, ".");
+
+        // 2. Split into segments
+        var segments = cleaned.Split('.', StringSplitOptions.RemoveEmptyEntries);
+
+        var fixedSegments = new List<string>();
+
+        foreach (var seg in segments)
+        {
+            var s = seg;
+
+            // If segment doesn't start with a letter, prepend 'A'
+            if (s.Length == 0 || !char.IsLetter(s[0]))
+            {
+                s = "A" + s;
+            }
+
+            // Now strip anything that isn't letter/digit
+            s = InvalidWindowsIdSegmentCharRegex().Replace(s, "");
+
+            // If still empty (e.g., segment was just digits or invalid), use a fallback
+            if (s.Length == 0)
+            {
+                s = "A";
+            }
+
+            fixedSegments.Add(s);
+        }
+
+        // Reassemble
+        var result = string.Join(".", fixedSegments);
+
+        // Enforce max length
+        if (result.Length > 255)
+        {
+            result = result[..255];
+        }
 
         return result;
     }
