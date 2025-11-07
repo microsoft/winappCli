@@ -140,7 +140,7 @@ public class EndToEndTests : BaseCommandTests
         var manifestArgs = new[]
         {
             projectDir.FullName,
-            "--package-name", "CustomPackageName",
+            "--package-name", "net9.0-windows",
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.5.0.0",
             "--description", "Custom test application",
@@ -157,7 +157,7 @@ public class EndToEndTests : BaseCommandTests
         Assert.IsTrue(File.Exists(manifestPath), "Manifest should be created");
         
         var manifestContent = await File.ReadAllTextAsync(manifestPath);
-        Assert.IsTrue(manifestContent.Contains("CustomPackageName", StringComparison.OrdinalIgnoreCase), 
+        Assert.IsTrue(manifestContent.Contains("Id=\"net9.A0Windows\"", StringComparison.OrdinalIgnoreCase), 
             "Manifest should contain custom package name");
         Assert.IsTrue(manifestContent.Contains("CN=TestPublisher", StringComparison.Ordinal), 
             "Manifest should contain custom publisher");

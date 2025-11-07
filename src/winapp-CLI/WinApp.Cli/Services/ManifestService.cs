@@ -36,7 +36,14 @@ internal partial class ManifestService(
         }
 
         // Interactive mode if not --yes (get defaults for prompts)
-        packageName ??= SystemDefaultsHelper.GetDefaultPackageName(directory);
+        if (string.IsNullOrEmpty(entryPoint))
+        {
+            packageName ??= SystemDefaultsHelper.GetDefaultPackageName(directory);
+        }
+        else
+        {
+            packageName ??= Path.GetFileNameWithoutExtension(entryPoint);
+        }
         publisherName ??= SystemDefaultsHelper.GetDefaultPublisherCN();
         entryPoint ??= $"{packageName}.exe";
 

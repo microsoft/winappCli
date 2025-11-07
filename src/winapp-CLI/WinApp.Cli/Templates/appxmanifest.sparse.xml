@@ -33,7 +33,7 @@
   </Resources>
 
   <Applications>
-    <Application Id="{PackageNameCamelCase}"
+    <Application Id="{ApplicationId}"
       Executable="{Executable}"
       uap10:TrustLevel="mediumIL" 
       uap10:RuntimeBehavior="packagedClassicApp">
