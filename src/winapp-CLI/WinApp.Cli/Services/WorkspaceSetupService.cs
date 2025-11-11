@@ -745,7 +745,7 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
 
         // General scan approach: Look for Microsoft.WindowsAppSDK.Runtime packages first (WinAppSDK 1.8+)
         var runtimePackages = pkgsDir.GetDirectories("Microsoft.WindowsAppSDK.Runtime.*");
-        foreach (var runtimePkg in runtimePackages.OrderByDescending(p => p))
+        foreach (var runtimePkg in runtimePackages.OrderByDescending(p => ExtractVersionFromPackageName(p.Name), new VersionStringComparer()))
         {
             var msixDir = TryGetMsixDirectoryFromPath(runtimePkg);
             if (msixDir != null)
@@ -758,7 +758,7 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
         var mainPackages = pkgsDir.GetDirectories("Microsoft.WindowsAppSDK.*")
             .Where(p => !p.Name.Contains("Runtime", StringComparison.OrdinalIgnoreCase));
         
-        foreach (var mainPkg in mainPackages.OrderByDescending(p => p))
+        foreach (var mainPkg in mainPackages.OrderByDescending(p => ExtractVersionFromPackageName(p.Name), new VersionStringComparer()))
         {
             var msixDir = TryGetMsixDirectoryFromPath(mainPkg);
             if (msixDir != null)
@@ -791,5 +791,67 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
     {
         var msixDir = new DirectoryInfo(Path.Combine(packagePath.FullName, "tools", "MSIX"));
         return msixDir.Exists ? msixDir : null;
+    }
+
+    /// <summary>
+    /// Extract version string from package folder name for sorting
+    /// Handles prerelease tags like "-experimental1"
+    /// </summary>
+    /// <param name="packageFolderName">Package folder name like "Microsoft.WindowsAppSDK.Runtime.2.0.250930001-experimental1"</param>
+    /// <returns>Version string for comparison (e.g., "2.0.250930001-experimental1")</returns>
+    private static string ExtractVersionFromPackageName(string packageFolderName)
+    {
+        // Find the last occurrence of the package name prefix
+        // For "Microsoft.WindowsAppSDK.Runtime.2.0.250930001-experimental1", we want "2.0.250930001-experimental1"
+        
+        var parts = packageFolderName.Split('.');
+        if (parts.Length < 2)
+        {
+            return "0.0.0.0";
+        }
+
+        // Find where the version starts (first part that starts with a digit or contains a digit followed by a hyphen)
+        var versionStartIndex = -1;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length > 0 && char.IsDigit(parts[i][0]))
+            {
+                versionStartIndex = i;
+                break;
+            }
+        }
+
+        if (versionStartIndex == -1)
+        {
+            return "0.0.0.0";
+        }
+
+        // Join all parts from the version start, preserving hyphens for prerelease tags
+        return string.Join(".", parts.Skip(versionStartIndex));
+    }
+
+    /// <summary>
+    /// Comparer for sorting version strings, including prerelease support
+    /// </summary>
+    private class VersionStringComparer : IComparer<string>
+    {
+        public int Compare(string? x, string? y)
+        {
+            if (x == null && y == null)
+            {
+                return 0;
+            }
+            if (x == null)
+            {
+                return -1;
+            }
+            if (y == null)
+            {
+                return 1;
+            }
+
+            // Use the same comparison logic as NugetService.CompareVersions
+            return NugetService.CompareVersions(x, y);
+        }
     }
 }
