@@ -42,9 +42,8 @@
         Description="CLI for Windows development related tasks"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
-        Square44x44Logo="Assets\Square44x44Logo.png"
+        Square44x44Logo="Assets\AppList.png"
         AppListEntry="none">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
       </uap:VisualElements>
 
       <Extensions>
