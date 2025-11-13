@@ -195,7 +195,11 @@ internal class WorkspaceSetupService(
             packageInstallationService.InitializeWorkspace(globalWinappDir);
 
             // Create all standard workspace directories for full setup/restore
-            var pkgsDir = globalWinappDir.CreateSubdirectory("packages");
+            var pkgsDir = winappDirectoryService.GetPackagesCacheDirectory();
+            if (!pkgsDir.Exists)
+            {
+                pkgsDir.Create();
+            }
             var includeOut = localWinappDir.CreateSubdirectory("include");
             var libRoot = localWinappDir.CreateSubdirectory("lib");
             var binRoot = localWinappDir.CreateSubdirectory("bin");
@@ -711,8 +715,7 @@ Write-Output ""ERROR|$(Split-Path $path -Leaf)|$($_.Exception.Message)""
     /// <returns>The path to the MSIX directory, or null if not found</returns>
     public DirectoryInfo? FindWindowsAppSdkMsixDirectory(Dictionary<string, string>? usedVersions = null)
     {
-        var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
-        var pkgsDir = new DirectoryInfo(Path.Combine(globalWinappDir.FullName, "packages"));
+        var pkgsDir = winappDirectoryService.GetPackagesCacheDirectory();
         
         if (!pkgsDir.Exists)
         {

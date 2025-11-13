@@ -863,16 +863,15 @@ internal partial class MsixService(
 
     private IEnumerable<FileInfo> GetComponents(Dictionary<string, string> cachedPackages)
     {
-        var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
-        var packagesDir = Path.Combine(globalWinappDir.FullName, "packages");
-        if (!Directory.Exists(packagesDir))
+        var packagesDir = winappDirectoryService.GetPackagesCacheDirectory();
+        if (!packagesDir.Exists)
         {
-            throw new DirectoryNotFoundException($"Packages directory not found: {packagesDir}");
+            throw new DirectoryNotFoundException($"Packages directory not found: {packagesDir.FullName}");
         }
 
         // Find the packages directory
         var appxFragments = cachedPackages
-            .Select(cachedPackage => new FileInfo(Path.Combine(packagesDir, $"{cachedPackage.Key}.{cachedPackage.Value}", "runtimes-framework", "package.appxfragment")))
+            .Select(cachedPackage => new FileInfo(Path.Combine(packagesDir.FullName, $"{cachedPackage.Key}.{cachedPackage.Value}", "runtimes-framework", "package.appxfragment")))
             .Where(f => f.Exists);
         return appxFragments;
     }

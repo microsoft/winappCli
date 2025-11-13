@@ -29,9 +29,8 @@ internal sealed class PackageCacheService : IPackageCacheService
 
     public PackageCacheService(IWinappDirectoryService directoryService, ILogger<PackageCacheService> logger)
     {
-        var globalWinappDirectory = directoryService.GetGlobalWinappDirectory();
-        var packagesDir = Path.Combine(globalWinappDirectory.FullName, "packages");
-        _cacheFilePath = new FileInfo(Path.Combine(packagesDir, CacheFileName));
+        var packagesDir = directoryService.GetPackagesCacheDirectory();
+        _cacheFilePath = new FileInfo(Path.Combine(packagesDir.FullName, CacheFileName));
         _logger = logger;
     }
 
