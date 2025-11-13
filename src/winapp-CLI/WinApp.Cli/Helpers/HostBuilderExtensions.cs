@@ -17,6 +17,7 @@ internal static class StoreHostBuilderExtensions
         return services
             .AddSingleton<ICurrentDirectoryProvider>(sp => new CurrentDirectoryProvider(Directory.GetCurrentDirectory()))
             .AddSingleton<IBuildToolsService, BuildToolsService>()
+            .AddSingleton<ICacheService, CacheService>()
             .AddSingleton<ICertificateService, CertificateService>()
             .AddSingleton<IConfigService, ConfigService>()
             .AddSingleton<ICppWinrtService, CppWinrtService>()
@@ -48,6 +49,10 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UpdateCommand, UpdateCommand.Handler>()
                 .UseCommandHandler<CreateDebugIdentityCommand, CreateDebugIdentityCommand.Handler>()
                 .UseCommandHandler<GetWinappPathCommand, GetWinappPathCommand.Handler>()
+                .ConfigureCommand<CacheCommand>()
+                .UseCommandHandler<CacheGetPathCommand, CacheGetPathCommand.Handler>()
+                .UseCommandHandler<CacheMoveCommand, CacheMoveCommand.Handler>()
+                .UseCommandHandler<CacheClearCommand, CacheClearCommand.Handler>()
                 .ConfigureCommand<CertCommand>()
                 .UseCommandHandler<CertGenerateCommand, CertGenerateCommand.Handler>()
                 .UseCommandHandler<CertInstallCommand, CertInstallCommand.Handler>()

@@ -11,6 +11,7 @@ internal sealed class PackageInstallationService(
     IConfigService configService,
     INugetService nugetService,
     IPackageCacheService cacheService,
+    IWinappDirectoryService winappDirectoryService,
     ILogger<PackageInstallationService> logger) : IPackageInstallationService
 {
     /// <summary>
@@ -24,7 +25,12 @@ internal sealed class PackageInstallationService(
             rootDirectory.Create();
         }
 
-        var packagesDir = rootDirectory.CreateSubdirectory("packages");
+        // Get the packages directory (could be custom location or default)
+        var packagesDir = winappDirectoryService.GetPackagesDirectory();
+        if (!packagesDir.Exists)
+        {
+            packagesDir.Create();
+        }
     }
 
     /// <summary>
@@ -43,7 +49,7 @@ internal sealed class PackageInstallationService(
         bool includeExperimental = false,
         CancellationToken cancellationToken = default)
     {
-        var packagesDir = new DirectoryInfo(Path.Combine(rootDirectory.FullName, "packages"));
+        var packagesDir = winappDirectoryService.GetPackagesDirectory();
 
         // Ensure nuget.exe is available
         await nugetService.EnsureNugetExeAsync(rootDirectory, cancellationToken);
@@ -85,7 +91,7 @@ internal sealed class PackageInstallationService(
         bool ignoreConfig = false,
         CancellationToken cancellationToken = default)
     {
-        var packagesDir = new DirectoryInfo(Path.Combine(rootDirectory.FullName, "packages"));
+        var packagesDir = winappDirectoryService.GetPackagesDirectory();
         var allInstalledVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Ensure nuget.exe is available once for all packages
