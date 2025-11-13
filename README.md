@@ -1,3 +1,8 @@
+# Windows App Development Cli
+
+> [!IMPORTANT]
+> :warning: **Status: Public Preview** - The Windows App Development CLI is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
+
 <p align="center">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="./docs/images/hero-dark.png">
@@ -17,10 +22,7 @@
   <span> . </span>
   <a href="#-feedback">Feedback</a>
 </h3>
-<br/><br/>
-
-> [!IMPORTANT]  
-> The Windows App Development CLI is in preview and in active development, and we'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
+<br/>
 
 The Windows App Development CLI is a single command-line interface for managing Windows SDKs, packaging, generating app identity, manifests, certificates, and using build tools with any app framework. This tool bridges the gap between cross-platform development and Windows-native capabilities.
 <br/><br/>
