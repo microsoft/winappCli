@@ -57,4 +57,30 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
 
         return new DirectoryInfo(Path.Combine(originalBaseDir.FullName, ".winapp"));
     }
+
+    public DirectoryInfo GetPackagesCacheDirectory()
+    {
+        var globalWinappDir = GetGlobalWinappDirectory();
+        
+        // Check if a custom cache location has been configured
+        var cacheLocationFile = new FileInfo(Path.Combine(globalWinappDir.FullName, "cache_location.txt"));
+        if (cacheLocationFile.Exists)
+        {
+            try
+            {
+                var customLocation = File.ReadAllText(cacheLocationFile.FullName).Trim();
+                if (!string.IsNullOrWhiteSpace(customLocation))
+                {
+                    return new DirectoryInfo(Path.Combine(customLocation, "packages"));
+                }
+            }
+            catch
+            {
+                // If we can't read the file, fall back to default location
+            }
+        }
+
+        // Default location: packages subfolder under .winapp
+        return new DirectoryInfo(Path.Combine(globalWinappDir.FullName, "packages"));
+    }
 }
