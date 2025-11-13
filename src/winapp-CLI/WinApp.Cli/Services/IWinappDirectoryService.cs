@@ -10,5 +10,6 @@ internal interface IWinappDirectoryService
 {
     DirectoryInfo GetGlobalWinappDirectory();
     DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null);
+    DirectoryInfo GetPackagesCacheDirectory();
     void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory);
 }

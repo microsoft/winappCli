@@ -17,6 +17,7 @@ internal static class StoreHostBuilderExtensions
         return services
             .AddSingleton<ICurrentDirectoryProvider>(sp => new CurrentDirectoryProvider(Directory.GetCurrentDirectory()))
             .AddSingleton<IBuildToolsService, BuildToolsService>()
+            .AddSingleton<ICacheConfigService, CacheConfigService>()
             .AddSingleton<ICertificateService, CertificateService>()
             .AddSingleton<IConfigService, ConfigService>()
             .AddSingleton<ICppWinrtService, CppWinrtService>()
@@ -30,7 +31,12 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IPackageInstallationService, PackageInstallationService>()
             .AddSingleton<IPackageLayoutService, PackageLayoutService>()
             .AddSingleton<IPowerShellService, PowerShellService>()
-            .AddSingleton<IWinappDirectoryService, WinappDirectoryService>()
+            .AddSingleton<IWinappDirectoryService>(sp => 
+            {
+                var service = new WinappDirectoryService(sp.GetRequiredService<ICurrentDirectoryProvider>());
+                service.SetCacheConfigService(sp.GetRequiredService<ICacheConfigService>());
+                return service;
+            })
             .AddSingleton<IWorkspaceSetupService, WorkspaceSetupService>()
             .AddSingleton<IGitignoreService, GitignoreService>()
             .AddSingleton<IFirstRunService, FirstRunService>();
@@ -48,6 +54,10 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UpdateCommand, UpdateCommand.Handler>()
                 .UseCommandHandler<CreateDebugIdentityCommand, CreateDebugIdentityCommand.Handler>()
                 .UseCommandHandler<GetWinappPathCommand, GetWinappPathCommand.Handler>()
+                .ConfigureCommand<CacheCommand>()
+                .UseCommandHandler<CacheGetPathCommand, CacheGetPathCommand.Handler>()
+                .UseCommandHandler<CacheMoveCommand, CacheMoveCommand.Handler>()
+                .UseCommandHandler<CacheClearCommand, CacheClearCommand.Handler>()
                 .ConfigureCommand<CertCommand>()
                 .UseCommandHandler<CertGenerateCommand, CertGenerateCommand.Handler>()
                 .UseCommandHandler<CertInstallCommand, CertInstallCommand.Handler>()

@@ -28,8 +28,7 @@ internal partial class BuildToolsService(
     /// <returns>Full path to the requested location, or null if not found</returns>
     private DirectoryInfo? FindPackagePath(string packageName, string subPath, string? finalSubPath = null, bool requireArchitecture = false)
     {
-        var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
-        var packagesDir = new DirectoryInfo(Path.Combine(globalWinappDir.FullName, "packages"));
+        var packagesDir = winappDirectoryService.GetPackagesCacheDirectory();
         if (!packagesDir.Exists)
         {
             return null;

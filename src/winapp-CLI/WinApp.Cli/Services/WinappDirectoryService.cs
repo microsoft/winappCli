@@ -9,6 +9,7 @@ namespace WinApp.Cli.Services;
 internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectoryProvider) : IWinappDirectoryService
 {
     private DirectoryInfo? _globalOverride;
+    private ICacheConfigService? _cacheConfigService;
 
     /// <summary>
     /// Method to override the cache directory for testing purposes
@@ -17,6 +18,14 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
     public void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory)
     {
         _globalOverride = cacheDirectory;
+    }
+
+    /// <summary>
+    /// Sets the cache config service (called after DI initialization to avoid circular dependency)
+    /// </summary>
+    internal void SetCacheConfigService(ICacheConfigService cacheConfigService)
+    {
+        _cacheConfigService = cacheConfigService;
     }
 
     public DirectoryInfo GetGlobalWinappDirectory()
@@ -56,5 +65,22 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         }
 
         return new DirectoryInfo(Path.Combine(originalBaseDir.FullName, ".winapp"));
+    }
+
+    public DirectoryInfo GetPackagesCacheDirectory()
+    {
+        // Check for custom cache path (but not during testing with override)
+        if (_globalOverride == null && _cacheConfigService != null)
+        {
+            var customPath = _cacheConfigService.GetCustomCachePath();
+            if (!string.IsNullOrEmpty(customPath))
+            {
+                return new DirectoryInfo(customPath);
+            }
+        }
+
+        // Default to packages subdirectory in global .winapp directory
+        var globalWinappDir = GetGlobalWinappDirectory();
+        return new DirectoryInfo(Path.Combine(globalWinappDir.FullName, "packages"));
     }
 }
