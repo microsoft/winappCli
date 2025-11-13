@@ -164,6 +164,7 @@ internal sealed class Telemetry : ITelemetry
                 innerStackTrace = innerStackTrace.ToString(),
                 message = this.ReplaceSensitiveStrings(e.Message),
                 PartA_PrivTags = PartA_PrivTags.ProductAndServicePerformance,
+                PartA_PrivacyProduct = PrivacyProduct.WIN_APP_DEV_CLI,
             },
             relatedActivityId,
             isError: true);
@@ -185,6 +186,7 @@ internal sealed class Telemetry : ITelemetry
                 eventName,
                 timeTakenMilliseconds,
                 PartA_PrivTags = PartA_PrivTags.ProductAndServicePerformance,
+                PartA_PrivacyProduct = PrivacyProduct.WIN_APP_DEV_CLI,
             },
             relatedActivityId,
             isError: false);

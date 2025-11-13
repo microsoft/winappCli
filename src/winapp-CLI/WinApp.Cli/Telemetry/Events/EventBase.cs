@@ -6,6 +6,14 @@ using System.Diagnostics.Tracing;
 
 namespace WinApp.Cli.Telemetry.Events;
 
+public class PrivacyProduct
+{
+    public static readonly UInt16
+#pragma warning disable CA1707 // Identifiers should not contain underscores
+    WIN_APP_DEV_CLI = 78;
+#pragma warning restore CA1707 // Identifiers should not contain underscores
+};
+
 /// <summary>
 /// Base class for all telemetry events to ensure they are properly tagged.
 /// </summary>
@@ -21,10 +29,16 @@ public abstract class EventBase
     /// </summary>
 #pragma warning disable CA1707 // Identifiers should not contain underscores
     public abstract PartA_PrivTags PartA_PrivTags
-#pragma warning restore CA1707 // Identifiers should not contain underscores
     {
         get;
     }
+
+    /// <summary>
+    /// PartA_PrivacyProduct must be set for the telemetry event to be logged when in the WinExt provider group.
+    /// </summary>
+    public UInt16 PartA_PrivacyProduct { get; } = PrivacyProduct.WIN_APP_DEV_CLI;
+
+#pragma warning restore CA1707 // Identifiers should not contain underscores
 
     /// <summary>
     /// Gets the app version from the assembly.
