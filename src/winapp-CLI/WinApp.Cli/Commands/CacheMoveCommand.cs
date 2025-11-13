@@ -49,9 +49,8 @@ internal class CacheMoveCommand : Command
                 if (!newDir.Exists)
                 {
                     logger.LogWarning("{UISymbol} Directory does not exist: {NewPath}", UiSymbols.Warning, newPathFullName);
-                    logger.LogInformation("Do you want to create it? (y/n): ");
                     
-                    if (!Program.PromptYesNo(""))
+                    if (!Program.PromptYesNo("Do you want to create it? (y/n): "))
                     {
                         logger.LogError("{UISymbol} Operation cancelled", UiSymbols.Error);
                         return Task.FromResult(1);
@@ -71,9 +70,8 @@ internal class CacheMoveCommand : Command
                         if (hasPackages)
                         {
                             logger.LogWarning("{UISymbol} Directory is not empty: {NewPath}", UiSymbols.Warning, newPathFullName);
-                            logger.LogInformation("The directory contains files/folders. Continue anyway? (y/n): ");
                             
-                            if (!Program.PromptYesNo(""))
+                            if (!Program.PromptYesNo("The directory contains files/folders. Continue anyway? (y/n): "))
                             {
                                 logger.LogError("{UISymbol} Operation cancelled", UiSymbols.Error);
                                 return Task.FromResult(1);

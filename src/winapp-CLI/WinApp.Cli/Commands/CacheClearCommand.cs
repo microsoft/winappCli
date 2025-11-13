@@ -30,9 +30,8 @@ internal class CacheClearCommand : Command
                 }
 
                 logger.LogWarning("{UISymbol} This will delete all packages from: {CacheDir}", UiSymbols.Warning, cacheDir.FullName);
-                logger.LogInformation("Continue? (y/n): ");
                 
-                if (!Program.PromptYesNo(""))
+                if (!Program.PromptYesNo("Continue? (y/n): "))
                 {
                     logger.LogError("{UISymbol} Operation cancelled", UiSymbols.Error);
                     return Task.FromResult(1);
