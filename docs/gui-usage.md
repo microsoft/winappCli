@@ -25,19 +25,19 @@ We would love your feedback on this UI-based approach and whether it adds value 
 
 ## Install the GUI Tool
 
-There are 2 ways to run the GUI (experimental). The Windows Development CLI **must** be in your [PATH](#adding-to-path) for the Identity Tool to function since it calls the CLI.
+There are 2 ways to run the GUI (experimental).
 
-### Build the repository
-
-Clone and build this repository. Run winapp.cli in Visual Studio to build and run the app.
-
-### Download the MSIX (build pipeline in progress)
+### Download the MSIX
 
 1. **[👉 Download Latest Experimental Build (unsigned .msix)](https://github.com/microsoft/WinAppCli/releases/tag/v0.1.1-gui)**
 2. Run Powershell as **Administrator** and `Add-AppPackage -Path <msix> -AllowUnsigned`
 
 `<msix>` should be replaced with the full path of the downloaded build (msix file).
+This experimental app requires the `winapp` CLI to be added to the user's PATH to function. Ensure you have the [latest CLI version](https://github.com/microsoft/WinAppCli/releases/latest) added to your path (installing the CLI MSIX is the easiest way to do this).
 
+### Build the repository
+
+Clone and build this repository. Run winapp.cli in Visual Studio to build and run the app.
 
 ## Usage
 

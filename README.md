@@ -101,6 +101,7 @@ npx winapp --help
 
 - [`node create-addon`](./docs/usage.md#node-create-addon) - Generate native C# or C++ addons
 - [`node add-electron-debug-identity`](./docs/usage.md#node-add-electron-debug-identity) - Add identity to Electron processes
+- [Windows AI Addon for Electron](https://github.com/microsoft/winapp-windows-ai) - The Windows AI Addon for Electron is a Node.js native addon that provides access to the [Windows AI APIs](https://learn.microsoft.com/en-us/windows/ai/apis/) directly from JavaScript.
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
 
