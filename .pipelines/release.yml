@@ -261,8 +261,7 @@ extends:
                 Write-Host "ARM64 MSIX: $arm64MsixUrl"
                 
                 # Submit to WinGet repository
-                # Commented out for now to prevent accidental submissions
-                # wingetcreate update Microsoft.WinAppCli `
-                #   --version $(version) `
-                #   --urls $x64MsixUrl $arm64MsixUrl `
-                #   --submit
+                wingetcreate update Microsoft.WinAppCli `
+                 --version $(version) `
+                  --urls $x64MsixUrl $arm64MsixUrl `
+                  --submit
