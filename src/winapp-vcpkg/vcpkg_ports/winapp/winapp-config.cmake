@@ -125,8 +125,8 @@ function(winapp_copy_self_contained_files)
         NAMES winapp.exe winapp.exe
         PATHS 
             "${CMAKE_CURRENT_SOURCE_DIR}/../../../winapp-npm/bin/win-x64"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../winapp-CLI/WinApp.Cli/bin/Debug/net9.0-windows/win-x64"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../../winapp-CLI/WinApp.Cli/bin/Release/net9.0-windows/win-x64"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../winapp-CLI/WinApp.Cli/bin/Debug/net10.0-windows/win-x64"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../winapp-CLI/WinApp.Cli/bin/Release/net10.0-windows/win-x64"
     )
     
     if(NOT WINAPP_CLI_EXE)

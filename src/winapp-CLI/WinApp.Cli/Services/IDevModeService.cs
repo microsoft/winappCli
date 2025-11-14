@@ -6,4 +6,5 @@ namespace WinApp.Cli.Services;
 internal interface IDevModeService
 {
     public int EnsureWin11DevMode();
+    public bool IsEnabled();
 }

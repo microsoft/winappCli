@@ -1,3 +1,8 @@
+# Windows App Development CLI
+
+> [!IMPORTANT]
+> :warning: **Status: Public Preview** - The Windows App Development CLI is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
+
 <p align="center">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="./docs/images/hero-dark.png">
@@ -8,25 +13,22 @@
 
 <h3 align="center">
   <a href="#-installation">Installation</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-usage">Usage</a>
-  <span> . </span>
+  <span> • </span>
   <a href="./docs/usage.md">Documentation</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-try-the-windows-identity-app">GUI</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-feedback">Feedback</a>
 </h3>
-<br/><br/>
-
-> [!IMPORTANT]  
-> The Windows App Development CLI is in preview and in active development, and we'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
+<br/>
 
 The Windows App Development CLI is a single command-line interface for managing Windows SDKs, packaging, generating app identity, manifests, certificates, and using build tools with any app framework. This tool bridges the gap between cross-platform development and Windows-native capabilities.
 <br/><br/>
 Whether you're building with Electron, .NET/Win32, CMake, or Python, this CLI gives you access to:
 
-- **Modern Windows APIs** - Windows App SDK and Windows SDK with automatic setup and code generation
+- **Modern Windows APIs** - [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/) and Windows SDK with automatic setup and code generation
 - **App Identity** - Debug and test by adding app identity without full packaging in a snap
 - **MSIX Packaging** - App packaging with signing and Store readiness
 - **Developer Tools** - Manifests, certificates, assets, and build integration
@@ -53,7 +55,9 @@ The easiest way to use the CLI is to download the latest build from GitHub Relea
 
 ### Adding to Path
 
-The easiest way to use the CLI globally is to install it via the MSIX installer
+The easiest way to use the CLI globally is to install it via the [MSIX installer](https://github.com/microsoft/WinAppCli/releases/latest).
+
+You can also add it manually: Windows Search → Edit the system environment variables → Environment Variables → Path → Edit → New → Add the location (folder) of winapp CLI.
 
 ## 📋 Usage
 
@@ -105,25 +109,30 @@ The full CLI usage can be found here: [Documentation](/docs/usage.md)
 - [File an issue, feature request or bug](https://github.com/microsoft/WinAppCli/issues): please ensure that you are not filing a duplicate issue
 - Send feedback to <windowsdevelopertoolkit@microsoft.com>: Do you love this tool? Are there features or fixes you want to see? Let us know!
 
-We are actively working on improving Node and Python support. These features are currently experimental and we are aware of several issues with these app types.
+We are actively working on improving Node and Python support. These features are experimental and we are aware of several issues with these app types.
 
 ## 🧪 Try the Windows Identity App
 
-This repository also contains an **experimental** app (GUI) that wraps the CLI and provides an intuitive, drag-and-drop experience. [See the docs](/docs/gui-usage.md) for more details.
+This repository also contains an **experimental** app (GUI) that wraps the CLI and provides an intuitive, drag-and-drop experience. [See the docs](/docs/gui-usage.md) for more details. [Download the app here](https://github.com/microsoft/WinAppCli/releases/tag/v0.1.1-gui).
+
+## 🧾 Samples
+
+This repository will continue to be added with samples. Currently the following samples exist:
+
+- [Electron sample](/samples/electron/README.md): a default Electron Forge generated application + initialized a winapp project with appxmanifest, assets + native addon + C# addon + generates cert
+
+## Support
+
+Need help or have questions about the Windows App Development CLI? Visit our **[Support Guide](./SUPPORT.md)** for information about our issue templates and triage process.
 
 ## Contributing
 
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
-Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
-the rights to use your contribution. For details, visit [Contributor License Agreements](https://cla.opensource.microsoft.com).
+This project welcomes contributions and suggestions.  Most contributions require you to agree to a Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us the rights to use your contribution. For details, visit [Contributor License Agreements](https://cla.opensource.microsoft.com).
 
-When you submit a pull request, a CLA bot will automatically determine whether you need to provide
-a CLA and decorate the PR appropriately (e.g., status check, comment). Simply follow the instructions
-provided by the bot. You will only need to do this once across all repos using our CLA.
+When you submit a pull request, a CLA bot will automatically determine whether you need to provide a CLA and decorate the PR appropriately (e.g., status check, comment). Simply follow the instructions provided by the bot. You will only need to do this once across all repos using our CLA.
 
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
-contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
 To build the CLI:
 ```

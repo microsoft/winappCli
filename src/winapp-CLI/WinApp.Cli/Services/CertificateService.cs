@@ -62,7 +62,7 @@ internal partial class CertificateService(
             var req = new CertificateRequest(subjectName, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: false));
             req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-                new OidCollection { new Oid("1.3.6.1.5.5.7.3.3") }, critical: false));
+                [new Oid("1.3.6.1.5.5.7.3.3")], critical: false));
             // BasicConstraints like PS default (non-CA, non-critical)
             req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
 

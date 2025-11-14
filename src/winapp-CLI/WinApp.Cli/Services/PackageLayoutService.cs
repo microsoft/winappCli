@@ -5,6 +5,9 @@ namespace WinApp.Cli.Services;
 
 internal sealed class PackageLayoutService : IPackageLayoutService
 {
+    private const string winPrefix = "win-";
+    private const string win10Prefix = "win10-";
+
     public void CopyIncludesFromPackages(DirectoryInfo pkgsDir, DirectoryInfo includeOut)
     {
         includeOut.Create();
@@ -18,7 +21,7 @@ internal sealed class PackageLayoutService : IPackageLayoutService
         }
     }
 
-    public void CopyLibs(DirectoryInfo pkgsDir, DirectoryInfo libOut, string arch)
+    public static void CopyLibs(DirectoryInfo pkgsDir, DirectoryInfo libOut, string arch)
     {
         libOut.Create();
         foreach (var libDir in SafeEnumDirs(pkgsDir, "lib", SearchOption.AllDirectories))
@@ -37,7 +40,7 @@ internal sealed class PackageLayoutService : IPackageLayoutService
         }
     }
 
-    public void CopyRuntimes(DirectoryInfo pkgsDir, DirectoryInfo binOut, string arch)
+    public static void CopyRuntimes(DirectoryInfo pkgsDir, DirectoryInfo binOut, string arch)
     {
         binOut.Create();
         foreach (var rtDir in SafeEnumDirs(pkgsDir, "runtimes", SearchOption.AllDirectories))
@@ -112,13 +115,13 @@ internal sealed class PackageLayoutService : IPackageLayoutService
     private static IEnumerable<DirectoryInfo> SafeEnumDirs(DirectoryInfo root, string searchPattern, SearchOption option)
     {
         try { return root.EnumerateDirectories(searchPattern, option); }
-        catch { return Array.Empty<DirectoryInfo>(); }
+        catch { return []; }
     }
 
     private static IEnumerable<FileInfo> SafeEnumFiles(DirectoryInfo root, string searchPattern, SearchOption option)
     {
-        try { return root.Exists ? root.EnumerateFiles(searchPattern, option) : Array.Empty<FileInfo>(); }
-        catch { return Array.Empty<FileInfo>(); }
+        try { return root.Exists ? root.EnumerateFiles(searchPattern, option) : []; }
+        catch { return []; }
     }
 
     private static void CopyTopFiles(DirectoryInfo fromDir, string pattern, DirectoryInfo toDir)
@@ -154,8 +157,8 @@ internal sealed class PackageLayoutService : IPackageLayoutService
 
     private static IEnumerable<DirectoryInfo> SafeEnumSubdirs(DirectoryInfo root)
     {
-        try { return root.Exists ? root.EnumerateDirectories() : Array.Empty<DirectoryInfo>(); }
-        catch { return Array.Empty<DirectoryInfo>(); }
+        try { return root.Exists ? root.EnumerateDirectories() : []; }
+        catch { return []; }
     }
 
     public void CopyLibsAllArch(DirectoryInfo pkgsDir, DirectoryInfo libRoot)
@@ -166,15 +169,15 @@ internal sealed class PackageLayoutService : IPackageLayoutService
             foreach (var sub in SafeEnumSubdirs(libDir))
             {
                 var name = sub.Name;
-                if (name.StartsWith("win-", StringComparison.OrdinalIgnoreCase))
+                if (name.StartsWith(winPrefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    var arch = name.Substring("win-".Length);
+                    var arch = name[winPrefix.Length..];
                     var outDir = new DirectoryInfo(Path.Combine(libRoot.FullName, arch));
                     CopyTopFiles(sub, "*.lib", outDir);
                 }
-                else if (name.StartsWith("win10-", StringComparison.OrdinalIgnoreCase))
+                else if (name.StartsWith(win10Prefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    var arch = name.Substring("win10-".Length);
+                    var arch = name[win10Prefix.Length..];
                     var outDir = new DirectoryInfo(Path.Combine(libRoot.FullName, arch));
                     CopyTopFiles(sub, "*.lib", outDir);
                 }
@@ -183,9 +186,9 @@ internal sealed class PackageLayoutService : IPackageLayoutService
                     foreach (var d in SafeEnumSubdirs(sub))
                     {
                         var dn = d.Name;
-                        if (dn.StartsWith("win10-", StringComparison.OrdinalIgnoreCase))
+                        if (dn.StartsWith(win10Prefix, StringComparison.OrdinalIgnoreCase))
                         {
-                            var arch = dn.Substring("win10-".Length);
+                            var arch = dn[win10Prefix.Length..];
                             var outDir = new DirectoryInfo(Path.Combine(libRoot.FullName, arch));
                             CopyTopFiles(d, "*.lib", outDir);
                         }
@@ -222,9 +225,9 @@ internal sealed class PackageLayoutService : IPackageLayoutService
             foreach (var plat in SafeEnumSubdirs(rtDir))
             {
                 var name = plat.Name;
-                if (name.StartsWith("win-", StringComparison.OrdinalIgnoreCase))
+                if (name.StartsWith(winPrefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    var arch = name.Substring("win-".Length);
+                    var arch = name[winPrefix.Length..];
                     var native = new DirectoryInfo(Path.Combine(plat.FullName, "native"));
                     var outDir = new DirectoryInfo(Path.Combine(binRoot.FullName, arch));
                     CopyTopFiles(native, "*.*", outDir);

@@ -33,7 +33,7 @@ Clone and build this repository. Run winapp.cli in Visual Studio to build and ru
 
 ### Download the MSIX (build pipeline in progress)
 
-1. **[👉 Download Latest Experimental Build (unsigned .msix)](https://github.com/microsoft/WinAppCli/releases/latest)**
+1. **[👉 Download Latest Experimental Build (unsigned .msix)](https://github.com/microsoft/WinAppCli/releases/tag/v0.1.1-gui)**
 2. Run Powershell as **Administrator** and `Add-AppPackage -Path <msix> -AllowUnsigned`
 
 `<msix>` should be replaced with the full path of the downloaded build (msix file).

@@ -17,8 +17,8 @@ function getWinappCliPath() {
     // Distribution build (single-file executable)
     path.join(__dirname, `bin/${arch}/winapp.exe`),
     // Development builds (when building from source)
-    path.join(__dirname, `../winapp-CLI/WinApp.Cli/bin/Debug/net9.0-windows/${arch}/winapp.exe`),
-    path.join(__dirname, `../winapp-CLI/WinApp.Cli/bin/Release/net9.0-windows/${arch}/winapp.exe`),
+    path.join(__dirname, `../winapp-CLI/WinApp.Cli/bin/Debug/net10.0-windows/${arch}/winapp.exe`),
+    path.join(__dirname, `../winapp-CLI/WinApp.Cli/bin/Release/net10.0-windows/${arch}/winapp.exe`),
     // Global installation
     'winapp.exe'
   ];

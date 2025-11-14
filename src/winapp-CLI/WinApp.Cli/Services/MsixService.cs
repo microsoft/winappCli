@@ -84,11 +84,7 @@ internal partial class MsixService(
         var selfContainedDir = winappDir.CreateSubdirectory("self-contained");
         var archSelfContainedDir = selfContainedDir.CreateSubdirectory(architecture);
 
-        var msixDir = GetRuntimeMsixDir();
-        if (msixDir == null)
-        {
-            throw new DirectoryNotFoundException("Windows App SDK Runtime MSIX directory not found. Ensure Windows App SDK is installed.");
-        }
+        var msixDir = GetRuntimeMsixDir() ?? throw new DirectoryNotFoundException("Windows App SDK Runtime MSIX directory not found. Ensure Windows App SDK is installed.");
 
         // Look for the MSIX file in the tools/MSIX folder
         var msixToolsDir = new DirectoryInfo(Path.Combine(msixDir.FullName, $"win10-{architecture}"));
@@ -155,9 +151,9 @@ internal partial class MsixService(
         extractedDir.Refresh();
         extractedDir.Create();
 
-        using (var archive = ZipFile.OpenRead(msixPath.FullName))
+        using (var archive = await ZipFile.OpenReadAsync(msixPath.FullName, cancellationToken))
         {
-            archive.ExtractToDirectory(extractedDir.FullName);
+            await archive.ExtractToDirectoryAsync(extractedDir.FullName, cancellationToken);
         }
 
         // Copy relevant files to deployment directory
@@ -475,7 +471,7 @@ internal partial class MsixService(
         {
             foreach (var priFile in priFiles)
             {
-                writer.WriteLine(priFile);
+                await writer.WriteLineAsync(priFile);
             }
         }
 
@@ -550,9 +546,10 @@ internal partial class MsixService(
             foreach (var line in lines)
             {
                 // Look for lines that match the pattern "Resource File: *"
-                if (line.StartsWith("Resource File: ", StringComparison.OrdinalIgnoreCase))
+                const string resourceFileStr = "Resource File: ";
+                if (line.StartsWith(resourceFileStr, StringComparison.OrdinalIgnoreCase))
                 {
-                    var fileName = line.Substring("Resource File: ".Length).Trim();
+                    var fileName = line[resourceFileStr.Length..].Trim();
                     if (!string.IsNullOrEmpty(fileName))
                     {
                         resourceFiles.Add(new FileInfo(Path.Combine(packageDir.FullName, fileName)));
@@ -741,12 +738,10 @@ internal partial class MsixService(
                 if (resourceFiles.Count > 0)
                 {
                     logger.LogDebug($"Resource files included in PRI:");
-                    using (var _ = logger.BeginScope("PRI Resources"))
+                    using var _ = logger.BeginScope("PRI Resources");
+                    foreach (var resourceFile in resourceFiles)
                     {
-                        foreach (var resourceFile in resourceFiles)
-                        {
-                            logger.LogDebug("{ResourceFile}", resourceFile);
-                        }
+                        logger.LogDebug("{ResourceFile}", resourceFile);
                     }
                 }
             }
@@ -886,7 +881,7 @@ internal partial class MsixService(
     /// <param name="fragments">Whether the input manifests are fragments (false), or full manifests (true)</param>
     /// <param name="outAppManifestPath">Path to write the generated manifest</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    private async Task GenerateAppManifestFromAppxAsync(
+    private static async Task GenerateAppManifestFromAppxAsync(
         bool redirectDlls,
         IEnumerable<string> inDllFiles,
         IEnumerable<FileInfo> inAppxManifests,
@@ -964,7 +959,7 @@ internal partial class MsixService(
                 }
             }
             // Add ProxyStub elements to the generated appxmanifest
-            dllFiles = inDllFiles.ToList();
+            dllFiles = [.. inDllFiles];
 
             xQuery = $"./m:{prefix}/m:Extensions/m:Extension/m:ProxyStub";
             var inProcessProxystubs = doc.SelectNodes(xQuery, nsmgr);
@@ -1080,7 +1075,7 @@ internal partial class MsixService(
         // Install certificate if requested
         if (installDevCert)
         {
-            var result = certificateService.InstallCertificate(certPath, certificatePassword, false);
+            certificateService.InstallCertificate(certPath, certificatePassword, false);
         }
 
         // Sign the package
@@ -1545,7 +1540,7 @@ $1");
 
         logger.LogDebug("{UISymbol} Copying manifest-referenced files from: {OriginalManifestDir}", UiSymbols.Note, originalManifestDir);
 
-        var filesCopied = await CopyManifestReferencedFilesAsync(manifestPath, targetDir);
+        var filesCopied = await CopyManifestReferencedFilesAsync(manifestPath, targetDir, cancellationToken);
 
         logger.LogDebug("{UISymbol} Copied {FilesCopied} files to target directory", UiSymbols.Note, filesCopied);
     }
@@ -1553,7 +1548,7 @@ $1");
     /// <summary>
     /// Copies files that are referenced in the manifest using regex pattern matching
     /// </summary>
-    private async Task<int> CopyManifestReferencedFilesAsync(FileInfo manifestPath, DirectoryInfo targetDir)
+    private async Task<int> CopyManifestReferencedFilesAsync(FileInfo manifestPath, DirectoryInfo targetDir, CancellationToken cancellationToken)
     {
         var filesCopied = 0;
         var manifestDir = manifestPath.Directory;
@@ -1564,7 +1559,7 @@ $1");
         }
 
         // Read the manifest content
-        var manifestContent = await File.ReadAllTextAsync(manifestPath.FullName, Encoding.UTF8);
+        var manifestContent = await File.ReadAllTextAsync(manifestPath.FullName, Encoding.UTF8, cancellationToken);
 
         logger.LogDebug("{UISymbol} Reading manifest: {ManifestPath}", UiSymbols.Note, manifestPath);
 
@@ -1631,7 +1626,7 @@ $1");
                 var matches = Regex.Matches(appExtensionContent, pattern, RegexOptions.IgnoreCase);
                 foreach (Match match in matches)
                 {
-                    string? filePath = null;
+                    string? filePath;
                     if (pattern.Contains("Registration"))
                     {
                         filePath = match.Groups[1].Value.Trim();
