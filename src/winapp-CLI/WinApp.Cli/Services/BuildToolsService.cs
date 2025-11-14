@@ -141,7 +141,7 @@ internal partial class BuildToolsService(
         return FindPackagePath(BUILD_TOOLS_PACKAGE, "bin", requireArchitecture: true);
     }
 
-    private Version ExtractVersion(string packageFolderName)
+    private static Version ExtractVersion(string packageFolderName)
     {
         // Extract version from package folder name like "Microsoft.Windows.SDK.BuildTools.10.0.26100.1742"
         var parts = packageFolderName.Split('.');
@@ -156,7 +156,7 @@ internal partial class BuildToolsService(
         return new Version(0, 0, 0, 0);
     }
 
-    private Version ParseVersion(string versionString)
+    private static Version ParseVersion(string versionString)
     {
         return Version.TryParse(versionString, out var version) ? version : new Version(0, 0, 0, 0);
     }

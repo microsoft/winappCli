@@ -45,8 +45,9 @@ Push-Location $ProjectRoot
 try
 {
     # Define paths
-    $CliSolutionPath = "src\winapp-CLI\winapp.sln"
-    $CliProjectPath = "src\winapp-CLI\WinApp.Cli\WinApp.Cli.csproj"
+    $CliSolutionDir = "src\winapp-CLI"
+    $CliSolutionPath = "$CliSolutionDir\winapp.sln"
+    $CliProjectPath = "$CliSolutionDir\WinApp.Cli\WinApp.Cli.csproj"
     $ArtifactsPath = "artifacts"
     $TestResultsPath = "TestResults"
 
@@ -81,12 +82,12 @@ try
     # Step 2: Run tests (unless skipped)
     if (-not $SkipTests) {
         Write-Host "[TEST] Running tests..." -ForegroundColor Blue
-        dotnet test $CliSolutionPath -c Release --no-build --results-directory .\TestResults -- --report-trx
+        dotnet test --solution $CliSolutionPath -c Release --no-build --results-directory $CliSolutionDir\TestResults --report-trx
         $TestExitCode = $LASTEXITCODE
     
         # Copy test results to artifacts BEFORE checking for failure - find all TRX files
         Write-Host "[TEST] Collecting test results..." -ForegroundColor Blue
-        $TrxFiles = Get-ChildItem -Path "src\winapp-CLI" -Filter "*.trx" -Recurse -File
+        $TrxFiles = Get-ChildItem -Path $CliSolutionDir -Filter "*.trx" -Recurse -File
         if ($TrxFiles) {
             New-Item -ItemType Directory -Path "$ArtifactsPath\TestResults" -Force | Out-Null
             foreach ($trxFile in $TrxFiles) {
@@ -95,7 +96,7 @@ try
             }
             Write-Host "[TEST] Test results copied successfully ($($TrxFiles.Count) file(s))" -ForegroundColor Green
         } else {
-            Write-Warning "No TRX test result files found in src\winapp-CLI"
+            Write-Warning "No TRX test result files found in $CliSolutionDir"
         }
 
         # Now check test results and decide whether to exit

@@ -157,7 +157,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(fakeToolPath, "@echo Hello from fake tool");
 
         // Act
-        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync("echo.cmd", "");
+        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync("echo.cmd", "", TestContext.CancellationToken);
 
         // Assert
         Assert.Contains("Hello from fake tool", stdout);
@@ -173,7 +173,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         // Act & Assert
         await Assert.ThrowsExactlyAsync<FileNotFoundException>(async () =>
         {
-            await _buildToolsService.RunBuildToolAsync("nonexistent.exe", "");
+            await _buildToolsService.RunBuildToolAsync("nonexistent.exe", "", TestContext.CancellationToken);
         });
     }
 
@@ -184,7 +184,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         // since we can't easily mock the package installation service in this test setup
 
         // Act
-        var result = await _buildToolsService.EnsureBuildToolsAsync();
+        var result = await _buildToolsService.EnsureBuildToolsAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert - Result can be either null (if installation fails) or a path (if successful)
         // The important part is that the method completes without throwing
@@ -202,7 +202,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         Directory.CreateDirectory(binDir);
 
         // Act
-        var result = await _buildToolsService.EnsureBuildToolsAsync();
+        var result = await _buildToolsService.EnsureBuildToolsAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert - Should find and return the existing bin path
         Assert.AreEqual(binDir, result!.FullName);
@@ -218,7 +218,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         Directory.CreateDirectory(binDir);
 
         // Act - Force latest should attempt reinstallation even with existing package
-        var result = await _buildToolsService.EnsureBuildToolsAsync(forceLatest: true);
+        var result = await _buildToolsService.EnsureBuildToolsAsync(forceLatest: true, TestContext.CancellationToken);
 
         // Assert - Result can be either null (if installation fails) or a path (if successful)
         // The important part is that the method completes and attempts reinstallation
@@ -238,7 +238,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(toolPath, "fake mt.exe");
 
         // Act
-        var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt.exe");
+        var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt.exe", TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(toolPath, result!.FullName);
@@ -257,7 +257,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(toolPath, "fake mt.exe");
 
         // Act - Request tool without .exe extension
-        var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt");
+        var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt", TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(toolPath, result.FullName);
@@ -272,7 +272,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         // Act
         try 
         {
-            var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt.exe");
+            var result = await _buildToolsService.EnsureBuildToolAvailableAsync("mt.exe", TestContext.CancellationToken);
             
             // Assert - If we get here, installation was successful and we got a path
             Assert.IsNotNull(result);
@@ -306,7 +306,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         // Act & Assert
         await Assert.ThrowsExactlyAsync<FileNotFoundException>(async () =>
         {
-            await _buildToolsService.EnsureBuildToolAvailableAsync("nonexistent.exe");
+            await _buildToolsService.EnsureBuildToolAvailableAsync("nonexistent.exe", TestContext.CancellationToken);
         });
     }
 
@@ -320,7 +320,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         {
             // Create a simple batch command that outputs something
             // This will either succeed (if BuildTools installs successfully) or throw an exception
-            await _buildToolsService.RunBuildToolAsync("echo.cmd", "test");
+            await _buildToolsService.RunBuildToolAsync("echo.cmd", "test", TestContext.CancellationToken);
             
             // If we reach here, the auto-installation worked - test passes
         }
@@ -347,7 +347,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(batchFile, "@echo Hello from test tool");
 
         // Act
-        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync("test.cmd", "");
+        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync("test.cmd", "", TestContext.CancellationToken);
 
         // Assert
         Assert.Contains("Hello from test tool", stdout);

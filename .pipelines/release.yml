@@ -46,9 +46,9 @@ extends:
         steps:
           - checkout: self
           - task: UseDotNet@2
-            displayName: Setup .NET 9
+            displayName: Setup .NET 10
             inputs:
-              version: 9.0.x
+              version: 10.0.x
           - ${{ if eq(parameters.DoEsrp, 'true') }}:
             - task: UseDotNet@2
               displayName: Setup .NET 6.0 (For ESRP Task)
@@ -208,8 +208,8 @@ extends:
     #             contentsource: 'Folder'
     #             folderlocation: $(Pipeline.Workspace)/npm-package/
     #             waitforreleasecompletion: true
-    #             owners: 'alzollin@microsoft.com'
-    #             approvers: 'alzollin@microsoft.com'
+    #             owners: '$(EsrpOwnersEmail)'
+    #             approvers: '$(EsrpApproversEmail)'
     #             serviceendpointurl: 'https://api.esrp.microsoft.com'
     #             mainpublisher: 'winappcli'
     #             domaintenantid: ${{ parameters.signingIdentity.tenantId }}
@@ -261,8 +261,7 @@ extends:
                 Write-Host "ARM64 MSIX: $arm64MsixUrl"
                 
                 # Submit to WinGet repository
-                # Commented out for now to prevent accidental submissions
-                # wingetcreate update Microsoft.WinAppCli `
-                #   --version $(version) `
-                #   --urls $x64MsixUrl $arm64MsixUrl `
-                #   --submit
+                wingetcreate update Microsoft.WinAppCli `
+                 --version $(version) `
+                  --urls $x64MsixUrl $arm64MsixUrl `
+                  --submit

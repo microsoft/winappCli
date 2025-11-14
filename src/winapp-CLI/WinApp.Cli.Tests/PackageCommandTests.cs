@@ -77,7 +77,7 @@ public class PackageCommandTests : BaseCommandTests
     /// <summary>
     /// Creates a minimal test package structure with manifest and basic files
     /// </summary>
-    private void CreateTestPackageStructure(DirectoryInfo packageDir)
+    private static void CreateTestPackageStructure(DirectoryInfo packageDir)
     {
         packageDir.Create();
 
@@ -158,7 +158,7 @@ public class PackageCommandTests : BaseCommandTests
         var missingTools = new List<string>();
 
         // Ensure BuildTools are installed
-        var buildToolsPath = await _buildToolsService.EnsureBuildToolsAsync();
+        var buildToolsPath = await _buildToolsService.EnsureBuildToolsAsync(cancellationToken: TestContext.CancellationToken);
         if (buildToolsPath == null)
         {
             Assert.Fail("Cannot run test - BuildTools installation failed.");
@@ -208,7 +208,7 @@ public class PackageCommandTests : BaseCommandTests
         CreateTestPackageStructure(packageDir);
 
         // Create a minimal winapp.yaml to satisfy config requirements
-        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []");
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 
         var currentDir = GetRequiredService<ICurrentDirectoryProvider>().GetCurrentDirectory();
 
@@ -267,20 +267,18 @@ public class PackageCommandTests : BaseCommandTests
         Directory.CreateDirectory(packageDir);
 
         // Create a fake executable but no manifest
-        File.WriteAllText(Path.Combine(packageDir, "TestApp.exe"), "fake exe content");
+        await File.WriteAllTextAsync(Path.Combine(packageDir, "TestApp.exe"), "fake exe content", TestContext.CancellationToken);
 
         // Act & Assert
-        await Assert.ThrowsExactlyAsync<FileNotFoundException>(async () =>
-        {
-            await _msixService.CreateMsixPackageAsync(
+        await Assert.ThrowsExactlyAsync<FileNotFoundException>(
+            async () => await _msixService.CreateMsixPackageAsync(
                 inputFolder: new DirectoryInfo(packageDir),
                 outputPath: _tempDirectory,
                 packageName: "TestPackage",
                 skipPri: true,
                 autoSign: false,
                 cancellationToken: CancellationToken.None
-            );
-        }, "Expected FileNotFoundException when manifest file is missing.");
+            ), "Expected FileNotFoundException when manifest file is missing.");
     }
 
     [TestMethod]
@@ -289,28 +287,28 @@ public class PackageCommandTests : BaseCommandTests
         // Arrange - Create input folder without manifest
         var packageDir = Path.Combine(_tempDirectory.FullName, "InputPackage");
         Directory.CreateDirectory(packageDir);
-        
+
         // Create the executable in the input folder
-        File.WriteAllText(Path.Combine(packageDir, "TestApp.exe"), "fake exe content");
+        await File.WriteAllTextAsync(Path.Combine(packageDir, "TestApp.exe"), "fake exe content", TestContext.CancellationToken);
 
         // Create external manifest directory with manifest and assets
         var externalManifestDir = Path.Combine(_tempDirectory.FullName, "ExternalManifest");
         Directory.CreateDirectory(externalManifestDir);
-        
+
         // Create assets directory in external location
         var externalAssetsDir = Path.Combine(externalManifestDir, "Assets");
         Directory.CreateDirectory(externalAssetsDir);
-        
+
         // Create asset files
-        File.WriteAllText(Path.Combine(externalAssetsDir, "Logo.png"), "external logo content");
-        File.WriteAllText(Path.Combine(externalAssetsDir, "StoreLogo.png"), "external store logo content");
-        
+        await File.WriteAllTextAsync(Path.Combine(externalAssetsDir, "Logo.png"), "external logo content", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(externalAssetsDir, "StoreLogo.png"), "external store logo content", TestContext.CancellationToken);
+
         // Create external manifest that references the assets
         var externalManifestPath = Path.Combine(externalManifestDir, "AppxManifest.xml");
-        await File.WriteAllTextAsync(externalManifestPath, CreateExternalTestManifest());
+        await File.WriteAllTextAsync(externalManifestPath, CreateExternalTestManifest(), TestContext.CancellationToken);
 
         // Create minimal winapp.yaml
-        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []");
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: new DirectoryInfo(packageDir),
@@ -345,11 +343,11 @@ public class PackageCommandTests : BaseCommandTests
         const string testPassword = "testpassword123";
         const string testPublisher = "CN=TestPublisher"; // This matches StandardTestManifestContent
 
-        var certResult = await _certificateService.GenerateDevCertificateAsync(
-            testPublisher, certPath, testPassword);
+        await _certificateService.GenerateDevCertificateAsync(
+            testPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create minimal winapp.yaml
-        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []");
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 
         // Act & Assert - This should succeed because publishers match
         var result = await _msixService.CreateMsixPackageAsync(
@@ -382,15 +380,14 @@ public class PackageCommandTests : BaseCommandTests
         const string wrongPublisher = "CN=WrongPublisher"; // This does NOT match StandardTestManifestContent
 
         var certResult = await _certificateService.GenerateDevCertificateAsync(
-            wrongPublisher, certPath, testPassword);
+            wrongPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create minimal winapp.yaml
-        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []");
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 
         // Act & Assert - This should fail because publishers don't match
-        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
-        {
-            await _msixService.CreateMsixPackageAsync(
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            async () => await _msixService.CreateMsixPackageAsync(
                 inputFolder: packageDir,
                 outputPath: _tempDirectory,
                 packageName: "MismatchedSigningTest",
@@ -399,8 +396,7 @@ public class PackageCommandTests : BaseCommandTests
                 certificatePath: certPath,
                 certificatePassword: testPassword,
                 cancellationToken: CancellationToken.None
-            );
-        });
+            ));
 
         // Verify the error message contains the expected format
         Assert.Contains("Publisher in", ex.Message, "Error should mention manifest publisher");
@@ -415,13 +411,13 @@ public class PackageCommandTests : BaseCommandTests
         // Arrange - Create input folder and external manifest with different publisher
         var packageDir = Path.Combine(_tempDirectory.FullName, "ExternalMismatchTest");
         Directory.CreateDirectory(packageDir);
-        File.WriteAllText(Path.Combine(packageDir, "TestApp.exe"), "fake exe content");
+        await File.WriteAllTextAsync(Path.Combine(packageDir, "TestApp.exe"), "fake exe content", TestContext.CancellationToken);
 
         // Create external manifest with specific publisher
         var externalManifestDir = Path.Combine(_tempDirectory.FullName, "ExternalManifestForMismatch");
         Directory.CreateDirectory(externalManifestDir);
         var externalManifestPath = Path.Combine(externalManifestDir, "AppxManifest.xml");
-        await File.WriteAllTextAsync(externalManifestPath, CreateExternalTestManifest()); // Uses "CN=ExternalTestPublisher"
+        await File.WriteAllTextAsync(externalManifestPath, CreateExternalTestManifest(), TestContext.CancellationToken); // Uses "CN=ExternalTestPublisher"
 
         // Create certificate with different publisher
         var certPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "external_mismatch_cert.pfx"));
@@ -429,15 +425,14 @@ public class PackageCommandTests : BaseCommandTests
         const string wrongPublisher = "CN=DifferentPublisher";
 
         await _certificateService.GenerateDevCertificateAsync(
-            wrongPublisher, certPath, testPassword);
+            wrongPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create minimal winapp.yaml
-        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []");
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 
         // Act & Assert - Should fail due to publisher mismatch
-        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
-        {
-            await _msixService.CreateMsixPackageAsync(
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            async () => await _msixService.CreateMsixPackageAsync(
                 inputFolder: new DirectoryInfo(packageDir),
                 outputPath: _tempDirectory,
                 packageName: "ExternalMismatchTest",
@@ -447,8 +442,7 @@ public class PackageCommandTests : BaseCommandTests
                 certificatePassword: testPassword,
                 manifestPath: new FileInfo(externalManifestPath),
                 cancellationToken: CancellationToken.None
-            );
-        });
+            ));
 
         // Verify error message format
         Assert.Contains("CN=ExternalTestPublisher", ex.Message, "Error should show external manifest publisher");
@@ -468,8 +462,8 @@ public class PackageCommandTests : BaseCommandTests
         const string testPublisherCN = $"CN={expectedPublisher}";
 
         // Create a test certificate using the existing certificate service
-        var certResult = _certificateService.GenerateDevCertificateAsync(
-            testPublisherCN, certPath, testPassword).GetAwaiter().GetResult();
+        _certificateService.GenerateDevCertificateAsync(
+            testPublisherCN, certPath, testPassword, cancellationToken: TestContext.CancellationToken).GetAwaiter().GetResult();
 
         // Act
         var extractedPublisher = CertificateService.ExtractPublisherFromCertificate(certPath, testPassword);
@@ -500,7 +494,7 @@ public class PackageCommandTests : BaseCommandTests
         const string wrongPassword = "wrong123";
 
         _certificateService.GenerateDevCertificateAsync(
-            "CN=PasswordTestPublisher", certPath, correctPassword).GetAwaiter().GetResult();
+            "CN=PasswordTestPublisher", certPath, correctPassword, cancellationToken: TestContext.CancellationToken).GetAwaiter().GetResult();
 
         // Act & Assert
         Assert.ThrowsExactly<InvalidOperationException>(() =>
@@ -520,15 +514,15 @@ public class PackageCommandTests : BaseCommandTests
 
         // Create certificate
         await _certificateService.GenerateDevCertificateAsync(
-            commonPublisher, certPath, testPassword);
+            commonPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create manifest with same publisher
         var manifestContent = StandardTestManifestContent.Replace(
             "CN=TestPublisher", commonPublisher);
-        await File.WriteAllTextAsync(manifestPath.FullName, manifestContent);
+        await File.WriteAllTextAsync(manifestPath.FullName, manifestContent, TestContext.CancellationToken);
 
         // Act & Assert - Should not throw
-        await CertificateService.ValidatePublisherMatchAsync(certPath, testPassword, manifestPath);
+        await CertificateService.ValidatePublisherMatchAsync(certPath, testPassword, manifestPath, TestContext.CancellationToken);
     }
 
     [TestMethod]
@@ -541,18 +535,16 @@ public class PackageCommandTests : BaseCommandTests
 
         // Create certificate with one publisher
         await _certificateService.GenerateDevCertificateAsync(
-            "CN=CertificatePublisher", certPath, testPassword);
+            "CN=CertificatePublisher", certPath, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create manifest with different publisher
         var manifestContent = StandardTestManifestContent.Replace(
             "CN=TestPublisher", "CN=ManifestPublisher");
-        await File.WriteAllTextAsync(manifestPath.FullName, manifestContent);
+        await File.WriteAllTextAsync(manifestPath.FullName, manifestContent, TestContext.CancellationToken);
 
         // Act & Assert
-        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
-        {
-            await CertificateService.ValidatePublisherMatchAsync(certPath, testPassword, manifestPath);
-        });
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            async () => await CertificateService.ValidatePublisherMatchAsync(certPath, testPassword, manifestPath, TestContext.CancellationToken));
 
         // Verify error message format matches requirement
         Assert.Contains($"Error: Publisher in {manifestPath} (CN=ManifestPublisher)", ex.Message);
@@ -577,7 +569,7 @@ public class PackageCommandTests : BaseCommandTests
         var configContent = @"packages:
   - name: Microsoft.WindowsAppSDK
     version: 2.0.250930001-experimental1";
-        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent);
+        await File.WriteAllTextAsync(_configService.ConfigPath.FullName, configContent, TestContext.CancellationToken);
 
         // Restore
         await _workspaceSetupService.SetupWorkspaceAsync(new WorkspaceSetupOptions
@@ -611,7 +603,7 @@ public class PackageCommandTests : BaseCommandTests
         var extractedManifestPath = Path.Combine(extractDir, "AppxManifest.xml");
         Assert.IsTrue(File.Exists(extractedManifestPath), "Extracted manifest should exist");
 
-        var finalManifestContent = await File.ReadAllTextAsync(extractedManifestPath);
+        var finalManifestContent = await File.ReadAllTextAsync(extractedManifestPath, TestContext.CancellationToken);
 
         // Verify the PackageDependency exists
         Assert.Contains("<PackageDependency Name=\"Microsoft.WindowsAppRuntime", finalManifestContent,

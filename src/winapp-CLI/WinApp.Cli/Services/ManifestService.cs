@@ -193,7 +193,7 @@ internal partial class ManifestService(
         logger.LogDebug("Logo copied to: {DestinationPath}", destinationPath);
     }
 
-    private string PromptForValue(string prompt, string defaultValue)
+    private static string PromptForValue(string prompt, string defaultValue)
     {
         if (!string.IsNullOrEmpty(defaultValue))
         {

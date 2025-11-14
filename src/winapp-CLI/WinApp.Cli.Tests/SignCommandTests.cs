@@ -42,10 +42,10 @@ public class SignCommandTests : BaseCommandTests
     /// Creates a minimal fake executable file that can be used for testing
     /// Note: This won't be signable by signtool, but it's enough for testing command logic
     /// </summary>
-    private async Task CreateFakeExecutableAsync(FileInfo path)
+    private static async Task CreateFakeExecutableAsync(FileInfo path)
     {
         // Create a simple file that looks like an executable (for path validation tests)
-        var content = new byte[] { 0x4D, 0x5A }; // MZ signature
+        var content = "MZ"u8.ToArray(); // MZ signature
         await File.WriteAllBytesAsync(path.FullName, content);
     }
 
@@ -79,7 +79,8 @@ public class SignCommandTests : BaseCommandTests
             publisher: testPublisher,
             outputPath: _testCertificatePath,
             password: testPassword,
-            validDays: 30);
+            validDays: 30,
+            cancellationToken: TestContext.CancellationToken);
 
         Assert.IsNotNull(result, "Certificate generation should succeed");
         _testCertificatePath.Refresh();
@@ -260,7 +261,7 @@ public class SignCommandTests : BaseCommandTests
 
         // Act
         var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         // We expect this to fail because our fake executable isn't a real PE file
@@ -291,7 +292,7 @@ public class SignCommandTests : BaseCommandTests
 
         // Act
         var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sign command should fail for non-existent file");
@@ -312,7 +313,7 @@ public class SignCommandTests : BaseCommandTests
 
         // Act
         var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sign command should fail for non-existent certificate");
@@ -332,7 +333,7 @@ public class SignCommandTests : BaseCommandTests
 
         // Act
         var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sign command should fail with wrong certificate password");
@@ -357,7 +358,7 @@ public class SignCommandTests : BaseCommandTests
 
         // Act
         var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         // We expect this to fail because our fake executable isn't a real PE file
@@ -402,8 +403,8 @@ public class SignCommandTests : BaseCommandTests
         // to ensure it works correctly without going through the command parsing layer
 
         // Act & Assert
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
-        {
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            async () =>
             // This should fail either because:
             // 1. BuildTools aren't installed in our test environment, OR
             // 2. The file format is invalid for signing
@@ -412,8 +413,7 @@ public class SignCommandTests : BaseCommandTests
                 _testExecutablePath,
                 _testCertificatePath,
                 "testpassword",
-                timestampUrl: null);
-        }, "SignFileAsync should throw when file cannot be signed or BuildTools are not available");
+                timestampUrl: null, TestContext.CancellationToken), "SignFileAsync should throw when file cannot be signed or BuildTools are not available");
 
         // The exception is guaranteed to be non-null and of the exact type
         // We could add additional assertions on the exception properties if needed
@@ -459,7 +459,7 @@ public class SignCommandTests : BaseCommandTests
 
         // Act
         var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert - we expect this to fail due to invalid file format or missing BuildTools
         // but it should at least validate the file paths correctly
@@ -545,20 +545,20 @@ public class SignCommandTests : BaseCommandTests
 </Package>";
 
         var manifestPath = Path.Combine(packageDir.FullName, "AppxManifest.xml");
-        await File.WriteAllTextAsync(manifestPath, manifestContent);
+        await File.WriteAllTextAsync(manifestPath, manifestContent, TestContext.CancellationToken);
 
         // Create Assets directory and files
         var assetsDir = Path.Combine(packageDir.FullName, "Assets");
         Directory.CreateDirectory(assetsDir);
-        await File.WriteAllBytesAsync(Path.Combine(assetsDir, "Logo.png"), new byte[] { 0x89, 0x50, 0x4E, 0x47 }); // Fake PNG header
+        await File.WriteAllBytesAsync(Path.Combine(assetsDir, "Logo.png"), [0x89, 0x50, 0x4E, 0x47], TestContext.CancellationToken); // Fake PNG header
 
         // Create fake executable
-        await File.WriteAllBytesAsync(Path.Combine(packageDir.FullName, "TestApp.exe"), new byte[] { 0x4D, 0x5A }); // Fake MZ header
+        await File.WriteAllBytesAsync(Path.Combine(packageDir.FullName, "TestApp.exe"), "MZ"u8.ToArray(), TestContext.CancellationToken); // Fake MZ header
 
         // Create a minimal winapp.yaml for the MSIX service
         var configService = GetRequiredService<IConfigService>();
         configService.ConfigPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "winapp.yaml"));
-        await File.WriteAllTextAsync(configService.ConfigPath.FullName, "packages: []");
+        await File.WriteAllTextAsync(configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 
         // Create MSIX package (unsigned first)
         var msixPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "TestPackage.msix"));
@@ -577,7 +577,7 @@ public class SignCommandTests : BaseCommandTests
             publisher: "CN=Wrong",
             outputPath: wrongCertPath,
             password: "testpassword",
-            validDays: 30);
+            validDays: 30, TestContext.CancellationToken);
 
         // Arrange the sign command
         var command = GetRequiredService<SignCommand>();
@@ -591,7 +591,7 @@ public class SignCommandTests : BaseCommandTests
 
         // Act
         var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sign command should fail when publishers don't match");
