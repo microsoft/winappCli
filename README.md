@@ -1,4 +1,4 @@
-# Windows App Development Cli
+# Windows App Development CLI
 
 > [!IMPORTANT]
 > :warning: **Status: Public Preview** - The Windows App Development CLI is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
@@ -13,13 +13,13 @@
 
 <h3 align="center">
   <a href="#-installation">Installation</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-usage">Usage</a>
-  <span> . </span>
+  <span> • </span>
   <a href="./docs/usage.md">Documentation</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-try-the-windows-identity-app">GUI</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-feedback">Feedback</a>
 </h3>
 <br/>
@@ -28,7 +28,7 @@ The Windows App Development CLI is a single command-line interface for managing 
 <br/><br/>
 Whether you're building with Electron, .NET/Win32, CMake, or Python, this CLI gives you access to:
 
-- **Modern Windows APIs** - Windows App SDK and Windows SDK with automatic setup and code generation
+- **Modern Windows APIs** - [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/) and Windows SDK with automatic setup and code generation
 - **App Identity** - Debug and test by adding app identity without full packaging in a snap
 - **MSIX Packaging** - App packaging with signing and Store readiness
 - **Developer Tools** - Manifests, certificates, assets, and build integration
