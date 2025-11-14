@@ -23,7 +23,7 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         CreateTestImage(_testImagePath);
     }
 
-    private void CreateTestManifest(string path)
+    private static void CreateTestManifest(string path)
     {
         var manifestContent = @"<?xml version=""1.0"" encoding=""utf-8""?>
 <Package 
@@ -51,7 +51,7 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         File.WriteAllText(path, manifestContent);
     }
 
-    private void CreateTestImage(string path)
+    private static void CreateTestImage(string path)
     {
         // Create a minimal valid PNG file (1x1 pixel transparent image)
         var pngData = new byte[]
