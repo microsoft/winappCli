@@ -59,6 +59,11 @@ The easiest way to use the CLI globally is to install it via the [MSIX installer
 
 You can also add it manually: Windows Search → Edit the system environment variables → Environment Variables → Path → Edit → New → Add the location (folder) of winapp CLI.
 
+## Get started
+
+Checkout our getting started guides for step by step instructions:
+- [Electron guide](/docs/electron-get-started.md): step by step guide of using the Phi Silica APIs in a new Electron application with a C# addon, debugging with identity, and MSIX packaging.
+
 ## 📋 Usage
 
 Once installed (see [Installation](#-installation) above), verify the installation by calling the CLI:
