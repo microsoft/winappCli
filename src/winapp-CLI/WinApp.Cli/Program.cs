@@ -76,6 +76,13 @@ internal static class Program
 
             CommandCompletedEvent.Log(parseResult.CommandResult, returnCode);
 
+            if (args.Length == 0)
+            {
+                // Temporary special case: If no arguments are provided, return 0 to indicate success.
+                // This is because winget's validation currently doesn't like us returning failure here.
+                returnCode = 0;
+            }
+
             return returnCode;
         }
         catch (Exception ex)
