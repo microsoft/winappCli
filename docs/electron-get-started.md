@@ -17,9 +17,10 @@ Before you begin, ensure you have:
 - **Copilot+ PC / Windows 11** 
 - **Node.js** - `winget install OpenJS.NodeJS`
 - **.NET SDK v10** - `Microsoft.DotNet.SDK.10`
+- **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 > [!NOTE]
-> Phi Silica requires a Copilot+ PC to run and that is why it is a requirement for this guide. This guide applies to all other APIs that don't require a Copilot+ PC all the same.
+> Phi Silica requires a Copilot+ PC to run and that is why it is a requirement for this guide. If you are not on a Copilot+ PC, you can still use this guide for any Windows API.
 
 ## Step 1: Create a New Electron App
 
