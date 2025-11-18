@@ -236,6 +236,7 @@ extends:
             env:
               # PAT lasts 90 days, regenerate as needed and re-run if it failes due to authentication
               WINGET_CREATE_GITHUB_TOKEN: $(GITHUB_TOKEN)
+              GH_TOKEN: $(GITHUB_TOKEN)
             inputs:
               targetType: 'inline'
               script: |
@@ -245,11 +246,31 @@ extends:
                 Invoke-WebRequest https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx -OutFile $vcLibsFile
                 Add-AppxPackage $vcLibsFile
                 
+                # Install gh
+                Write-Host "Installing gh..."
+                winget install --id GitHub.cli --source winget --silent --accept-source-agreements
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "winget returned exit code: $LASTEXITCODE"
+                  Write-Host "Continuing in case gh is already installed..."
+                }
+
                 # Download and install wingetcreate
                 Write-Host "Installing wingetcreate..."
                 $wingetCreateBundle = "wingetcreate.msixbundle"
                 Invoke-WebRequest https://aka.ms/wingetcreate/latest/msixbundle -OutFile $wingetCreateBundle
                 Add-AppxPackage $wingetCreateBundle
+
+                # WinGetCreate uses an existing fork of the microsoft/winget-pkgs repo to create the PR
+                # that updates the main repo.  This fork will be under the account attached to the token.
+                # We need to keep this fork up-to-date, otherwise the wingetcreate command will fail.
+                # See: https://github.com/microsoft/winget-create/issues/502
+                Write-Host "Syncing winget-pkgs fork..."
+                & "$env:ProgramFiles\GitHub CLI\gh.exe" repo sync $(WingetPkgsFork) -b master
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Failed to sync winget-pkgs fork. Exit code: $LASTEXITCODE"
+                  exit $LASTEXITCODE
+                }
+                Write-Host "Fork synced successfully."
                 
                 # Get the installer URLs from the GitHub release
                 $x64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_$(version).0_x64.msix"
@@ -262,6 +283,6 @@ extends:
                 
                 # Submit to WinGet repository
                 wingetcreate update Microsoft.WinAppCli `
-                 --version $(version) `
+                  --version $(version) `
                   --urls $x64MsixUrl $arm64MsixUrl `
                   --submit
