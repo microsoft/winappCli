@@ -43,7 +43,7 @@ Perfect for:
 
 ### WinGet
 
-The easiest way to use the CLI is to via WinGet (Windows Package Manager). In Terminal, simply run:
+The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
 
 `winget install Microsoft.WinAppCLI`
 
