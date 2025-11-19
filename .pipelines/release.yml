@@ -174,45 +174,44 @@ extends:
                 - ✅ Standalone CLI binaries (x64 and ARM64)
                 - ✅ NPM package for NodeJS/Electron integration
 
-    # Commented out ESRP release to npm for now
-    # - ${{ if eq(parameters.DoEsrp, 'true') }}:
-    #   - stage: Release_Npm
-    #     displayName: Create Npm Release
-    #     dependsOn: Release_GitHub
-    #     jobs:
-    #     - job: create_npm_release
-    #       pool:
-    #         name: Azure-Pipelines-1ESPT-ExDShared
-    #         image: windows-latest
-    #         os: windows
-    #         hostArchitecture: amd64
-    #       displayName: NPM Release
-    #       templateContext:
-    #         type: releaseJob
-    #         isProduction: true
-    #         inputs:
-    #         - input: pipelineArtifact
-    #           artifactName: npm-package
-    #           targetPath: $(Pipeline.Workspace)/npm-package
-    #       steps:
-    #         - task: EsrpRelease@10
-    #           condition: always()
-    #           inputs:
-    #             ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
-    #             usemanagedidentity: true
-    #             keyvaultname: ${{ parameters.signingIdentity.akvName }}
-    #             signcertname: ${{ parameters.signingIdentity.signTTSCertName }}
-    #             clientid: ${{ parameters.signingIdentity.appId }}
-    #             intent: 'PackageDistribution'
-    #             contenttype: 'npm'
-    #             contentsource: 'Folder'
-    #             folderlocation: $(Pipeline.Workspace)/npm-package/
-    #             waitforreleasecompletion: true
-    #             owners: '$(EsrpOwnersEmail)'
-    #             approvers: '$(EsrpApproversEmail)'
-    #             serviceendpointurl: 'https://api.esrp.microsoft.com'
-    #             mainpublisher: 'winappcli'
-    #             domaintenantid: ${{ parameters.signingIdentity.tenantId }}
+    - ${{ if eq(parameters.DoEsrp, 'true') }}:
+      - stage: Release_Npm
+        displayName: Create Npm Release
+        dependsOn: Release_GitHub
+        jobs:
+        - job: create_npm_release
+          pool:
+            name: Azure-Pipelines-1ESPT-ExDShared
+            image: windows-latest
+            os: windows
+            hostArchitecture: amd64
+          displayName: NPM Release
+          templateContext:
+            type: releaseJob
+            isProduction: true
+            inputs:
+            - input: pipelineArtifact
+              artifactName: npm-package
+              targetPath: $(Pipeline.Workspace)/npm-package
+          steps:
+            - task: EsrpRelease@10
+              condition: always()
+              inputs:
+                ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                usemanagedidentity: true
+                keyvaultname: ${{ parameters.signingIdentity.akvName }}
+                signcertname: ${{ parameters.signingIdentity.signTTSCertName }}
+                clientid: ${{ parameters.signingIdentity.appId }}
+                intent: 'PackageDistribution'
+                contenttype: 'npm'
+                contentsource: 'Folder'
+                folderlocation: $(Pipeline.Workspace)/npm-package/
+                waitforreleasecompletion: true
+                owners: '$(EsrpOwnersEmail)'
+                approvers: '$(EsrpApproversEmail)'
+                serviceendpointurl: 'https://api.esrp.microsoft.com'
+                mainpublisher: 'winappcli'
+                domaintenantid: ${{ parameters.signingIdentity.tenantId }}
 
     - stage: Release_WinGet
       displayName: Create WinGet Release
