@@ -210,7 +210,7 @@ extends:
                 owners: '$(EsrpOwnersEmail)'
                 approvers: '$(EsrpApproversEmail)'
                 serviceendpointurl: 'https://api.esrp.microsoft.com'
-                mainpublisher: 'winappcli'
+                mainpublisher: 'ESRPRELPACMAN'
                 domaintenantid: ${{ parameters.signingIdentity.tenantId }}
 
     - stage: Release_WinGet
