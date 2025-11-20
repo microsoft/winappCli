@@ -1,13 +1,6 @@
 parameters:
   stable: 'false'
   DoEsrp: false
-  signingIdentity:
-    serviceName: ''
-    appId: ''
-    tenantId: ''
-    akvName: ''
-    authCertName: ''
-    signCertName: ''
 
 steps:
 - task: PowerShell@2
@@ -20,12 +13,12 @@ steps:
   - task: EsrpCodeSigning@5
     displayName: Code Sign ESRP - CLI
     inputs:
-      ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
-      AppRegistrationClientId: ${{ parameters.signingIdentity.appId }}
-      AppRegistrationTenantId: ${{ parameters.signingIdentity.tenantId }}
-      AuthAKVName: ${{ parameters.signingIdentity.akvName }}
-      AuthCertName: ${{ parameters.signingIdentity.authCertName }}
-      AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
+      ConnectedServiceName: $(SigningServiceName)
+      AppRegistrationClientId: $(SigningAppId)
+      AppRegistrationTenantId: $(SigningTenantId)
+      AuthAKVName: $(SigningAKVName)
+      AuthCertName: $(SigningAuthCertName)
+      AuthSignCertName: $(SigningSignCertName)
       FolderPath: '$(System.DefaultWorkingDirectory)/artifacts/cli/'
       Pattern: |
         win-arm64/winapp.exe
@@ -71,12 +64,12 @@ steps:
   - task: EsrpCodeSigning@5
     displayName: Code Sign ESRP - MSIX Packages
     inputs:
-      ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
-      AppRegistrationClientId: ${{ parameters.signingIdentity.appId }}
-      AppRegistrationTenantId: ${{ parameters.signingIdentity.tenantId }}
-      AuthAKVName: ${{ parameters.signingIdentity.akvName }}
-      AuthCertName: ${{ parameters.signingIdentity.authCertName }}
-      AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
+      ConnectedServiceName: $(SigningServiceName)
+      AppRegistrationClientId: $(SigningAppId)
+      AppRegistrationTenantId: $(SigningTenantId)
+      AuthAKVName: $(SigningAKVName)
+      AuthCertName: $(SigningAuthCertName)
+      AuthSignCertName: $(SigningSignCertName)
       FolderPath: '$(System.DefaultWorkingDirectory)/artifacts/msix-packages/'
       Pattern: '*.msix'
       UseMinimatch: true
