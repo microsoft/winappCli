@@ -70,6 +70,14 @@ extends:
             parameters:
               stable: 'true'
               DoEsrp: ${{ parameters.DoEsrp }}
+              signingIdentity:
+                serviceName: $(SigningServiceName)
+                appId: $(SigningAppId)
+                tenantId: $(SigningTenantId)
+                akvName: $(SigningAKVName)
+                authCertName: $(SigningAuthCertName)
+                signCertName: $(SigningSignCertName)
+
           - task: PowerShell@2
             name: SetMeta
             displayName: Export version
