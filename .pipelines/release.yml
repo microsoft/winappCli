@@ -13,18 +13,17 @@ resources:
 
 parameters:
   - name: DoEsrp
+    displayName: Sign the binaries and package
     type: boolean
     default: true
-  - name: signingIdentity
-    type: object
-    default:
-      serviceName: $(SigningServiceName)
-      appId: $(SigningAppId)
-      tenantId: $(SigningTenantId)
-      akvName: $(SigningAKVName)
-      authCertName: $(SigningAuthCertName)
-      signCertName: $(SigningSignCertName)
-      signTTSCertName: $(SigningSignTTSCertName)
+  - name: DoPublish
+    displayName: Publish to Github    
+    type: boolean
+    default: true
+    
+
+variables:
+  - group: signingIdentity
 
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
@@ -71,7 +70,6 @@ extends:
             parameters:
               stable: 'true'
               DoEsrp: ${{ parameters.DoEsrp }}
-              signingIdentity: ${{ parameters.signingIdentity }}
           - task: PowerShell@2
             name: SetMeta
             displayName: Export version
@@ -87,94 +85,95 @@ extends:
 
                 Write-Host "##vso[task.setvariable variable=version;isOutput=true]$fullVersion"
 
-    - stage: Release_GitHub
-      displayName: Create GitHub Release
-      dependsOn: Build
-      variables:
-        version: $[ stageDependencies.Build.Build.outputs['SetMeta.version'] ]
-      jobs:
-      - job: create_github_release
-        pool:
-          name: Azure-Pipelines-1ESPT-ExDShared
-          image: windows-latest
-          os: windows
-          hostArchitecture: amd64
-        displayName: GitHub Release
-        templateContext:
-          type: releaseJob
-          isProduction: true
-          inputs:
-          - input: pipelineArtifact
-            artifactName: cli-binaries
-            targetPath: $(Pipeline.Workspace)/cli-binaries
-          - input: pipelineArtifact
-            artifactName: npm-package
-            targetPath: $(Pipeline.Workspace)/npm-package
-          - input: pipelineArtifact
-            artifactName: msix-packages
-            targetPath: $(Pipeline.Workspace)/msix-packages
-        steps:
-          - task: ArchiveFiles@2
-            displayName: Archive CLI binaries - x64
+    - ${{ if eq(parameters.DoPublish, 'true') }}:                
+      - stage: Release_GitHub
+        displayName: Create GitHub Release
+        dependsOn: Build
+        variables:
+          version: $[ stageDependencies.Build.Build.outputs['SetMeta.version'] ]
+        jobs:
+        - job: create_github_release
+          pool:
+            name: Azure-Pipelines-1ESPT-ExDShared
+            image: windows-latest
+            os: windows
+            hostArchitecture: amd64
+          displayName: GitHub Release
+          templateContext:
+            type: releaseJob
+            isProduction: true
             inputs:
-              rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-x64
-              includeRootFolder: false
-              archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-x64.zip
+            - input: pipelineArtifact
+              artifactName: cli-binaries
+              targetPath: $(Pipeline.Workspace)/cli-binaries
+            - input: pipelineArtifact
+              artifactName: npm-package
+              targetPath: $(Pipeline.Workspace)/npm-package
+            - input: pipelineArtifact
+              artifactName: msix-packages
+              targetPath: $(Pipeline.Workspace)/msix-packages
+          steps:
+            - task: ArchiveFiles@2
+              displayName: Archive CLI binaries - x64
+              inputs:
+                rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-x64
+                includeRootFolder: false
+                archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-x64.zip
 
-          - task: ArchiveFiles@2
-            displayName: Archive CLI binaries - arm64
-            inputs:
-              rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-arm64
-              includeRootFolder: false
-              archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-arm64.zip
+            - task: ArchiveFiles@2
+              displayName: Archive CLI binaries - arm64
+              inputs:
+                rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-arm64
+                includeRootFolder: false
+                archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-arm64.zip
 
-          - task: GitHubRelease@1
-            displayName: "Create GitHub Release"
-            inputs:
-              gitHubConnection: 'github-service-connection'
-              repositoryName: 'microsoft/winappcli'
-              action: 'create'
-              target: '$(Build.SourceVersion)'
-              tagSource: 'userSpecifiedTag'
-              tag: 'v$(version)'
-              title: 'Release v$(version)'
-              isPreRelease: true
-              assets: |
-                $(Pipeline.Workspace)/winappcli-*.zip
-                $(Pipeline.Workspace)/msix-packages/*.msix
-                $(Pipeline.Workspace)/npm-package/*.tgz
-              assetUploadMode: 'delete'
-              addChangeLog: false
-              releaseNotesSource: 'inline'
-              releaseNotesInline: |
-                🚀 **Automated Release Build**
+            - task: GitHubRelease@1
+              displayName: "Create GitHub Release"
+              inputs:
+                gitHubConnection: 'github-service-connection'
+                repositoryName: 'microsoft/winappcli'
+                action: 'create'
+                target: '$(Build.SourceVersion)'
+                tagSource: 'userSpecifiedTag'
+                tag: 'v$(version)'
+                title: 'Release v$(version)'
+                isPreRelease: true
+                assets: |
+                  $(Pipeline.Workspace)/winappcli-*.zip
+                  $(Pipeline.Workspace)/msix-packages/*.msix
+                  $(Pipeline.Workspace)/npm-package/*.tgz
+                assetUploadMode: 'delete'
+                addChangeLog: false
+                releaseNotesSource: 'inline'
+                releaseNotesInline: |
+                  🚀 **Automated Release Build**
 
-                Version: `$(version)`
-                Commit: `$(Build.SourceVersion)`
+                  Version: `$(version)`
+                  Commit: `$(Build.SourceVersion)`
 
-                ## Installation Options
+                  ## Installation Options
 
-                ### 📦 MSIX Installer (Recommended)
-                1. Download `winappcli_$(version).0_x64.msix` for x64 or `winappcli_$(version).0_arm64.msix` for ARM64
-                2. Double-click to install
-                3. Automatically added to PATH
+                  ### 📦 MSIX Installer (Recommended)
+                  1. Download `winappcli_$(version).0_x64.msix` for x64 or `winappcli_$(version).0_arm64.msix` for ARM64
+                  2. Double-click to install
+                  3. Automatically added to PATH
 
-                ### 📦 Standalone CLI Binaries
-                1. Download `winappcli-$(version)-x64.zip` for x64 or `winappcli-$(version)-arm64.zip` for ARM64
-                2. Extract to your desired location
-                3. Add to PATH or run directly: `winapp.exe`
+                  ### 📦 Standalone CLI Binaries
+                  1. Download `winappcli-$(version)-x64.zip` for x64 or `winappcli-$(version)-arm64.zip` for ARM64
+                  2. Extract to your desired location
+                  3. Add to PATH or run directly: `winapp.exe`
 
-                ### 📚 NPM Package (for Electron or NodeJS)
-                ```bash
-                npm install microsoft-winappcli-$(version).tgz
-                ```
+                  ### 📚 NPM Package (for Electron or NodeJS)
+                  ```bash
+                  npm install microsoft-winappcli-$(version).tgz
+                  ```
 
-                ## What's Included
-                - ✅ MSIX installer packages (x64 and ARM64)
-                - ✅ Standalone CLI binaries (x64 and ARM64)
-                - ✅ NPM package for NodeJS/Electron integration
+                  ## What's Included
+                  - ✅ MSIX installer packages (x64 and ARM64)
+                  - ✅ Standalone CLI binaries (x64 and ARM64)
+                  - ✅ NPM package for NodeJS/Electron integration
 
-    - ${{ if eq(parameters.DoEsrp, 'true') }}:
+    - ${{ if and(eq(parameters.DoEsrp, 'true'), eq(parameters.DoPublish, 'true')) }}:
       - stage: Release_Npm
         displayName: Create Npm Release
         dependsOn: Release_GitHub
@@ -194,14 +193,21 @@ extends:
               artifactName: npm-package
               targetPath: $(Pipeline.Workspace)/npm-package
           steps:
+            - task: PowerShell@2
+              displayName: "Echo debug info"
+              inputs:
+                targetType: 'inline'
+                script: |
+                  Write-Host "SigningServiceName: $(SigningServiceName)"
+
             - task: EsrpRelease@10
               condition: always()
               inputs:
-                ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                ConnectedServiceName: $(SigningServiceName)
                 usemanagedidentity: true
-                keyvaultname: ${{ parameters.signingIdentity.akvName }}
-                signcertname: ${{ parameters.signingIdentity.signTTSCertName }}
-                clientid: ${{ parameters.signingIdentity.appId }}
+                keyvaultname: $(SigningAKVName)
+                signcertname: $(SigningSignTTSCertName)
+                clientid: $(SigningAppId)
                 intent: 'PackageDistribution'
                 contenttype: 'npm'
                 contentsource: 'Folder'
@@ -211,77 +217,79 @@ extends:
                 approvers: '$(EsrpApproversEmail)'
                 serviceendpointurl: 'https://api.esrp.microsoft.com'
                 mainpublisher: 'ESRPRELPACMAN'
-                domaintenantid: ${{ parameters.signingIdentity.tenantId }}
+                domaintenantid: $(SigningTenantId)
 
-    - stage: Release_WinGet
-      displayName: Create WinGet Release
-      dependsOn: [Build, Release_GitHub]
-      variables:
-        version: $[ stageDependencies.Build.Build.outputs['SetMeta.version'] ]
-      jobs:
-      - job: create_winget_release
-        pool:
-          name: Azure-Pipelines-1ESPT-ExDShared
-          image: windows-latest
-          os: windows
-          hostArchitecture: amd64
-        displayName: WinGet Release
-        templateContext:
-          type: releaseJob
-          isProduction: true
-        steps:
-          - task: PowerShell@2
-            displayName: "Publish to WinGet"
-            env:
-              # PAT lasts 90 days, regenerate as needed and re-run if it failes due to authentication
-              WINGET_CREATE_GITHUB_TOKEN: $(GITHUB_TOKEN)
-              GH_TOKEN: $(GITHUB_TOKEN)
-            inputs:
-              targetType: 'inline'
-              script: |
-                # Download and install C++ Runtime framework package
-                Write-Host "Installing VCLibs dependency..."
-                $vcLibsFile = "Microsoft.VCLibs.x64.14.00.Desktop.appx"
-                Invoke-WebRequest https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx -OutFile $vcLibsFile
-                Add-AppxPackage $vcLibsFile
-                
-                # Install gh
-                Write-Host "Installing gh..."
-                winget install --id GitHub.cli --source winget --silent --accept-source-agreements
-                if ($LASTEXITCODE -ne 0) {
-                  Write-Host "winget returned exit code: $LASTEXITCODE"
-                  Write-Host "Continuing in case gh is already installed..."
-                }
+    - ${{ if eq(parameters.DoPublish, 'true') }}:
+      - stage: Release_WinGet
+        displayName: Create WinGet Release
+        dependsOn: [Build, Release_GitHub]
+        variables:
+          version: $[ stageDependencies.Build.Build.outputs['SetMeta.version'] ]
+        jobs:
+        - job: create_winget_release
+          pool:
+            name: Azure-Pipelines-1ESPT-ExDShared
+            image: windows-latest
+            os: windows
+            hostArchitecture: amd64
+          displayName: WinGet Release
+          templateContext:
+            type: releaseJob
+            isProduction: true
+          steps:
+            - task: PowerShell@2
+              displayName: "Publish to WinGet"
+              env:
+                # PAT lasts 90 days, regenerate as needed and re-run if it failes due to authentication
+                WINGET_CREATE_GITHUB_TOKEN: $(GITHUB_TOKEN)
+                GH_TOKEN: $(GITHUB_TOKEN)
+              inputs:
+                targetType: 'inline'
+                errorActionPreference: 'stop'
+                script: |
+                  # Download and install C++ Runtime framework package
+                  Write-Host "Installing VCLibs dependency..."
+                  $vcLibsFile = "Microsoft.VCLibs.x64.14.00.Desktop.appx"
+                  Invoke-WebRequest https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx -OutFile $vcLibsFile
+                  Add-AppxPackage $vcLibsFile
+                  
+                  # Install gh
+                  # TODO: Change this to get the latest version of gh
+                  Write-Host "Installing gh..."
+                  $tempDir = $(Agent.TempDirectory)
+                  Write-Host "TempDir: $tempDir"
+                  Invoke-WebRequest -Uri "https://github.com/cli/cli/releases/download/v2.83.1/gh_2.83.1_windows_amd64.zip" -OutFile "$tempdir\gh.zip"
+                  Expand-Archive "$tempdir\gh.zip" -DestinationPath "$tempDir\gh"
 
-                # Download and install wingetcreate
-                Write-Host "Installing wingetcreate..."
-                $wingetCreateBundle = "wingetcreate.msixbundle"
-                Invoke-WebRequest https://aka.ms/wingetcreate/latest/msixbundle -OutFile $wingetCreateBundle
-                Add-AppxPackage $wingetCreateBundle
+                  # Download and install wingetcreate
+                  Write-Host "Installing wingetcreate..."
+                  $wingetCreateBundle = "wingetcreate.msixbundle"
+                  Invoke-WebRequest https://aka.ms/wingetcreate/latest/msixbundle -OutFile $wingetCreateBundle
+                  Add-AppxPackage $wingetCreateBundle
 
-                # WinGetCreate uses an existing fork of the microsoft/winget-pkgs repo to create the PR
-                # that updates the main repo.  This fork will be under the account attached to the token.
-                # We need to keep this fork up-to-date, otherwise the wingetcreate command will fail.
-                # See: https://github.com/microsoft/winget-create/issues/502
-                Write-Host "Syncing winget-pkgs fork..."
-                & "$env:ProgramFiles\GitHub CLI\gh.exe" repo sync $(WingetPkgsFork) -b master
-                if ($LASTEXITCODE -ne 0) {
-                  Write-Error "Failed to sync winget-pkgs fork. Exit code: $LASTEXITCODE"
-                  exit $LASTEXITCODE
-                }
-                Write-Host "Fork synced successfully."
-                
-                # Get the installer URLs from the GitHub release
-                $x64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_$(version).0_x64.msix"
-                $arm64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_$(version).0_arm64.msix"
-                
-                Write-Host "Submitting to WinGet..."
-                Write-Host "Version: $(version)"
-                Write-Host "x64 MSIX: $x64MsixUrl"
-                Write-Host "ARM64 MSIX: $arm64MsixUrl"
-                
-                # Submit to WinGet repository
-                wingetcreate update Microsoft.WinAppCli `
-                  --version $(version) `
-                  --urls $x64MsixUrl $arm64MsixUrl `
-                  --submit
+                  # WinGetCreate uses an existing fork of the microsoft/winget-pkgs repo to create the PR
+                  # that updates the main repo.  This fork will be under the account attached to the token.
+                  # We need to keep this fork up-to-date, otherwise the wingetcreate command will fail.
+                  # See: https://github.com/microsoft/winget-create/issues/502
+                  Write-Host "Syncing winget-pkgs fork..."
+                  & "$tempDir\gh\bin\gh.exe" repo sync $(WingetPkgsFork) -b master
+                  if ($LASTEXITCODE -ne 0) {
+                    Write-Error "Failed to sync winget-pkgs fork. Exit code: $LASTEXITCODE"
+                    exit $LASTEXITCODE
+                  }
+                  Write-Host "Fork synced successfully."
+                  
+                  # Get the installer URLs from the GitHub release
+                  $x64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_$(version).0_x64.msix"
+                  $arm64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_$(version).0_arm64.msix"
+                  
+                  Write-Host "Submitting to WinGet..."
+                  Write-Host "Version: $(version)"
+                  Write-Host "x64 MSIX: $x64MsixUrl"
+                  Write-Host "ARM64 MSIX: $arm64MsixUrl"
+                  
+                  # Submit to WinGet repository
+                  wingetcreate update Microsoft.WinAppCli `
+                    --version $(version) `
+                    --urls $x64MsixUrl $arm64MsixUrl `
+                    --submit
