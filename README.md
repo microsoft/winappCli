@@ -41,7 +41,15 @@ Perfect for:
 
 ## 📦 Installation
 
-The easiest way to use the CLI is to download the latest build from GitHub Releases.
+### WinGet
+
+The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
+
+`winget install Microsoft.WinAppCLI`
+
+### Download Release Manually
+
+Or, download the latest build from GitHub Releases:
 
 **[👉 Download Latest Build](https://github.com/microsoft/WinAppCli/releases/latest)**
 
@@ -55,7 +63,7 @@ The easiest way to use the CLI is to download the latest build from GitHub Relea
 
 ### Adding to Path
 
-The easiest way to use the CLI globally is to install it via the [MSIX installer](https://github.com/microsoft/WinAppCli/releases/latest).
+The easiest way to use the CLI globally is to install it via WinGet or the [MSIX installer](https://github.com/microsoft/WinAppCli/releases/latest).
 
 You can also add it manually: Windows Search → Edit the system environment variables → Environment Variables → Path → Edit → New → Add the location (folder) of winapp CLI.
 
