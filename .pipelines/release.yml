@@ -15,9 +15,16 @@ parameters:
   - name: DoEsrp
     type: boolean
     default: true
-
-variables:
-  - group: signingIdentity
+  - name: signingIdentity
+    type: object
+    default:
+      serviceName: $(SigningServiceName)
+      appId: $(SigningAppId)
+      tenantId: $(SigningTenantId)
+      akvName: $(SigningAKVName)
+      authCertName: $(SigningAuthCertName)
+      signCertName: $(SigningSignCertName)
+      signTTSCertName: $(SigningSignTTSCertName)
 
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
@@ -64,6 +71,7 @@ extends:
             parameters:
               stable: 'true'
               DoEsrp: ${{ parameters.DoEsrp }}
+              signingIdentity: ${{ parameters.signingIdentity }}
           - task: PowerShell@2
             name: SetMeta
             displayName: Export version
@@ -186,21 +194,14 @@ extends:
               artifactName: npm-package
               targetPath: $(Pipeline.Workspace)/npm-package
           steps:
-            - task: PowerShell@2
-              displayName: "Echo debug info"
-              inputs:
-                targetType: 'inline'
-                script: |
-                  Write-Host "SigningServiceName: $(SigningServiceName)"
-
             - task: EsrpRelease@10
               condition: always()
               inputs:
-                ConnectedServiceName: $(SigningServiceName)
+                ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
                 usemanagedidentity: true
-                keyvaultname: $(SigningAKVName)
-                signcertname: $(SigningSignTTSCertName)
-                clientid: $(SigningAppId)
+                keyvaultname: ${{ parameters.signingIdentity.akvName }}
+                signcertname: ${{ parameters.signingIdentity.signTTSCertName }}
+                clientid: ${{ parameters.signingIdentity.appId }}
                 intent: 'PackageDistribution'
                 contenttype: 'npm'
                 contentsource: 'Folder'
@@ -210,7 +211,7 @@ extends:
                 approvers: '$(EsrpApproversEmail)'
                 serviceendpointurl: 'https://api.esrp.microsoft.com'
                 mainpublisher: 'ESRPRELPACMAN'
-                domaintenantid: $(SigningTenantId)
+                domaintenantid: ${{ parameters.signingIdentity.tenantId }}
 
     - stage: Release_WinGet
       displayName: Create WinGet Release
@@ -237,7 +238,6 @@ extends:
               GH_TOKEN: $(GITHUB_TOKEN)
             inputs:
               targetType: 'inline'
-              errorActionPreference: 'stop'
               script: |
                 # Download and install C++ Runtime framework package
                 Write-Host "Installing VCLibs dependency..."
@@ -246,12 +246,12 @@ extends:
                 Add-AppxPackage $vcLibsFile
                 
                 # Install gh
-                # TODO: Change this to get the latest version of gh
                 Write-Host "Installing gh..."
-                $tempDir = $(Agent.TempDirectory)
-                Write-Host "TempDir: $tempDir"
-                Invoke-WebRequest -Uri "https://github.com/cli/cli/releases/download/v2.83.1/gh_2.83.1_windows_amd64.zip" -OutFile "$tempdir\gh.zip"
-                Expand-Archive "$tempdir\gh.zip" -DestinationPath "$tempDir\gh"
+                winget install --id GitHub.cli --source winget --silent --accept-source-agreements
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "winget returned exit code: $LASTEXITCODE"
+                  Write-Host "Continuing in case gh is already installed..."
+                }
 
                 # Download and install wingetcreate
                 Write-Host "Installing wingetcreate..."
@@ -264,7 +264,7 @@ extends:
                 # We need to keep this fork up-to-date, otherwise the wingetcreate command will fail.
                 # See: https://github.com/microsoft/winget-create/issues/502
                 Write-Host "Syncing winget-pkgs fork..."
-                & " $tempDir\gh\bin\gh.exe" repo sync $(WingetPkgsFork) -b master
+                & "$env:ProgramFiles\GitHub CLI\gh.exe" repo sync $(WingetPkgsFork) -b master
                 if ($LASTEXITCODE -ne 0) {
                   Write-Error "Failed to sync winget-pkgs fork. Exit code: $LASTEXITCODE"
                   exit $LASTEXITCODE
