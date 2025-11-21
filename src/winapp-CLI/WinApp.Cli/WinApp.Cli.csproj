@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>winapp</AssemblyName>
+    <ApplicationIcon>Assets\icon\winapp.ico</ApplicationIcon>
 
     <!-- Enable Code Analysis -->
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
