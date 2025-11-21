@@ -264,7 +264,7 @@ extends:
                   # Install gh
                   # TODO: Change this to get the latest version of gh
                   Write-Host "Installing gh..."
-                  $tempDir = $(Agent.TempDirectory)
+                  $tempDir = "$(Agent.TempDirectory)"
                   Write-Host "TempDir: $tempDir"
                   Invoke-WebRequest -Uri "https://github.com/cli/cli/releases/download/v2.83.1/gh_2.83.1_windows_amd64.zip" -OutFile "$tempdir\gh.zip"
                   Expand-Archive "$tempdir\gh.zip" -DestinationPath "$tempDir\gh"
