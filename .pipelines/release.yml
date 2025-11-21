@@ -13,6 +13,7 @@ resources:
 
 parameters:
   - name: DoEsrp
+    displayName: Sign the binaries and package (DoEsrp)
     type: boolean
     default: true
   - name: signingIdentity
@@ -25,6 +26,10 @@ parameters:
       authCertName: $(SigningAuthCertName)
       signCertName: $(SigningSignCertName)
       signTTSCertName: $(SigningSignTTSCertName)
+  - name: GitHubReleaseAlreadyExists
+    displayName: GitHub Release already exists, skip uploading GitHub release (GitHubReleaseAlreadyExists)
+    type: boolean
+    default: false
 
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
@@ -128,51 +133,52 @@ extends:
               includeRootFolder: false
               archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-arm64.zip
 
-          - task: GitHubRelease@1
-            displayName: "Create GitHub Release"
-            inputs:
-              gitHubConnection: 'github-service-connection'
-              repositoryName: 'microsoft/winappcli'
-              action: 'create'
-              target: '$(Build.SourceVersion)'
-              tagSource: 'userSpecifiedTag'
-              tag: 'v$(version)'
-              title: 'Release v$(version)'
-              isPreRelease: true
-              assets: |
-                $(Pipeline.Workspace)/winappcli-*.zip
-                $(Pipeline.Workspace)/msix-packages/*.msix
-                $(Pipeline.Workspace)/npm-package/*.tgz
-              assetUploadMode: 'delete'
-              addChangeLog: false
-              releaseNotesSource: 'inline'
-              releaseNotesInline: |
-                🚀 **Automated Release Build**
+          - ${{ if ne(parameters.GitHubReleaseAlreadyExists, 'true') }}:
+            - task: GitHubRelease@1
+              displayName: "Create GitHub Release"
+              inputs:
+                gitHubConnection: 'github-service-connection'
+                repositoryName: 'microsoft/winappcli'
+                action: 'create'
+                target: '$(Build.SourceVersion)'
+                tagSource: 'userSpecifiedTag'
+                tag: 'v$(version)'
+                title: 'Release v$(version)'
+                isPreRelease: true
+                assets: |
+                  $(Pipeline.Workspace)/winappcli-*.zip
+                  $(Pipeline.Workspace)/msix-packages/*.msix
+                  $(Pipeline.Workspace)/npm-package/*.tgz
+                assetUploadMode: 'delete'
+                addChangeLog: false
+                releaseNotesSource: 'inline'
+                releaseNotesInline: |
+                  🚀 **Automated Release Build**
 
-                Version: `$(version)`
-                Commit: `$(Build.SourceVersion)`
+                  Version: `$(version)`
+                  Commit: `$(Build.SourceVersion)`
 
-                ## Installation Options
+                  ## Installation Options
 
-                ### 📦 MSIX Installer (Recommended)
-                1. Download `winappcli_$(version).0_x64.msix` for x64 or `winappcli_$(version).0_arm64.msix` for ARM64
-                2. Double-click to install
-                3. Automatically added to PATH
+                  ### 📦 MSIX Installer (Recommended)
+                  1. Download `winappcli_$(version).0_x64.msix` for x64 or `winappcli_$(version).0_arm64.msix` for ARM64
+                  2. Double-click to install
+                  3. Automatically added to PATH
 
-                ### 📦 Standalone CLI Binaries
-                1. Download `winappcli-$(version)-x64.zip` for x64 or `winappcli-$(version)-arm64.zip` for ARM64
-                2. Extract to your desired location
-                3. Add to PATH or run directly: `winapp.exe`
+                  ### 📦 Standalone CLI Binaries
+                  1. Download `winappcli-$(version)-x64.zip` for x64 or `winappcli-$(version)-arm64.zip` for ARM64
+                  2. Extract to your desired location
+                  3. Add to PATH or run directly: `winapp.exe`
 
-                ### 📚 NPM Package (for Electron or NodeJS)
-                ```bash
-                npm install microsoft-winappcli-$(version).tgz
-                ```
+                  ### 📚 NPM Package (for Electron or NodeJS)
+                  ```bash
+                  npm install microsoft-winappcli-$(version).tgz
+                  ```
 
-                ## What's Included
-                - ✅ MSIX installer packages (x64 and ARM64)
-                - ✅ Standalone CLI binaries (x64 and ARM64)
-                - ✅ NPM package for NodeJS/Electron integration
+                  ## What's Included
+                  - ✅ MSIX installer packages (x64 and ARM64)
+                  - ✅ Standalone CLI binaries (x64 and ARM64)
+                  - ✅ NPM package for NodeJS/Electron integration
 
     - ${{ if eq(parameters.DoEsrp, 'true') }}:
       - stage: Release_Npm
@@ -194,6 +200,12 @@ extends:
               artifactName: npm-package
               targetPath: $(Pipeline.Workspace)/npm-package
           steps:
+            - task: PowerShell@2
+              displayName: "Echo debug info"
+              inputs:
+                targetType: 'inline'
+                script: |
+                  Write-Host "SigningServiceName: ${{ parameters.signingIdentity.serviceName }}"
             - task: EsrpRelease@10
               condition: always()
               inputs:
@@ -234,10 +246,11 @@ extends:
             displayName: "Publish to WinGet"
             env:
               # PAT lasts 90 days, regenerate as needed and re-run if it failes due to authentication
-              WINGET_CREATE_GITHUB_TOKEN: $(GITHUB_TOKEN)
-              GH_TOKEN: $(GITHUB_TOKEN)
+              WINGET_CREATE_GITHUB_TOKEN: $(GITHUB_TOKEN_2)
+              GH_TOKEN: $(GITHUB_TOKEN_2)
             inputs:
               targetType: 'inline'
+              errorActionPreference: 'stop'
               script: |
                 # Download and install C++ Runtime framework package
                 Write-Host "Installing VCLibs dependency..."
@@ -246,12 +259,12 @@ extends:
                 Add-AppxPackage $vcLibsFile
                 
                 # Install gh
+                # TODO: Change this to get the latest version of gh
                 Write-Host "Installing gh..."
-                winget install --id GitHub.cli --source winget --silent --accept-source-agreements
-                if ($LASTEXITCODE -ne 0) {
-                  Write-Host "winget returned exit code: $LASTEXITCODE"
-                  Write-Host "Continuing in case gh is already installed..."
-                }
+                $tempDir = "$(Agent.TempDirectory)"
+                Write-Host "TempDir: $tempDir"
+                Invoke-WebRequest -Uri "https://github.com/cli/cli/releases/download/v2.83.1/gh_2.83.1_windows_amd64.zip" -OutFile "$tempdir\gh.zip"
+                Expand-Archive "$tempdir\gh.zip" -DestinationPath "$tempDir\gh"
 
                 # Download and install wingetcreate
                 Write-Host "Installing wingetcreate..."
@@ -264,7 +277,7 @@ extends:
                 # We need to keep this fork up-to-date, otherwise the wingetcreate command will fail.
                 # See: https://github.com/microsoft/winget-create/issues/502
                 Write-Host "Syncing winget-pkgs fork..."
-                & "$env:ProgramFiles\GitHub CLI\gh.exe" repo sync $(WingetPkgsFork) -b master
+                & "$tempDir\gh\bin\gh.exe" repo sync $(WingetPkgsFork) -b master
                 if ($LASTEXITCODE -ne 0) {
                   Write-Error "Failed to sync winget-pkgs fork. Exit code: $LASTEXITCODE"
                   exit $LASTEXITCODE
