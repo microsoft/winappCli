@@ -213,7 +213,7 @@ extends:
                 usemanagedidentity: false
                 keyvaultname: ${{ parameters.signingIdentity.akvName }}
                 authcertname: ${{ parameters.signingIdentity.authCertName }}
-                signcertname: ${{ parameters.signingIdentity.signTTSCertName }}
+                signcertname: ${{ parameters.signingIdentity.signCertName }}
                 clientid: ${{ parameters.signingIdentity.appId }}
                 intent: 'PackageDistribution'
                 contenttype: 'npm'
