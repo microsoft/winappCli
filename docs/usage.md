@@ -436,15 +436,17 @@ Winapp creates a directory to cache files that can be shared between multiple pr
 
 By default, winapp creates a directory at `$UserProfile/.winapp` as the global cache directory.
 
-To use a different location, set the `WINAPP_CLI_CACHE_DIRECTORY` environment variable:
+To use a different location, set the `WINAPP_CLI_CACHE_DIRECTORY` environment variable.
 
+In **cmd**:
 ```cmd
-REM cmd - set a custom location for winapp's global cache
+REM Set a custom location for winapp's global cache
 set WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
+In **Powershell** and **pwsh**:
 ```pwsh
-# Powershell - set a custom location for winapp's global cache
+# Set a custom location for winapp's global cache
 $env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
