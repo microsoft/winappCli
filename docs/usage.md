@@ -30,6 +30,7 @@ winapp init [base-directory] [options]
 - Creates development certificate and AppxManifest.xml
 - Sets up build tools and enables developer mode
 - Updates .gitignore to exclude generated files
+- Stores sharable files in the global cache directory
 
 **Examples:**
 
@@ -63,6 +64,7 @@ winapp restore [options]
 - Reads existing `winapp.yaml` configuration
 - Downloads/updates SDK packages to specified versions
 - Regenerates C++/WinRT headers and binaries
+- Stores sharable files in the global cache directory
 
 **Examples:**
 
@@ -425,3 +427,27 @@ All commands support these global options:
 - `--verbose`, `-v` - Enable verbose output for detailed logging
 - `--quiet`, `-q` - Suppress progress messages
 - `--help`, `-h` - Show command help
+
+---
+
+### Global Cache Directory
+
+Winapp creates a directory to cache files that can be shared between multiple projects.
+
+By default, winapp creates a directory at `$UserProfile/.winapp` as the global cache directory.
+
+To use a different location, set the `WINAPP_CLI_CACHE_DIRECTORY` environment variable.
+
+In **cmd**:
+```cmd
+REM Set a custom location for winapp's global cache
+set WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
+```
+
+In **Powershell** and **pwsh**:
+```pwsh
+# Set a custom location for winapp's global cache
+$env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
+```
+
+Winapp will create this directory automatically when you run commands like `init` or `restore`.
