@@ -325,6 +325,22 @@ internal partial class BuildToolsService(
 
         if (p.ExitCode != 0)
         {
+            // Print lines from both stdout and stderr when not in verbose mode so the user can determine
+            // what went wrong.
+            // In verbose mode, all output is already visible via LogDebug above.
+            if (!logger.IsEnabled(LogLevel.Debug))
+            {
+                if (!string.IsNullOrWhiteSpace(stdout))
+                {
+                    logger.LogError("{Stdout}", stdout);
+                }
+
+                if (!string.IsNullOrWhiteSpace(stderr))
+                {
+                    logger.LogError("{StdErr}", stderr);
+                }
+            }
+            
             throw new InvalidBuildToolException(p.Id, stdout, stderr, $"{toolName} execution failed with exit code {p.ExitCode}");
         }
 
