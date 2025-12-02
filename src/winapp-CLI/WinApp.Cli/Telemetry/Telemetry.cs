@@ -15,7 +15,7 @@ namespace WinApp.Cli.Telemetry;
 /// </summary>
 internal sealed class Telemetry : ITelemetry
 {
-    private const string ProviderName = "Microsoft.Windows.WinAppDevCLI";
+    private const string ProviderName = "Microsoft.Windows.WinAppCLI";
 
     /// <summary>
     /// Time Taken Event Name
