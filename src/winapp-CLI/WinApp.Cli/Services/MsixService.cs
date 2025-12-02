@@ -72,6 +72,46 @@ internal partial class MsixService(
     [GeneratedRegex(@"<assemblyIdentity[^>]*name\s*=\s*[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex AssemblyIdentityNameRegex();
 
+    // Language (en, en-US, pt-BR, zh-Hans, etc.) – bare token
+    [GeneratedRegex(@"^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex LanguageQualifierRegex();
+
+    [GeneratedRegex(@"^scale-(\d+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    // scale-100, scale-200, etc.
+    private static partial Regex ScaleQualifierRegex();
+
+    // theme-dark, theme-light
+    [GeneratedRegex(@"^theme-(light|dark)$", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex ThemeQualifierRegex();
+
+    // contrast-standard, contrast-high
+    [GeneratedRegex(@"^contrast-(standard|high)$", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex ContrastQualifierRegex();
+
+    // dxfeaturelevel-9 / 10 / 11
+    [GeneratedRegex(@"^dxfeaturelevel-(9|10|11)$", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex DxFeatureLevelQualifierRegex();
+
+    // device-family-desktop / xbox / team / iot / mobile
+    [GeneratedRegex(@"^device-family-(desktop|mobile|team|xbox|iot)$", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex DeviceFamilyQualifierRegex();
+
+    // homeregion-US, homeregion-JP, ...
+    [GeneratedRegex(@"^homeregion-[A-Za-z]{2}$", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex HomeRegionQualifierRegex();
+
+    // configuration-debug, configuration-retail, etc.
+    [GeneratedRegex(@"^configuration-[A-Za-z0-9]+$", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex ConfigurationQualifierRegex();
+
+    // targetsize-16, targetsize-24, targetsize-256, ...
+    [GeneratedRegex(@"^targetsize-(\d+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex TargetSizeQualifierRegex();
+
+    // altform-unplated, altform-lightunplated, etc.
+    [GeneratedRegex(@"^altform-[A-Za-z0-9]+$", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex AltFormQualifierRegex();
+
     /// <summary>
     /// Sets up Windows App SDK for self-contained deployment by extracting MSIX content
     /// and preparing the necessary files for embedding in applications.
@@ -1658,29 +1698,160 @@ $1");
             }
         }
 
-        // Copy each referenced file
+        // Copy MRT variants for each referenced file
         foreach (var relativeFilePath in referencedFiles)
         {
-            var sourceFile = new FileInfo(Path.Combine(manifestDir.FullName, relativeFilePath));
-            var targetFile = new FileInfo(Path.Combine(targetDir.FullName, relativeFilePath));
+            var logicalSourceFile = new FileInfo(Path.Combine(manifestDir.FullName, relativeFilePath));
+            var sourceDir = logicalSourceFile.Directory;
 
-            if (sourceFile.Exists)
+            if (sourceDir is null || !sourceDir.Exists)
             {
-                // Ensure target directory exists
-                targetFile.Directory?.Create();
+                logger.LogDebug("{UISymbol} Source directory not found for referenced file: {RelativeFilePath}",
+                    UiSymbols.Warning, relativeFilePath);
+                continue;
+            }
 
-                sourceFile.CopyTo(targetFile.FullName, overwrite: true);
+            var logicalBaseName = Path.GetFileNameWithoutExtension(logicalSourceFile.Name);
+            var extension = logicalSourceFile.Extension; // includes the dot, e.g. ".png"
+
+            // Enumerate candidates: same directory, same extension, starting with base name
+            // e.g. Logo.png, Logo.scale-200.png, Logo.scale-200.theme-dark.en-US.png, etc.
+            var searchPattern = logicalBaseName + "*" + extension;
+            var candidates = sourceDir.EnumerateFiles(searchPattern);
+            var anyCopiedForLogical = false;
+
+            foreach (var candidateFile in candidates)
+            {
+                var candidateName = candidateFile.Name;
+                var candidateNameWithoutExtension = Path.GetFileNameWithoutExtension(candidateName);
+
+                if (!IsMrtVariantName(logicalBaseName, candidateNameWithoutExtension))
+                {
+                    // e.g. Logo.old.png or Logo.scale-200.backup.png -> ignore
+                    continue;
+                }
+
+                // Build target relative path preserving subdirectory & actual filename
+                var relativeDir = Path.GetDirectoryName(relativeFilePath);
+                string candidateRelativePath = string.IsNullOrEmpty(relativeDir)
+                    ? candidateName
+                    : Path.Combine(relativeDir, candidateName);
+
+                var targetFile = new FileInfo(Path.Combine(targetDir.FullName, candidateRelativePath));
+
+                targetFile.Directory?.Create();
+                candidateFile.CopyTo(targetFile.FullName, overwrite: true);
+                filesCopied++;
+                anyCopiedForLogical = true;
+
+                logger.LogDebug("{UISymbol} Copied MRT variant: {Logical} -> {Variant}",
+                    UiSymbols.Files, relativeFilePath, candidateRelativePath);
+            }
+
+            // Fallback: if we didn't find any MRT variants but the logical file itself exists, copy it
+            if (!anyCopiedForLogical && logicalSourceFile.Exists)
+            {
+                var targetFile = new FileInfo(Path.Combine(targetDir.FullName, relativeFilePath));
+                targetFile.Directory?.Create();
+                logicalSourceFile.CopyTo(targetFile.FullName, overwrite: true);
                 filesCopied++;
 
-                logger.LogDebug("{UISymbol} Copied: {RelativeFilePath}", UiSymbols.Files, relativeFilePath);
+                logger.LogDebug("{UISymbol} Copied (no MRT variants found): {RelativeFilePath}",
+                    UiSymbols.Files, relativeFilePath);
             }
-            else
+            else if (!anyCopiedForLogical && !logicalSourceFile.Exists)
             {
-                logger.LogDebug("{UISymbol} Referenced file not found: {SourceFile}", UiSymbols.Warning, sourceFile);
+                logger.LogDebug("{UISymbol} Referenced file not found (no MRT variants): {SourceFile}",
+                    UiSymbols.Warning, logicalSourceFile);
             }
         }
 
         return filesCopied;
+    }
+
+    // ltr / rtl
+    private static bool IsLayoutDirectionQualifier(string token)
+    {
+        return token.Equals("ltr", StringComparison.OrdinalIgnoreCase) ||
+        token.Equals("rtl", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSingleQualifierToken(string token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return false;
+        }
+
+        return LanguageQualifierRegex().IsMatch(token)
+            || ScaleQualifierRegex().IsMatch(token)
+            || ThemeQualifierRegex().IsMatch(token)
+            || ContrastQualifierRegex().IsMatch(token)
+            || DxFeatureLevelQualifierRegex().IsMatch(token)
+            || DeviceFamilyQualifierRegex().IsMatch(token)
+            || HomeRegionQualifierRegex().IsMatch(token)
+            || ConfigurationQualifierRegex().IsMatch(token)
+            || TargetSizeQualifierRegex().IsMatch(token)
+            || AltFormQualifierRegex().IsMatch(token)
+            || IsLayoutDirectionQualifier(token);
+    }
+
+    private static bool IsQualifierToken(string token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return false;
+        }
+
+        var parts = token.Split('_');
+
+        foreach (var part in parts)
+        {
+            if (!IsSingleQualifierToken(part))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="candidateNameWithoutExtension"/> is a valid MRT
+    /// variant of the logical base name (dots allowed in base name).
+    /// </summary>
+    private static bool IsMrtVariantName(string logicalBaseName, string candidateNameWithoutExtension)
+    {
+        // Split by '.'; "Logo.scale-200.theme-dark" -> ["Logo", "scale-200", "theme-dark"]
+        var parts = candidateNameWithoutExtension.Split('.');
+
+        if (parts.Length == 0)
+        {
+            return false;
+        }
+
+        // First token must match logical base name (case-insensitive)
+        if (!parts[0].Equals(logicalBaseName, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // No qualifiers -> exact logical name, valid
+        if (parts.Length == 1)
+        {
+            return true;
+        }
+
+        // All remaining tokens must be valid MRT qualifiers
+        for (int i = 1; i < parts.Length; i++)
+        {
+            if (!IsQualifierToken(parts[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
