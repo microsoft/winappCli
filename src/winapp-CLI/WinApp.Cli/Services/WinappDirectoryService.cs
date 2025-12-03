@@ -48,8 +48,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         while (dir != null)
         {
             var winappDirectory = Path.Combine(dir.FullName, ".winapp");
-            var winappYaml = Path.Combine(dir.FullName, "winapp.yaml");
-            if (Directory.Exists(winappDirectory) && File.Exists(winappYaml))
+            if (Directory.Exists(winappDirectory))
             {
                 return new DirectoryInfo(winappDirectory);
             }
