@@ -43,14 +43,13 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
     {
         baseDirectory ??= new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
 
-        DirectoryInfo globalWinappDirectory = GetGlobalWinappDirectory();
-
         var originalBaseDir = new DirectoryInfo(baseDirectory.FullName);
         var dir = originalBaseDir;
         while (dir != null)
         {
             var winappDirectory = Path.Combine(dir.FullName, ".winapp");
-            if (Directory.Exists(winappDirectory) && !string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase))
+            var winappYaml = Path.Combine(dir.FullName, "winapp.yaml");
+            if (Directory.Exists(winappDirectory) && File.Exists(winappYaml))
             {
                 return new DirectoryInfo(winappDirectory);
             }
