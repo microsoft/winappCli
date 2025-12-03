@@ -168,4 +168,27 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         var expectedPath = new DirectoryInfo(Path.Combine(GetRequiredService<ICurrentDirectoryProvider>().GetCurrentDirectory(), ".winapp"));
         Assert.AreEqual(expectedPath.FullName, result.FullName);
     }
+
+    [TestMethod]
+    public void GetLocalWinappDirectory_WhenLocalAndGlobalAreSame_ReturnsLocalWinappDirectory()
+    {
+        // Arrange - Create a .winapp directory and winapp.yaml in the same location
+        var localWinappDir = _tempDirectory.CreateSubdirectory(".winapp");
+        var winappYamlPath = Path.Combine(_tempDirectory.FullName, "winapp.yaml");
+        File.WriteAllText(winappYamlPath, "# test winapp.yaml");
+
+        // Set the global directory to be the same as the local directory
+        var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetCacheDirectoryForTesting(localWinappDir);
+
+        // Create a subdirectory to search from (so we test walking up the tree)
+        var subDir = _tempDirectory.CreateSubdirectory("subdir");
+
+        // Act - Search for local .winapp from subdirectory
+        var result = directoryService.GetLocalWinappDirectory(subDir);
+
+        // Assert - Should find the local .winapp (which is also the global one) because winapp.yaml exists
+        Assert.AreEqual(localWinappDir.FullName, result.FullName, 
+            "Should return the .winapp directory when winapp.yaml exists, even if it's also the global directory");
+    }
 }
