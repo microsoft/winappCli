@@ -21,7 +21,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         var result = directoryService.GetGlobalWinappDirectory();
 
         // Assert
-        var expectedDefaultPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp");
+        var expectedDefaultPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winappglobal");
         Assert.AreEqual(expectedDefaultPath, result.FullName);
     }
 

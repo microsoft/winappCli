@@ -35,7 +35,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         }
 
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var winappDir = Path.Combine(userProfile, ".winapp");
+        var winappDir = Path.Combine(userProfile, ".winappglobal");
         return new DirectoryInfo(winappDir);
     }
 

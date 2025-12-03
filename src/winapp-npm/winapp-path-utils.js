@@ -24,9 +24,9 @@ function getWinappPath(isGlobal = false) {
 }
 
 /**
- * Get the path to the global .winapp directory
- * @returns {string} The full path to the global .winapp directory
- * @throws {Error} If the global .winapp directory is not found
+ * Get the path to the global .winappglobal directory
+ * @returns {string} The full path to the global .winappglobal directory
+ * @throws {Error} If the global .winappglobal directory is not found
  */
 function getGlobalWinappPath() {
   return getWinappPath(true);
