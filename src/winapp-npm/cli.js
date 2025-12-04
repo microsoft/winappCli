@@ -268,6 +268,13 @@ async function handleCreateAddon(args) {
       console.log(`  2. npm run build-${result.addonName}`);
       console.log(`  3. See ${result.addonName}/README.md for usage examples`);
     } else {
+
+      if (!await pythonExists()) {
+        console.error(`❌ Python is required to generate C++ addons but was not found in your PATH.`);
+        console.error(`   Please install Python (version 3.10 or later) and ensure it is accessible from the command line.`);
+        process.exit(1);
+      }
+
       // Use C++ addon generator (existing)
       result = await generateAddonFiles({
         name: options.name,
@@ -285,6 +292,26 @@ async function handleCreateAddon(args) {
     console.error(`❌ Failed to generate addon files: ${error.message}`);
     process.exit(1);
   }
+}
+
+function pythonExists() {
+  const commands = ["python --version", "python3 --version", "py --version"];
+
+  return new Promise(resolve => {
+    let index = 0;
+
+    function tryNext() {
+      if (index >= commands.length) return resolve(false);
+
+      exec(commands[index], (err) => {
+        if (!err) return resolve(true);
+        index++;
+        tryNext();
+      });
+    }
+
+    tryNext();
+  });
 }
 
 async function handleAddonElectronDebugIdentity(args) {
