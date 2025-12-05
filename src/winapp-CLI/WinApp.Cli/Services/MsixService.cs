@@ -1130,7 +1130,7 @@ internal partial class MsixService(
 
         logger.LogDebug("Creating MSIX package...");
 
-        await buildToolsService.RunBuildToolAsync(new GenericTool("makeappx.exe"), makeappxArguments, cancellationToken: cancellationToken);
+        await buildToolsService.RunBuildToolAsync(new MakeAppxTool(), makeappxArguments, cancellationToken: cancellationToken);
     }
 
     private async Task RunMtToolAsync(string arguments, CancellationToken cancellationToken = default)
