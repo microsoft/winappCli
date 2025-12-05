@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
+using WinApp.Cli.Tools;
 
 namespace WinApp.Cli.Services;
 
@@ -522,7 +523,7 @@ internal partial class MsixService(
 
         try
         {
-            await buildToolsService.RunBuildToolAsync("makepri.exe", arguments, cancellationToken: cancellationToken);
+            await buildToolsService.RunBuildToolAsync(new MakePriTool(), arguments, cancellationToken: cancellationToken);
 
             logger.LogDebug("PRI configuration created: {ConfigPath}", configPath);
 
@@ -577,7 +578,7 @@ internal partial class MsixService(
 
         try
         {
-            var (stdout, stderr) = await buildToolsService.RunBuildToolAsync("makepri.exe", arguments, cancellationToken: cancellationToken);
+            var (stdout, stderr) = await buildToolsService.RunBuildToolAsync(new MakePriTool(), arguments, cancellationToken: cancellationToken);
 
             // Parse the output to extract resource files
             var resourceFiles = new List<FileInfo>();
@@ -1129,13 +1130,13 @@ internal partial class MsixService(
 
         logger.LogDebug("Creating MSIX package...");
 
-        await buildToolsService.RunBuildToolAsync("makeappx.exe", makeappxArguments, cancellationToken: cancellationToken);
+        await buildToolsService.RunBuildToolAsync(new GenericTool("makeappx.exe"), makeappxArguments, cancellationToken: cancellationToken);
     }
 
     private async Task RunMtToolAsync(string arguments, CancellationToken cancellationToken = default)
     {
         // Use BuildToolsService to run mt.exe
-        await buildToolsService.RunBuildToolAsync("mt.exe", arguments, cancellationToken: cancellationToken);
+        await buildToolsService.RunBuildToolAsync(new GenericTool("mt.exe"), arguments, cancellationToken: cancellationToken);
     }
 
     private static void TryDeleteFile(FileInfo path)
