@@ -17,11 +17,11 @@ internal class GetWinappPathCommand : Command
     {
         GlobalOption = new Option<bool>("--global")
         {
-            Description = "Get the global .winapp directory instead of local"
+            Description = "Get the global .winappglobal directory instead of local .winapp"
         };
     }
 
-    public GetWinappPathCommand() : base("get-winapp-path", "Get the path to the .winapp directory (local by default, global with --global)")
+    public GetWinappPathCommand() : base("get-winapp-path", "Get the path to the .winapp directory (local) or .winappglobal directory (global)")
     {
         Options.Add(GlobalOption);
     }
@@ -39,7 +39,7 @@ internal class GetWinappPathCommand : Command
                 
                 if (global)
                 {
-                    // Get the global .winapp directory
+                    // Get the global .winappglobal directory
                     winappDir = winappDirectoryService.GetGlobalWinappDirectory();
                     directoryType = "Global";
                 }
@@ -53,7 +53,7 @@ internal class GetWinappPathCommand : Command
                 // For global directories, check if they exist
                 if (global && !winappDir.Exists)
                 {
-                    logger.LogError("{UISymbol} {DirectoryType} .winapp directory not found: {WinappDir}", UiSymbols.Error, directoryType, winappDir);
+                    logger.LogError("{UISymbol} {DirectoryType} .winappglobal directory not found: {WinappDir}", UiSymbols.Error, directoryType, winappDir);
                     logger.LogError("   Make sure to run 'winapp init' first");
                     return Task.FromResult(1);
                 }
@@ -62,7 +62,8 @@ internal class GetWinappPathCommand : Command
                 logger.LogInformation("{WinappDir}", winappDir);
 
                 var status = winappDir.Exists ? "exists" : "does not exist";
-                logger.LogDebug("{UISymbol} {DirectoryType} .winapp directory: {WinappDir} ({Status})", UiSymbols.Folder, directoryType, winappDir, status);
+                var dirName = global ? ".winappglobal" : ".winapp";
+                logger.LogDebug("{UISymbol} {DirectoryType} {DirName} directory: {WinappDir} ({Status})", UiSymbols.Folder, directoryType, dirName, winappDir, status);
 
                 return Task.FromResult(0);
             }
