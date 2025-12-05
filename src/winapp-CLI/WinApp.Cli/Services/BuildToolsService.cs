@@ -309,8 +309,6 @@ internal partial class BuildToolsService(
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        logger.LogDebug("Executing {ToolName} {Arguments}", tool.ExecutableName, arguments);
-
         using var p = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {tool.ExecutableName} process");
         var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = await p.StandardError.ReadToEndAsync(cancellationToken);
