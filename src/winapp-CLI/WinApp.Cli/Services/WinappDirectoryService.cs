@@ -50,17 +50,21 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
             var winappDirectory = Path.Combine(dir.FullName, ".winapp");
             if (Directory.Exists(winappDirectory))
             {
-                // Is this .winapp folder in the UserProfile directory?
-                var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                if (string.Equals(dir.FullName, userProfile, StringComparison.OrdinalIgnoreCase))
+                // Does this dir have a "packages" subdirectory? If so, it's probably the old global dir
+                bool hasPackagesSubdir = Directory.Exists(Path.Combine(winappDirectory, "packages"));
+                if (hasPackagesSubdir)
                 {
-                    throw new InvalidOperationException(
-                        $"Found .winapp folder in UserProfile directory: {winappDirectory}. " +
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine(
+                        $"Warning: Found .winapp folder in UserProfile directory: {winappDirectory}. " +
                         "The global winapp folder is now named .winappglobal. " +
                         "Please remove the .winapp folder from your UserProfile directory or rename to .winappglobal.");
+                    Console.ResetColor();
                 }
-
-                return new DirectoryInfo(winappDirectory);
+                else
+                {
+                    return new DirectoryInfo(winappDirectory);
+                }
             }
             dir = dir.Parent;
         }
