@@ -27,7 +27,7 @@ internal class WinAppRootCommand : RootCommand
         GetWinappPathCommand getWinappPathCommand,
         CertCommand certCommand,
         SignCommand signCommand,
-        ToolCommand toolCommand) : base("Windows App Development CLI tool")
+        ToolCommand toolCommand) : base("Use Windows SDK and Windows App SDK in your Windows app, create MSIX packages, generate manifests and certificates, and use build tools.")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(restoreCommand);
