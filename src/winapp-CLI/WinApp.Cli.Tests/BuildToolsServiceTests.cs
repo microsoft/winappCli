@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.Tools;
+
 namespace WinApp.Cli.Tests;
 
 [TestClass]
@@ -157,7 +159,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(fakeToolPath, "@echo Hello from fake tool");
 
         // Act
-        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync("echo.cmd", "", TestContext.CancellationToken);
+        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync(new GenericTool("echo.cmd"), "", TestContext.CancellationToken);
 
         // Assert
         Assert.Contains("Hello from fake tool", stdout);
@@ -173,7 +175,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         // Act & Assert
         await Assert.ThrowsExactlyAsync<FileNotFoundException>(async () =>
         {
-            await _buildToolsService.RunBuildToolAsync("nonexistent.exe", "", TestContext.CancellationToken);
+            await _buildToolsService.RunBuildToolAsync(new GenericTool("nonexistent.exe"), "", TestContext.CancellationToken);
         });
     }
 
@@ -320,7 +322,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         {
             // Create a simple batch command that outputs something
             // This will either succeed (if BuildTools installs successfully) or throw an exception
-            await _buildToolsService.RunBuildToolAsync("echo.cmd", "test", TestContext.CancellationToken);
+            await _buildToolsService.RunBuildToolAsync(new GenericTool("echo.cmd"), "test", TestContext.CancellationToken);
             
             // If we reach here, the auto-installation worked - test passes
         }
@@ -347,7 +349,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(batchFile, "@echo Hello from test tool");
 
         // Act
-        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync("test.cmd", "", TestContext.CancellationToken);
+        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync(new GenericTool("test.cmd"), "", TestContext.CancellationToken);
 
         // Assert
         Assert.Contains("Hello from test tool", stdout);

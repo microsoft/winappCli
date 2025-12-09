@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
+using WinApp.Cli.Tools;
 
 namespace WinApp.Cli.Services;
 
@@ -285,16 +286,16 @@ internal partial class BuildToolsService(
     /// <summary>
     /// Execute a build tool with the specified arguments
     /// </summary>
-    /// <param name="toolName">Name of the tool (e.g., 'mt.exe', 'signtool.exe')</param>
+    /// <param name="tool">The tool to execute</param>
     /// <param name="arguments">Arguments to pass to the tool</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Tuple containing (stdout, stderr)</returns>
-    public async Task<(string stdout, string stderr)> RunBuildToolAsync(string toolName, string arguments, CancellationToken cancellationToken = default)
+    public async Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         // Ensure the build tool is available, installing BuildTools if necessary
-        var toolPath = await EnsureBuildToolAvailableAsync(toolName, cancellationToken: cancellationToken);
+        var toolPath = await EnsureBuildToolAvailableAsync(tool.ExecutableName, cancellationToken: cancellationToken);
 
         var psi = new ProcessStartInfo
         {
@@ -308,7 +309,7 @@ internal partial class BuildToolsService(
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {toolName} process");
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {tool.ExecutableName} process");
         var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = await p.StandardError.ReadToEndAsync(cancellationToken);
         await p.WaitForExitAsync(cancellationToken);
@@ -325,7 +326,14 @@ internal partial class BuildToolsService(
 
         if (p.ExitCode != 0)
         {
-            throw new InvalidBuildToolException(p.Id, stdout, stderr, $"{toolName} execution failed with exit code {p.ExitCode}");
+            // Print tool-specific error output when not in verbose mode
+            // In verbose mode, all output is already visible via LogDebug above
+            if (!logger.IsEnabled(LogLevel.Debug))
+            {
+                tool.PrintErrorText(stdout, stderr, logger);
+            }
+            
+            throw new InvalidBuildToolException(p.Id, stdout, stderr, $"{tool.ExecutableName} execution failed with exit code {p.ExitCode}");
         }
 
         return (stdout, stderr);
