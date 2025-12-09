@@ -191,4 +191,69 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         Assert.AreEqual(localWinappDir.FullName, result.FullName, 
             "Should return the .winapp directory when winapp.yaml exists, even if it's also the global directory");
     }
+
+    [TestMethod]
+    public void GetGlobalWinappDirectory_WithLegacyFolderOnly_FallsBackToLegacy()
+    {
+        // Arrange - Create a fake user profile with only legacy .winapp folder
+        var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile");
+        var legacyDir = fakeUserProfile.CreateSubdirectory(".winapp");
+        
+        // Act - Override user profile and check behavior
+        var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetUserProfileForTesting(fakeUserProfile.FullName);
+        var result = directoryService.GetGlobalWinappDirectory();
+        
+        // Assert - Should fall back to legacy location
+        Assert.AreEqual(legacyDir.FullName, result.FullName, "Should fall back to legacy .winapp location");
+    }
+
+    [TestMethod]
+    public void GetGlobalWinappDirectory_WithNewFolderOnly_UsesNewLocation()
+    {
+        // Arrange - Create a fake user profile with only new .winappglobal folder
+        var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile-new");
+        var newDir = fakeUserProfile.CreateSubdirectory(".winappglobal");
+        
+        // Act - Override user profile and check behavior
+        var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetUserProfileForTesting(fakeUserProfile.FullName);
+        var result = directoryService.GetGlobalWinappDirectory();
+        
+        // Assert - Should use new location
+        Assert.AreEqual(newDir.FullName, result.FullName, "Should use new .winappglobal location");
+    }
+
+    [TestMethod]
+    public void GetGlobalWinappDirectory_WithBothFolders_PrefersNewLocation()
+    {
+        // Arrange - Create a fake user profile with both folders
+        var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile-both");
+        var newDir = fakeUserProfile.CreateSubdirectory(".winappglobal");
+        var legacyDir = fakeUserProfile.CreateSubdirectory(".winapp");
+        
+        // Act - Override user profile and check behavior
+        var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetUserProfileForTesting(fakeUserProfile.FullName);
+        var result = directoryService.GetGlobalWinappDirectory();
+        
+        // Assert - Should prefer new location when both exist
+        Assert.AreEqual(newDir.FullName, result.FullName, "Should prefer .winappglobal when both exist");
+    }
+
+    [TestMethod]
+    public void GetGlobalWinappDirectory_WithNeitherFolder_ReturnsNewLocation()
+    {
+        // Arrange - Create a fake user profile with neither folder
+        var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile-empty");
+        var expectedNewDir = Path.Combine(fakeUserProfile.FullName, ".winappglobal");
+        
+        // Act - Override user profile and check behavior
+        var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetUserProfileForTesting(fakeUserProfile.FullName);
+        var result = directoryService.GetGlobalWinappDirectory();
+        
+        // Assert - Should return new location path even if it doesn't exist
+        Assert.AreEqual(expectedNewDir, result.FullName, "Should return .winappglobal path even when it doesn't exist");
+    }
 }

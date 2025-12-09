@@ -11,4 +11,5 @@ internal interface IWinappDirectoryService
     DirectoryInfo GetGlobalWinappDirectory();
     DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null);
     void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory);
+    void SetUserProfileForTesting(string? userProfilePath);
 }
