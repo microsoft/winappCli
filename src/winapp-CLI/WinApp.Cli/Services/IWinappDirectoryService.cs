@@ -12,4 +12,5 @@ internal interface IWinappDirectoryService
     DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null);
     void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory);
     void SetUserProfileForTesting(string? userProfilePath);
+    void CheckAndWarnIfUsingLegacyGlobalFolder(Microsoft.Extensions.Logging.ILogger logger);
 }

@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
@@ -12,6 +13,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
 {
     private DirectoryInfo? _globalOverride;
     private string? _userProfileOverride;
+    private static bool _hasShownLegacyWarning;
 
     /// <summary>
     /// Method to override the cache directory for testing purposes
@@ -29,6 +31,46 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
     public void SetUserProfileForTesting(string? userProfilePath)
     {
         _userProfileOverride = userProfilePath;
+    }
+
+    /// <summary>
+    /// Checks if we're using the legacy global folder and prints a warning message (once per process).
+    /// Should be called during init and restore operations.
+    /// </summary>
+    /// <param name="logger">Logger instance for outputting the warning</param>
+    public void CheckAndWarnIfUsingLegacyGlobalFolder(Microsoft.Extensions.Logging.ILogger logger)
+    {
+        if (_hasShownLegacyWarning)
+        {
+            return;
+        }
+
+        // Check if WINAPP_CLI_CACHE_DIRECTORY is set.  If so, the warning is not applicable.
+        var cacheDirectory = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
+        if (!string.IsNullOrEmpty(cacheDirectory))
+        {
+            return;
+        }
+
+        var userProfile = _userProfileOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var newWinappDir = Path.Combine(userProfile, ".winappglobal");
+        var legacyWinappDir = Path.Combine(userProfile, ".winapp");
+
+        // Check if we're falling back to legacy location
+        if (!Directory.Exists(newWinappDir) && Directory.Exists(legacyWinappDir))
+        {
+            var legacyPackagesDir = Path.Combine(legacyWinappDir, "packages");
+            if (Directory.Exists(legacyPackagesDir))
+            {
+                logger.LogWarning(
+                    "Falling back to legacy global folder location: {LegacyWinappDir}. WinAppCLI is in the process of " +
+                    "migrating the default global dir to a new location: {NewWinappDir}. When you are only using " +
+                    "WinAppCLI 0.1.8 and later, please move the folder to the new location.  You could also set it " +
+                    "to a custom location by setting the WINAPP_CLI_CACHE_DIRECTORY environment variable.",
+                    legacyWinappDir, newWinappDir);
+                _hasShownLegacyWarning = true;
+            }
+        }
     }
 
     public DirectoryInfo GetGlobalWinappDirectory()
@@ -50,13 +92,15 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         var newWinappDir = Path.Combine(userProfile, ".winappglobal");
         var legacyWinappDir = Path.Combine(userProfile, ".winapp");
 
-        // Phase 1: Fallback to legacy location if new location doesn't exist
+        // Phase 1: Fallback to legacy location if new location doesn't exist and legacy has packages
         if (!Directory.Exists(newWinappDir) && Directory.Exists(legacyWinappDir))
         {
-            Console.WriteLine($"Falling back to legacy global folder location: {legacyWinappDir}");
-            Console.WriteLine($"In the future the default location will be: {newWinappDir}");
-            Console.WriteLine("When you are only using WinAppCLI 0.1.8 and later, please move the folder to the new location.");
-            return new DirectoryInfo(legacyWinappDir);
+            // Only use legacy directory if it contains a "packages" subdirectory
+            var legacyPackagesDir = Path.Combine(legacyWinappDir, "packages");
+            if (Directory.Exists(legacyPackagesDir))
+            {
+                return new DirectoryInfo(legacyWinappDir);
+            }
         }
 
         return new DirectoryInfo(newWinappDir);
@@ -77,12 +121,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
                 bool hasPackagesSubdir = Directory.Exists(Path.Combine(winappDirectory, "packages"));
                 if (hasPackagesSubdir)
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine(
-                        $"Warning: Found .winapp folder in UserProfile directory: {winappDirectory}. " +
-                        "The global winapp folder is now named .winappglobal. " +
-                        "Please remove the .winapp folder from your UserProfile directory or rename to .winappglobal.");
-                    Console.ResetColor();
+                    // This looks like the old global dir, so skip it.
                 }
                 else
                 {

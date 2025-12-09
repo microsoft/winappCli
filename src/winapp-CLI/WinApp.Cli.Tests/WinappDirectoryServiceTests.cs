@@ -16,12 +16,16 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
     [TestMethod]
     public void GetGlobalWinappDirectory_WithoutOverride_ReturnsDefaultDirectory()
     {
-        // Act - Create a fresh instance without override to test default behavior
+        // Arrange - Create a fake user profile with no existing directories
+        var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile-empty-default");
+        var expectedDefaultPath = Path.Combine(fakeUserProfile.FullName, ".winappglobal");
+        
+        // Act - Create a fresh instance without cache override, but with user profile override
         var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetUserProfileForTesting(fakeUserProfile.FullName);
         var result = directoryService.GetGlobalWinappDirectory();
 
         // Assert
-        var expectedDefaultPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winappglobal");
         Assert.AreEqual(expectedDefaultPath, result.FullName);
     }
 
@@ -195,9 +199,10 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
     [TestMethod]
     public void GetGlobalWinappDirectory_WithLegacyFolderOnly_FallsBackToLegacy()
     {
-        // Arrange - Create a fake user profile with only legacy .winapp folder
+        // Arrange - Create a fake user profile with only legacy .winapp folder containing packages
         var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile");
         var legacyDir = fakeUserProfile.CreateSubdirectory(".winapp");
+        legacyDir.CreateSubdirectory("packages"); // Must have packages subdirectory
         
         // Act - Override user profile and check behavior
         var directoryService = GetRequiredService<IWinappDirectoryService>();
@@ -205,7 +210,26 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         var result = directoryService.GetGlobalWinappDirectory();
         
         // Assert - Should fall back to legacy location
-        Assert.AreEqual(legacyDir.FullName, result.FullName, "Should fall back to legacy .winapp location");
+        Assert.AreEqual(legacyDir.FullName, result.FullName, "Should fall back to legacy .winapp location when it has packages subdirectory");
+    }
+
+    [TestMethod]
+    public void GetGlobalWinappDirectory_WithLegacyFolderWithoutPackages_UsesNewLocation()
+    {
+        // Arrange - Create a fake user profile with legacy .winapp folder but no packages subdirectory
+        var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile-no-packages");
+        var legacyDir = fakeUserProfile.CreateSubdirectory(".winapp");
+        // No packages subdirectory - this is a local .winapp, not a global one
+        
+        var expectedNewDir = Path.Combine(fakeUserProfile.FullName, ".winappglobal");
+        
+        // Act - Override user profile and check behavior
+        var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetUserProfileForTesting(fakeUserProfile.FullName);
+        var result = directoryService.GetGlobalWinappDirectory();
+        
+        // Assert - Should use new location, not legacy without packages
+        Assert.AreEqual(expectedNewDir, result.FullName, "Should use .winappglobal when legacy .winapp has no packages subdirectory");
     }
 
     [TestMethod]
@@ -231,6 +255,7 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         var fakeUserProfile = _tempDirectory.CreateSubdirectory("fake-user-profile-both");
         var newDir = fakeUserProfile.CreateSubdirectory(".winappglobal");
         var legacyDir = fakeUserProfile.CreateSubdirectory(".winapp");
+        legacyDir.CreateSubdirectory("packages"); // Legacy has packages
         
         // Act - Override user profile and check behavior
         var directoryService = GetRequiredService<IWinappDirectoryService>();

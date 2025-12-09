@@ -170,6 +170,9 @@ internal class WorkspaceSetupService(
             var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
             var localWinappDir = winappDirectoryService.GetLocalWinappDirectory(options.BaseDirectory);
 
+            // Check if we're using legacy global folder and warn user
+            winappDirectoryService.CheckAndWarnIfUsingLegacyGlobalFolder(logger);
+
             // Setup-specific startup messages
             if (!options.RequireExistingConfig)
             {
