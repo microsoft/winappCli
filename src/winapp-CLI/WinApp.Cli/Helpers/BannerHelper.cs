@@ -33,15 +33,15 @@ internal static class BannerHelper
         @"                          |_|   |_|                     ",
     };
 
-    // ANSI color codes for gradient effect (cyan -> blue -> magenta)
+    // ANSI color codes for gradient effect (Blue -> Purple, Windows-themed)
     private static readonly string[] GradientColors =
     {
-        "\x1b[96m",  // Bright Cyan
-        "\x1b[36m",  // Cyan
-        "\x1b[94m",  // Bright Blue
-        "\x1b[34m",  // Blue
-        "\x1b[95m",  // Bright Magenta
-        "\x1b[35m",  // Magenta
+        "\x1b[38;5;39m",   // Bright Blue
+        "\x1b[38;5;33m",   // Blue
+        "\x1b[38;5;63m",   // Blue-Purple
+        "\x1b[38;5;99m",   // Purple
+        "\x1b[38;5;135m",  // Light Purple
+        "\x1b[38;5;141m",  // Lavender
     };
 
     private const string ResetColor = "\x1b[0m";
