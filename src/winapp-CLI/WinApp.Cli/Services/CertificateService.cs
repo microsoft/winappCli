@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Tools;
 using System.Diagnostics.Eventing.Reader;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
@@ -207,7 +208,7 @@ internal partial class CertificateService(
 
         try
         {
-            await buildToolsService.RunBuildToolAsync("signtool.exe", arguments, cancellationToken: cancellationToken);
+            await buildToolsService.RunBuildToolAsync(new GenericTool("signtool.exe"), arguments, cancellationToken: cancellationToken);
 
             logger.LogDebug("File signed successfully");
         }
