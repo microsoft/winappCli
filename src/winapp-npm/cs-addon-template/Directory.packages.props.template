@@ -8,7 +8,7 @@
     <PackageVersion Include="Microsoft.JavaScript.NodeApi.Generator" Version="0.9.17" />
 
     <!-- These versions may be updated automatically during restore to match yaml -->
-    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="Run restore to set version before building" />
-    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="Run restore to set version before building" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="Run winapp restore to set version before building" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="Run winapp restore to set version before building" />
   </ItemGroup>
 </Project>
