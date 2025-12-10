@@ -35,7 +35,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         }
 
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var winappDir = Path.Combine(userProfile, ".winappglobal");
+        var winappDir = Path.Combine(userProfile, ".winapp");
         return new DirectoryInfo(winappDir);
     }
 
@@ -43,28 +43,16 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
     {
         baseDirectory ??= new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
 
+        DirectoryInfo globalWinappDirectory = GetGlobalWinappDirectory();
+
         var originalBaseDir = new DirectoryInfo(baseDirectory.FullName);
         var dir = originalBaseDir;
         while (dir != null)
         {
             var winappDirectory = Path.Combine(dir.FullName, ".winapp");
-            if (Directory.Exists(winappDirectory))
+            if (Directory.Exists(winappDirectory) && !string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase))
             {
-                // Does this dir have a "packages" subdirectory? If so, it's probably the old global dir
-                bool hasPackagesSubdir = Directory.Exists(Path.Combine(winappDirectory, "packages"));
-                if (hasPackagesSubdir)
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine(
-                        $"Warning: Found .winapp folder in UserProfile directory: {winappDirectory}. " +
-                        "The global winapp folder is now named .winappglobal. " +
-                        "Please remove the .winapp folder from your UserProfile directory or rename to .winappglobal.");
-                    Console.ResetColor();
-                }
-                else
-                {
-                    return new DirectoryInfo(winappDirectory);
-                }
+                return new DirectoryInfo(winappDirectory);
             }
             dir = dir.Parent;
         }

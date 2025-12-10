@@ -23,7 +23,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         Assert.IsNull(result);
 
         // Additional verification: Create a fake bin directory structure and verify it's found
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -40,7 +40,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public void GetBuildToolPath_WithNonExistentTool_ReturnsNull()
     {
         // Arrange - Create package structure but without the requested tool
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -59,7 +59,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public void GetBuildToolPath_WithMultipleVersions_ReturnsLatestVersion()
     {
         // Arrange - Create multiple package versions
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         
         // Create older version
         var olderPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.22000.1");
@@ -86,7 +86,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public void GetBuildToolPath_WithPinnedVersion_ReturnsPinnedVersion()
     {
         // Arrange - Create multiple package versions
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         
         // Create older version
         var olderPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.22000.1742");
@@ -122,7 +122,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public void GetBuildToolPath_WithMultipleArchitectures_ReturnsCorrectArchitecture()
     {
         // Arrange - Create package with multiple architectures
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binVersionDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0");
         
@@ -149,7 +149,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task RunBuildToolAsync_WithValidTool_ReturnsOutput()
     {
         // Arrange - Create a fake tool that outputs to stdout
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -198,7 +198,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task EnsureBuildToolsAsync_WithExistingPackage_ReturnsExistingPath()
     {
         // Arrange - Create existing package structure
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -214,7 +214,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task EnsureBuildToolsAsync_WithForceLatest_ShouldAttemptReinstallation()
     {
         // Arrange - Create existing package structure
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -231,7 +231,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task EnsureBuildToolAvailableAsync_WithExistingTool_ReturnsToolPath()
     {
         // Arrange - Create package structure with a tool
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -250,7 +250,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task EnsureBuildToolAvailableAsync_WithToolNameWithoutExtension_AddsExtensionAndReturnsPath()
     {
         // Arrange - Create package structure with a tool
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -297,7 +297,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task EnsureBuildToolAvailableAsync_WithNonExistentTool_ThrowsFileNotFoundException()
     {
         // Arrange - Create package structure but without the requested tool
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
@@ -340,7 +340,7 @@ public class BuildToolsServiceTests : BaseCommandTests
     public async Task RunBuildToolAsync_WithExistingTool_RunsDirectly()
     {
         // Arrange - Create package structure with a working batch file
-        var packagesDir = Path.Combine(_testGlobalDirectory.FullName, "packages");
+        var packagesDir = Path.Combine(_testWinappDirectory.FullName, "packages");
         var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
         var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
         Directory.CreateDirectory(binDir);
