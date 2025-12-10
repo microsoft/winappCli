@@ -4,7 +4,7 @@ const { generateAddonFiles } = require('./addon-utils');
 const { generateCsAddonFiles } = require('./cs-addon-utils');
 const { addElectronDebugIdentity } = require('./msix-utils');
 const { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } = require('./winapp-cli-utils');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -260,13 +260,19 @@ async function handleCreateAddon(args) {
         verbose: options.verbose
       });
       
-      console.log(`✅ C# addon '${result.addonName}' created successfully!`);
-      console.log(`📁 ${result.addonPath}`);
+      console.log(`New addon at: ${result.addonPath}`);
+
+      // Check for .NET 10 SDK and offer to install if missing
+      // Ignore the error since we've successfully created the addon.
+      await checkAndInstallDotnet10Sdk();
+      
+      await callWinappCli(['restore'], { verbose: options.verbose, exitOnError: true });
+
       console.log('');
       console.log(`Next steps:`);
-      console.log(`  1. npx ${CLI_NAME} restore`);
-      console.log(`  2. npm run build-${result.addonName}`);
-      console.log(`  3. See ${result.addonName}/README.md for usage examples`);
+      console.log(`  1. npm run build-${result.addonName}`);
+      console.log(`  2. See ${result.addonName}/README.md for usage examples`);
+
     } else {
 
       if (!await pythonExists()) {
@@ -311,6 +317,92 @@ function pythonExists() {
     }
 
     tryNext();
+  });
+}
+
+// Check for .NET 10 SDK and offer to install if missing
+async function checkAndInstallDotnet10Sdk() {
+  const hasDotnet10 = await dotnet10SdkExists();
+  if (!hasDotnet10) {
+    console.log('.NET 10 SDK is required for C# addons but was not found.');
+    
+    // Check if we're in an interactive terminal
+    if (process.stdin.isTTY) {
+      const readline = require('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      return new Promise((resolve) => {
+        rl.question('Would you like to install it now using winget? (y/N): ', async (answer) => {
+          rl.close();
+          
+          if (answer.toLowerCase() === 'y') {
+            console.log('');
+            console.log('Installing .NET 10 SDK...');
+            const success = await installDotnet10Sdk();
+            
+            if (!success) {
+              console.error('❌ Failed to install .NET 10 SDK.');
+              console.error('   Please install it manually from: https://dotnet.microsoft.com/download/dotnet/10.0');
+              process.exit(1);
+            }
+          } else {
+            console.error('You can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
+            process.exit(1);
+          }
+          resolve();
+        });
+      });
+    } else {
+      console.error('You can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
+      process.exit(1);
+    }
+  }
+}
+
+/**
+ * Check if .NET 10 SDK is installed
+ * @returns {Promise<boolean>}
+ */
+function dotnet10SdkExists() {
+  return new Promise(resolve => {
+    exec('dotnet --list-sdks', (err, stdout) => {
+      if (err) {
+        resolve(false);
+        return;
+      }
+      
+      // Check if output contains version 10.x
+      const has10Sdk = stdout.includes('10.');
+      resolve(has10Sdk);
+    });
+  });
+}
+
+/**
+ * Install .NET 10 SDK using winget
+ * @returns {Promise<boolean>} true if successful, false otherwise
+ */
+function installDotnet10Sdk() {
+  return new Promise(resolve => {
+    const { spawn } = require('child_process');
+    
+    // Use winget to install .NET 10 SDK
+    const winget = spawn('winget', ['install', '--id', 'Microsoft.DotNet.SDK.10', '--source', 'winget'], {
+      stdio: 'inherit',
+      shell: true
+    });
+    
+    winget.on('close', (code) => {
+      resolve(code === 0);
+    });
+    
+    winget.on('error', (err) => {
+      console.error(`Error running winget: ${err.message}`);
+      resolve(false);
+    });
   });
 }
 
