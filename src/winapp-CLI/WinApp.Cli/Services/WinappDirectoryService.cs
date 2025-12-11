@@ -50,13 +50,23 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         while (dir != null)
         {
             var winappDirectory = Path.Combine(dir.FullName, ".winapp");
-            if (Directory.Exists(winappDirectory) && !string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase))
+            if (Directory.Exists(winappDirectory))            
             {
-                return new DirectoryInfo(winappDirectory);
+                bool isGlobalWinAppDir = 
+                    string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase);
+                if (isGlobalWinAppDir)
+                {
+                    // We don't currently allow the global winapp directory to be used as a local winapp directory,
+                    // so continue searching upwards.
+                }
+                else
+                {
+                    return new DirectoryInfo(winappDirectory);
+                }
             }
             dir = dir.Parent;
         }
 
         return new DirectoryInfo(Path.Combine(originalBaseDir.FullName, ".winapp"));
-    }
+    }    
 }

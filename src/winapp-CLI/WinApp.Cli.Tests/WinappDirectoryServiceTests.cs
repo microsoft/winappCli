@@ -168,4 +168,39 @@ public class WinappDirectoryServiceTests :  BaseCommandTests
         var expectedPath = new DirectoryInfo(Path.Combine(GetRequiredService<ICurrentDirectoryProvider>().GetCurrentDirectory(), ".winapp"));
         Assert.AreEqual(expectedPath.FullName, result.FullName);
     }
+
+    [TestMethod]
+    public void GetLocalWinappDirectory_WhenGlobalIsInParentDir_DontReturnGlobalAsLocal()
+    {
+        // Directory structure:
+        // topDir/
+        //   .winapp/                <- expected result - should find this one
+        //   appDir/
+        //     .winapp/              <- global (set as cache dir) - should skip
+        //     winapp.yaml
+        //     subdir/               <- search from here
+
+        // Arrange - Create a .winapp directory and winapp.yaml in the same location
+        var topDir = _tempDirectory.CreateSubdirectory("topDir");
+        var topWinAppDir = topDir.CreateSubdirectory(".winapp");
+        
+        var appDir = topDir.CreateSubdirectory("appDir");
+        var localWinappDir = appDir.CreateSubdirectory(".winapp");
+        var winappYamlPath = Path.Combine(appDir.FullName, "winapp.yaml");
+        File.WriteAllText(winappYamlPath, "# test winapp.yaml");
+
+        // Set the appDir/.winapp as the global cache directory
+        var directoryService = GetRequiredService<IWinappDirectoryService>();
+        directoryService.SetCacheDirectoryForTesting(localWinappDir);
+
+        // Create a subdirectory to search from (so we test walking up the tree)
+        var subDir = appDir.CreateSubdirectory("subdir");
+
+        // Act - Search for local .winapp from subdirectory
+        var result = directoryService.GetLocalWinappDirectory(subDir);
+
+        // Assert - Should find the topDir .winapp because we skip the appDir/.winapp since it's set as global cache dir
+        Assert.AreEqual(topWinAppDir.FullName, result.FullName, 
+            "Should return the top .winapp directory when local and global are the same");
+    }
 }
