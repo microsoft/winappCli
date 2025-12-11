@@ -66,6 +66,15 @@ internal static class Program
 
         var rootCommand = serviceProvider.GetRequiredService<WinAppRootCommand>();
 
+        // If no arguments provided, display banner and show help
+        if (args.Length == 0)
+        {
+            BannerHelper.DisplayBanner();
+            // Show help by invoking with --help
+            await rootCommand.Parse(["--help"]).InvokeAsync();
+            return 0;
+        }
+
         var parseResult = rootCommand.Parse(args);
 
         try
@@ -75,13 +84,6 @@ internal static class Program
             var returnCode = await parseResult.InvokeAsync();
 
             CommandCompletedEvent.Log(parseResult.CommandResult, returnCode);
-
-            if (args.Length == 0)
-            {
-                // Temporary special case: If no arguments are provided, return 0 to indicate success.
-                // This is because winget's validation currently doesn't like us returning failure here.
-                returnCode = 0;
-            }
 
             return returnCode;
         }
