@@ -67,8 +67,7 @@ public class EndToEndTests : BaseCommandTests
             "--yes"  // Skip interactive prompts
         };
 
-        var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);
-        var manifestExitCode = await manifestParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        var manifestExitCode = await ParseAndInvokeWithCaptureAsync(manifestGenerateCommand, manifestArgs);
         Assert.AreEqual(0, manifestExitCode, "Manifest generate command should complete successfully");
 
         // Verify manifest generated the necessary files
@@ -148,8 +147,8 @@ public class EndToEndTests : BaseCommandTests
             "--yes"
         };
 
-        var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);
-        var manifestExitCode = await manifestParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        var manifestExitCode = await ParseAndInvokeWithCaptureAsync(manifestGenerateCommand, manifestArgs);
+
         Assert.AreEqual(0, manifestExitCode, "Manifest generate command should complete successfully");
 
         // Verify custom options were applied

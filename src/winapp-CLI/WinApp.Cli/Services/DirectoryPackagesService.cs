@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.Xml;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
@@ -10,7 +10,7 @@ namespace WinApp.Cli.Services;
 /// <summary>
 /// Service for managing Directory.Packages.props files
 /// </summary>
-internal class DirectoryPackagesService(ILogger<DirectoryPackagesService> logger) : IDirectoryPackagesService
+internal class DirectoryPackagesService : IDirectoryPackagesService
 {
     private const string DirectoryPackagesFileName = "Directory.Packages.props";
 
@@ -20,37 +20,37 @@ internal class DirectoryPackagesService(ILogger<DirectoryPackagesService> logger
     /// <param name="configDir">Directory containing winapp.yaml and potentially Directory.Packages.props</param>
     /// <param name="packageVersions">Dictionary of package names to versions from winapp.yaml</param>
     /// <returns>True if file was found and updated, false otherwise</returns>
-    public bool UpdatePackageVersions(DirectoryInfo configDir, Dictionary<string, string> packageVersions)
+    public bool UpdatePackageVersions(DirectoryInfo configDir, Dictionary<string, string> packageVersions, TaskContext taskContext)
     {
         var propsFilePath = Path.Combine(configDir.FullName, DirectoryPackagesFileName);
-        
+
         if (!File.Exists(propsFilePath))
         {
-            logger.LogDebug("{UISymbol} No {FileName} found in {ConfigDir}", UiSymbols.Note, DirectoryPackagesFileName, configDir.FullName);
+            taskContext.AddDebugMessage($"{UiSymbols.Note} No {DirectoryPackagesFileName} found in {configDir.FullName}");
             return false;
         }
 
         try
         {
-            logger.LogInformation("{UISymbol} Updating {FileName} to match winapp.yaml versions...", UiSymbols.Wrench, DirectoryPackagesFileName);
+            taskContext.AddStatusMessage($"{UiSymbols.Wrench} Updating {DirectoryPackagesFileName} to match winapp.yaml versions...");
 
             // Load the XML document with whitespace preservation
             var doc = new XmlDocument();
             doc.PreserveWhitespace = true;
             doc.Load(propsFilePath);
-            
+
             if (doc.DocumentElement == null)
             {
-                logger.LogWarning("{UISymbol} {FileName} has no root element", UiSymbols.Note, DirectoryPackagesFileName);
+                taskContext.AddStatusMessage($"{UiSymbols.Note} {DirectoryPackagesFileName} has no root element");
                 return false;
             }
 
             // Find all PackageVersion elements using XPath
             var packageVersionNodes = doc.SelectNodes("//PackageVersion");
-            
+
             if (packageVersionNodes == null || packageVersionNodes.Count == 0)
             {
-                logger.LogDebug("{UISymbol} No PackageVersion elements found in {FileName}", UiSymbols.Note, DirectoryPackagesFileName);
+                taskContext.AddDebugMessage($"{UiSymbols.Note} No PackageVersion elements found in {DirectoryPackagesFileName}");
                 return false;
             }
 
@@ -65,30 +65,28 @@ internal class DirectoryPackagesService(ILogger<DirectoryPackagesService> logger
 
                 var includeAttr = packageVersion.Attributes["Include"];
                 var versionAttr = packageVersion.Attributes["Version"];
-                
+
                 if (includeAttr == null || versionAttr == null)
                 {
                     continue;
                 }
 
                 var packageName = includeAttr.Value;
-                
+
                 // Check if this package is in our winapp.yaml config
                 if (packageVersions.TryGetValue(packageName, out var newVersion))
                 {
                     var oldVersion = versionAttr.Value;
-                    
+
                     if (oldVersion != newVersion)
                     {
                         versionAttr.Value = newVersion;
                         updated++;
-                        logger.LogInformation("{UISymbol} Updated {PackageName}: {OldVersion} → {NewVersion}", 
-                            UiSymbols.Check, packageName, oldVersion, newVersion);
+                        taskContext.AddStatusMessage($"{UiSymbols.Check} Updated {packageName}: {oldVersion} → {newVersion}");
                     }
                     else
                     {
-                        logger.LogDebug("{UISymbol} {PackageName} already at version {Version}", 
-                            UiSymbols.Check, packageName, newVersion);
+                        taskContext.AddDebugMessage($"{UiSymbols.Check} {packageName} already at version {newVersion}");
                     }
                 }
             }
@@ -98,22 +96,23 @@ internal class DirectoryPackagesService(ILogger<DirectoryPackagesService> logger
                 // Save the document - PreserveWhitespace will maintain original formatting
                 doc.Save(propsFilePath);
 
-                logger.LogInformation("{UISymbol} Updated {Count} package version(s) in {FileName}", 
-                    UiSymbols.Save, updated, DirectoryPackagesFileName);
+                taskContext.AddStatusMessage($"{UiSymbols.Save} Updated {updated} package version(s) in {DirectoryPackagesFileName}");
                 return true;
             }
             else
             {
-                logger.LogInformation("{UISymbol} No package versions needed updating in {FileName}", 
-                    UiSymbols.Check, DirectoryPackagesFileName);
+                taskContext.AddStatusMessage($"{UiSymbols.Check} No package versions needed updating in {DirectoryPackagesFileName}");
                 return true;
             }
         }
         catch (Exception ex)
         {
-            logger.LogWarning("{UISymbol} Failed to update {FileName}: {Message}", 
-                UiSymbols.Note, DirectoryPackagesFileName, ex.Message);
-            logger.LogDebug("{StackTrace}", ex.StackTrace);
+            taskContext.AddStatusMessage($"{UiSymbols.Note} Failed to update {DirectoryPackagesFileName}: {ex.Message}");
+            if (ex.StackTrace != null)
+            {
+                taskContext.AddDebugMessage(ex.StackTrace);
+            }
+
             return false;
         }
     }

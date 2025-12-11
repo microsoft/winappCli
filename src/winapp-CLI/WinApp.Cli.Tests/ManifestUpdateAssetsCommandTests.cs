@@ -245,15 +245,13 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         };
 
         // Act
-        var parseResult = updateAssetsCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(updateAssetsCommand, args);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Update-assets command should complete successfully");
-        
-        var output = ConsoleStdOut.ToString();
-        Assert.Contains("Updating assets", output, "Should log update message");
-        Assert.Contains("generated", output.ToLowerInvariant(), "Should log generation progress");
+
+        Assert.Contains("Updating manifest assets", TestAnsiConsole.Output, "Should log update message");
+        Assert.Contains("generated", TestAnsiConsole.Output.ToLowerInvariant(), "Should log generation progress");
     }
 
     [TestMethod]

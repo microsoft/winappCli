@@ -89,7 +89,7 @@ internal class ManifestGenerateCommand : Command
         Options.Add(YesOption);
     }
 
-    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<ManifestGenerateCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, IStatusService statusService) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -102,30 +102,32 @@ internal class ManifestGenerateCommand : Command
             var template = parseResult.GetValue(TemplateOption);
             var logoPath = parseResult.GetValue(LogoPathOption);
             var yes = parseResult.GetValue(YesOption);
-            try
-            {
-                await manifestService.GenerateManifestAsync(
-                    directory,
-                    packageName,
-                    publisherName,
-                    version,
-                    description,
-                    entryPoint?.ToString(),
-                    template,
-                    logoPath,
-                    yes,
-                    cancellationToken);
 
-                logger.LogInformation("Manifest generated successfully in: {Directory}", directory);
-
-                return 0;
-            }
-            catch (Exception ex)
+            return await statusService.ExecuteWithStatusAsync("Generating manifest", async (taskContext) =>
             {
-                logger.LogError("{UISymbol} Error generating manifest: {ErrorMessage}", UiSymbols.Error, ex.Message);
-                logger.LogDebug("Stack Trace: {StackTrace}", ex.StackTrace);
-                return 1;
-            }
+                try
+                {
+                    await manifestService.GenerateManifestAsync(
+                        directory,
+                        packageName,
+                        publisherName,
+                        version,
+                        description,
+                        entryPoint?.ToString(),
+                        template,
+                        logoPath,
+                        yes,
+                        taskContext,
+                        cancellationToken);
+
+                    return (0, $"Manifest generated successfully in: {directory}");
+                }
+                catch (Exception ex)
+                {
+                    taskContext.AddDebugMessage($"Stack Trace: {ex.StackTrace}");
+                    return (1, $"{UiSymbols.Error} Error generating manifest: {ex.Message}");
+                }
+            });
         }
     }
 }

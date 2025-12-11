@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Tools;
 
 namespace WinApp.Cli.Services;
@@ -25,9 +26,9 @@ internal interface IBuildToolsService
     /// <returns>Full path to the executable</returns>
     /// <exception cref="FileNotFoundException">Tool not found even after installation</exception>
     /// <exception cref="InvalidOperationException">BuildTools installation failed</exception>
-    Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, CancellationToken cancellationToken = default);
+    Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default);
 
-    Task<DirectoryInfo?> EnsureBuildToolsAsync(bool forceLatest = false, CancellationToken cancellationToken = default);
+    Task<DirectoryInfo?> EnsureBuildToolsAsync(TaskContext taskContext, bool forceLatest = false, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Execute a build tool with the specified arguments
@@ -36,5 +37,5 @@ internal interface IBuildToolsService
     /// <param name="arguments">Arguments to pass to the tool</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Tuple containing (stdout, stderr)</returns>
-    Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, CancellationToken cancellationToken = default);
+    Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, TaskContext taskContext, CancellationToken cancellationToken = default);
 }

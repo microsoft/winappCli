@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
@@ -17,10 +18,12 @@ internal interface IManifestService
         ManifestTemplates manifestTemplate,
         FileInfo? logoPath,
         bool yes,
+        TaskContext taskContext,
         CancellationToken cancellationToken = default);
 
     public Task UpdateManifestAssetsAsync(
         FileInfo manifestPath,
         FileInfo imagePath,
+        TaskContext taskContext,
         CancellationToken cancellationToken = default);
 }

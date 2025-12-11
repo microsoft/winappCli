@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
@@ -25,14 +25,12 @@ internal sealed class PackageCacheService : IPackageCacheService
 {
     private const string CacheFileName = "package-cache.json";
     private readonly FileInfo _cacheFilePath;
-    private readonly ILogger<PackageCacheService> _logger;
 
-    public PackageCacheService(IWinappDirectoryService directoryService, ILogger<PackageCacheService> logger)
+    public PackageCacheService(IWinappDirectoryService directoryService)
     {
         var globalWinappDirectory = directoryService.GetGlobalWinappDirectory();
         var packagesDir = Path.Combine(globalWinappDirectory.FullName, "packages");
         _cacheFilePath = new FileInfo(Path.Combine(packagesDir, CacheFileName));
-        _logger = logger;
     }
 
     /// <summary>
@@ -40,7 +38,7 @@ internal sealed class PackageCacheService : IPackageCacheService
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The cached package information</returns>
-    public async Task<PackageCache> LoadAsync(CancellationToken cancellationToken = default)
+    public async Task<PackageCache> LoadAsync(TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         _cacheFilePath.Refresh();
         if (!_cacheFilePath.Exists)
@@ -55,7 +53,7 @@ internal sealed class PackageCacheService : IPackageCacheService
         }
         catch (Exception ex)
         {
-            _logger.LogError("Warning: Failed to load package cache: {ErrorMessage}", ex.Message);
+            taskContext.StatusError($"Warning: Failed to load package cache: {ex.Message}");
             return new PackageCache();
         }
     }
@@ -65,7 +63,7 @@ internal sealed class PackageCacheService : IPackageCacheService
     /// </summary>
     /// <param name="cache">The cache to save</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task SaveAsync(PackageCache cache, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(PackageCache cache, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -79,11 +77,11 @@ internal sealed class PackageCacheService : IPackageCacheService
             _cacheFilePath.Refresh();
             await JsonSerializer.SerializeAsync(stream, cache, PackageCacheJsonContext.Default.PackageCache, cancellationToken);
 
-            _logger.LogInformation("{UISymbol} Package cache updated", UiSymbols.Save);
+            taskContext.AddStatusMessage($"{UiSymbols.Save} Package cache updated");
         }
         catch (Exception ex)
         {
-            _logger.LogError("Warning: Failed to save package cache: {ErrorMessage}", ex.Message);
+            taskContext.StatusError($"Warning: Failed to save package cache: {ex.Message}");
         }
     }
 
@@ -94,9 +92,9 @@ internal sealed class PackageCacheService : IPackageCacheService
     /// <param name="version">The main package version that was requested</param>
     /// <param name="installedPackages">Dictionary of all packages that were installed (including dependencies)</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task UpdatePackageAsync(string packageName, string version, Dictionary<string, string> installedPackages, CancellationToken cancellationToken = default)
+    public async Task UpdatePackageAsync(string packageName, string version, Dictionary<string, string> installedPackages, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
-        var cache = await LoadAsync(cancellationToken);
+        var cache = await LoadAsync(taskContext, cancellationToken);
         var packageKey = $"{packageName}.{version}";
 
         // Filter out the main package from the installed packages to avoid self-reference
@@ -107,7 +105,7 @@ internal sealed class PackageCacheService : IPackageCacheService
         // Store only the dependencies/related packages, not the main package itself
         cache.InstalledPackages[packageKey] = filteredPackages;
 
-        await SaveAsync(cache, cancellationToken);
+        await SaveAsync(cache, taskContext, cancellationToken);
     }
 
     /// <summary>
@@ -117,9 +115,9 @@ internal sealed class PackageCacheService : IPackageCacheService
     /// <param name="version">Version of the package</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Dictionary of installed packages if cached, throws if not found</returns>
-    public async Task<Dictionary<string, string>> GetCachedPackageAsync(string packageName, string version, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, string>> GetCachedPackageAsync(string packageName, string version, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
-        var cache = await LoadAsync(cancellationToken);
+        var cache = await LoadAsync(taskContext, cancellationToken);
         var packageKey = $"{packageName}.{version}";
         if (cache.InstalledPackages.TryGetValue(packageKey, out var cachedPackages))
         {

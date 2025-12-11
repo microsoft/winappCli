@@ -42,33 +42,30 @@ internal class CertInstallCommand : Command
         Options.Add(ForceOption);
     }
 
-    public class Handler(ICertificateService certificateService, ILogger<CertInstallCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(ICertificateService certificateService, IStatusService statusService) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var certPath = parseResult.GetRequiredValue(CertPathArgument);
             var password = parseResult.GetRequiredValue(PasswordOption);
             var force = parseResult.GetRequiredValue(ForceOption);
 
-            try
+            return await statusService.ExecuteWithStatusAsync("Installing certificate...", (taskContext) =>
             {
-                var result = certificateService.InstallCertificate(certPath, password, force);
-                if (!result)
+                try
                 {
-                    logger.LogInformation("{UISymbol} Certificate is already installed", UiSymbols.Info);
-                }
-                else
-                {
-                    logger.LogInformation("{UISymbol} Certificate installed successfully!", UiSymbols.Check);
-                }
+                    var result = certificateService.InstallCertificate(certPath, password, force, taskContext);
+                    var message = !result
+                        ? "Certificate is already installed."
+                        : "Certificate installed successfully!";
 
-                return Task.FromResult(0);
-            }
-            catch (Exception error)
-            {
-                logger.LogError("{UISymbol} Failed to install certificate: {ErrorMessage}", UiSymbols.Error, error.Message);
-                return Task.FromResult(1);
-            }
+                    return Task.FromResult((0, message));
+                }
+                catch (Exception error)
+                {
+                    return Task.FromResult((1, $"{UiSymbols.Error} Failed to install certificate: {error.Message}"));
+                }
+            });
         }
     }
 }

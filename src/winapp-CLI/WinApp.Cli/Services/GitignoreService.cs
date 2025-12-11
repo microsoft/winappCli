@@ -1,74 +1,78 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
-internal class GitignoreService(ILogger<GitignoreService> logger) : IGitignoreService
+internal class GitignoreService : IGitignoreService
 {
     /// <summary>
     /// Update .gitignore to exclude .winapp folder
     /// </summary>
     /// <param name="projectDirectory">Directory containing the project</param>
     /// <returns>True if gitignore was updated, false if entry already existed</returns>
-    public bool UpdateGitignore(DirectoryInfo projectDirectory)
+    public async Task<bool> UpdateGitignoreAsync(DirectoryInfo projectDirectory, TaskContext taskContext)
     {
-        try
+        var result = await taskContext.AddSubTaskAsync("Updating .gitignore", async (subTaskContext) =>
         {
-            var gitignorePath = Path.Combine(projectDirectory.FullName, ".gitignore");
-            var gitignoreContent = "";
-            var gitignoreExists = File.Exists(gitignorePath);
-
-            // Read existing .gitignore if it exists
-            if (gitignoreExists)
+            try
             {
-                gitignoreContent = File.ReadAllText(gitignorePath);
-            }
+                var gitignorePath = Path.Combine(projectDirectory.FullName, ".gitignore");
+                var gitignoreContent = "";
+                var gitignoreExists = File.Exists(gitignorePath);
 
-            // Check if .winapp is already in .gitignore
-            var winappEntry = ".winapp";
-            var lines = gitignoreContent.Split('\n');
-            var hasWinappEntry = lines.Any(line => line.Trim() == winappEntry.Trim());
-
-            if (!hasWinappEntry)
-            {
-                // Add entries to .gitignore
-                var newContent = gitignoreContent;
-
-                // Ensure we have a newline before our section if file exists and doesn't end with newline
-                if (gitignoreExists && !gitignoreContent.EndsWith('\n') && !string.IsNullOrEmpty(gitignoreContent))
+                // Read existing .gitignore if it exists
+                if (gitignoreExists)
                 {
-                    newContent += '\n';
+                    gitignoreContent = File.ReadAllText(gitignorePath);
                 }
 
-                // Add our section
-                newContent += '\n';
-                newContent += "# Windows SDK packages and generated files\n";
-                newContent += winappEntry + '\n';
+                // Check if .winapp is already in .gitignore
+                var winappEntry = ".winapp";
+                var lines = gitignoreContent.Split('\n');
+                var hasWinappEntry = lines.Any(line => line.Trim() == winappEntry.Trim());
 
-                File.WriteAllText(gitignorePath, newContent);
+                if (!hasWinappEntry)
+                {
+                    // Add entries to .gitignore
+                    var newContent = gitignoreContent;
 
-                logger.LogDebug("{UISymbol} Added .winapp to .gitignore", UiSymbols.Check);
-                logger.LogDebug("{UISymbol} Note: winapp.yaml should be committed to track SDK versions", UiSymbols.Note);
+                    // Ensure we have a newline before our section if file exists and doesn't end with newline
+                    if (gitignoreExists && !gitignoreContent.EndsWith('\n') && !string.IsNullOrEmpty(gitignoreContent))
+                    {
+                        newContent += '\n';
+                    }
 
-                return true;
+                    // Add our section
+                    newContent += '\n';
+                    newContent += "# Windows SDK packages and generated files\n";
+                    newContent += winappEntry + '\n';
+
+                    File.WriteAllText(gitignorePath, newContent);
+
+                    taskContext.AddDebugMessage($"{UiSymbols.Check} Added .winapp to .gitignore");
+                    taskContext.AddDebugMessage($"{UiSymbols.Note} Note: winapp.yaml should be committed to track SDK versions");
+
+                    return (true, "Added .winapp to .gitignore");
+                }
+                else
+                {
+                    taskContext.AddDebugMessage($"{UiSymbols.Skip} .winapp already exists in .gitignore");
+                }
+
+                taskContext.AddDebugMessage($"{UiSymbols.Note} Note: winapp.yaml should be committed to track SDK versions");
+
+                return (false, ".winapp already exists in .gitignore");
             }
-            else
+            catch (Exception ex)
             {
-                logger.LogDebug("{UISymbol} .winapp already exists in .gitignore", UiSymbols.Skip);
+                taskContext.AddDebugMessage($"{UiSymbols.Warning} Could not update .gitignore: {ex.Message}");
+                return (false, "Failed to update .gitignore");
             }
-
-            logger.LogDebug("{UISymbol} Note: winapp.yaml should be committed to track SDK versions", UiSymbols.Note);
-
-            return false;
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug("{UISymbol} Could not update .gitignore: {Message}", UiSymbols.Warning, ex.Message);
-            return false;
-        }
+        });
+        return result.Item1;
     }
 
     /// <summary>
@@ -77,7 +81,7 @@ internal class GitignoreService(ILogger<GitignoreService> logger) : IGitignoreSe
     /// <param name="projectDirectory">Directory containing the project</param>
     /// <param name="certificateFileName">Name of the certificate file to add</param>
     /// <returns>True if gitignore was updated, false if entry already existed</returns>
-    public bool AddCertificateToGitignore(DirectoryInfo projectDirectory, string certificateFileName)
+    public bool AddCertificateToGitignore(DirectoryInfo projectDirectory, string certificateFileName, TaskContext taskContext)
     {
         try
         {
@@ -113,20 +117,20 @@ internal class GitignoreService(ILogger<GitignoreService> logger) : IGitignoreSe
 
                 File.WriteAllText(gitignorePath, newContent);
 
-                logger.LogDebug("{UISymbol} Added {CertificateFileName} to .gitignore", UiSymbols.Check, certificateFileName);
+                taskContext.AddDebugMessage($"{UiSymbols.Check} Added {certificateFileName} to .gitignore");
 
                 return true;
             }
             else
             {
-                logger.LogDebug("{UISymbol} {CertificateFileName} already exists in .gitignore", UiSymbols.Skip, certificateFileName);
+                taskContext.AddDebugMessage($"{UiSymbols.Skip} {certificateFileName} already exists in .gitignore");
             }
 
             return false;
         }
         catch (Exception ex)
         {
-            logger.LogDebug("{UISymbol} Could not update .gitignore: {Message}", UiSymbols.Warning, ex.Message);
+            taskContext.AddDebugMessage($"{UiSymbols.Warning} Could not update .gitignore: {ex.Message}");
             return false;
         }
     }

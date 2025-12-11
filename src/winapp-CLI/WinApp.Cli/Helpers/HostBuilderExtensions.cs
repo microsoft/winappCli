@@ -2,17 +2,20 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.DependencyInjection;
+using Spectre.Console;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Diagnostics.CodeAnalysis;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Helpers;
 
 internal static class StoreHostBuilderExtensions
 {
-    public static IServiceCollection ConfigureServices(this IServiceCollection services)
+    public static IServiceCollection ConfigureServices(this IServiceCollection services, TextWriter consoleOut)
     {
         return services
             .AddSingleton<ICurrentDirectoryProvider>(sp => new CurrentDirectoryProvider(Directory.GetCurrentDirectory()))
@@ -34,7 +37,17 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IWinappDirectoryService, WinappDirectoryService>()
             .AddSingleton<IWorkspaceSetupService, WorkspaceSetupService>()
             .AddSingleton<IGitignoreService, GitignoreService>()
-            .AddSingleton<IFirstRunService, FirstRunService>();
+            .AddSingleton<IFirstRunService, FirstRunService>()
+            .AddSingleton(new AnsiConsoleContext(
+                AnsiConsole: AnsiConsole.Console,
+                NonExclusiveAnsiConsole: AnsiConsole.Create(new AnsiConsoleSettings
+                {
+                    Ansi = AnsiSupport.Detect,
+                    ColorSystem = ColorSystemSupport.Detect,
+                    Out = new AnsiConsoleOutput(consoleOut),
+                    ExclusivityMode = new NoopExclusivityMode(),
+                })))
+            .AddSingleton<IStatusService, StatusService>();
     }
 
     public static IServiceCollection ConfigureCommands(this IServiceCollection serviceCollection)

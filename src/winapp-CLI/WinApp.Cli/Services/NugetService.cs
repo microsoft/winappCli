@@ -1,21 +1,21 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text.Json;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
-internal class NugetService(ILogger<NugetService> logger) : INugetService
+internal class NugetService : INugetService
 {
     private static readonly HttpClient Http = new();
     private const string NugetExeUrl = "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";
     private const string FlatIndex = "https://api.nuget.org/v3-flatcontainer";
 
-    public static readonly string[] SDK_PACKAGES = new[]
-    {
+    public static readonly string[] SDK_PACKAGES =
+    [
         "Microsoft.Windows.CppWinRT",
         BuildToolsService.BUILD_TOOLS_PACKAGE,
         "Microsoft.WindowsAppSDK",
@@ -23,7 +23,7 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         $"{BuildToolsService.CPP_SDK_PACKAGE}",
         $"{BuildToolsService.CPP_SDK_PACKAGE}.x64",
         $"{BuildToolsService.CPP_SDK_PACKAGE}.arm64"
-    };
+    ];
 
     public async Task EnsureNugetExeAsync(DirectoryInfo winappDir, CancellationToken cancellationToken = default)
     {
@@ -77,7 +77,7 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         return list[^1];
     }
 
-    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo winappDir, string package, string version, DirectoryInfo outputDir, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo winappDir, string package, string version, DirectoryInfo outputDir, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -93,7 +93,7 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         var expectedFolder = Path.Combine(outputDir.FullName, $"{package}.{version}");
         if (Directory.Exists(expectedFolder))
         {
-            logger.LogInformation("{UISymbol} {Package} {Version} already present", UiSymbols.Skip, package, version);
+            taskContext.AddDebugMessage($"{UiSymbols.Skip} {package} {version} already present");
             packages[package] = version;
             return packages;
         }
@@ -114,8 +114,8 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         await p.WaitForExitAsync(cancellationToken);
         if (p.ExitCode != 0)
         {
-            logger.LogError("{StdOut}", stdout);
-            logger.LogError("{StdErr}", stderr);
+            taskContext.StatusError(stdout);
+            taskContext.StatusError(stderr);
             throw new InvalidOperationException($"nuget install failed for {package} {version}");
         }
 
@@ -134,7 +134,7 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
                         var installedName = installed[..spaceIdx];
                         var installedVersion = installed[(spaceIdx + 1)..];
                         packages[installedName] = installedVersion;
-                        logger.LogInformation("{UISymbol} Installed {InstalledName} {InstalledVersion}", UiSymbols.Check, installedName, installedVersion);
+                        taskContext.AddStatusMessage($"{UiSymbols.Check} Installed {installedName} {installedVersion}");
                     }
                 }
             }

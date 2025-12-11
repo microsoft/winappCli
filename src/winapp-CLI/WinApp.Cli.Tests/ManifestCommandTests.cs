@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using System;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
@@ -250,14 +252,14 @@ public class ManifestCommandTests : BaseCommandTests
             "--yes" // Skip interactive prompts
         };
 
-        var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        DefaultAnswers();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(generateCommand, args);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
-        var output = ConsoleStdOut.ToString();
-        Assert.Contains("Generating manifest", output, "Verbose output should contain generation message");
+        Assert.Contains("Generating manifest", TestAnsiConsole.Output, "Verbose output should contain generation message");
     }
 
     [TestMethod]
@@ -352,6 +354,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", pythonScriptPath
         };
 
+        DefaultAnswers();
+
         // Act
         var parseResult = generateCommand.Parse(args);
         var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -387,6 +391,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--template", "hostedapp",
             "--entrypoint", pythonScriptPath
         };
+
+        DefaultAnswers();
 
         var generateParseResult = generateCommand.Parse(generateArgs);
         var generateExitCode = await generateParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -426,6 +432,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", jsScriptPath
         };
 
+        DefaultAnswers();
+
         // Act
         var parseResult = generateCommand.Parse(args);
         var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -441,6 +449,16 @@ public class ManifestCommandTests : BaseCommandTests
         var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.Contains("Nodejs22", manifestContent, "HostedApp manifest should reference Nodejs22 host");
         Assert.Contains("app.js", manifestContent, "HostedApp manifest should reference the JavaScript file");
+    }
+
+    private void DefaultAnswers()
+    {
+        // Use default answers for prompts during generation (packageName, publisherName, version, description, entryPoint)
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
     }
 
     [TestMethod]

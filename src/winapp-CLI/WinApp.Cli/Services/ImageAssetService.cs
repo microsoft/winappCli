@@ -5,11 +5,12 @@ using Microsoft.Extensions.Logging;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
-internal class ImageAssetService(ILogger<ImageAssetService> logger) : IImageAssetService
+internal class ImageAssetService : IImageAssetService
 {
     // Define the required asset specifications for MSIX packages
     private static readonly (string FileName, int Width, int Height)[] AssetSpecifications =
@@ -28,14 +29,14 @@ internal class ImageAssetService(ILogger<ImageAssetService> logger) : IImageAsse
         ("LockScreenLogo.scale-200.png", 48, 48),
     ];
 
-    public async Task GenerateAssetsAsync(FileInfo sourceImagePath, DirectoryInfo outputDirectory, CancellationToken cancellationToken = default)
+    public async Task GenerateAssetsAsync(FileInfo sourceImagePath, DirectoryInfo outputDirectory, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         if (!sourceImagePath.Exists)
         {
             throw new FileNotFoundException($"Source image not found: {sourceImagePath.FullName}");
         }
 
-        logger.LogInformation("{UISymbol} Generating MSIX image assets from: {SourceImage}", UiSymbols.Info, sourceImagePath.Name);
+        taskContext.AddStatusMessage($"{UiSymbols.Info} Generating MSIX image assets from: {sourceImagePath.Name}");
 
         // Load the source image
         Bitmap sourceImage;
@@ -50,7 +51,7 @@ internal class ImageAssetService(ILogger<ImageAssetService> logger) : IImageAsse
 
         using (sourceImage)
         {
-            logger.LogDebug("Source image size: {Width}x{Height}", sourceImage.Width, sourceImage.Height);
+            taskContext.AddDebugMessage($"Source image size: {sourceImage.Width}x{sourceImage.Height}");
 
             // Ensure output directory exists
             if (!outputDirectory.Exists)
@@ -67,16 +68,14 @@ internal class ImageAssetService(ILogger<ImageAssetService> logger) : IImageAsse
                     var outputPath = Path.Combine(outputDirectory.FullName, fileName);
                     await GenerateAssetAsync(sourceImage, outputPath, width, height, cancellationToken);
                     successCount++;
-                    logger.LogDebug("  {UISymbol} Generated: {FileName} ({Width}x{Height})", UiSymbols.Check, fileName, width, height);
+                    taskContext.AddDebugMessage($"  {UiSymbols.Check} Generated: {fileName} ({width}x{height})");
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning("{UISymbol} Failed to generate {FileName}: {ErrorMessage}", UiSymbols.Warning, fileName, ex.Message);
+                    taskContext.AddDebugMessage($"  {UiSymbols.Warning} Failed to generate {fileName}: {ex.Message}");
                 }
             }
-
-            logger.LogInformation("{UISymbol} Successfully generated {Count} of {Total} image assets", 
-                UiSymbols.Party, successCount, AssetSpecifications.Length);
+            taskContext.AddStatusMessage($"{UiSymbols.Party} Successfully generated {successCount} of {AssetSpecifications.Length} image assets");
         }
     }
 

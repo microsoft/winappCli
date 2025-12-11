@@ -83,6 +83,7 @@ public class SignCommandTests : BaseCommandTests
         var result = await _certificateService.GenerateDevCertificateAsync(
             publisher: testPublisher,
             outputPath: _testCertificatePath,
+            TestTaskContext,
             password: testPassword,
             validDays: 30,
             cancellationToken: TestContext.CancellationToken);
@@ -417,6 +418,7 @@ public class SignCommandTests : BaseCommandTests
             await _certificateService.SignFileAsync(
                 _testExecutablePath,
                 _testCertificatePath,
+                TestTaskContext,
                 "testpassword",
                 timestampUrl: null, TestContext.CancellationToken), "SignFileAsync should throw when file cannot be signed or BuildTools are not available");
 
@@ -570,6 +572,7 @@ public class SignCommandTests : BaseCommandTests
         var msixResult = await msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
             outputPath: msixPath,
+            TestTaskContext,
             packageName: "TestPackage",
             skipPri: true,
             autoSign: false, // Don't auto-sign, we'll sign manually with wrong cert
@@ -581,6 +584,7 @@ public class SignCommandTests : BaseCommandTests
         await _certificateService.GenerateDevCertificateAsync(
             publisher: "CN=Wrong",
             outputPath: wrongCertPath,
+            TestTaskContext,
             password: "testpassword",
             validDays: 30, TestContext.CancellationToken);
 
@@ -595,8 +599,7 @@ public class SignCommandTests : BaseCommandTests
         };
 
         // Act
-        var parseResult = command.Parse(args);
-        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
 
         // Assert
         Assert.AreEqual(1, exitCode, "Sign command should fail when publishers don't match");

@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
-using System.Text.RegularExpressions;
 
 namespace WinApp.Cli.Tools;
 
