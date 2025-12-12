@@ -18,4 +18,9 @@ internal interface IManifestService
         FileInfo? logoPath,
         bool yes,
         CancellationToken cancellationToken = default);
+
+    public Task UpdateManifestAssetsAsync(
+        FileInfo manifestPath,
+        FileInfo imagePath,
+        CancellationToken cancellationToken = default);
 }

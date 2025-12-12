@@ -242,6 +242,54 @@ winapp manifest generate --template hostedapp --entrypoint app.py
 winapp manifest generate ./src --package-name MyApp --publisher-name "CN=My Company" --yes
 ```
 
+#### manifest update-assets
+
+Generate all required MSIX image assets from a single source image.
+
+```bash
+winapp manifest update-assets <image-path> [options]
+```
+
+**Arguments:**
+
+- `image-path` - Path to source image file (PNG, JPG, GIF, etc.)
+
+**Options:**
+
+- `--manifest <path>` - Path to AppxManifest.xml file (default: search current directory)
+
+**Description:**
+
+Takes a single source image and automatically generates all 12 required MSIX image assets at the correct dimensions:
+
+- Square44x44Logo.png (44×44)
+- Square44x44Logo.scale-200.png (88×88)
+- Square44x44Logo.targetsize-24_altform-unplated.png (24×24)
+- Square150x150Logo.png (150×150)
+- Square150x150Logo.scale-200.png (300×300)
+- Wide310x150Logo.png (310×150)
+- Wide310x150Logo.scale-200.png (620×300)
+- SplashScreen.png (620×300)
+- SplashScreen.scale-200.png (1240×600)
+- StoreLogo.png (50×50)
+- LockScreenLogo.png (24×24)
+- LockScreenLogo.scale-200.png (48×48)
+
+The command scales images proportionally while maintaining aspect ratio, centering them with transparent backgrounds when needed. Assets are saved to the `Assets` directory relative to the manifest location.
+
+**Examples:**
+
+```bash
+# Generate assets with auto-detected manifest
+winapp manifest update-assets mylogo.png
+
+# Specify manifest location explicitly
+winapp manifest update-assets mylogo.png --manifest ./dist/appxmanifest.xml
+
+# With verbose output
+winapp manifest update-assets mylogo.png --verbose
+```
+
 ---
 
 ### cert
@@ -434,20 +482,20 @@ All commands support these global options:
 
 Winapp creates a directory to cache files that can be shared between multiple projects.
 
-By default, winapp creates a directory at `$UserProfile/.winappglobal` as the global cache directory.
+By default, winapp creates a directory at `$UserProfile/.winapp` as the global cache directory.
 
 To use a different location, set the `WINAPP_CLI_CACHE_DIRECTORY` environment variable.
 
 In **cmd**:
 ```cmd
 REM Set a custom location for winapp's global cache
-set WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winappglobal
+set WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
 In **Powershell** and **pwsh**:
 ```pwsh
 # Set a custom location for winapp's global cache
-$env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winappglobal
+$env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
 Winapp will create this directory automatically when you run commands like `init` or `restore`.

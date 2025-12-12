@@ -8,7 +8,11 @@ using WinApp.Cli.Services;
 namespace WinApp.Cli.Tests;
 
 [TestClass]
-[DoNotParallelize]
+[DoNotParallelize]  // Locally sometimes ExportCertificateFromStore fails with:
+                    //  Initialization method WinApp.Cli.Tests.SignCommandTests.Setup threw exception.
+                    //  System.InvalidOperationException: Failed to export certificate from store: No valid certificate
+                    //      found in store with subject: CN=WinappTestPublisher ---> System.InvalidOperationException:
+                    //      No valid certificate found in store with subject: CN=WinappTestPublisher.
 public class SignCommandTests : BaseCommandTests
 {
     private FileInfo _testExecutablePath = null!;
