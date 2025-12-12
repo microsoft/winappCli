@@ -21,7 +21,6 @@ async function generateCsAddonFiles(options = {}) {
     // Validate addon name (should be a valid C# namespace/class name)
     validateAddonName(name);
 
-    
     await checkAndInstallVisualStudioBuildTools(false); // Don't show verbose build tools info
 
     // Check if dotnet SDK is available and offer to install if missing
@@ -362,6 +361,14 @@ async function updateGitignore(projectRoot, verbose) {
 }
 
 /**
+ * Get the winget command line for installing .NET 10 SDK
+ * @returns {string} The winget command line
+ */
+function getDotnet10SdkWingetCommand() {
+  return 'winget install --id Microsoft.DotNet.SDK.10 --source winget';
+}
+
+/**
  * Check for .NET 10 SDK and offer to install if missing
  * @param {boolean} verbose - Enable verbose logging
  * @param {string} addonName - Name of the addon being created (for display purposes)
@@ -370,6 +377,10 @@ async function checkAndInstallDotnet10Sdk(verbose = false, addonName = 'csAddon'
   const hasDotnet10 = await checkDotnetSdk(verbose);
   if (!hasDotnet10) {
     console.log('.NET 10 SDK is required for C# addons but was not found.');
+    console.log('');
+    console.log('The following command will be run:');
+    console.log('  ' + getDotnet10SdkWingetCommand());
+    console.log('');
     
     // Check if we're in an interactive terminal
     if (process.stdin.isTTY) {
@@ -422,7 +433,8 @@ function installDotnet10Sdk() {
     const { spawn } = require('child_process');
     
     // Use winget to install .NET 10 SDK
-    const winget = spawn('winget', ['install', '--id', 'Microsoft.DotNet.SDK.10', '--source', 'winget'], {
+    const command = getDotnet10SdkWingetCommand();
+    const winget = spawn(command, {
       stdio: 'inherit',
       shell: true
     });
@@ -439,6 +451,14 @@ function installDotnet10Sdk() {
 }
 
 /**
+ * Get the winget command line for installing Visual Studio Build Tools
+ * @returns {string} The winget command line
+ */
+function getVisualStudioBuildToolsWingetCommand() {
+  return 'winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --passive --wait"';
+}
+
+/**
  * Check for Visual Studio Build Tools and offer to install if missing
  * @param {boolean} verbose - Enable verbose logging
  */
@@ -446,6 +466,10 @@ async function checkAndInstallVisualStudioBuildTools(verbose = false) {
   const hasVisualStudioBuildTools = checkVisualStudioBuildTools();
   if (!hasVisualStudioBuildTools) {
     console.log('Visual Studio Build Tools are required for C# addons but were not found.');
+    console.log('');
+    console.log('The following command will be run:');
+    console.log('  ' + getVisualStudioBuildToolsWingetCommand());
+    console.log('');
     
     // Check if we're in an interactive terminal
     if (process.stdin.isTTY) {
@@ -536,15 +560,8 @@ function installVisualStudioBuildTools() {
     const { spawn } = require('child_process');
     
     // Use winget to install Visual Studio Community with Native Desktop workload
-    const winget = spawn('winget', [
-      'install', 
-      '--id', 
-      'Microsoft.VisualStudio.Community',
-      '--source', 
-      'winget',
-      '--override',
-      '--add Microsoft.VisualStudio.Workload.NativeDesktop --passive --wait'
-    ], {
+    const command = getVisualStudioBuildToolsWingetCommand();
+    const winget = spawn(command, {
       stdio: 'inherit',
       shell: true
     });

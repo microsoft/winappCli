@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { generateAddonFiles } = require('./addon-utils');
-const { generateCsAddonFiles, checkAndInstallDotnet10Sdk } = require('./cs-addon-utils');
+const { generateCsAddonFiles, checkAndInstallDotnet10Sdk, checkAndInstallVisualStudioBuildTools } = require('./cs-addon-utils');
 const { addElectronDebugIdentity } = require('./msix-utils');
 const { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } = require('./winapp-cli-utils');
 const { spawn, exec } = require('child_process');
@@ -288,9 +288,13 @@ async function handleCreateAddon(args) {
         verbose: options.verbose
       });
 
+      // Check for Visual Studio Build Tools and offer to install if missing
+      await checkAndInstallVisualStudioBuildTools(options.verbose);
+
       console.log(`✅ Addon files generated successfully!`);
       console.log(`📦 Addon name: ${result.addonName}`);
       console.log(`📁 Addon path: ${result.addonPath}`);
+      
       console.log(`🔨 Build with: npm run build-${result.addonName}`);
       console.log(`🔨 In your source, import the addon with:`);
       console.log(`       "const ${result.addonName} = require('./${result.addonName}/build/Release/${result.addonName}.node')";`);
