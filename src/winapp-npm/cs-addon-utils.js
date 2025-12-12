@@ -21,8 +21,11 @@ async function generateCsAddonFiles(options = {}) {
     // Validate addon name (should be a valid C# namespace/class name)
     validateAddonName(name);
 
-    // Check if dotnet SDK is available
-    await checkDotnetSdk(false); // Don't show verbose SDK info
+    
+    await checkAndInstallVisualStudioBuildTools(false); // Don't show verbose build tools info
+
+    // Check if dotnet SDK is available and offer to install if missing
+    await checkAndInstallDotnet10Sdk(false); // Don't show verbose SDK info
 
     // Check if addon already exists
     const addonDir = path.join(projectRoot, name);
@@ -106,27 +109,39 @@ function validateAddonName(name) {
  * @param {boolean} verbose - Enable verbose logging
  */
 async function checkDotnetSdk(verbose) {
+  // Try to find dotnet executable
+  let dotnetPath = 'dotnet';
+  
   try {
-    const version = execSync('dotnet --version', { 
+    // First try to use dotnet from PATH
+    execSync('dotnet --version', { 
+      encoding: 'utf8',
+      stdio: 'pipe'
+    });
+  } catch (error) {
+    // If not in PATH, try Program Files
+    const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+    const dotnetExePath = path.join(programFiles, 'dotnet', 'dotnet.exe');
+    
+    if (fsSync.existsSync(dotnetExePath)) {
+      dotnetPath = dotnetExePath;
+    } else {
+      return false;
+    }
+  }
+  
+  try {
+    const output = execSync(`"${dotnetPath}" --list-sdks`, { 
       encoding: 'utf8',
       stdio: verbose ? ['pipe', 'pipe', 'inherit'] : 'pipe'
     }).trim();
     
-    if (verbose) {
-      console.log(`✅ .NET SDK detected: ${version}`);
-    }
-    
-    // Check if it's at least .NET 8.0
-    const majorVersion = parseInt(version.split('.')[0]);
-    if (majorVersion < 8) {
-      throw new Error(`.NET SDK version ${version} detected. Please install .NET 8.0 or later.`);
-    }
-    
+    // Look for a line in output that starts with "10.0"
+    const sdkLines = output.split('\n');
+    const hasDotnet10 = sdkLines.some(line => line.startsWith('10.0'));
+    return hasDotnet10;    
   } catch (error) {
-    if (error.message.includes('not found') || error.message.includes('not recognized')) {
-      throw new Error('dotnet SDK is not installed or not in PATH. Please install .NET 8.0 SDK from https://dotnet.microsoft.com/download');
-    }
-    throw error;
+    return false;
   }
 }
 
@@ -346,6 +361,207 @@ async function updateGitignore(projectRoot, verbose) {
   }
 }
 
+/**
+ * Check for .NET 10 SDK and offer to install if missing
+ * @param {boolean} verbose - Enable verbose logging
+ * @param {string} addonName - Name of the addon being created (for display purposes)
+ */
+async function checkAndInstallDotnet10Sdk(verbose = false, addonName = 'csAddon') {
+  const hasDotnet10 = await checkDotnetSdk(verbose);
+  if (!hasDotnet10) {
+    console.log('.NET 10 SDK is required for C# addons but was not found.');
+    
+    // Check if we're in an interactive terminal
+    if (process.stdin.isTTY) {
+      const readline = require('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      return new Promise((resolve) => {
+        rl.question('Would you like to install it now using winget (user interaction may be required)? (y/N): ', async (answer) => {
+          rl.close();
+          
+          if (answer.toLowerCase() === 'y') {
+            console.log('');
+            console.log('Installing .NET 10 SDK...');
+            const success = await installDotnet10Sdk();
+            
+            if (!success) {
+              console.error('❌ Failed to install .NET 10 SDK.');
+              console.error('   Please install it manually from: https://dotnet.microsoft.com/download/dotnet/10.0');
+              process.exit(1);
+            } else {
+              console.log('✅ .NET 10 SDK installed successfully!');
+              console.log('');
+              console.log('⚠️  IMPORTANT: You need to restart your terminal/command prompt for dotnet to be available in your PATH.');
+              console.log('   After restarting, you can run: npm run build-' + addonName);
+              console.log('');
+            }
+          } else {
+            console.error('You can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
+            process.exit(1);
+          }
+          resolve();
+        });
+      });
+    } else {
+      console.error('You can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
+      process.exit(1);
+    }
+  }
+}
+
+/**
+ * Install .NET 10 SDK using winget
+ * @returns {Promise<boolean>} true if successful, false otherwise
+ */
+function installDotnet10Sdk() {
+  return new Promise(resolve => {
+    const { spawn } = require('child_process');
+    
+    // Use winget to install .NET 10 SDK
+    const winget = spawn('winget', ['install', '--id', 'Microsoft.DotNet.SDK.10', '--source', 'winget'], {
+      stdio: 'inherit',
+      shell: true
+    });
+    
+    winget.on('close', (code) => {
+      resolve(code === 0);
+    });
+    
+    winget.on('error', (err) => {
+      console.error(`Error running winget: ${err.message}`);
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Check for Visual Studio Build Tools and offer to install if missing
+ * @param {boolean} verbose - Enable verbose logging
+ */
+async function checkAndInstallVisualStudioBuildTools(verbose = false) {
+  const hasVisualStudioBuildTools = checkVisualStudioBuildTools();
+  if (!hasVisualStudioBuildTools) {
+    console.log('Visual Studio Build Tools are required for C# addons but were not found.');
+    
+    // Check if we're in an interactive terminal
+    if (process.stdin.isTTY) {
+      const readline = require('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      return new Promise((resolve) => {
+        rl.question('Would you like to install it now using winget (user interaction may be required)? (y/N): ', async (answer) => {
+          rl.close();
+          
+          if (answer.toLowerCase() === 'y') {
+            console.log('');
+            console.log('Installing Visual Studio Build Tools...');
+            const success = await installVisualStudioBuildTools();
+            
+            if (!success) {
+              console.error('❌ Failed to install Visual Studio Build Tools.');
+              console.error('   Please install it manually from: https://visualstudio.microsoft.com/downloads/');
+              process.exit(1);
+            } else {
+              console.log('✅ Visual Studio Build Tools installed successfully!');
+              console.log('');
+              console.log('⚠️  IMPORTANT: You need to restart your terminal/command prompt for the build tools to be available.');
+              console.log('');
+            }
+          } else {
+            console.error('You can install it from: https://visualstudio.microsoft.com/downloads/');
+            process.exit(1);
+          }
+          resolve();
+        });
+      });
+    } else {
+      console.error('You can install it from: https://visualstudio.microsoft.com/downloads/');
+      process.exit(1);
+    }
+  }
+}
+
+/**
+ * Check if Visual Studio Build Tools are installed
+ * @returns {boolean} true if Visual Studio Build Tools are found, false otherwise
+ */
+function checkVisualStudioBuildTools() {
+  try {
+    // Use vswhere to find Visual Studio installations
+    // vswhere is typically installed with Visual Studio and should be in PATH
+    // or in Program Files
+    const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+    const vswherePath = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+    
+    let vswhereCmd = 'vswhere.exe';
+    
+    // If vswhere is not in PATH, use the full path
+    if (fsSync.existsSync(vswherePath)) {
+      vswhereCmd = vswherePath;
+    }
+    
+    try {
+      // Use vswhere to find Visual Studio 2022, 2026, or later with BuildTools
+      const output = execSync(`"${vswhereCmd}" -products * -requires Microsoft.VisualStudio.Workload.NativeDesktop -property installationPath`, { 
+        encoding: 'utf8',
+        stdio: 'pipe'
+      }).trim();
+      
+      // If we got any output, VS with the required workload is installed
+      if (output && output.length > 0) {
+        return true;
+      }
+    } catch (error) {
+      // vswhere not found or query failed, fall back to cl.exe check
+    }
+  } catch (error) {
+    return false;
+  }
+  return false;
+}
+
+/**
+ * Install Visual Studio Build Tools using winget
+ * @returns {Promise<boolean>} true if successful, false otherwise
+ */
+function installVisualStudioBuildTools() {
+  return new Promise(resolve => {
+    const { spawn } = require('child_process');
+    
+    // Use winget to install Visual Studio Community with Native Desktop workload
+    const winget = spawn('winget', [
+      'install', 
+      '--id', 
+      'Microsoft.VisualStudio.Community',
+      '--source', 
+      'winget',
+      '--override',
+      '--add Microsoft.VisualStudio.Workload.NativeDesktop --passive --wait'
+    ], {
+      stdio: 'inherit',
+      shell: true
+    });
+    
+    winget.on('close', (code) => {
+      resolve(code === 0);
+    });
+    
+    winget.on('error', (err) => {
+      console.error(`Error running winget: ${err.message}`);
+      resolve(false);
+    });
+  });
+}
+
 module.exports = {
-  generateCsAddonFiles
+  generateCsAddonFiles,
+  checkAndInstallDotnet10Sdk,
+  checkAndInstallVisualStudioBuildTools
 };

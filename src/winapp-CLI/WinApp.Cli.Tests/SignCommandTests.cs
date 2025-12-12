@@ -8,6 +8,7 @@ using WinApp.Cli.Services;
 namespace WinApp.Cli.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public class SignCommandTests : BaseCommandTests
 {
     private FileInfo _testExecutablePath = null!;
