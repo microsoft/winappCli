@@ -262,14 +262,16 @@ async function handleCreateAddon(args) {
       });
       
       console.log(`New addon at: ${result.addonPath}`);
-
-      // Check for .NET 10 SDK and offer to install if missing
-      // Ignore the error since we've successfully created the addon.
-      await checkAndInstallDotnet10Sdk(options.verbose, result.addonName);
       
       await callWinappCli(['restore'], { verbose: options.verbose, exitOnError: true });
 
       console.log('');
+      
+      if (result.needsTerminalRestart) {
+        console.log('⚠️ IMPORTANT: You need to restart your terminal/command prompt for newly installed tools to be available in your PATH.');
+        console.log('');
+      }
+      
       console.log(`Next steps:`);
       console.log(`  1. npm run build-${result.addonName}`);
       console.log(`  2. See ${result.addonName}/README.md for usage examples`);
