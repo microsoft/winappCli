@@ -3,6 +3,7 @@
 This sample demonstrates usage of the @microsoft/winappcli npm package with an Electron app.
 
 ## 🚀 Quick Start: How to build and run the sample
+
 Here's how you can build, package, deploy, and run the sample (more detail in below sections):
 
 ```pwsh
@@ -31,7 +32,6 @@ add-appxpackage out\electronwinappSample.msix
 # Find "Electron winapp sample" in your start menu and run!
 # (note that first launch will be slow)
 ```
-
 
 ## Overview
 

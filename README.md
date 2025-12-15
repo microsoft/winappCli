@@ -67,6 +67,11 @@ The easiest way to use the CLI globally is to install it via WinGet or the [MSIX
 
 You can also add it manually: Windows Search → Edit the system environment variables → Environment Variables → Path → Edit → New → Add the location (folder) of winapp CLI.
 
+## Get started
+
+Checkout our getting started guides for step by step instructions:
+- [Electron guide](/docs/electron-get-started.md): step by step guide of using the Phi Silica APIs in a new Electron application with a C# addon, debugging with identity, and MSIX packaging.
+
 ## 📋 Usage
 
 Once installed (see [Installation](#-installation) above), verify the installation by calling the CLI:
@@ -109,6 +114,7 @@ npx winapp --help
 
 - [`node create-addon`](./docs/usage.md#node-create-addon) - Generate native C# or C++ addons
 - [`node add-electron-debug-identity`](./docs/usage.md#node-add-electron-debug-identity) - Add identity to Electron processes
+- [Windows AI Addon for Electron](https://github.com/microsoft/winapp-windows-ai) - The Windows AI Addon for Electron is a Node.js native addon that provides access to the [Windows AI APIs](https://learn.microsoft.com/en-us/windows/ai/apis/) directly from JavaScript.
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
 
