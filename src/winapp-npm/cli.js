@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-const { generateAddonFiles } = require('./addon-utils');
-const { generateCsAddonFiles, checkAndInstallDotnet10Sdk, checkAndInstallVisualStudioBuildTools } = require('./cs-addon-utils');
+const { generateCppAddonFiles } = require('./cpp-addon-utils');
+const { generateCsAddonFiles } = require('./cs-addon-utils');
+const { checkAndInstallDotnet10Sdk, checkAndInstallVisualStudioBuildTools, checkAndInstallPython } = require('./dependency-utils');
 const { addElectronDebugIdentity } = require('./msix-utils');
 const { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } = require('./winapp-cli-utils');
 const { spawn, exec } = require('child_process');
@@ -268,15 +269,7 @@ async function handleCreateAddon(args) {
       console.log('');
       
       if (result.needsTerminalRestart) {
-        console.log('⚠️  IMPORTANT: You need to restart your terminal/command prompt for newly installed tools to be available in your PATH.');
-
-        // Simple check: This variable usually only exists if running inside PowerShell
-        if (process.env.PSModulePath) {
-          console.log('');
-          console.log('💡 To refresh immediately, copy and run this line:');
-          console.log('\t\x1b[36m$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")\x1b[0m');
-        }
-        console.log('');
+        printTerminalRestartInstructions();
       }
       
       console.log(`Next steps:`);
@@ -284,29 +277,23 @@ async function handleCreateAddon(args) {
       console.log(`  2. See ${result.addonName}/README.md for usage examples`);
 
     } else {
-
-      if (!await pythonExists()) {
-        console.error(`❌ Python is required to generate C++ addons but was not found in your PATH.`);
-        console.error(`   Please install Python (version 3.10 or later) and ensure it is accessible from the command line.`);
-        process.exit(1);
-      }
-
-      // Use C++ addon generator (existing)
-      result = await generateAddonFiles({
+      // Use C++ addon generator
+      result = await generateCppAddonFiles({
         name: options.name,
         verbose: options.verbose
       });
 
-      // Check for Visual Studio Build Tools and offer to install if missing
-      await checkAndInstallVisualStudioBuildTools(options.verbose);
-
-      console.log(`✅ Addon files generated successfully!`);
-      console.log(`📦 Addon name: ${result.addonName}`);
-      console.log(`📁 Addon path: ${result.addonPath}`);
+      console.log(`New addon at: ${result.addonPath}`);
+      console.log('');
       
-      console.log(`🔨 Build with: npm run build-${result.addonName}`);
-      console.log(`🔨 In your source, import the addon with:`);
-      console.log(`       "const ${result.addonName} = require('./${result.addonName}/build/Release/${result.addonName}.node')";`);
+      if (result.needsTerminalRestart) {
+        printTerminalRestartInstructions();
+      }
+
+      console.log(`Next steps:`);
+      console.log(`  1. npm run build-${result.addonName}`);
+      console.log(`  2. In your source, import the addon with:`);
+      console.log(`     "const ${result.addonName} = require('./${result.addonName}/build/Release/${result.addonName}.node')";`);
     }
   } catch (error) {
     console.error(`❌ Failed to generate addon files: ${error.message}`);
@@ -314,24 +301,15 @@ async function handleCreateAddon(args) {
   }
 }
 
-function pythonExists() {
-  const commands = ["python --version", "python3 --version", "py --version"];
+function printTerminalRestartInstructions() {
+  console.log('⚠️ IMPORTANT: You need to restart your terminal/command prompt for newly installed tools to be available in your PATH.');
 
-  return new Promise(resolve => {
-    let index = 0;
-
-    function tryNext() {
-      if (index >= commands.length) return resolve(false);
-
-      exec(commands[index], (err) => {
-        if (!err) return resolve(true);
-        index++;
-        tryNext();
-      });
-    }
-
-    tryNext();
-  });
+  // Simple check: This variable usually only exists if running inside PowerShell
+  if (process.env.PSModulePath) {
+    console.log('💡 To refresh current session, copy and run this line:');
+    console.log('   \x1b[36m$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")\x1b[0m');
+  }
+  console.log('');
 }
 
 async function handleAddonElectronDebugIdentity(args) {

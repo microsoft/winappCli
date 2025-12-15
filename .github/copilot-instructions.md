@@ -5,7 +5,7 @@ This file provides focused, actionable information to help an AI coding agent be
 Big picture
 - Three main components:
   - src/winapp-CLI (C#/.NET): the native CLI implemented with System.CommandLine. Key files: `src/winapp-CLI/WinApp.Cli/Program.cs`, `*Commands/*.cs` (e.g. `InitCommand.cs`, `RestoreCommand.cs`, `PackageCommand.cs`, `ToolCommand.cs`). Build with: `dotnet build src/winapp-CLI/winapp.sln`.
-  - src/winapp-npm (Node): a thin Node wrapper/SDK and CLI (`cli.js`) that forwards most commands to the native CLI. Key helpers: `winapp-cli-utils.js`, `msix-utils.js`, `addon-utils.js`. Install with `npm install` inside `src/winapp-npm` and test the CLI locally with `node cli.js <command>`.
+  - src/winapp-npm (Node): a thin Node wrapper/SDK and CLI (`cli.js`) that forwards most commands to the native CLI. Key helpers: `winapp-cli-utils.js`, `msix-utils.js`, `cpp-addon-utils.js`. Install with `npm install` inside `src/winapp-npm` and test the CLI locally with `node cli.js <command>`.
   - src/winapp-vcpkg (vcpkg ports + sample): contains vcpkg port files and a CMake sample. Build the sample with CMake presets (see `src/winapp-vcpkg/vcpkg_sample/README.md`): `cmake . --preset x64-debug` then `cmake --build out/build/x64-debug`.
 
 Developer workflows (concrete commands)

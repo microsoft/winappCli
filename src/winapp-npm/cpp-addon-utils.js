@@ -2,6 +2,7 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { checkAndInstallPython, checkAndInstallVisualStudioBuildTools } = require('./dependency-utils');
 
 /**
  * Generates addon files for an Electron project
@@ -10,18 +11,28 @@ const { execSync } = require('child_process');
  * @param {string} options.projectRoot - Root directory of the project (default: current working directory)
  * @param {boolean} options.verbose - Enable verbose logging (default: true)
  */
-async function generateAddonFiles(options = {}) {
+async function generateCppAddonFiles(options = {}) {
   const { 
     name = 'nativeWindowsAddon', 
     projectRoot = process.cwd(), 
     verbose = true 
   } = options;
 
-  if (verbose) {
-    console.log(`🔧 Generating addon files for: ${name}`);
-  }
+  let needsTerminalRestart = false;
 
   try {
+    // Check for Python and offer to install if missing
+    const pythonInstalled = await checkAndInstallPython(false); // Don't show verbose Python info
+    if (pythonInstalled) needsTerminalRestart = true;
+
+    // Check for Visual Studio Build Tools and offer to install if missing
+    const vsInstalled = await checkAndInstallVisualStudioBuildTools(false); // Don't show verbose VS info
+    // VS tools are typically found without PATH restart, so we don't set needsTerminalRestart for it
+
+    if (verbose) {
+      console.log(`🔧 Generating addon files for: ${name}`);
+    }
+
     // Find a unique addon directory name
     const addonDirName = await findUniqueAddonName(name, projectRoot);
     const addonDir = path.join(projectRoot, addonDirName);
@@ -46,6 +57,7 @@ async function generateAddonFiles(options = {}) {
       success: true,
       addonName: addonDirName,
       addonPath: addonDir,
+      needsTerminalRestart: needsTerminalRestart,
       files: [
         path.join(addonDir, 'binding.gyp'),
         path.join(addonDir, `${addonDirName}.cc`)
@@ -205,5 +217,5 @@ async function addBuildScript(addonName, projectRoot, verbose) {
 }
 
 module.exports = {
-  generateAddonFiles
+  generateCppAddonFiles: generateCppAddonFiles
 };
