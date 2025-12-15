@@ -268,7 +268,14 @@ async function handleCreateAddon(args) {
       console.log('');
       
       if (result.needsTerminalRestart) {
-        console.log('⚠️ IMPORTANT: You need to restart your terminal/command prompt for newly installed tools to be available in your PATH.');
+        console.log('⚠️  IMPORTANT: You need to restart your terminal/command prompt for newly installed tools to be available in your PATH.');
+
+        // Simple check: This variable usually only exists if running inside PowerShell
+        if (process.env.PSModulePath) {
+          console.log('');
+          console.log('💡 To refresh immediately, copy and run this line:');
+          console.log('\t\x1b[36m$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")\x1b[0m');
+        }
         console.log('');
       }
       

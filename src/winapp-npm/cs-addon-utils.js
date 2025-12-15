@@ -382,11 +382,6 @@ function getDotnet10SdkWingetCommand() {
 async function checkAndInstallDotnet10Sdk(verbose = false, addonName = 'csAddon') {
   const hasDotnet10 = await checkDotnetSdk(verbose);
   if (!hasDotnet10) {
-    console.log('.NET 10 SDK is required for building C# addons but was not found.');
-    console.log('');
-    console.log('The following command will be run:');
-    console.log('  ' + getDotnet10SdkWingetCommand());
-    console.log('');
     
     // Check if we're in an interactive terminal
     if (process.stdin.isTTY) {
@@ -397,12 +392,12 @@ async function checkAndInstallDotnet10Sdk(verbose = false, addonName = 'csAddon'
       });
       
       return new Promise((resolve) => {
-        rl.question('Would you like to install it now using winget (user interaction may be required)? (y/N): ', async (answer) => {
+        rl.question('❓ .NET 10 SDK is not installed - install using winget (user interaction may be required)? (y/N): ', async (answer) => {
           rl.close();
           
           if (answer.toLowerCase() === 'y') {
             console.log('');
-            console.log('Installing .NET 10 SDK...');
+            console.log(`Installing with \`${getDotnet10SdkWingetCommand()}\``);
             const success = await installDotnet10Sdk();
             
             if (!success) {
@@ -422,7 +417,7 @@ async function checkAndInstallDotnet10Sdk(verbose = false, addonName = 'csAddon'
         });
       });
     } else {
-      console.error('You can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
+      console.error('❌ .NET 10 SDK is not installed - you can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
       process.exit(1);
     }
   }
@@ -460,16 +455,12 @@ function installDotnet10Sdk() {
  * @returns {string} The winget command line
  */
 function getVisualStudioBuildToolsWingetCommand() {
-  // TODO: We shouldn't need to install the SDK here because winapp init already did it.
-  // TODO: But not all the tools we call know how to find it there, such as dotnet NAOT.
   const components = [
-    'Microsoft.VisualStudio.Workload.NativeDesktop',
-    'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
-    'Microsoft.VisualStudio.Component.Windows11SDK.26100'
+    'Microsoft.VisualStudio.Workload.NativeDesktop'
   ];
   
   const addFlags = components.map(c => `--add ${c}`).join(' ');
-  return `winget install --id Microsoft.VisualStudio.Community --source winget --override "${addFlags} --passive --wait"`;
+  return `winget install --id Microsoft.VisualStudio.Community --source winget --force --override "${addFlags} --passive --includeRecommended --wait"`;
 }
 
 /**
@@ -480,12 +471,6 @@ function getVisualStudioBuildToolsWingetCommand() {
 async function checkAndInstallVisualStudioBuildTools(verbose = false) {
   const hasVisualStudioBuildTools = checkVisualStudioBuildTools();
   if (!hasVisualStudioBuildTools) {
-    console.log('Visual Studio Build Tools are required for building C# addons but were not found.');
-    console.log('');
-    console.log('The following command will be run:');
-    console.log('  ' + getVisualStudioBuildToolsWingetCommand());
-    console.log('');
-    
     // Check if we're in an interactive terminal
     if (process.stdin.isTTY) {
       const readline = require('readline');
@@ -495,12 +480,12 @@ async function checkAndInstallVisualStudioBuildTools(verbose = false) {
       });
       
       return new Promise((resolve) => {
-        rl.question('Would you like to install it now using winget (user interaction may be required)? (y/N): ', async (answer) => {
+        rl.question('❓ Visual Studio Build Tools are not installed - install using winget (user interaction may be required)? (y/N): ', async (answer) => {
           rl.close();
           
           if (answer.toLowerCase() === 'y') {
             console.log('');
-            console.log('Installing Visual Studio Build Tools...');
+            console.log(`Installing with \`${getVisualStudioBuildToolsWingetCommand()}\``);
             const success = await installVisualStudioBuildTools();
             
             if (!success) {
@@ -520,7 +505,7 @@ async function checkAndInstallVisualStudioBuildTools(verbose = false) {
         });
       });
     } else {
-      console.error('You can install it from: https://visualstudio.microsoft.com/downloads/');
+      console.error('❌ Visual Studio Build Tools are not installed - you can install them from: https://visualstudio.microsoft.com/downloads/');
       process.exit(1);
     }
   }
