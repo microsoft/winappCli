@@ -10,6 +10,7 @@ namespace WinApp.Cli.Services;
 
 internal partial class ManifestService(
     IManifestTemplateService manifestTemplateService,
+    IImageAssetService imageAssetService,
     ICurrentDirectoryProvider currentDirectoryProvider,
     ILogger<ManifestService> logger) : IManifestService
 {
@@ -193,7 +194,7 @@ internal partial class ManifestService(
         logger.LogDebug("Logo copied to: {DestinationPath}", destinationPath);
     }
 
-    private string PromptForValue(string prompt, string defaultValue)
+    private static string PromptForValue(string prompt, string defaultValue)
     {
         if (!string.IsNullOrEmpty(defaultValue))
         {
@@ -207,4 +208,75 @@ internal partial class ManifestService(
 
     [GeneratedRegex(@"[^A-Za-z0-9\-_. ]")]
     private static partial Regex InvalidPackageNameCharRegex();
+
+    public async Task UpdateManifestAssetsAsync(
+        FileInfo manifestPath,
+        FileInfo imagePath,
+        CancellationToken cancellationToken = default)
+    {
+        logger.LogInformation("{UISymbol} Updating assets for manifest: {ManifestPath}", UiSymbols.Info, manifestPath.Name);
+
+        // Determine the Assets directory relative to the manifest
+        var manifestDir = manifestPath.Directory;
+        if (manifestDir == null)
+        {
+            throw new InvalidOperationException("Could not determine manifest directory");
+        }
+
+        var assetsDir = manifestDir.CreateSubdirectory("Assets");
+
+        // Generate the image assets
+        await imageAssetService.GenerateAssetsAsync(imagePath, assetsDir, cancellationToken);
+
+        // Verify that the manifest references the Assets directory correctly
+        VerifyManifestAssetReferences(manifestPath);
+
+        logger.LogInformation("{UISymbol} Image assets updated successfully!", UiSymbols.Party);
+        logger.LogInformation("Assets generated in: {AssetsPath}", assetsDir.FullName);
+    }
+
+    private void VerifyManifestAssetReferences(FileInfo manifestPath)
+    {
+        try
+        {
+            var doc = new System.Xml.XmlDocument();
+            doc.Load(manifestPath.FullName);
+
+            var nsmgr = new System.Xml.XmlNamespaceManager(doc.NameTable);
+            nsmgr.AddNamespace("m", "http://schemas.microsoft.com/appx/manifest/foundation/windows10");
+            nsmgr.AddNamespace("uap", "http://schemas.microsoft.com/appx/manifest/uap/windows10");
+
+            // Check if Logo references exist and use Assets folder
+            var logoNode = doc.SelectSingleNode("//m:Properties/m:Logo", nsmgr);
+            var visualElementsNode = doc.SelectSingleNode("//uap:VisualElements", nsmgr);
+
+            var hasAssetReferences = false;
+            if (logoNode?.InnerText.Contains("Assets", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                hasAssetReferences = true;
+            }
+
+            if (visualElementsNode?.Attributes != null)
+            {
+                foreach (System.Xml.XmlAttribute attr in visualElementsNode.Attributes)
+                {
+                    if (attr.Value.Contains("Assets", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasAssetReferences = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasAssetReferences)
+            {
+                logger.LogWarning("{UISymbol} Manifest may not reference the Assets directory. Image assets were generated but may not be used by the manifest.", UiSymbols.Warning);
+                logger.LogInformation("Consider updating your manifest to reference assets like: Assets\\Square150x150Logo.png");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug("Could not verify manifest asset references: {ErrorMessage}", ex.Message);
+        }
+    }
 }

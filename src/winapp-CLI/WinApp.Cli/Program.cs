@@ -66,6 +66,15 @@ internal static class Program
 
         var rootCommand = serviceProvider.GetRequiredService<WinAppRootCommand>();
 
+        // If no arguments provided, display banner and show help
+        if (args.Length == 0)
+        {
+            BannerHelper.DisplayBanner();
+            // Show help by invoking with --help
+            await rootCommand.Parse(["--help"]).InvokeAsync();
+            return 0;
+        }
+
         var parseResult = rootCommand.Parse(args);
 
         try

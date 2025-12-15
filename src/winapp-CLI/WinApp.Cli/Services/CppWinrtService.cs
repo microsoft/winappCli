@@ -28,7 +28,6 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
         var rspPath = new FileInfo(Path.Combine(outputDir.FullName, ".cppwinrt.rsp"));
 
         var sb = new StringBuilder();
-        sb.AppendLine("-input sdk+");
         foreach (var winmd in winmdInputs)
         {
             sb.AppendLine($"-input \"{winmd}\"");

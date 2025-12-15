@@ -107,12 +107,10 @@ internal class WorkspaceSetupService(
 
                     if (config.Packages.Count > 0)
                     {
-                        using (var _ = logger.BeginScope("{UISymbol} Configured packages", UiSymbols.Note))
+                        using var _ = logger.BeginScope("{UISymbol} Configured packages", UiSymbols.Note);
+                        foreach (var pkg in config.Packages)
                         {
-                            foreach (var pkg in config.Packages)
-                            {
-                                logger.LogDebug("{PackageName} = {PackageVersion}", pkg.Name, pkg.Version);
-                            }
+                            logger.LogDebug("{PackageName} = {PackageVersion}", pkg.Name, pkg.Version);
                         }
                     }
                 }

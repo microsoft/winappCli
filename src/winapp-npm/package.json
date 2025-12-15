@@ -12,8 +12,8 @@
     "build-x64": "dotnet publish ../winapp-CLI/WinApp.Cli/WinApp.Cli.csproj -c Release -r win-x64 --self-contained -o bin/win-x64",
     "build-arm64": "dotnet publish ../winapp-CLI/WinApp.Cli/WinApp.Cli.csproj -c Release -r win-arm64 --self-contained -o bin/win-arm64",
     "build-copy-only": "npm run copy-x64 && npm run copy-arm64",
-    "copy-x64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winapp-CLI/WinApp.Cli/bin/Release/net9.0-windows/win-x64/publish'; const dest = 'bin/win-x64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
-    "copy-arm64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winapp-CLI/WinApp.Cli/bin/Release/net9.0-windows/win-arm64/publish'; const dest = 'bin/win-arm64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
+    "copy-x64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winapp-CLI/WinApp.Cli/bin/Release/net10.0-windows/win-x64/publish'; const dest = 'bin/win-x64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
+    "copy-arm64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winapp-CLI/WinApp.Cli/bin/Release/net10.0-windows/win-arm64/publish'; const dest = 'bin/win-arm64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
     "clean": "node -e \"require('fs').rmSync('bin', {recursive: true, force: true})\"",
     "postinstall": "node -e \"console.log('\\\\n🎉 Windows App Development CLI installed successfully!\\\\n\\\\nGet started with: npx winapp --help\\\\n')\""
   },

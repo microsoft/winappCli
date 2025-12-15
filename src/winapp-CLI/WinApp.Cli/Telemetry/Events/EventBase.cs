@@ -10,7 +10,7 @@ public class PrivacyProduct
 {
     public static readonly UInt16
 #pragma warning disable CA1707 // Identifiers should not contain underscores
-    WIN_APP_DEV_CLI = 78;
+    WIN_APP_DEV_CLI = 9;
 #pragma warning restore CA1707 // Identifiers should not contain underscores
 };
 

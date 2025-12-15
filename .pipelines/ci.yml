@@ -32,9 +32,9 @@ extends:
         steps:
           - checkout: self
           - task: UseDotNet@2
-            displayName: Setup .NET 9
+            displayName: Setup .NET 10
             inputs:
-              version: 9.0.x
+              version: 10.0.x
           - task: UseNode@1
             displayName: Setup Node.js 24
             inputs:

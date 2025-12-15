@@ -76,7 +76,7 @@ Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModel
         return dev && sideload;
     }
 
-    private int RunElevated(string fileName, string arguments)
+    private static int RunElevated(string fileName, string arguments)
     {
         using var p = new Process
         {
@@ -94,7 +94,7 @@ Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModel
         return p.ExitCode;
     }
 
-    private string EscapeForPSArg(string s)
+    private static string EscapeForPSArg(string s)
     {
         // Minimal escaping for embedding a script inside -Command "..."
         return s.Replace("\"", "`\"");

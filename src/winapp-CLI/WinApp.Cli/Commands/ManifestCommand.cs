@@ -7,9 +7,10 @@ namespace WinApp.Cli.Commands;
 
 internal class ManifestCommand : Command
 {
-    public ManifestCommand(ManifestGenerateCommand manifestGenerateCommand)
+    public ManifestCommand(ManifestGenerateCommand manifestGenerateCommand, ManifestUpdateAssetsCommand manifestUpdateAssetsCommand)
         : base("manifest", "AppxManifest.xml management")
     {
         Subcommands.Add(manifestGenerateCommand);
+        Subcommands.Add(manifestUpdateAssetsCommand);
     }
 }

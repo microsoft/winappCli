@@ -1,4 +1,4 @@
-# Windows App Development Cli
+# Windows App Development CLI
 
 > [!IMPORTANT]
 > :warning: **Status: Public Preview** - The Windows App Development CLI is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
@@ -13,13 +13,13 @@
 
 <h3 align="center">
   <a href="#-installation">Installation</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-usage">Usage</a>
-  <span> . </span>
+  <span> • </span>
   <a href="./docs/usage.md">Documentation</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-try-the-windows-identity-app">GUI</a>
-  <span> . </span>
+  <span> • </span>
   <a href="#-feedback">Feedback</a>
 </h3>
 <br/>
@@ -28,7 +28,7 @@ The Windows App Development CLI is a single command-line interface for managing 
 <br/><br/>
 Whether you're building with Electron, .NET/Win32, CMake, or Python, this CLI gives you access to:
 
-- **Modern Windows APIs** - Windows App SDK and Windows SDK with automatic setup and code generation
+- **Modern Windows APIs** - [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/) and Windows SDK with automatic setup and code generation
 - **App Identity** - Debug and test by adding app identity without full packaging in a snap
 - **MSIX Packaging** - App packaging with signing and Store readiness
 - **Developer Tools** - Manifests, certificates, assets, and build integration
@@ -41,7 +41,15 @@ Perfect for:
 
 ## 📦 Installation
 
-The easiest way to use the CLI is to download the latest build from GitHub Releases.
+### WinGet
+
+The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
+
+`winget install Microsoft.WinAppCLI`
+
+### Download Release Manually
+
+Or, download the latest build from GitHub Releases:
 
 **[👉 Download Latest Build](https://github.com/microsoft/WinAppCli/releases/latest)**
 
@@ -55,9 +63,14 @@ The easiest way to use the CLI is to download the latest build from GitHub Relea
 
 ### Adding to Path
 
-The easiest way to use the CLI globally is to install it via the [MSIX installer](https://github.com/microsoft/WinAppCli/releases/latest).
+The easiest way to use the CLI globally is to install it via WinGet or the [MSIX installer](https://github.com/microsoft/WinAppCli/releases/latest).
 
 You can also add it manually: Windows Search → Edit the system environment variables → Environment Variables → Path → Edit → New → Add the location (folder) of winapp CLI.
+
+## Get started
+
+Checkout our getting started guides for step by step instructions:
+- [Electron guide](/docs/electron-get-started.md): step by step guide of using the Phi Silica APIs in a new Electron application with a C# addon, debugging with identity, and MSIX packaging.
 
 ## 📋 Usage
 

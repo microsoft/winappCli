@@ -38,6 +38,9 @@ dotnet_analyzer_diagnostic.category-reliability.severity = warning
 dotnet_analyzer_diagnostic.category-security.severity = warning
 dotnet_analyzer_diagnostic.category-usage.severity = warning
 
+# CA1068: CancellationToken parameters must come last
+dotnet_diagnostic.CA1068.severity = warning
+
 # CancellationToken rules (Built-in .NET analyzers) - MOST IMPORTANT
 # CA2016: Forward the CancellationToken parameter to methods that take one
 dotnet_diagnostic.CA2016.severity = warning
@@ -58,9 +61,6 @@ dotnet_diagnostic.CA1031.severity = none
 # CA2201: Exception type System.Exception is not sufficiently specific
 dotnet_diagnostic.CA2201.severity = suggestion
 
-# CA1822: Mark members as static (can be noisy)
-dotnet_diagnostic.CA1822.severity = none
-
 # CA1852: Type can be sealed (not critical)
 dotnet_diagnostic.CA1852.severity = none
 
@@ -75,6 +75,9 @@ dotnet_diagnostic.CA1031.severity = suggestion
 
 # CA1848: Use the LoggerMessage delegates
 dotnet_diagnostic.CA1848.severity = none
+
+# CA1873: 
+dotnet_diagnostic.CA1873.severity = none
 
 # CA2249: Consider using String.Contains instead of String.IndexOf
 dotnet_diagnostic.CA2249.severity = suggestion

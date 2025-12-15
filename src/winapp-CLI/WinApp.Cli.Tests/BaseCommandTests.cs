@@ -12,12 +12,15 @@ public abstract class BaseCommandTests(bool configPaths = true)
 {
     private protected DirectoryInfo _tempDirectory = null!;
     private protected DirectoryInfo _testWinappDirectory = null!;
+    private protected DirectoryInfo _testCacheDirectory = null!;
     private protected IConfigService _configService = null!;
     private protected IBuildToolsService _buildToolsService = null!;
 
     private ServiceProvider _serviceProvider = null!;
     protected StringWriter ConsoleStdOut { private set; get; } = null!;
     protected StringWriter ConsoleStdErr { private set; get; } = null!;
+
+    public TestContext TestContext { get; set; } = null!;
 
     [TestInitialize]
     public void SetupBase()
@@ -55,7 +58,8 @@ public abstract class BaseCommandTests(bool configPaths = true)
             _configService.ConfigPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "winapp.yaml"));
 
             var directoryService = GetRequiredService<IWinappDirectoryService>();
-            directoryService.SetCacheDirectoryForTesting(_testWinappDirectory);
+            _testCacheDirectory = _tempDirectory.CreateSubdirectory(".winappcache");
+            directoryService.SetCacheDirectoryForTesting(_testCacheDirectory);
             _buildToolsService = GetRequiredService<IBuildToolsService>();
         }
     }
