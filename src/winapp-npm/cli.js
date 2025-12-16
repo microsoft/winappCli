@@ -2,7 +2,6 @@
 
 const { generateCppAddonFiles } = require('./cpp-addon-utils');
 const { generateCsAddonFiles } = require('./cs-addon-utils');
-const { checkAndInstallDotnet10Sdk, checkAndInstallVisualStudioBuildTools, checkAndInstallPython } = require('./dependency-utils');
 const { addElectronDebugIdentity } = require('./msix-utils');
 const { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } = require('./winapp-cli-utils');
 const { spawn, exec } = require('child_process');

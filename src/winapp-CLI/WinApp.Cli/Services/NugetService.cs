@@ -101,7 +101,7 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         var psi = new ProcessStartInfo
         {
             FileName = nugetExe,
-            Arguments = $"install {EscapeArg(package)} -Version {EscapeArg(version)} -OutputDirectory {Quote(outputDir.FullName)} -Source https://api.nuget.org/v3/index.json -NonInteractive -ForceEnglishOutput",
+            Arguments = $"install {EscapeArg(package)} -Version {EscapeArg(version)} -OutputDirectory {Quote(outputDir.FullName)} -NonInteractive -ForceEnglishOutput",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

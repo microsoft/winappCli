@@ -2,7 +2,7 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { checkAndInstallDotnet10Sdk, checkAndInstallVisualStudioBuildTools } = require('./dependency-utils');
+const { checkAndInstallDotnetSdk, checkAndInstallVisualStudioBuildTools } = require('./dependency-utils');
 
 /**
  * Generates C# addon files for an Electron project
@@ -28,7 +28,7 @@ async function generateCsAddonFiles(options = {}) {
     // We don't set needsTerminalRestart for VS installation because so far the tools that need it know how to find it.
 
     // Check if dotnet SDK is available and offer to install if missing
-    const dotnetInstalled = await checkAndInstallDotnet10Sdk(false); // Don't show verbose SDK info
+    const dotnetInstalled = await checkAndInstallDotnetSdk("10", false); // Don't show verbose SDK info
     if (dotnetInstalled) needsTerminalRestart = true;
 
     // Check if addon already exists

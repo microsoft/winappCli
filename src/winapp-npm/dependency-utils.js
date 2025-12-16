@@ -4,9 +4,10 @@ const { execSync } = require('child_process');
 
 /**
  * Checks if dotnet SDK is installed and available
+ * @param {string} version - Version of the .NET SDK to check for
  * @param {boolean} verbose - Enable verbose logging
  */
-async function checkDotnetSdk(verbose) {
+async function checkDotnetSdk(version, verbose) {
   // Try to find dotnet executable
   let dotnetPath = 'dotnet';
   
@@ -34,33 +35,35 @@ async function checkDotnetSdk(verbose) {
       stdio: verbose ? ['pipe', 'pipe', 'inherit'] : 'pipe'
     }).trim();
     
-    // Look for a line in output that starts with "10.0"
+    // Look for a line in output that starts with "${version}.0"
     const sdkLines = output.split('\n');
-    const hasDotnet10 = sdkLines.some(line => line.startsWith('10.0'));
-    return hasDotnet10;    
+    const hasDotnet = sdkLines.some(line => line.startsWith(`${version}.0`));
+    return hasDotnet;    
   } catch (error) {
     return false;
   }
 }
 
 /**
- * Get the winget command line for installing .NET 10 SDK
+ * Get the winget command line for installing .NET SDK
+ * @param {string} version - Version of the .NET SDK to install
  * @returns {string} The winget command line
  */
-function getDotnet10SdkWingetCommand() {
-  return 'winget install --id Microsoft.DotNet.SDK.10 --source winget';
+function getDotnetSdkWingetCommand(version) {
+  return `winget install --id Microsoft.DotNet.SDK.${version} --source winget`;
 }
 
 /**
- * Install .NET 10 SDK using winget
+ * Install .NET SDK using winget
+ * @param {string} version - Version of the .NET SDK to install
  * @returns {Promise<boolean>} true if successful, false otherwise
  */
-function installDotnet10Sdk() {
+function installDotnetSdk(version) {
   return new Promise(resolve => {
     const { spawn } = require('child_process');
     
-    // Use winget to install .NET 10 SDK
-    const command = getDotnet10SdkWingetCommand();
+    // Use winget to install .NET SDK
+    const command = getDotnetSdkWingetCommand(version);
     const winget = spawn(command, {
       stdio: 'inherit',
       shell: true
@@ -78,13 +81,14 @@ function installDotnet10Sdk() {
 }
 
 /**
- * Check for .NET 10 SDK and offer to install if missing
+ * Check for .NET SDK and offer to install if missing
+ * @param {string} version - Version of the .NET SDK to check for (default: "10")
  * @param {boolean} verbose - Enable verbose logging
  * @returns {Promise<boolean>} true if something was installed, false otherwise
  */
-async function checkAndInstallDotnet10Sdk(verbose = false) {
-  const hasDotnet10 = await checkDotnetSdk(verbose);
-  if (!hasDotnet10) {
+async function checkAndInstallDotnetSdk(version = "10", verbose = false) {
+  const hasDotnetSdk = await checkDotnetSdk(version, verbose);
+  if (!hasDotnetSdk) {
     // Check if we're in an interactive terminal
     if (process.stdin.isTTY) {
       const readline = require('readline');
@@ -92,34 +96,36 @@ async function checkAndInstallDotnet10Sdk(verbose = false) {
         input: process.stdin,
         output: process.stdout
       });
+
+      const dotnetDownloadUrl = `https://dotnet.microsoft.com/download/dotnet/${version}.0`;
       
       return new Promise((resolve) => {
-        rl.question('❓ .NET 10 SDK is not installed - install using winget (user interaction may be required)? (y/N): ', async (answer) => {
+        rl.question(`❓ .NET ${version} SDK is not installed - install Microsoft.DotNet.SDK.${version} with winget (user interaction may be required)? (y/N): `, async (answer) => {
           rl.close();
           
           if (answer.toLowerCase() === 'y') {
             console.log('');
-            console.log(`Installing with \`${getDotnet10SdkWingetCommand()}\``);
-            const success = await installDotnet10Sdk();
+            console.log(`Installing with \`${getDotnetSdkWingetCommand(version)}\``);
+            const success = await installDotnetSdk();
             
             if (!success) {
-              console.error('❌ Failed to install .NET 10 SDK.');
-              console.error('   Please install it manually from: https://dotnet.microsoft.com/download/dotnet/10.0');
+              console.error(`❌ Failed to install .NET ${version} SDK.`);
+              console.error(`   Please install it manually from: ${dotnetDownloadUrl}`);
               process.exit(1);
             } else {
-              console.log('✅ .NET 10 SDK installed successfully!');
+              console.log(`✅ .NET ${version} SDK installed successfully!`);
               console.log('');
             }
             resolve(true);
           } else {
-            console.error('You can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
+            console.error(`You can install it from: ${dotnetDownloadUrl}`);
             process.exit(1);
           }
           resolve(false);
         });
       });
     } else {
-      console.error('❌ .NET 10 SDK is not installed - you can install it from: https://dotnet.microsoft.com/download/dotnet/10.0');
+      console.error(`❌ .NET ${version} SDK is not installed - you can install it from: ${dotnetDownloadUrl}`);
       process.exit(1);
     }
   }
@@ -219,9 +225,11 @@ async function checkAndInstallVisualStudioBuildTools(verbose = false) {
         input: process.stdin,
         output: process.stdout
       });
+
+      const vsDownloadUrl = 'https://aka.ms/vs/download';
       
       return new Promise((resolve) => {
-        rl.question('❓ Visual Studio Build Tools are not installed - install using winget (user interaction may be required)? (y/N): ', async (answer) => {
+        rl.question('❓ Visual Studio Build Tools are not installed - install Microsoft.VisualStudio.Community with winget (user interaction may be required)? (y/N): ', async (answer) => {
           rl.close();
           
           if (answer.toLowerCase() === 'y') {
@@ -231,7 +239,7 @@ async function checkAndInstallVisualStudioBuildTools(verbose = false) {
             
             if (!success) {
               console.error('❌ Failed to install Visual Studio Build Tools.');
-              console.error('   Please install it manually from: https://visualstudio.microsoft.com/downloads/');
+              console.error(`   Please install it manually from: ${vsDownloadUrl}`);
               process.exit(1);
             } else {
               console.log('✅ Visual Studio Build Tools installed successfully!');
@@ -239,14 +247,14 @@ async function checkAndInstallVisualStudioBuildTools(verbose = false) {
             }
             resolve(true);
           } else {
-            console.error('You can install it from: https://visualstudio.microsoft.com/downloads/');
+            console.error(`You can install it from: ${vsDownloadUrl}`);
             process.exit(1);
           }
           resolve(false);
         });
       });
     } else {
-      console.error('❌ Visual Studio Build Tools are not installed - you can install them from: https://visualstudio.microsoft.com/downloads/');
+      console.error(`❌ Visual Studio Build Tools are not installed - you can install them from: ${vsDownloadUrl}`);
       process.exit(1);
     }
   }
@@ -329,7 +337,7 @@ async function checkAndInstallPython(verbose = false) {
       });
       
       return new Promise((resolve) => {
-        rl.question('❓ Python is not installed - install using winget (user interaction may be required)? (y/N): ', async (answer) => {
+        rl.question('❓ Python is not installed - install Python.PythonInstallManager with winget (user interaction may be required)? (y/N): ', async (answer) => {
           rl.close();
           
           if (answer.toLowerCase() === 'y') {
@@ -362,10 +370,7 @@ async function checkAndInstallPython(verbose = false) {
 }
 
 module.exports = {
-  checkAndInstallDotnet10Sdk,
+  checkAndInstallDotnetSdk,
   checkAndInstallVisualStudioBuildTools,
-  checkAndInstallPython,
-  checkDotnetSdk,
-  checkVisualStudioBuildTools,
-  checkPython
+  checkAndInstallPython
 };
