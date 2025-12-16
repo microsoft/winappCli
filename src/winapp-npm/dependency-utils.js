@@ -145,7 +145,7 @@ async function checkAndInstallDotnetSdk(version = "10", verbose = false) {
           if (answer.toLowerCase() === 'y') {
             console.log('');
             console.log(`Installing with \`${getDotnetSdkWingetCommand(version)}\``);
-            const success = await installDotnetSdk();
+            const success = await installDotnetSdk(version);
             
             if (!success) {
               console.error(`❌ Failed to install .NET ${version} SDK.`);
