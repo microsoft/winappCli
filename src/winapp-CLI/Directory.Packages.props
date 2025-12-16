@@ -5,6 +5,6 @@
     <PackageVersion Include="System.CommandLine" Version="2.0.0" />
     <PackageVersion Include="System.Diagnostics.EventLog" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Telemetry.Inbox.Managed" Version="10.0.25148.1001-220626-1600.rs-fun-deploy-dev5" />
-    <PackageVersion Include="SkiaSharp" Version="3.119.1" />
+    <PackageVersion Include="System.Drawing.Common" Version="9.0.0" />
   </ItemGroup>
 </Project>
