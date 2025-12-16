@@ -45,7 +45,13 @@ Perfect for:
 
 The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
 
-`winget install Microsoft.WinAppCLI`
+`winget install Microsoft.WinAppCli`
+
+### NPM
+
+You can install the CLI for Electron projects via NPM:
+
+`npm install @microsoft/winappcli --save-dev`
 
 ### Download Release Manually
 
@@ -60,12 +66,6 @@ Or, download the latest build from GitHub Releases:
 | **`winappcli_[version]_[platform].msix`** | 📦 MSIX Installer | Easy to install, automatically added to path, great for general usage |
 | **`winappcli-[version]-[platform].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
 | **`microsoft-winappcli-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
-
-### Adding to Path
-
-The easiest way to use the CLI globally is to install it via WinGet or the [MSIX installer](https://github.com/microsoft/WinAppCli/releases/latest).
-
-You can also add it manually: Windows Search → Edit the system environment variables → Environment Variables → Path → Edit → New → Add the location (folder) of winapp CLI.
 
 ## Get started
 
