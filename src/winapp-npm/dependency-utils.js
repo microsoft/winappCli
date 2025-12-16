@@ -3,11 +3,50 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 /**
+ * Refresh the PATH environment variable from the system
+ * This ensures we can detect newly installed tools without restarting the terminal
+ */
+function refreshPath() {
+  try {
+    // On Windows, refresh PATH from registry
+    if (process.platform === 'win32') {
+      const { exec } = require('child_process');
+      
+      // Try to get the updated PATH from the system
+      // We'll do this synchronously since it's quick
+      try {
+        const machinePath = execSync(
+          'powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable(\'Path\', \'Machine\')"',
+          { encoding: 'utf8', stdio: 'pipe' }
+        ).trim();
+        
+        const userPath = execSync(
+          'powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable(\'Path\', \'User\')"',
+          { encoding: 'utf8', stdio: 'pipe' }
+        ).trim();
+        
+        // Combine and update process.env.PATH
+        if (machinePath || userPath) {
+          process.env.PATH = [machinePath, userPath, process.env.PATH].filter(Boolean).join(path.delimiter);
+        }
+      } catch (error) {
+        // If PowerShell fails, silently continue with existing PATH
+      }
+    }
+  } catch (error) {
+    // Silently fail - we'll just use the existing PATH
+  }
+}
+
+/**
  * Checks if dotnet SDK is installed and available
  * @param {string} version - Version of the .NET SDK to check for
  * @param {boolean} verbose - Enable verbose logging
  */
 async function checkDotnetSdk(version, verbose) {
+  // Refresh PATH to pick up any newly installed tools
+  refreshPath();
+  
   // Try to find dotnet executable
   let dotnetPath = 'dotnet';
   
@@ -137,6 +176,9 @@ async function checkAndInstallDotnetSdk(version = "10", verbose = false) {
  * @returns {boolean} true if Visual Studio Build Tools are found, false otherwise
  */
 function checkVisualStudioBuildTools() {
+  // Refresh PATH to pick up any newly installed tools
+  refreshPath();
+  
   try {
     // Use vswhere to find Visual Studio installations
     // vswhere is typically installed with Visual Studio and should be in PATH
@@ -266,6 +308,9 @@ async function checkAndInstallVisualStudioBuildTools(verbose = false) {
  * @returns {Promise<boolean>} true if Python is found, false otherwise
  */
 async function checkPython() {
+  // Refresh PATH to pick up any newly installed tools
+  refreshPath();
+  
   const { exec } = require('child_process');
   const commands = ["python --version", "python3 --version", "py --version"];
 
