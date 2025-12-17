@@ -39,6 +39,12 @@ Perfect for:
 - **Developers testing and deploying** adding app identity for development or packaging for deployment
 - **CI/CD pipelines** automating Windows app builds
 
+## ✏️ Get started
+
+Checkout our getting started guides for step by step instructions:
+- [Electron guide](/docs/electron-get-started.md): step by step guide of using Windows App SDK APIs in a new Electron application with a C# addon, debugging with identity, and MSIX packaging.
+- [Packaging an EXE/CLI](/docs/guides/packaging-cli.md): step by step guide of packaging an existing exe/cli as MSIX
+
 ## 📦 Installation
 
 ### WinGet
@@ -60,22 +66,8 @@ You can install the CLI for Electron projects via NPM:
 
 ### Download Release Manually
 
-Or, download the latest build from GitHub Releases:
-
+Download the latest build from GitHub Releases:
 **[👉 Download Latest Build](https://github.com/microsoft/WinAppCli/releases/latest)**
-
-**Available Options:**
-
-| Package | Description | Use Case |
-|---------|-------------|----------|
-| **`winappcli_[version]_[platform].msix`** | 📦 MSIX Installer | Easy to install, automatically added to path, great for general usage |
-| **`winappcli-[version]-[platform].zip`** | 📦 Standalone Binaries | Portable, no install needed - great for CI/CD |
-| **`microsoft-winappcli-[version].tgz`** | 📚 NPM Package | For Node.js/Electron projects |
-
-## Get started
-
-Checkout our getting started guides for step by step instructions:
-- [Electron guide](/docs/electron-get-started.md): step by step guide of using the Phi Silica APIs in a new Electron application with a C# addon, debugging with identity, and MSIX packaging.
 
 ## 📋 Usage
 
@@ -123,6 +115,14 @@ npx winapp --help
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
 
+
+## 🧾 Samples
+
+This repository will continue to be added with samples. Currently the following samples exist:
+
+- [Electron sample](/samples/electron/README.md): a default Electron Forge generated application + initialized a winapp project with appxmanifest, assets + native addon + C# addon + generates cert
+- [Electron WinML sample](/samples/electron-winml/README.md): a simple Electron application using Windows ML for classifying images
+
 ## 🔧 Feedback
 
 - [File an issue, feature request or bug](https://github.com/microsoft/WinAppCli/issues): please ensure that you are not filing a duplicate issue
@@ -133,12 +133,6 @@ We are actively working on improving Node and Python support. These features are
 ## 🧪 Try the Windows Identity App
 
 This repository also contains an **experimental** app (GUI) that wraps the CLI and provides an intuitive, drag-and-drop experience. [See the docs](/docs/gui-usage.md) for more details. [Download the app here](https://github.com/microsoft/WinAppCli/releases/tag/v0.1.1-gui).
-
-## 🧾 Samples
-
-This repository will continue to be added with samples. Currently the following samples exist:
-
-- [Electron sample](/samples/electron/README.md): a default Electron Forge generated application + initialized a winapp project with appxmanifest, assets + native addon + C# addon + generates cert
 
 ## Support
 
