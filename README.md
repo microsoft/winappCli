@@ -43,11 +43,16 @@ Perfect for:
 
 ### WinGet
 
+![WinGet Package Version](https://img.shields.io/winget/v/Microsoft.WinAppCli)
+
 The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
 
 `winget install Microsoft.WinAppCli`
 
 ### NPM
+
+[![NPM Version](https://img.shields.io/npm/v/%40microsoft%2Fwinappcli)](https://www.npmjs.com/package/@microsoft/winappcli)
+
 
 You can install the CLI for Electron projects via NPM:
 
