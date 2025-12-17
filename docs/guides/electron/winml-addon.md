@@ -9,7 +9,7 @@ Before starting this guide, make sure you've:
 - **Windows 11** or Windows 10 (version 1809 or later)
 
 > [!NOTE]
-> WinML runs on any Windows 10 (1809+) or Windows 11 device. For best performance, devices with GPUs (DirectML) or NPUs are recommended, but the API works on CPU as well.
+> WinML runs on any Windows 10 (1809+) or Windows 11 device. For best performance, devices with GPUs or NPUs are recommended, but the API works on CPU as well.
 
 ## Step 1: Create a C# Native Addon
 
@@ -67,7 +67,7 @@ Before adding the WinML code, we need to add two additional NuGet packages that 
 
 Add the following package versions to the `Directory.packages.props` file in the root of your project (should have been created when you created the addon):
 
-```xml
+```diff
 <Project>
   <PropertyGroup>
     <!-- Enable central package versioning -->
@@ -77,8 +77,8 @@ Add the following package versions to the `Directory.packages.props` file in the
     <PackageVersion Include="Microsoft.JavaScript.NodeApi" Version="0.9.17" />
     <PackageVersion Include="Microsoft.JavaScript.NodeApi.Generator" Version="0.9.17" />
     <!-- Add these two packages for WinML -->
-    <PackageVersion Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
-    <PackageVersion Include="System.Drawing.Common" Version="9.0.9" />
++   <PackageVersion Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
++   <PackageVersion Include="System.Drawing.Common" Version="9.0.9" />
     
     <!-- These versions may be updated automatically during restore to match yaml -->
     <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.0.0-experimental3" />
@@ -91,13 +91,13 @@ Add the following package versions to the `Directory.packages.props` file in the
 
 Open `winMlAddon/winMlAddon.csproj` and add the package references to the `<ItemGroup>`:
 
-```xml
+```diff
 <ItemGroup>
   <PackageReference Include="Microsoft.JavaScript.NodeApi" />
   <PackageReference Include="Microsoft.JavaScript.NodeApi.Generator" />
   <!-- Add these two packages for WinML -->
-  <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" />
-  <PackageReference Include="System.Drawing.Common" />
++ <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" />
++ <PackageReference Include="System.Drawing.Common" />
   
   <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
   <PackageReference Include="Microsoft.WindowsAppSDK" />
@@ -153,7 +153,7 @@ public static async Task<Addon> CreateAsync(string projectRoot)
 }
 ```
 
-This automatically selects the best execution provider (CPU, GPU via DirectML, or NPU) based on device capabilities.
+This automatically selects the best execution provider (CPU, GPU, or NPU) based on device capabilities.
 
 #### 2. Preloading Native Dependencies
 
@@ -238,7 +238,7 @@ The addon provides these main functions:
 1. **CreateAsync** - Initializes the addon and loads the SqueezeNet model
 2. **ClassifyImage** - Takes an image path and returns classification predictions
 
-WinML automatically selects the best execution device (CPU, GPU via DirectML, or NPU) based on availability.
+WinML automatically selects the best execution device (CPU, GPU, or NPU) based on availability.
 
 ## Step 5: Build the C# Addon
 
@@ -399,7 +399,7 @@ WinML is great for:
 
 ### Performance Tips
 
-- **Use GPU acceleration** - WinML automatically uses DirectML on compatible GPUs
+- **Use GPU acceleration** - WinML automatically uses the best execution provider for the device
 - **Pre-process efficiently** - Convert images/data to the required format before binding
 - **Batch processing** - Process multiple inputs together when possible
 - **Model optimization** - Use ONNX Runtime tools to optimize your models
