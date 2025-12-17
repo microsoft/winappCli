@@ -324,7 +324,7 @@ When you run the app, you'll see the classification results in the console!
 
 > **💡 Tip:** For a complete implementation with IPC handlers, file selection dialogs, and a UI, see the [electron-winml sample](../../../samples/electron-winml/src/index.js).
 
-## Step 8: Update Debug Identity
+## Step 7: Update Debug Identity
 
 To ensure the Windows App SDK is loaded and available for usage, we need to ensure we setup debug identity which will ensure the framework is loaded whenever our app runs. Likewise, whenever you modify `appxmanifest.xml` or change assets referenced in the manifest (like app icons), you need to update your app's debug identity. Run:
 
@@ -378,32 +378,14 @@ To fully integrate your ONNX model, you'll need to:
 3. **Process the outputs** - Parse and interpret the model's predictions
 4. **Handle errors gracefully** - Model loading and inference can fail
 
-### Example Use Cases
-
-WinML is great for:
-
-- **Image Classification** - Identify objects in photos
-- **Object Detection** - Find and locate objects in images
-- **Style Transfer** - Apply artistic styles to images
-- **Text Analysis** - Sentiment analysis, entity recognition
-- **Custom ML Models** - Any ONNX-compatible model
-
 ### Additional Resources
 
-- **[WinML Documentation](https://learn.microsoft.com/windows/ai/windows-ml/)** - Official WinML documentation
-- **[ONNX Model Zoo](https://github.com/onnx/models)** - Pre-trained models you can use
-- **[WinML Samples](https://github.com/microsoft/Windows-Machine-Learning)** - Sample applications and code
+- **[WinML Documentation](https://learn.microsoft.com/windows/ai/new-windows-ml/overview)** - Official WinML documentation
 - **[WinAppCLI Documentation](../../usage.md)** - Full CLI reference
 - **[Sample Electron App](../../../samples/electron/)** - Complete working example
+- **[AI Dev Gallery](https://aka.ms/aidevgallery)** - Sample gallery of all AI APIs 
+- **[Windows App SDK Samples](https://github.com/microsoft/WindowsAppSDK-Samples/tree/main/Samples/WindowsML)** - Collection of Windows App SDK samples
 - **[node-api-dotnet](https://github.com/microsoft/node-api-dotnet)** - C# ↔ JavaScript interop library
-
-### Performance Tips
-
-- **Use GPU acceleration** - WinML automatically uses the best execution provider for the device
-- **Pre-process efficiently** - Convert images/data to the required format before binding
-- **Batch processing** - Process multiple inputs together when possible
-- **Model optimization** - Use ONNX Runtime tools to optimize your models
-- **Choose the right model** - Smaller models (MobileNet, SqueezeNet) are faster
 
 ### Get Help
 

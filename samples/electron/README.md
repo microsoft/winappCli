@@ -24,7 +24,7 @@ npm run package-msix
 npm run package-msix:x64
 
 # Install your dev cert if you haven't already (If Sudo isn't enabled, use an admin prompt)
-sudo pwsh -c "npx winapp cert install .\devcert.pfx ; pause"
+sudo npx winapp cert install .\devcert.pfx
 
 # Deploy the MSIX to local machine
 add-appxpackage out\electronwinappSample.msix
@@ -55,9 +55,10 @@ a .node file that is trimmed and doesn't require the .net runtime to be installe
 
 ## Prerequisites
 
-* Node.js
-* Visual Studio 2022 for building the native component
-* .Net 8 SDK for building the C# component
+- **Windows 11** 
+- **Node.js** - `winget install OpenJS.NodeJS`
+- **.NET SDK v10** - `Microsoft.DotNet.SDK.10`
+- **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 Before running the sample, ensure the npm package has been built:
 

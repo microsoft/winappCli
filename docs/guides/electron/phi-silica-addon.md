@@ -209,16 +209,6 @@ Or explore other guides:
 - **[Creating a WinML Addon](winml-addon.md)** - Learn how to use Windows Machine Learning
 - **[Getting Started Overview](../../electron-get-started.md)** - Return to the main guide
 
-### Explore More Windows APIs
-
-Now that you have the foundation, you can explore other Windows capabilities:
-
-- **[Notifications](https://learn.microsoft.com/windows/apps/design/shell/tiles-and-notifications/adaptive-interactive-toasts)** - Rich toast notifications with buttons and inputs
-- **[File Pickers](https://learn.microsoft.com/windows/apps/develop/ui-input/file-pickers)** - Native file and folder selection dialogs
-- **[Background Tasks](https://learn.microsoft.com/windows/uwp/launch-resume/support-your-app-with-background-tasks)** - Run code when your app is closed
-- **[Windows Hello](https://learn.microsoft.com/windows/security/identity-protection/hello-for-business/)** - Biometric authentication
-- **[Nearby Sharing](https://learn.microsoft.com/windows/apps/windows-app-sdk/api/winrt/microsoft.windows.applicationmodel.datatransfer.sharepicker)** - Share content with nearby devices
-
 ### Additional Resources
 
 - **[WinAppCLI Documentation](../../usage.md)** - Full CLI reference
