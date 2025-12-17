@@ -11,7 +11,9 @@
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\"",
     "build-winMlAddon": "dotnet publish ./winMlAddon/winMlAddon.csproj -c Release",
-    "clean-winMlAddon": "dotnet clean ./winMlAddon/winMlAddon.csproj"
+    "clean-winMlAddon": "dotnet clean ./winMlAddon/winMlAddon.csproj",
+    "setup-debug": "winapp node add-electron-debug-identity",
+    "postinstall": "winapp restore && winapp cert generate --if-exists skip && npm run setup-debug"
   },
   "keywords": [],
   "author": {
@@ -32,7 +34,7 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.10.2",
     "@electron-forge/plugin-fuses": "^7.10.2",
     "@electron/fuses": "^1.8.0",
-    "@microsoft/winappcli": "file:../../winappcli/artifacts/microsoft-winappcli-0.1.8-prerelease.33.tgz",
+    "@microsoft/winappcli": "^0.1.8",
     "electron": "39.2.7"
   }
 }

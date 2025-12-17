@@ -65,7 +65,7 @@ npm start
 
 - **[Full Guide](../../docs/guides/electron/winml-addon.md)** - Step-by-step tutorial
 - **[WinAppCLI Documentation](../../docs/usage.md)** - CLI reference
-- **[WinML Documentation](https://learn.microsoft.com/windows/ai/windows-ml/)** - Official WinML docs
+- **[WinML Documentation](https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/overview)** - Official WinML docs
 - **[AI Dev Gallery](https://aka.ms/aidevgallery)** 
 
 ## Troubleshooting

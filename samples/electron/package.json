@@ -23,7 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
-    "node-api-dotnet": "^0.9.17"
+    "node-api-dotnet": "^0.9.18"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.10.2",
@@ -34,10 +34,10 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.10.2",
     "@electron-forge/plugin-fuses": "^7.10.2",
     "@electron/fuses": "^1.8.0",
-    "@microsoft/winappcli": "file:../../src/winapp-npm",
-    "electron": "38.2.2",
-    "nan": "^2.23.0",
+    "@microsoft/winappcli": "^0.1.8",
+    "electron": "39.2.7",
+    "nan": "^2.24.0",
     "node-addon-api": "^8.5.0",
-    "node-gyp": "^11.5.0"
+    "node-gyp": "^12.1.0"
   }
 }

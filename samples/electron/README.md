@@ -2,6 +2,14 @@
 
 This sample demonstrates usage of the @microsoft/winappcli npm package with an Electron app.
 
+## Prerequisites
+
+- **Windows 11** or Windows 10 (version 1809+)
+- **Node.js** - `winget install OpenJS.NodeJS`
+- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10`
+- **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
+- **Python** - `winget install Python.PythonInstallManager`
+
 ## 🚀 Quick Start: How to build and run the sample
 
 Here's how you can build, package, deploy, and run the sample (more detail in below sections):
@@ -11,26 +19,14 @@ Here's how you can build, package, deploy, and run the sample (more detail in be
 pwsh
 cd <reporoot>\samples\electron
 
-# Build the winapp CLI
-..\..\build-cli.ps1
-
 # Install/restore the project dependencies
 npm install
 
-# FOR ARM64 ONLY: Build and create the MSIX package 
-npm run package-msix
+# Build the C++ and C# addons
+npm run build-all
 
-# FOR x64 ONLY: Build and create the MSIX package
-npm run package-msix:x64
-
-# Install your dev cert if you haven't already (If Sudo isn't enabled, use an admin prompt)
-sudo npx winapp cert install .\devcert.pfx
-
-# Deploy the MSIX to local machine
-add-appxpackage out\electronwinappSample.msix
-
-# Find "Electron winapp sample" in your start menu and run!
-# (note that first launch will be slow)
+# Run the sample
+npm start
 ```
 
 ## Overview
