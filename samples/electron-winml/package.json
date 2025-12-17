@@ -1,25 +1,25 @@
 {
-  "name": "sample-electron-app",
-  "productName": "sample-electron-app",
+  "name": "electron-winml-sample",
+  "productName": "electron-winml-sample",
   "version": "1.0.0",
   "description": "My Electron application description",
   "main": "src/index.js",
   "scripts": {
-    "start": "electron-forge start -- --no-sandbox",
+    "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "build-all": "npm run build-csAddon && npm run build-addon",
-    "build-addon": "node-gyp clean configure build --directory=addon",
-    "build-csAddon": "dotnet publish ./csAddon/csAddon.csproj -c Release",
-    "clean-csAddon": "dotnet clean ./csAddon/csAddon.csproj",
+    "lint": "echo \"No linting configured\"",
+    "build-winMlAddon": "dotnet publish ./winMlAddon/winMlAddon.csproj -c Release",
+    "clean-winMlAddon": "dotnet clean ./winMlAddon/winMlAddon.csproj",
     "setup-debug": "winapp node add-electron-debug-identity",
-    "package-msix": "npm run build-all && npm run package & winapp package ./out/sample-electron-app-win32-arm64/ --output ./out --cert ./devcert.pfx --manifest appxmanifest.xml",
-    "package-msix:x64": "npm run build-all && npm run package & winapp package ./out/sample-electron-app-win32-x64/ --output ./out --cert ./devcert.pfx --manifest appxmanifest.xml",
     "postinstall": "winapp restore && winapp cert generate --if-exists skip && npm run setup-debug"
   },
   "keywords": [],
-  "author": "Sample Author",
+  "author": {
+    "name": "Nikola Metulev",
+    "email": "nmetulev@users.noreply.github.com"
+  },
   "license": "MIT",
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
@@ -35,9 +35,6 @@
     "@electron-forge/plugin-fuses": "^7.10.2",
     "@electron/fuses": "^1.8.0",
     "@microsoft/winappcli": "^0.1.8",
-    "electron": "39.2.7",
-    "nan": "^2.24.0",
-    "node-addon-api": "^8.5.0",
-    "node-gyp": "^12.1.0"
+    "electron": "39.2.7"
   }
 }
