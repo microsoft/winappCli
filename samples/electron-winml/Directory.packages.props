@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <!-- Enable central package versioning -->
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.JavaScript.NodeApi" Version="0.9.17" />
+    <PackageVersion Include="Microsoft.JavaScript.NodeApi.Generator" Version="0.9.17" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
+    <PackageVersion Include="System.Drawing.Common" Version="9.0.9" />
+
+    <!-- These versions may be updated automatically during restore to match yaml -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.0.0-experimental3" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7175" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,168 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f3f3f3;
+  min-height: 100vh;
+  padding: 0;
+  margin: 0;
+}
+
+.container {
+  background: #ffffff;
+  padding: 24px;
+  max-width: 100%;
+  width: 100%;
+  height: 100vh;
+}
+
+h1 {
+  color: #000000;
+  margin-bottom: 20px;
+  font-size: 28px;
+  font-weight: 600;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+h2 {
+  color: #000000;
+  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.select-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 400;
+  color: #ffffff;
+  background: #0078d4;
+  border: 1px solid #0078d4;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+  margin-bottom: 20px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.select-btn:hover {
+  background: #106ebe;
+  border-color: #106ebe;
+}
+
+.select-btn:active {
+  background: #005a9e;
+  border-color: #005a9e;
+}
+
+.image-preview {
+  margin-bottom: 20px;
+  text-align: center;
+  padding: 12px;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+
+.image-preview img {
+  max-width: 100%;
+  max-height: 400px;
+  border: 1px solid #d0d0d0;
+}
+
+.loading {
+  text-align: center;
+  padding: 32px;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  margin-bottom: 20px;
+  border-radius: 4px;
+}
+
+.spinner {
+  border: 3px solid #e0e0e0;
+  border-top: 3px solid #0078d4;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 12px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading p {
+  color: #5d5d5d;
+  font-size: 14px;
+}
+
+.results {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  padding: 16px;
+  border-radius: 4px;
+}
+
+#resultsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#resultsList li {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#resultsList li:hover {
+  background: #f5f5f5;
+}
+
+.label-name {
+  font-weight: 600;
+  color: #000000;
+  flex: 1;
+  font-size: 14px;
+}
+
+.confidence {
+  font-weight: 600;
+  color: #0078d4;
+  font-size: 14px;
+  margin-left: 16px;
+  min-width: 60px;
+  text-align: right;
+}
+
+.confidence-bar {
+  height: 4px;
+  background: #e0e0e0;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.confidence-fill {
+  height: 100%;
+  background: #0078d4;
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+.hidden {
+  display: none;
+}

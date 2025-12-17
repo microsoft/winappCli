@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Image Classification</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>🖼️ Image Classification</h1>
+      
+      <button id="selectImageBtn" class="select-btn">Select Image</button>
+      
+      <div id="imagePreview" class="image-preview hidden">
+        <img id="selectedImage" src="" alt="Selected image" />
+      </div>
+      
+      <div id="loadingView" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Classifying image...</p>
+      </div>
+      
+      <div id="resultsContainer" class="results hidden">
+        <h2>Classification Results</h2>
+        <ul id="resultsList"></ul>
+      </div>
+    </div>
+    
+    <script src="./renderer.js"></script>
+  </body>
+</html>
