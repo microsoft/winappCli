@@ -63,8 +63,7 @@ public class EndToEndTests : BaseCommandTests
             projectDir.FullName,
             "--package-name", projectName,
             "--publisher-name", "CN=TestPublisher",
-            "--entrypoint", exePath,
-            "--yes"  // Skip interactive prompts
+            "--entrypoint", exePath
         };
 
         var manifestExitCode = await ParseAndInvokeWithCaptureAsync(manifestGenerateCommand, manifestArgs);
@@ -143,8 +142,7 @@ public class EndToEndTests : BaseCommandTests
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.5.0.0",
             "--description", "Custom test application",
-            "--entrypoint", exePath,
-            "--yes"
+            "--entrypoint", exePath
         };
 
         var manifestExitCode = await ParseAndInvokeWithCaptureAsync(manifestGenerateCommand, manifestArgs);
@@ -216,8 +214,7 @@ if __name__ == ""__main__"":
         {
             projectDir.FullName,
             "--template", "hostedapp",
-            "--entrypoint", scriptPath,
-            "--yes"  // Skip interactive prompts
+            "--entrypoint", scriptPath
         };
 
         var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);

@@ -20,7 +20,6 @@ internal class ManifestGenerateCommand : Command
     public static Option<FileInfo> EntryPointOption { get; }
     public static Option<ManifestTemplates> TemplateOption { get; }
     public static Option<FileInfo> LogoPathOption { get; }
-    public static Option<bool> YesOption { get; }
 
     static ManifestGenerateCommand()
     {
@@ -69,11 +68,6 @@ internal class ManifestGenerateCommand : Command
         {
             Description = "Path to logo image file"
         };
-
-        YesOption = new Option<bool>("--yes", "--y")
-        {
-            Description = "Skip interactive prompts and use default values"
-        };
     }
 
     public ManifestGenerateCommand() : base("generate", "Generate a manifest in directory")
@@ -86,7 +80,6 @@ internal class ManifestGenerateCommand : Command
         Options.Add(EntryPointOption);
         Options.Add(TemplateOption);
         Options.Add(LogoPathOption);
-        Options.Add(YesOption);
     }
 
     public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, IStatusService statusService) : AsynchronousCommandLineAction
@@ -101,7 +94,6 @@ internal class ManifestGenerateCommand : Command
             var entryPoint = parseResult.GetValue(EntryPointOption);
             var template = parseResult.GetValue(TemplateOption);
             var logoPath = parseResult.GetValue(LogoPathOption);
-            var yes = parseResult.GetValue(YesOption);
 
             return await statusService.ExecuteWithStatusAsync("Generating manifest", async (taskContext) =>
             {
@@ -116,7 +108,7 @@ internal class ManifestGenerateCommand : Command
                         entryPoint?.ToString(),
                         template,
                         logoPath,
-                        yes,
+                        true,
                         taskContext,
                         cancellationToken);
 

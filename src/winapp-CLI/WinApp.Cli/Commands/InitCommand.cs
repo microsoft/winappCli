@@ -11,7 +11,7 @@ internal class InitCommand : Command
 {
     public static Argument<DirectoryInfo> BaseDirectoryArgument { get; }
     public static Option<DirectoryInfo> ConfigDirOption { get; }
-    public static Option<bool> PrereleaseOption { get; }
+    public static Option<SdkInstallMode?> SetupSdksOption { get; }
     public static Option<bool> IgnoreConfigOption { get; }
     public static Option<bool> NoGitignoreOption { get; }
     public static Option<bool> YesOption { get; }
@@ -31,9 +31,10 @@ internal class InitCommand : Command
             Description = "Directory to read/store configuration (default: current directory)"
         };
         ConfigDirOption.AcceptExistingOnly();
-        PrereleaseOption = new Option<bool>("--prerelease")
+        SetupSdksOption = new Option<SdkInstallMode?>("--setup-sdks")
         {
-            Description = "Include prerelease packages from NuGet"
+            Description = "SDK installation mode: 'stable' (default), 'experimental' (preview packages), or 'none' (skip SDK installation)",
+            HelpName = "stable|experimental|none"
         };
         IgnoreConfigOption = new Option<bool>("--ignore-config", "--no-config")
         {
@@ -61,7 +62,7 @@ internal class InitCommand : Command
     {
         Arguments.Add(BaseDirectoryArgument);
         Options.Add(ConfigDirOption);
-        Options.Add(PrereleaseOption);
+        Options.Add(SetupSdksOption);
         Options.Add(IgnoreConfigOption);
         Options.Add(NoGitignoreOption);
         Options.Add(YesOption);
@@ -75,7 +76,7 @@ internal class InitCommand : Command
         {
             var baseDirectory = parseResult.GetValue(BaseDirectoryArgument);
             var configDir = parseResult.GetValue(ConfigDirOption) ?? currentDirectoryProvider.GetCurrentDirectoryInfo();
-            var prerelease = parseResult.GetValue(PrereleaseOption);
+            var setupSdks = parseResult.GetValue(SetupSdksOption);
             var ignoreConfig = parseResult.GetValue(IgnoreConfigOption);
             var noGitignore = parseResult.GetValue(NoGitignoreOption);
             var assumeYes = parseResult.GetValue(YesOption);
@@ -86,7 +87,7 @@ internal class InitCommand : Command
             {
                 BaseDirectory = baseDirectory ?? currentDirectoryProvider.GetCurrentDirectoryInfo(),
                 ConfigDir = configDir,
-                IncludeExperimental = prerelease,
+                SdkInstallMode = setupSdks,
                 IgnoreConfig = ignoreConfig,
                 NoGitignore = noGitignore,
                 AssumeYes = assumeYes,

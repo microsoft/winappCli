@@ -77,7 +77,7 @@ internal sealed class PackageCacheService : IPackageCacheService
             _cacheFilePath.Refresh();
             await JsonSerializer.SerializeAsync(stream, cache, PackageCacheJsonContext.Default.PackageCache, cancellationToken);
 
-            taskContext.AddStatusMessage($"{UiSymbols.Save} Package cache updated");
+            taskContext.AddDebugMessage($"{UiSymbols.Save} Package cache updated");
         }
         catch (Exception ex)
         {

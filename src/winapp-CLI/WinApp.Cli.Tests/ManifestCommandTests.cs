@@ -50,8 +50,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory.FullName,
-            "--yes" // Skip interactive prompts
+            _tempDirectory.FullName
         };
 
         // Act
@@ -85,8 +84,7 @@ public class ManifestCommandTests : BaseCommandTests
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.0.0.0",
             "--description", "Test Application",
-            "--entrypoint", exeFilePath,
-            "--yes" // Skip interactive prompts
+            "--entrypoint", exeFilePath
         };
 
         // Act
@@ -117,8 +115,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--template", "sparse",
-            "--yes" // Skip interactive prompts
+            "--template", "sparse"
         };
 
         // Act
@@ -146,8 +143,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--logo-path", _testLogoPath,
-            "--yes" // Skip interactive prompts
+            "--logo-path", _testLogoPath
         };
 
         // Act
@@ -177,8 +173,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory.FullName,
-            "--yes" // Skip interactive prompts
+            _tempDirectory.FullName
         };
 
         // Act
@@ -207,7 +202,6 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", exeFilePath,
             "--template", "sparse",
             "--logo-path", _testLogoPath,
-            "--yes",
             "--verbose"
         };
 
@@ -224,13 +218,9 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
-        var args = new[]
-        {
-            "--yes" // Skip interactive prompts - no directory argument
-        };
 
         // Act
-        var parseResult = generateCommand.Parse(args);
+        var parseResult = generateCommand.Parse([]);
 
         // Assert
         Assert.IsNotNull(parseResult, "Parse result should not be null");
@@ -248,8 +238,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--verbose",
-            "--yes" // Skip interactive prompts
+            "--verbose"
         };
 
         DefaultAnswers();
@@ -288,8 +277,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--logo-path", nonExistentLogoPath,
-            "--yes" // Skip interactive prompts
+            "--logo-path", nonExistentLogoPath
         };
 
         // Act
