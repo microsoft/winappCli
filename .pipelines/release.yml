@@ -124,14 +124,31 @@ extends:
             inputs:
               rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-x64
               includeRootFolder: false
-              archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-x64.zip
+              archiveFile: $(Pipeline.Workspace)/winappcli-x64.zip
 
           - task: ArchiveFiles@2
             displayName: Archive CLI binaries - arm64
             inputs:
               rootFolderOrFile: $(Pipeline.Workspace)/cli-binaries/win-arm64
               includeRootFolder: false
-              archiveFile: $(Pipeline.Workspace)/winappcli-$(version)-arm64.zip
+              archiveFile: $(Pipeline.Workspace)/winappcli-arm64.zip
+          
+          - task: PowerShell@2
+            displayName: Rename files
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Rename MSIX files, removing version in between underscores, keeping anything after the next underscore
+                Get-ChildItem "$(Pipeline.Workspace)/msix-packages/" -Filter "*.msix" | ForEach-Object {
+                  $newName = $_.Name -replace 'winappcli_(.+?)_(.+)', 'winappcli_$2'
+                  Rename-Item -Path $_.FullName -NewName $newName
+                }
+
+                # Rename NPM package to remove the version from the filename
+                Get-ChildItem "$(Pipeline.Workspace)/npm-package/" -Filter "*.tgz" | ForEach-Object {
+                  $newName = $_.Name -replace 'microsoft-winappcli-(.+?).tgz', 'microsoft-winappcli.tgz'
+                  Rename-Item -Path $_.FullName -NewName $newName
+                }
 
           - ${{ if ne(parameters.GitHubReleaseAlreadyExists, 'true') }}:
             - task: GitHubRelease@1
@@ -161,18 +178,18 @@ extends:
                   ## Installation Options
 
                   ### 📦 MSIX Installer (Recommended)
-                  1. Download `winappcli_$(version).0_x64.msix` for x64 or `winappcli_$(version).0_arm64.msix` for ARM64
+                  1. Download `winappcli_x64.msix` for x64 or `winappcli_arm64.msix` for ARM64
                   2. Double-click to install
                   3. Automatically added to PATH
 
                   ### 📦 Standalone CLI Binaries
-                  1. Download `winappcli-$(version)-x64.zip` for x64 or `winappcli-$(version)-arm64.zip` for ARM64
+                  1. Download `winappcli-x64.zip` for x64 or `winappcli-arm64.zip` for ARM64
                   2. Extract to your desired location
                   3. Add to PATH or run directly: `winapp.exe`
 
                   ### 📚 NPM Package (for Electron or NodeJS)
                   ```bash
-                  npm install microsoft-winappcli-$(version).tgz
+                  npm install microsoft-winappcli.tgz
                   ```
 
                   ## What's Included
@@ -286,8 +303,8 @@ extends:
                 Write-Host "Fork synced successfully."
                 
                 # Get the installer URLs from the GitHub release
-                $x64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_$(version).0_x64.msix"
-                $arm64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_$(version).0_arm64.msix"
+                $x64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_x64.msix"
+                $arm64MsixUrl = "https://github.com/microsoft/winappcli/releases/download/v$(version)/winappcli_arm64.msix"
                 
                 Write-Host "Submitting to WinGet..."
                 Write-Host "Version: $(version)"
