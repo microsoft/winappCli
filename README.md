@@ -10,6 +10,24 @@
       <img  src="./docs/images/hero-dark.png">
     </picture>
 </p>
+<br/>
+<p align="center">
+  <img src="https://img.shields.io/winget/v/Microsoft.WinAppCli?style=for-the-badge&logo=windows&color=357EC7" alt="WinGet">
+  <a href="https://www.npmjs.com/package/@microsoft/winappcli">
+    <img src="https://img.shields.io/npm/v/%40microsoft%2Fwinappcli?style=for-the-badge&logo=npm" alt="NPM">
+  </a>
+  <a href="https://github.com/microsoft/WinAppCli/releases/latest">
+    <img src="https://img.shields.io/github/v/release/microsoft/WinAppCli?style=for-the-badge&logo=github&label=Latest%20Release&color=8ab4f8" alt="Latest Release">
+  </a>
+  <br />
+  <a href="https://github.com/microsoft/WinAppCli/issues">
+    <img src="https://img.shields.io/github/issues/microsoft/WinAppCli?style=for-the-badge&logo=github&color=81c995" alt="Issues">
+  </a>
+  <a href="https://github.com/microsoft/WinAppCli/blob/main/LICENSE">
+    <img alt="GitHub License" src="https://img.shields.io/github/license/microsoft/winappcli?style=for-the-badge">
+  </a>
+  <br />
+</p>
 
 <h3 align="center">
   <a href="#-installation">Installation</a>
@@ -49,7 +67,7 @@ Checkout our getting started guides for step by step instructions:
 
 ### WinGet
 
-![WinGet Package Version](https://img.shields.io/winget/v/Microsoft.WinAppCli)
+<img src="https://img.shields.io/winget/v/Microsoft.WinAppCli?style=for-the-badge&logo=windows&color=357EC7" alt="WinGet">
 
 The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
 
@@ -57,7 +75,9 @@ The easiest way to use the CLI is via WinGet (Windows Package Manager). In Termi
 
 ### NPM
 
-[![NPM Version](https://img.shields.io/npm/v/%40microsoft%2Fwinappcli)](https://www.npmjs.com/package/@microsoft/winappcli)
+<a href="https://www.npmjs.com/package/@microsoft/winappcli">
+    <img src="https://img.shields.io/npm/v/%40microsoft%2Fwinappcli?style=for-the-badge&logo=npm" alt="NPM">
+</a>
 
 
 You can install the CLI for Electron projects via NPM:
