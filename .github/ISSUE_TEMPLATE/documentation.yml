@@ -1,0 +1,31 @@
+name: Documentation
+description: Suggest a change or addition to the documentation
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest a documentation change!
+  - type: textarea
+    id: description
+    attributes:
+      label: What part of the documentation needs improvement?
+      description: Please link to the specific page or section if possible.
+      placeholder: e.g. The installation guide is missing a step...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the change you'd like
+      description: A clear and concise description of what you want to change or add.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other context or screenshots about the documentation request here.
+    validations:
+      required: false
