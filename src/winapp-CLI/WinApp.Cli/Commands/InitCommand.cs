@@ -14,7 +14,7 @@ internal class InitCommand : Command
     public static Option<SdkInstallMode?> SetupSdksOption { get; }
     public static Option<bool> IgnoreConfigOption { get; }
     public static Option<bool> NoGitignoreOption { get; }
-    public static Option<bool> YesOption { get; }
+    public static Option<bool> UseDefaults { get; }
     public static Option<bool> NoCertOption { get; }
     public static Option<bool> ConfigOnlyOption { get; }
 
@@ -44,9 +44,9 @@ internal class InitCommand : Command
         {
             Description = "Don't update .gitignore file"
         };
-        YesOption = new Option<bool>("--yes", "--no-prompt")
+        UseDefaults = new Option<bool>("--use-defaults", "--no-prompt")
         {
-            Description = "Assume yes to all prompts"
+            Description = "Do not prompt, and use default of all prompts"
         };
         NoCertOption = new Option<bool>("--no-cert")
         {
@@ -65,7 +65,7 @@ internal class InitCommand : Command
         Options.Add(SetupSdksOption);
         Options.Add(IgnoreConfigOption);
         Options.Add(NoGitignoreOption);
-        Options.Add(YesOption);
+        Options.Add(UseDefaults);
         Options.Add(NoCertOption);
         Options.Add(ConfigOnlyOption);
     }
@@ -79,7 +79,7 @@ internal class InitCommand : Command
             var setupSdks = parseResult.GetValue(SetupSdksOption);
             var ignoreConfig = parseResult.GetValue(IgnoreConfigOption);
             var noGitignore = parseResult.GetValue(NoGitignoreOption);
-            var assumeYes = parseResult.GetValue(YesOption);
+            var useDefaults = parseResult.GetValue(UseDefaults);
             var noCert = parseResult.GetValue(NoCertOption);
             var configOnly = parseResult.GetValue(ConfigOnlyOption);
 
@@ -90,7 +90,7 @@ internal class InitCommand : Command
                 SdkInstallMode = setupSdks,
                 IgnoreConfig = ignoreConfig,
                 NoGitignore = noGitignore,
-                AssumeYes = assumeYes,
+                UseDefaults = useDefaults,
                 RequireExistingConfig = false,
                 ForceLatestBuildTools = true,
                 NoCert = noCert,

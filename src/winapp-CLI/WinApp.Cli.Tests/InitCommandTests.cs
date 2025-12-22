@@ -46,7 +46,7 @@ public class InitCommandTests : BaseCommandTests
     {
         // Arrange
         var initCommand = GetRequiredService<InitCommand>();
-        var args = new[] { _tempDirectory.FullName, "--setup-sdks", "none", "--yes" };
+        var args = new[] { _tempDirectory.FullName, "--setup-sdks", "none", "--no-prompt" };
 
         // Act
         var exitCode = await ParseAndInvokeWithCaptureAsync(initCommand, args);

@@ -156,6 +156,11 @@ internal sealed class OutputCapture : StringWriter, IDisposable
         }
         base.Dispose(disposing);
     }
+
+    public void Clear()
+    {
+        GetStringBuilder().Clear();
+    }
 }
 
 public static class TextWriterLoggerExtensions

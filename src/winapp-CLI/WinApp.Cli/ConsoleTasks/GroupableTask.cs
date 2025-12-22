@@ -4,125 +4,20 @@
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Spectre.Console.Rendering;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
-using WinApp.Cli.Models;
 
 namespace WinApp.Cli.ConsoleTasks;
 
 internal class GroupableTask(string inProgressMessage, GroupableTask? parent) : IDisposable
 {
-    public List<GroupableTask> SubTasks { get; set; } = [];
+    public BlockingCollection<GroupableTask> SubTasks { get; set; } = [];
     public bool IsCompleted { get; protected set; }
     public GroupableTask? Parent { get; } = parent;
     public string InProgressMessage { get; set; } = inProgressMessage;
     public string? SubStatus { get; set; }
-
-    public bool SpinnerPaused
-    {
-        get
-        {
-            var spinnerTask = FindTaskWithSpinner();
-            return spinnerTask == null || spinnerTask._spinnerPaused;
-        }
-    }
-
-    private CancellationTokenSource? _spinnerCancellation;
-    private Task? _spinnerTask;
-    private bool _spinnerPaused;
-    private Action? _spinnerOnUpdate;
-
-    public GroupableTask? FindTaskWithSpinner()
-    {
-        var current = this;
-        while (current != null)
-        {
-            if (current._spinnerCancellation != null)
-            {
-                return current;
-            }
-            current = current.Parent;
-        }
-        return null;
-    }
-
-    public void PauseSpinner()
-    {
-        if (_spinnerCancellation != null && !_spinnerPaused)
-        {
-            _spinnerPaused = true;
-            _spinnerCancellation.Cancel();
-            try
-            {
-                _spinnerTask?.Wait(200);
-            }
-            catch (AggregateException)
-            {
-                // Task was cancelled, this is expected
-            }
-        }
-    }
-
-    public void ResumeSpinner()
-    {
-        if (_spinnerPaused && !IsCompleted && _spinnerOnUpdate != null)
-        {
-            _spinnerPaused = false;
-            _spinnerCancellation = new CancellationTokenSource();
-            ScheduleNextSpinnerUpdate(DateTimeOffset.UtcNow, _spinnerCancellation.Token);
-        }
-    }
-
-    protected void StartSpinner(Action? onUpdate)
-    {
-        if (onUpdate == null)
-        {
-            return;
-        }
-
-        _spinnerOnUpdate = onUpdate;
-        _spinnerCancellation = new CancellationTokenSource();
-        ScheduleNextSpinnerUpdate(DateTimeOffset.UtcNow, _spinnerCancellation.Token);
-    }
-
-    private void ScheduleNextSpinnerUpdate(DateTimeOffset lastUpdateTime, CancellationToken token)
-    {
-        if (token.IsCancellationRequested)
-        {
-            return;
-        }
-
-        var targetNextUpdateTime = lastUpdateTime.AddMilliseconds(100);
-        var now = DateTimeOffset.UtcNow;
-        var delayMs = Math.Max(0, (int)(targetNextUpdateTime - now).TotalMilliseconds);
-
-        _spinnerTask = Task.Delay(delayMs, token).ContinueWith(t =>
-        {
-            if (!t.IsCanceled && !token.IsCancellationRequested)
-            {
-                var updateTime = DateTimeOffset.UtcNow;
-                _spinnerOnUpdate?.Invoke();
-                ScheduleNextSpinnerUpdate(updateTime, token);
-            }
-        }, token, TaskContinuationOptions.None, TaskScheduler.Default);
-    }
-
-    protected void StopSpinner()
-    {
-        _spinnerCancellation?.Cancel();
-        try
-        {
-            _spinnerTask?.Wait(200);
-        }
-        catch (AggregateException)
-        {
-            // Task was cancelled, this is expected
-        }
-        _spinnerCancellation?.Dispose();
-        _spinnerCancellation = null;
-        _spinnerTask = null;
-        _spinnerOnUpdate = null;
-    }
 
     public void Dispose()
     {
@@ -130,106 +25,113 @@ internal class GroupableTask(string inProgressMessage, GroupableTask? parent) : 
         {
             subTask.Dispose();
         }
-
-        StopSpinner();
     }
 }
 
-internal class GroupableTask<T>(string inProgressMessage, GroupableTask? parent, Func<TaskContext, Task<T>>? taskFunc, AnsiConsoleContext ansiConsoleContext, ILogger logger) : GroupableTask(inProgressMessage, parent)
+internal class GroupableTask<T> : GroupableTask
 {
     public T? CompletedMessage { get; protected set; }
-    private readonly Func<TaskContext, Task<T>>? _taskFunc = taskFunc;
-    protected readonly AnsiConsoleContext AnsiConsoleContext = ansiConsoleContext;
+    private readonly Func<TaskContext, CancellationToken, Task<T>>? _taskFunc;
+    protected readonly IAnsiConsole AnsiConsole;
+    protected readonly LiveUpdateSignal Signal;
+    private readonly ILogger _logger;
 
-    public virtual async Task<T?> ExecuteAsync(Action? onUpdate = null, bool startSpinner = true)
+    public GroupableTask(string inProgressMessage, GroupableTask? parent, Func<TaskContext, CancellationToken, Task<T>>? taskFunc, IAnsiConsole ansiConsole, ILogger logger, LiveUpdateSignal signal)
+        : base(inProgressMessage, parent)
+    {
+        _taskFunc = taskFunc;
+        AnsiConsole = ansiConsole;
+        _logger = logger;
+        Signal = signal;
+    }
+
+    public virtual async Task<T?> ExecuteAsync(Action? onUpdate, CancellationToken cancellationToken, bool startSpinner = true)
     {
         onUpdate?.Invoke();
-
-        if (startSpinner)
-        {
-            StartSpinner(onUpdate);
-        }
 
         try
         {
             if (_taskFunc != null)
             {
-                var context = new TaskContext(this, onUpdate, AnsiConsoleContext, logger);
-                CompletedMessage = await _taskFunc(context);
+                var context = new TaskContext(this, onUpdate, AnsiConsole, _logger, Signal);
+                CompletedMessage = await _taskFunc(context, cancellationToken);
                 IsCompleted = true;
             }
         }
+        catch(Exception ex)
+        {
+            Debug.WriteLine(ex);
+
+            return default(T?);
+        }
         finally
         {
-            if (startSpinner)
-            {
-                StopSpinner();
-            }
             onUpdate?.Invoke();
         }
 
         return CompletedMessage;
     }
 
-    public IRenderable Render()
+    public (IRenderable, int) Render()
     {
         var sb = new StringBuilder();
-        var consoleWidth = AnsiConsoleContext.AnsiConsole.Profile.Width;
 
-        int maxDepth = logger.IsEnabled(LogLevel.Debug) ? int.MaxValue : 1;
-        RenderTask(sb, 0, string.Empty, maxDepth, this, consoleWidth);
+        int maxDepth = _logger.IsEnabled(LogLevel.Debug) ? int.MaxValue : 1;
+        var lineCount = RenderTask(this, sb, 0, string.Empty, maxDepth);
 
-        return new Markup(sb.ToString());
+        var panel = new Panel(new Markup(sb.ToString().TrimEnd([.. Environment.NewLine])))
+        {
+            Border = BoxBorder.None,
+            Padding = new Padding(0, 0),
+            Expand = true
+        };
+
+        return (panel, lineCount);
     }
 
-    private static void RenderSubTasks(GroupableTask task, StringBuilder sb, int indentLevel, int maxForcedDepth, int consoleWidth)
+    private static int RenderSubTasks(GroupableTask task, StringBuilder sb, int indentLevel, int maxForcedDepth)
     {
         if (task.SubTasks.Count == 0)
         {
-            return;
+            return 0;
         }
 
         var indentStr = new string(' ', indentLevel * 2);
+        int lineCount = 0;
 
         foreach (var subTask in task.SubTasks)
         {
-            RenderTask(sb, indentLevel, indentStr, maxForcedDepth, subTask, consoleWidth);
+            lineCount += RenderTask(subTask, sb, indentLevel, indentStr, maxForcedDepth);
         }
+
+        return lineCount;
     }
 
-    private static void RenderTask(StringBuilder sb, int indentLevel, string indentStr, int maxForcedDepth, GroupableTask task, int consoleWidth)
+    private static int RenderTask(GroupableTask task, StringBuilder sb, int indentLevel, string indentStr, int maxForcedDepth)
     {
         if (task.IsCompleted)
         {
-            static string FormatCheckMarkMessage(string indentStr, string? message, int consoleWidth)
+            static string FormatCheckMarkMessage(string indentStr, string? message)
             {
-                return $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}".PadRight(consoleWidth - 1);
+                return $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
             }
             sb.AppendLine(task switch
             {
-                StatusMessageTask statusMessageTask => $"{indentStr} {Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}".PadRight(consoleWidth - 1),
+                StatusMessageTask statusMessageTask => $"{indentStr} {Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}",
                 GroupableTask<T> genericTask => FormatCheckMarkMessage(indentStr, Markup.Escape((genericTask.CompletedMessage as ITuple) switch
                 {
                     ITuple tuple when tuple.Length > 0 && tuple[0] is string str => str,
                     ITuple tuple when tuple.Length > 0 && tuple[1] is string str2 => str2,
                     _ => genericTask.CompletedMessage?.ToString() ?? string.Empty
-                }), consoleWidth),
-                GroupableTask _ => FormatCheckMarkMessage(indentStr, Markup.Escape(task.InProgressMessage), consoleWidth),
+                })),
+                GroupableTask _ => FormatCheckMarkMessage(indentStr, Markup.Escape(task.InProgressMessage)),
             });
         }
         else
         {
-            string spinner;
-            if (task.SpinnerPaused)
-            {
-                spinner = "❯";
-            }
-            else
-            {
-                var spinnerChars = new[] { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-                var spinnerIndex = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 100) % spinnerChars.Length;
-                spinner = spinnerChars[spinnerIndex];
-            }
+            var spinnerChars = new[] { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+            var spinnerIndex = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 100) % spinnerChars.Length;
+            var spinner = spinnerChars[spinnerIndex];
 
             var msg = task.InProgressMessage;
             if (!string.IsNullOrEmpty(task.SubStatus))
@@ -237,13 +139,17 @@ internal class GroupableTask<T>(string inProgressMessage, GroupableTask? parent,
                 msg = $"{msg} ({task.SubStatus})";
             }
 
-            sb.AppendLine($"{indentStr}[yellow]{spinner}[/]  {Markup.Escape(msg)}".PadRight(consoleWidth - 1));
+            sb.AppendLine($"{indentStr}[yellow]{spinner}[/]  {Markup.Escape(msg)}");
         }
+
+        int lineCount = 1;
 
         bool shouldRenderChildren = indentLevel + 1 <= maxForcedDepth || !task.IsCompleted;
         if (shouldRenderChildren)
         {
-            RenderSubTasks(task, sb, indentLevel + 1, maxForcedDepth, consoleWidth);
+            lineCount += RenderSubTasks(task, sb, indentLevel + 1, maxForcedDepth);
         }
+
+        return lineCount;
     }
 }

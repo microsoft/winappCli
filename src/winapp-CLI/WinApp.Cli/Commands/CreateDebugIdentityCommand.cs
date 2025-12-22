@@ -55,7 +55,7 @@ internal class CreateDebugIdentityCommand : Command
                 return 1;
             }
 
-            return await statusService.ExecuteWithStatusAsync("Creating MSIX Debug identity...", async taskContext =>
+            return await statusService.ExecuteWithStatusAsync("Creating MSIX Debug identity...", async (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -72,7 +72,7 @@ internal class CreateDebugIdentityCommand : Command
                 }
 
                 return (0, "{UiSymbols.Check} MSIX identity created successfully.");
-            });
+            }, cancellationToken);
         }
     }
 }

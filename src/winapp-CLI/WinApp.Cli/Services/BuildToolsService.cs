@@ -259,7 +259,7 @@ internal partial class BuildToolsService(
         var actionMessage = existingBinPath != null ? "Updating" : "Installing";
         var versionInfo = !string.IsNullOrWhiteSpace(pinnedVersion) ? $" (pinned version {pinnedVersion})" : forceLatest ? " (latest version)" : "";
         DirectoryInfo? binPath = null;
-        await taskContext.AddSubTaskAsync($"{actionMessage} {BUILD_TOOLS_PACKAGE}{versionInfo}...", async (subTaskContext) =>
+        await taskContext.AddSubTaskAsync($"{actionMessage} {BUILD_TOOLS_PACKAGE}{versionInfo}...", async (taskContext, cancellationToken) =>
         {
             var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
 
@@ -285,7 +285,7 @@ internal partial class BuildToolsService(
             }
 
             return (1, $"Could not find BuildTools bin path after installation.");
-        });
+        }, cancellationToken);
 
         return binPath;
     }

@@ -13,9 +13,9 @@ internal class GitignoreService : IGitignoreService
     /// </summary>
     /// <param name="projectDirectory">Directory containing the project</param>
     /// <returns>True if gitignore was updated, false if entry already existed</returns>
-    public async Task<bool> UpdateGitignoreAsync(DirectoryInfo projectDirectory, TaskContext taskContext)
+    public async Task<bool> UpdateGitignoreAsync(DirectoryInfo projectDirectory, TaskContext taskContext, CancellationToken cancellationToken)
     {
-        var result = await taskContext.AddSubTaskAsync("Updating .gitignore", async (subTaskContext) =>
+        var result = await taskContext.AddSubTaskAsync("Updating .gitignore", async (taskContext, cancellationToken) =>
         {
             try
             {
@@ -71,7 +71,7 @@ internal class GitignoreService : IGitignoreService
                 taskContext.AddDebugMessage($"{UiSymbols.Warning} Could not update .gitignore: {ex.Message}");
                 return (false, "Failed to update .gitignore");
             }
-        });
+        }, cancellationToken);
         return result.Item1;
     }
 

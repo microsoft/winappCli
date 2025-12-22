@@ -8,7 +8,6 @@ using Spectre.Console.Testing;
 using System.CommandLine;
 using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
-using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
@@ -27,6 +26,7 @@ public abstract class BaseCommandTests(bool configPaths = true)
 
     public TestContext TestContext { get; set; } = null!;
     private protected TaskContext TestTaskContext { private set; get; } = null!;
+    private protected LiveUpdateSignal LiveUpdateSignal { private set; get; } = null!;
     private protected TestConsole TestAnsiConsole { private set; get; } = null!;
 
     [TestInitialize]
@@ -44,8 +44,6 @@ public abstract class BaseCommandTests(bool configPaths = true)
         // Set up a temporary winapp directory for testing (isolates tests from real winapp directory)
         _testWinappDirectory = _tempDirectory.CreateSubdirectory(".winapp");
 
-        var ansiiConsoleContext = new AnsiConsoleContext(AnsiConsole: TestAnsiConsole, NonExclusiveAnsiConsole: TestAnsiConsole);
-
         var services = new ServiceCollection()
             .ConfigureServices(ConsoleStdOut)
             .ConfigureCommands();
@@ -53,7 +51,7 @@ public abstract class BaseCommandTests(bool configPaths = true)
             ConfigureServices(services)
             // Override services
             .AddSingleton<ICurrentDirectoryProvider>(sp => new CurrentDirectoryProvider(_tempDirectory.FullName))
-            .AddSingleton(ansiiConsoleContext)
+            .AddSingleton<IAnsiConsole>(TestAnsiConsole)
             .AddLogging(b =>
             {
                 b.ClearProviders();
@@ -65,7 +63,8 @@ public abstract class BaseCommandTests(bool configPaths = true)
 
         GroupableTask dummyTask = new GroupableTask("Dummy Task", null);
 
-        TestTaskContext = new TaskContext(dummyTask, null, ansiiConsoleContext, GetRequiredService<ILogger<TaskContext>>());
+        LiveUpdateSignal = new LiveUpdateSignal();
+        TestTaskContext = new TaskContext(dummyTask, null, TestAnsiConsole, GetRequiredService<ILogger<TaskContext>>(), LiveUpdateSignal);
 
         // Set up services with test cache directory
         if (configPaths)

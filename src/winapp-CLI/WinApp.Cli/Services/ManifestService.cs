@@ -33,6 +33,7 @@ internal partial class ManifestService(
         var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, directory);
         if (manifestPath?.Exists == true)
         {
+            // TODO: Already exists, ask: override or keep the existing one?
             throw new InvalidOperationException($"Manifest already exists at: {manifestPath}");
         }
 
@@ -53,11 +54,11 @@ internal partial class ManifestService(
         // Interactive mode if not --yes
         if (!yes)
         {
-            packageName = await PromptForValueAsync(taskContext, "Package name", packageName);
-            publisherName = await PromptForValueAsync(taskContext, "Publisher name", publisherName);
-            version = await PromptForValueAsync(taskContext, "Version", version);
-            description = await PromptForValueAsync(taskContext, "Description", description);
-            entryPoint = await PromptForValueAsync(taskContext, "EntryPoint/Executable", entryPoint);
+            packageName = await PromptForValueAsync(taskContext, "Package name", packageName, cancellationToken);
+            publisherName = await PromptForValueAsync(taskContext, "Publisher name", publisherName, cancellationToken);
+            version = await PromptForValueAsync(taskContext, "Version", version, cancellationToken);
+            description = await PromptForValueAsync(taskContext, "Description", description, cancellationToken);
+            entryPoint = await PromptForValueAsync(taskContext, "EntryPoint/Executable", entryPoint, cancellationToken);
         }
 
         taskContext.AddDebugMessage($"Logo path: {logoPath?.FullName ?? "None"}");
@@ -198,13 +199,14 @@ internal partial class ManifestService(
         taskContext.AddDebugMessage($"Logo copied to: {destinationPath}");
     }
 
-    private static async Task<string> PromptForValueAsync(TaskContext taskContext, string prompt, string defaultValue)
+    private static async Task<string> PromptForValueAsync(TaskContext taskContext, string prompt, string defaultValue, CancellationToken cancellationToken)
     {
         return (await taskContext.PromptAsync(
             new TextPrompt<string>(prompt)
                 .AllowEmpty()
                 .DefaultValue(defaultValue)
-                .ShowDefaultValue()))!;
+                .ShowDefaultValue(),
+            cancellationToken))!;
     }
 
     [GeneratedRegex(@"[^A-Za-z0-9\-_. ]")]

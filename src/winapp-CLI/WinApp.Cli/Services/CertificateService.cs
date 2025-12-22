@@ -278,6 +278,7 @@ internal partial class CertificateService(
             outputPath.Refresh();
             if (skipIfExists && outputPath.Exists)
             {
+                // TODO: Already exists, ask: override or keep the existing one?
                 taskContext.AddStatusMessage($"{UiSymbols.Note} Development certificate already exists: {outputPath}");
                 return null;
             }

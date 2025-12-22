@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.Runtime.InteropServices;
 using WinApp.Cli.ConsoleTasks;
@@ -41,7 +40,7 @@ internal class WorkspaceSetupOptions
     public SdkInstallMode? SdkInstallMode { get; set; }
     public bool IgnoreConfig { get; set; }
     public bool NoGitignore { get; set; }
-    public bool AssumeYes { get; set; }
+    public bool UseDefaults { get; set; }
     public bool RequireExistingConfig { get; set; }
     public bool ForceLatestBuildTools { get; set; }
     public bool NoCert { get; set; }
@@ -72,7 +71,7 @@ internal class WorkspaceSetupService(
     {
         configService.ConfigPath = new FileInfo(Path.Combine(options.ConfigDir.FullName, "winapp.yaml"));
 
-        return await statusService.ExecuteWithStatusAsync("Setting up workspace", async (taskContext) =>
+        return await statusService.ExecuteWithStatusAsync("Setting up workspace", async (taskContext, cancellationToken) =>
         {
             try
             {
@@ -84,7 +83,7 @@ internal class WorkspaceSetupService(
                 // For init (not restore), prompt for SDK installation choice if not specified
                 if (!options.RequireExistingConfig && !options.ConfigOnly && options.SdkInstallMode == null)
                 {
-                    if (options.AssumeYes)
+                    if (options.UseDefaults)
                     {
                         // Default to Stable when --yes is specified
                         options.SdkInstallMode = SdkInstallMode.Stable;
@@ -101,7 +100,7 @@ internal class WorkspaceSetupService(
                             .Title("Select SDK installation option:")
                             .AddChoices(sdkChoices);
 
-                        var sdkChoice = await taskContext.PromptAsync(sdkPrompt);
+                        var sdkChoice = await taskContext.PromptAsync(sdkPrompt, cancellationToken);
 
                         if (sdkChoice == sdkChoices[0])
                         {
@@ -121,7 +120,7 @@ internal class WorkspaceSetupService(
                 // Apply SDK mode settings
                 var includeExperimental = options.SdkInstallMode == SdkInstallMode.Experimental;
 
-                var partialResult = await taskContext.AddSubTaskAsync("Processing configuration", async (taskContext) =>
+                var partialResult = await taskContext.AddSubTaskAsync("Processing configuration", async (taskContext, cancellationToken) =>
                 {
                     // Step 1: Handle configuration requirements
                     if (options.RequireExistingConfig && !configService.Exists())
@@ -152,14 +151,14 @@ internal class WorkspaceSetupService(
                         // For setup command: ask about overwriting existing config (only if not skipping SDK installation and not config-only mode)
                         if (!options.RequireExistingConfig && !options.IgnoreConfig && !options.ConfigOnly && options.SdkInstallMode != SdkInstallMode.None && config.Packages.Count > 0)
                         {
-                            if (options.AssumeYes)
+                            if (options.UseDefaults)
                             {
                                 options.IgnoreConfig = true;
                             }
                             else
                             {
-                                var yesNoPrompt = await taskContext.PromptAsync(new YesNoPrompt("winapp.yaml exists with pinned versions. Overwrite with latest versions?"));
-                                if (yesNoPrompt.Item1 == 0)
+                                var overwriteConfig = await taskContext.PromptAsync(new ConfirmationPrompt("winapp.yaml exists with pinned versions. Overwrite with latest versions?"), cancellationToken);
+                                if (!overwriteConfig)
                                 {
                                     options.IgnoreConfig = true;
                                 }
@@ -182,14 +181,14 @@ internal class WorkspaceSetupService(
 
                             if (config.Packages.Count > 0)
                             {
-                                await taskContext.AddSubTaskAsync($"{UiSymbols.Note} Configured packages", (taskContext) =>
+                                await taskContext.AddSubTaskAsync($"{UiSymbols.Note} Configured packages", (taskContext, cancellationToken) =>
                                 {
                                     foreach (var pkg in config.Packages)
                                     {
                                         taskContext.AddDebugMessage($"{UiSymbols.Bullet} {pkg.Name} = {pkg.Version}");
                                     }
                                     return Task.FromResult((0, $"{UiSymbols.Note} Configured packages"));
-                                });
+                                }, cancellationToken);
                             }
                         }
                         else if (options.SdkInstallMode != SdkInstallMode.None)
@@ -225,14 +224,14 @@ internal class WorkspaceSetupService(
                             taskContext.AddDebugMessage($"{UiSymbols.Save} Configuration file created → {configService.ConfigPath}");
                             taskContext.AddDebugMessage($"{UiSymbols.Package} Added {finalConfig.Packages.Count} default SDK packages");
 
-                            await taskContext.AddSubTaskAsync($"{UiSymbols.Note} Generated packages", (taskContext) =>
+                            await taskContext.AddSubTaskAsync($"{UiSymbols.Note} Generated packages", (taskContext, cancellationToken) =>
                             {
                                 foreach (var pkg in finalConfig.Packages)
                                 {
                                     taskContext.AddDebugMessage($"{UiSymbols.Bullet} {pkg.Name} = {pkg.Version}");
                                 }
                                 return Task.FromResult((0, $"{UiSymbols.Note} Generated packages"));
-                            });
+                            }, cancellationToken);
 
                             if (includeExperimental)
                             {
@@ -279,7 +278,7 @@ internal class WorkspaceSetupService(
                     packageInstallationService.InitializeWorkspace(globalWinappDir);
 
                     return (0, "Workspace initialized");
-                });
+                }, cancellationToken);
 
                 if (partialResult.Item1 != 0)
                 {
@@ -292,15 +291,15 @@ internal class WorkspaceSetupService(
                     return (0, "Configuration-only operation completed");
                 }
 
-                // Enable Developer Mode early (for setup only) - required before MSIX package installation
+                // Enable Developer Mode (for setup only)
                 if (!options.RequireExistingConfig)
                 {
-                    await taskContext.AddSubTaskAsync("Setting up developer environment", async (taskContext) =>
+                    await taskContext.AddSubTaskAsync("Configuring developer mode", async (taskContext, cancellationToken) =>
                     {
                         try
                         {
                             taskContext.UpdateSubStatus("Checking Developer Mode");
-                            var devModeResult = devModeService.EnsureWin11DevMode(taskContext);
+                            var devModeResult = await devModeService.EnsureWin11DevModeAsync(taskContext, cancellationToken);
 
                             if (devModeResult != 0 && devModeResult != 3010)
                             {
@@ -311,8 +310,8 @@ internal class WorkspaceSetupService(
                         {
                             taskContext.AddDebugMessage($"{UiSymbols.Note} Developer Mode setup failed: {ex.Message}");
                         }
-                        return (0, "Developer environment setup complete");
-                    });
+                        return (0, "Developer mode enabled");
+                    }, cancellationToken);
                 }
 
                 // When not skipping SDK installation, create workspace directories and install packages
@@ -334,7 +333,7 @@ internal class WorkspaceSetupService(
                     var binRoot = localWinappDir.CreateSubdirectory("bin");
 
                     // Step 4: Install packages
-                    usedVersions = await taskContext.AddSubTaskAsync("Installing SDK packages", async (taskContext) =>
+                    usedVersions = await taskContext.AddSubTaskAsync("Installing SDK packages", async (taskContext, cancellationToken) =>
                     {
                         if (options.RequireExistingConfig && hadExistingConfig && config != null && config.Packages.Count > 0)
                         {
@@ -357,14 +356,14 @@ internal class WorkspaceSetupService(
                             includeExperimental: includeExperimental,
                             ignoreConfig: options.IgnoreConfig,
                             cancellationToken: cancellationToken);
-                    });
+                    }, cancellationToken);
 
                     if (usedVersions == null)
                     {
                         return (1, "Error installing packages.");
                     }
 
-                    partialResult = await taskContext.AddSubTaskAsync("Setting up build environment", async (taskContext) =>
+                    partialResult = await taskContext.AddSubTaskAsync("Setting up build environment", async (taskContext, cancellationToken) =>
                     {
                         // Step 5: Run cppwinrt and set up projections
                         var cppWinrtExe = cppWinrtService.FindCppWinrtExe(pkgsDir, usedVersions);
@@ -422,20 +421,19 @@ internal class WorkspaceSetupService(
                         }
 
                         // Run cppwinrt
-                        await Task.Delay(3000);
                         taskContext.UpdateSubStatus("Generating C++/WinRT projections");
                         await cppWinrtService.RunWithRspAsync(cppWinrtExe, winmds, includeOut, localWinappDir, taskContext, cancellationToken: cancellationToken);
                         taskContext.AddDebugMessage($"{UiSymbols.Check} C++/WinRT headers generated → {includeOut}");
 
                         return (0, "Build environment setup complete");
-                    });
+                    }, cancellationToken);
 
                     if (partialResult.Item1 != 0)
                     {
                         return partialResult;
                     }
 
-                    partialResult = await taskContext.AddSubTaskAsync("Setting up tools", async (taskContext) =>
+                    partialResult = await taskContext.AddSubTaskAsync("Setting up tools", async (taskContext, cancellationToken) =>
                     {
                         // Step 6: Handle BuildTools
                         var buildToolsPinned = config?.GetVersion(BuildToolsService.BUILD_TOOLS_PACKAGE);
@@ -484,13 +482,13 @@ internal class WorkspaceSetupService(
                             taskContext.AddDebugMessage($"{UiSymbols.Note} Failed to install Windows App Runtime: {ex.Message}");
                         }
                         return (0, "Tools setup complete");
-                    });
+                    }, cancellationToken);
                 }
 
                 // Generate AppxManifest.xml (for setup only)
                 if (!options.RequireExistingConfig)
                 {
-                    await taskContext.AddSubTaskAsync("Generating AppxManifest.xml", async (taskContext) =>
+                    await taskContext.AddSubTaskAsync("Generating AppxManifest.xml", async (taskContext, cancellationToken) =>
                     {
                         // Check if manifest already exists
                         var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, options.BaseDirectory);
@@ -507,7 +505,7 @@ internal class WorkspaceSetupService(
                                     entryPoint: null, // Will use defaults and prompt if not --yes
                                     manifestTemplate: ManifestTemplates.Packaged, // Default to regular MSIX
                                     logoPath: null, // Will prompt if not --yes
-                                    yes: options.AssumeYes,
+                                    yes: options.UseDefaults,
                                     taskContext,
                                     cancellationToken: cancellationToken);
 
@@ -526,13 +524,13 @@ internal class WorkspaceSetupService(
                             taskContext.AddDebugMessage($"{UiSymbols.Check} AppxManifest.xml already exists, skipping generation");
                             return (0, "Manifest already exists");
                         }
-                    });
+                    }, cancellationToken);
                 }
 
                 // Step 7: Save configuration (for setup with SDK installation)
                 if (!options.RequireExistingConfig && options.SdkInstallMode != SdkInstallMode.None && usedVersions != null)
                 {
-                    await taskContext.AddSubTaskAsync("Saving configuration", (taskContext) =>
+                    await taskContext.AddSubTaskAsync("Saving configuration", (taskContext, cancellationToken) =>
                     {
                         // Setup: Save winapp.yaml with used versions
                         var finalConfig = new WinappConfig();
@@ -547,14 +545,14 @@ internal class WorkspaceSetupService(
                         configService.Save(finalConfig);
                         taskContext.AddDebugMessage($"{UiSymbols.Save} Wrote config → {configService.ConfigPath}");
                         return Task.FromResult((0, "Configuration saved"));
-                    });
+                    }, cancellationToken);
 
                     // Update .gitignore to exclude .winapp folder (unless --no-gitignore is specified)
                     if (!options.NoGitignore)
                     {
                         if (localWinappDir?.Parent != null)
                         {
-                            await gitignoreService.UpdateGitignoreAsync(localWinappDir.Parent, taskContext);
+                            await gitignoreService.UpdateGitignoreAsync(localWinappDir.Parent, taskContext, cancellationToken);
                         }
                     }
                 }
@@ -562,7 +560,7 @@ internal class WorkspaceSetupService(
                 // Step 8: Generate development certificate (unless --no-cert is specified)
                 if (!options.NoCert)
                 {
-                    await taskContext.AddSubTaskAsync("Generating development certificate", async (taskContext) =>
+                    await taskContext.AddSubTaskAsync("Generating development certificate", async (taskContext, cancellationToken) =>
                     {
                         var certPath = new FileInfo(Path.Combine(options.BaseDirectory.FullName, CertificateService.DefaultCertFileName));
 
@@ -577,14 +575,15 @@ internal class WorkspaceSetupService(
                             updateGitignore: true,
                             install: false,
                             cancellationToken: cancellationToken);
+
                         return (0, "Development certificate setup complete");
-                    });
+                    }, cancellationToken);
                 }
 
                 // Update Directory.Packages.props versions to match winapp.yaml if needed (only with SDK installation)
-                if (options.SdkInstallMode != SdkInstallMode.None && config != null)
+                if (options.SdkInstallMode != SdkInstallMode.None && config != null && directoryPackagesService.Exists(options.ConfigDir))
                 {
-                    await taskContext.AddSubTaskAsync("Updating Directory.Packages.props", (taskContext) =>
+                    await taskContext.AddSubTaskAsync("Updating Directory.Packages.props", (taskContext, cancellationToken) =>
                     {
                         try
                         {
@@ -602,7 +601,7 @@ internal class WorkspaceSetupService(
                             // Don't fail the restore if Directory.Packages.props update fails
                             return Task.FromResult((0, "Directory.Packages.props update failed"));
                         }
-                    });
+                    }, cancellationToken);
                 }
 
                 // We're done
@@ -624,7 +623,7 @@ internal class WorkspaceSetupService(
                                         $"{ex.StackTrace}");
                 return (1, "Error!");
             }
-        });
+        }, cancellationToken);
     }
 
     /// <summary>

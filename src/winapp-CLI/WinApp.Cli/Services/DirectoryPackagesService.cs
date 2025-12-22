@@ -14,6 +14,12 @@ internal class DirectoryPackagesService : IDirectoryPackagesService
 {
     private const string DirectoryPackagesFileName = "Directory.Packages.props";
 
+    public bool Exists(DirectoryInfo configDir)
+    {
+        var propsFilePath = Path.Combine(configDir.FullName, DirectoryPackagesFileName);
+        return File.Exists(propsFilePath);
+    }
+
     /// <summary>
     /// Updates Directory.Packages.props in the specified directory to match versions from winapp.yaml
     /// </summary>

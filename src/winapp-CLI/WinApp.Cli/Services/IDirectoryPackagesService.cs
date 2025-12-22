@@ -11,6 +11,13 @@ namespace WinApp.Cli.Services;
 internal interface IDirectoryPackagesService
 {
     /// <summary>
+    /// Checks if Directory.Packages.props exists in the specified directory
+    /// </summary>
+    /// <param name="configDir"></param>
+    /// <returns></returns>
+    bool Exists(DirectoryInfo configDir);
+
+    /// <summary>
     /// Updates Directory.Packages.props in the specified directory to match versions from winapp.yaml
     /// </summary>
     /// <param name="configDir">Directory containing winapp.yaml and potentially Directory.Packages.props</param>

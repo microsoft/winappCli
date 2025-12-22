@@ -7,6 +7,6 @@ namespace WinApp.Cli.Services;
 
 internal interface IDevModeService
 {
-    public int EnsureWin11DevMode(TaskContext taskContext);
+    public Task<int> EnsureWin11DevModeAsync(TaskContext taskContext, CancellationToken cancellationToken);
     public bool IsEnabled();
 }

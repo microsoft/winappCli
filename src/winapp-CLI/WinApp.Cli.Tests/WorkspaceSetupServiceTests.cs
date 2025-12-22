@@ -28,7 +28,7 @@ public class WorkspaceSetupServiceTests : BaseCommandTests
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
             SdkInstallMode = SdkInstallMode.None,
-            AssumeYes = true,
+            UseDefaults = true,
             RequireExistingConfig = false,
             ForceLatestBuildTools = true,
             NoCert = true,
@@ -55,7 +55,7 @@ public class WorkspaceSetupServiceTests : BaseCommandTests
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
             ConfigOnly = true,
-            AssumeYes = true,
+            UseDefaults = true,
             RequireExistingConfig = false,
             NoCert = true,
             NoGitignore = true
@@ -88,7 +88,7 @@ public class WorkspaceSetupServiceTests : BaseCommandTests
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
             ConfigOnly = true,
-            AssumeYes = true,
+            UseDefaults = true,
             RequireExistingConfig = false,
             NoCert = true,
             NoGitignore = true
@@ -118,7 +118,7 @@ public class WorkspaceSetupServiceTests : BaseCommandTests
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
             ConfigOnly = true, // Use config-only to avoid long-running operations
-            AssumeYes = true,
+            UseDefaults = true,
             RequireExistingConfig = false,
             NoCert = true,
             NoGitignore = true // Should NOT update .gitignore
@@ -145,7 +145,7 @@ public class WorkspaceSetupServiceTests : BaseCommandTests
             BaseDirectory = _tempDirectory,
             ConfigDir = _tempDirectory,
             RequireExistingConfig = true, // This should fail when config doesn't exist
-            AssumeYes = true,
+            UseDefaults = true,
             NoCert = true,
             NoGitignore = true
         };

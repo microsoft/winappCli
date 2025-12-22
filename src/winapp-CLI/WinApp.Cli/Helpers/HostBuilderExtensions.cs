@@ -7,8 +7,6 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Diagnostics.CodeAnalysis;
 using WinApp.Cli.Commands;
-using WinApp.Cli.ConsoleTasks;
-using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Helpers;
@@ -38,15 +36,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IWorkspaceSetupService, WorkspaceSetupService>()
             .AddSingleton<IGitignoreService, GitignoreService>()
             .AddSingleton<IFirstRunService, FirstRunService>()
-            .AddSingleton(new AnsiConsoleContext(
-                AnsiConsole: AnsiConsole.Console,
-                NonExclusiveAnsiConsole: AnsiConsole.Create(new AnsiConsoleSettings
-                {
-                    Ansi = AnsiSupport.Detect,
-                    ColorSystem = ColorSystemSupport.Detect,
-                    Out = new AnsiConsoleOutput(consoleOut),
-                    ExclusivityMode = new NoopExclusivityMode(),
-                })))
+            .AddSingleton(AnsiConsole.Console)
             .AddSingleton<IStatusService, StatusService>();
     }
 

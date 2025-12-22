@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
@@ -95,7 +94,7 @@ internal class ManifestGenerateCommand : Command
             var template = parseResult.GetValue(TemplateOption);
             var logoPath = parseResult.GetValue(LogoPathOption);
 
-            return await statusService.ExecuteWithStatusAsync("Generating manifest", async (taskContext) =>
+            return await statusService.ExecuteWithStatusAsync("Generating manifest", async (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -119,7 +118,7 @@ internal class ManifestGenerateCommand : Command
                     taskContext.AddDebugMessage($"Stack Trace: {ex.StackTrace}");
                     return (1, $"{UiSymbols.Error} Error generating manifest: {ex.Message}");
                 }
-            });
+            }, cancellationToken);
         }
     }
 }

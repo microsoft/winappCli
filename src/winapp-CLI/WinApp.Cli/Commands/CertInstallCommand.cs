@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
@@ -50,7 +49,7 @@ internal class CertInstallCommand : Command
             var password = parseResult.GetRequiredValue(PasswordOption);
             var force = parseResult.GetRequiredValue(ForceOption);
 
-            return await statusService.ExecuteWithStatusAsync("Installing certificate...", (taskContext) =>
+            return await statusService.ExecuteWithStatusAsync("Installing certificate...", (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -65,7 +64,7 @@ internal class CertInstallCommand : Command
                 {
                     return Task.FromResult((1, $"{UiSymbols.Error} Failed to install certificate: {error.Message}"));
                 }
-            });
+            }, cancellationToken);
         }
     }
 }

@@ -21,6 +21,7 @@ internal partial class MsixService(
     ICertificateService certificateService,
     IPackageCacheService packageCacheService,
     IWorkspaceSetupService workspaceSetupService,
+    IDevModeService devModeService,
     ICurrentDirectoryProvider currentDirectoryProvider) : IMsixService
 {
     [GeneratedRegex(@"PublicFolder\s*=\s*[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
@@ -118,13 +119,13 @@ internal partial class MsixService(
     /// </summary>
     public async Task SetupSelfContainedAsync(DirectoryInfo winappDir, string architecture, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
-        await taskContext.AddSubTaskAsync("Setting up Self Contained", async (taskContext) =>
+        await taskContext.AddSubTaskAsync("Setting up Self Contained", async (taskContext, cancellationToken) =>
         {
             // Look for the Runtime package which contains the MSIX files
             var selfContainedDir = winappDir.CreateSubdirectory("self-contained");
             var archSelfContainedDir = selfContainedDir.CreateSubdirectory(architecture);
 
-            var msixDir = await GetRuntimeMsixDirAsync(taskContext) ?? throw new DirectoryNotFoundException("Windows App SDK Runtime MSIX directory not found. Ensure Windows App SDK is installed.");
+            var msixDir = await GetRuntimeMsixDirAsync(taskContext, cancellationToken) ?? throw new DirectoryNotFoundException("Windows App SDK Runtime MSIX directory not found. Ensure Windows App SDK is installed.");
 
             // Look for the MSIX file in the tools/MSIX folder
             var msixToolsDir = new DirectoryInfo(Path.Combine(msixDir.FullName, $"win10-{architecture}"));
@@ -200,12 +201,12 @@ internal partial class MsixService(
             var deploymentDir = archSelfContainedDir.CreateSubdirectory("deployment");
 
             // Copy DLLs, WinMD files, and other runtime assets
-            await CopyRuntimeFilesAsync(extractedDir, deploymentDir, taskContext);
+            await CopyRuntimeFilesAsync(extractedDir, deploymentDir, taskContext, cancellationToken);
 
             taskContext.AddDebugMessage($"{UiSymbols.Check} Self-contained files prepared in: {archSelfContainedDir.FullName}");
 
             return 0;
-        });
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -276,6 +277,11 @@ internal partial class MsixService(
         if (!appxManifestPath.Exists)
         {
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}. You can generate one using 'winapp manifest generate'.");
+        }
+
+        if (!devModeService.IsEnabled())
+        {
+            throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }
 
         if (entryPointPath == null)
@@ -700,7 +706,7 @@ internal partial class MsixService(
         var manifestContent = await File.ReadAllTextAsync(resolvedManifestPath.FullName, Encoding.UTF8, cancellationToken);
 
         // Update manifest content to ensure it's either referencing Windows App SDK or is self-contained
-        manifestContent = await UpdateAppxManifestContentAsync(manifestContent, null, null, sparse: false, selfContained: selfContained, taskContext);
+        manifestContent = await UpdateAppxManifestContentAsync(manifestContent, null, null, sparse: false, selfContained: selfContained, taskContext, cancellationToken);
         var updatedManifestPath = Path.Combine(inputFolder.FullName, "appxmanifest.xml");
         await File.WriteAllTextAsync(updatedManifestPath, manifestContent, Encoding.UTF8, cancellationToken);
 
@@ -784,14 +790,14 @@ internal partial class MsixService(
                 if (resourceFiles.Count > 0)
                 {
                     taskContext.AddDebugMessage($"Resource files included in PRI:");
-                    await taskContext.AddSubTaskAsync("Pri Resources", taskContext =>
+                    await taskContext.AddSubTaskAsync("Pri Resources", async (taskContext, cancellationToken) =>
                     {
                         foreach (var resourceFile in resourceFiles)
                         {
                             taskContext.AddDebugMessage(resourceFile.ToString());
                         }
                         return Task.FromResult(0);
-                    });
+                    }, cancellationToken);
                 }
             }
 
@@ -876,7 +882,7 @@ internal partial class MsixService(
                 outAppManifestPath: tempManifestPath,
                 cancellationToken: cancellationToken);
 
-            (var cachedPackages, var mainVersion) = await GetCachedPackagesAsync(taskContext);
+            (var cachedPackages, var mainVersion) = await GetCachedPackagesAsync(taskContext, cancellationToken);
             if (cachedPackages == null || cachedPackages.Count == 0)
             {
                 throw new InvalidOperationException("No cached Windows SDK packages found. Please install the Windows SDK or Windows App SDK.");
@@ -1228,7 +1234,8 @@ internal partial class MsixService(
             entryPointPath,
             sparse: true,
             selfContained: false,
-            taskContext);
+            taskContext,
+            cancellationToken);
 
         taskContext.AddDebugMessage($"{UiSymbols.Note} Modified manifest for sparse packaging and debug identity");
 
@@ -1269,7 +1276,8 @@ internal partial class MsixService(
         string? entryPointPath,
         bool sparse,
         bool selfContained,
-        TaskContext taskContext)
+        TaskContext taskContext,
+        CancellationToken cancellationToken)
     {
         var modifiedContent = originalAppxManifestContent;
 
@@ -1357,7 +1365,7 @@ $1");
         // Update or insert Windows App SDK dependency (skip for self-contained packages)
         if (!selfContained && (entryPointPath == null || isExe))
         {
-            modifiedContent = await UpdateWindowsAppSdkDependencyAsync(modifiedContent, taskContext);
+            modifiedContent = await UpdateWindowsAppSdkDependencyAsync(modifiedContent, taskContext, cancellationToken);
         }
 
         return modifiedContent;
@@ -1368,10 +1376,10 @@ $1");
     /// </summary>
     /// <param name="manifestContent">The manifest content to modify</param>
     /// <returns>The modified manifest content</returns>
-    private async Task<string> UpdateWindowsAppSdkDependencyAsync(string manifestContent, TaskContext taskContext)
+    private async Task<string> UpdateWindowsAppSdkDependencyAsync(string manifestContent, TaskContext taskContext, CancellationToken cancellationToken)
     {
         // Get the Windows App SDK version from the locked winapp.yaml config
-        var winAppSdkInfo = await GetWindowsAppSdkDependencyInfoAsync(taskContext);
+        var winAppSdkInfo = await GetWindowsAppSdkDependencyInfoAsync(taskContext, cancellationToken);
 
         if (winAppSdkInfo == null)
         {
@@ -1425,18 +1433,18 @@ $1");
     /// Gets the Windows App SDK dependency information from the locked winapp.yaml config and package cache
     /// </summary>
     /// <returns>The dependency information, or null if not found</returns>
-    private async Task<WindowsAppRuntimePackageInfo?> GetWindowsAppSdkDependencyInfoAsync(TaskContext taskContext)
+    private async Task<WindowsAppRuntimePackageInfo?> GetWindowsAppSdkDependencyInfoAsync(TaskContext taskContext, CancellationToken cancellationToken)
     {
         try
         {
-            var msixDir = await GetRuntimeMsixDirAsync(taskContext);
+            var msixDir = await GetRuntimeMsixDirAsync(taskContext, cancellationToken);
             if (msixDir == null)
             {
                 return null;
             }
 
             // Get the runtime package information from the MSIX inventory
-            var runtimeInfo = GetWindowsAppRuntimePackageInfo(taskContext, msixDir);
+            var runtimeInfo = GetWindowsAppRuntimePackageInfo(taskContext, msixDir, cancellationToken);
             if (runtimeInfo == null)
             {
                 taskContext.AddDebugMessage($"{UiSymbols.Warning} Could not parse Windows App Runtime package information from MSIX inventory");
@@ -1452,9 +1460,9 @@ $1");
         }
     }
 
-    private async Task<DirectoryInfo?> GetRuntimeMsixDirAsync(TaskContext taskContext)
+    private async Task<DirectoryInfo?> GetRuntimeMsixDirAsync(TaskContext taskContext, CancellationToken cancellationToken)
     {
-        (var cachedPackages, var mainVersion) = await GetCachedPackagesAsync(taskContext);
+        (var cachedPackages, var mainVersion) = await GetCachedPackagesAsync(taskContext, cancellationToken);
         if (cachedPackages == null || mainVersion == null)
         {
             return null;
@@ -1496,7 +1504,7 @@ $1");
         return msixDir;
     }
 
-    private async Task<(Dictionary<string, string>? CachedPackages, string? MainVersion)> GetCachedPackagesAsync(TaskContext taskContext)
+    private async Task<(Dictionary<string, string>? CachedPackages, string? MainVersion)> GetCachedPackagesAsync(TaskContext taskContext, CancellationToken cancellationToken)
     {
         // Load the locked config to get the actual package versions
         if (!configService.Exists())
@@ -1519,7 +1527,7 @@ $1");
         try
         {
             // Use PackageCacheService to find the runtime package that was installed with the main package
-            return (await packageCacheService.GetCachedPackageAsync("Microsoft.WindowsAppSDK", mainVersion, taskContext, CancellationToken.None), mainVersion);
+            return (await packageCacheService.GetCachedPackageAsync("Microsoft.WindowsAppSDK", mainVersion, taskContext, cancellationToken), mainVersion);
         }
         catch (KeyNotFoundException)
         {
@@ -1534,12 +1542,12 @@ $1");
     /// </summary>
     /// <param name="msixDir">The MSIX directory containing the inventory file</param>
     /// <returns>Package information, or null if not found</returns>
-    private static WindowsAppRuntimePackageInfo? GetWindowsAppRuntimePackageInfo(TaskContext taskContext, DirectoryInfo msixDir)
+    private static WindowsAppRuntimePackageInfo? GetWindowsAppRuntimePackageInfo(TaskContext taskContext, DirectoryInfo msixDir, CancellationToken cancellationToken)
     {
         try
         {
             // Use the shared inventory parsing logic (synchronous version)
-            var packageEntries = WorkspaceSetupService.ParseMsixInventoryAsync(taskContext, msixDir, CancellationToken.None).GetAwaiter().GetResult();
+            var packageEntries = WorkspaceSetupService.ParseMsixInventoryAsync(taskContext, msixDir, cancellationToken).GetAwaiter().GetResult();
 
             if (packageEntries == null || packageEntries.Count == 0)
             {
@@ -1934,9 +1942,9 @@ $1");
 
     private static readonly string[] patterns = new[] { "*.dll", "workloads*.json", "restartAgent.exe", "map.html", "*.mui", "*.png", "*.winmd", "*.xaml", "*.xbf", "*.pri" };
 
-    private static async Task CopyRuntimeFilesAsync(DirectoryInfo extractedDir, DirectoryInfo deploymentDir, TaskContext taskContext)
+    private static async Task CopyRuntimeFilesAsync(DirectoryInfo extractedDir, DirectoryInfo deploymentDir, TaskContext taskContext, CancellationToken cancellationToken)
     {
-        await taskContext.AddSubTaskAsync("Copying Runtime Files", (taskContext) =>
+        await taskContext.AddSubTaskAsync("Copying Runtime Files", (taskContext, cancellationToken) =>
         {
             foreach (var pattern in patterns)
             {
@@ -1960,7 +1968,7 @@ $1");
             }
 
             return Task.FromResult(0);
-        });
+        }, cancellationToken);
     }
 
     /// <summary>

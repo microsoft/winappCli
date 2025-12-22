@@ -60,7 +60,7 @@ internal class ManifestUpdateAssetsCommand : Command
                 return 1;
             }
 
-            return await statusService.ExecuteWithStatusAsync("Updating manifest assets", async (taskContext) =>
+            return await statusService.ExecuteWithStatusAsync("Updating manifest assets", async (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -71,7 +71,7 @@ internal class ManifestUpdateAssetsCommand : Command
                 {
                     return (1, $"{UiSymbols.Error} Error updating assets: {ex.Message}");
                 }
-            });
+            }, cancellationToken);
         }
     }
 }

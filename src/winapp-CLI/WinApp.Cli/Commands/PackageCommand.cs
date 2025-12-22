@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
@@ -110,7 +109,7 @@ internal class PackageCommand : Command
             var manifestPath = parseResult.GetValue(ManifestOption);
             var selfContained = parseResult.GetValue(SelfContainedOption);
 
-            return await statusService.ExecuteWithStatusAsync("Creating MSIX package...", async (taskContext) =>
+            return await statusService.ExecuteWithStatusAsync("Creating MSIX package...", async (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -134,7 +133,7 @@ internal class PackageCommand : Command
                     taskContext.AddDebugMessage($"Stack Trace: {ex.StackTrace}");
                     return (1, $"{UiSymbols.Error} Failed to create MSIX package: {ex.Message}");
                 }
-            });
+            }, cancellationToken);
         }
     }
 }

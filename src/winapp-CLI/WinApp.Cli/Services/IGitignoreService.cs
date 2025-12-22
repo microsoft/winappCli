@@ -7,6 +7,6 @@ namespace WinApp.Cli.Services;
 
 internal interface IGitignoreService
 {
-    Task<bool> UpdateGitignoreAsync(DirectoryInfo projectDirectory, TaskContext taskContext);
+    Task<bool> UpdateGitignoreAsync(DirectoryInfo projectDirectory, TaskContext taskContext, CancellationToken cancellationToken);
     bool AddCertificateToGitignore(DirectoryInfo projectDirectory, string certificateFileName, TaskContext taskContext);
 }

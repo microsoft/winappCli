@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
@@ -40,7 +39,7 @@ internal class UpdateCommand : Command
         {
             var prerelease = parseResult.GetValue(PrereleaseOption);
 
-            return await statusService.ExecuteWithStatusAsync("Updating packages and build tools...", async taskContext =>
+            return await statusService.ExecuteWithStatusAsync("Updating packages and build tools...", async (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -62,7 +61,7 @@ internal class UpdateCommand : Command
 
                             var updatedConfig = new WinappConfig();
                             bool hasUpdates = false;
-                            await taskContext.AddSubTaskAsync("Checking for package updates", async subTaskContext =>
+                            await taskContext.AddSubTaskAsync("Checking for package updates", async (taskContext, cancellationToken) =>
                             {
                                 foreach (var package in config.Packages)
                                 {
@@ -93,7 +92,7 @@ internal class UpdateCommand : Command
                                 }
 
                                 return 0;
-                            });
+                            }, cancellationToken);
 
                             if (hasUpdates)
                             {
@@ -170,7 +169,7 @@ internal class UpdateCommand : Command
                     }
                     return (1, $"{UiSymbols.Error} Update command failed: {error.Message}");
                 }
-            });
+            }, cancellationToken);
         }
     }
 }

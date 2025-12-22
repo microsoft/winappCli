@@ -33,7 +33,7 @@ internal class ToolCommand : Command
             var toolName = args[0];
             var toolArgs = args.Skip(1).ToArray();
 
-            return await statusService.ExecuteWithStatusAsync("Running build tool command...", async (taskContext) =>
+            return await statusService.ExecuteWithStatusAsync("Running build tool command...", async (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -94,7 +94,7 @@ internal class ToolCommand : Command
                 {
                     return (1, $"Error executing '{toolName}': {ex.Message}");
                 }
-            });
+            }, cancellationToken);
         }
     }
 }

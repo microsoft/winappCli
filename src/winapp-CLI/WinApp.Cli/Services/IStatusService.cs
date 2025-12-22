@@ -7,5 +7,5 @@ namespace WinApp.Cli.Services;
 
 internal interface IStatusService
 {
-    public Task<int> ExecuteWithStatusAsync<T>(string inProgressMessage, Func<TaskContext, Task<(int ReturnCode, T CompletedMessage)>> taskFunc);
+    public Task<int> ExecuteWithStatusAsync<T>(string inProgressMessage, Func<TaskContext, CancellationToken, Task<(int ReturnCode, T CompletedMessage)>> taskFunc, CancellationToken cancellationToken);
 }

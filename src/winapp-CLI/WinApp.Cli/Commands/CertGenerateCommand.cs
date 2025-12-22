@@ -103,7 +103,7 @@ internal class CertGenerateCommand : Command
                 }
             }
 
-            return await statusService.ExecuteWithStatusAsync("Generating development certificate...", async (taskContext) =>
+            return await statusService.ExecuteWithStatusAsync("Generating development certificate...", async (taskContext, cancellationToken) =>
             {
                 // Use the consolidated certificate generation method with all console output and error handling
                 await certificateService.GenerateDevCertificateWithInferenceAsync(
@@ -118,7 +118,7 @@ internal class CertGenerateCommand : Command
                     install: install,
                     cancellationToken: cancellationToken);
                 return (0, "Development certificate generated successfully.");
-            });
+            }, cancellationToken);
         }
     }
 }

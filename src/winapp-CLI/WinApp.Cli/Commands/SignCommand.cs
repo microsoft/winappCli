@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
@@ -56,7 +55,7 @@ internal class SignCommand : Command
             var password = parseResult.GetValue(PasswordOption);
             var timestamp = parseResult.GetValue(TimestampOption);
 
-            return await statusService.ExecuteWithStatusAsync($"Signing file: {filePath}", async (taskContext) =>
+            return await statusService.ExecuteWithStatusAsync($"Signing file: {filePath}", async (taskContext, cancellationToken) =>
             {
                 try
                 {
@@ -72,7 +71,7 @@ internal class SignCommand : Command
                 {
                     return (1, $"Failed to sign file: {error.Message}");
                 }
-            });
+            }, cancellationToken);
         }
     }
 }
