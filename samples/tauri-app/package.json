@@ -1,0 +1,13 @@
+{
+  "name": "tauri-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev:withidentity": "cargo build --manifest-path src-tauri/Cargo.toml && winapp create-debug-identity src-tauri/target/debug/tauri-app.exe && .\\src-tauri\\target\\debug\\tauri-app.exe"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
