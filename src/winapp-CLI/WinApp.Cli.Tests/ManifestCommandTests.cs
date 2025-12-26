@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 
@@ -17,6 +18,12 @@ public class ManifestCommandTests : BaseCommandTests
         // Create a fake logo file for testing
         _testLogoPath = Path.Combine(_tempDirectory.FullName, "testlogo.png");
         CreateFakeLogoFile(_testLogoPath);
+    }
+
+    protected override IServiceCollection ConfigureServices(IServiceCollection services)
+    {
+        return services
+            .AddSingleton<IDevModeService, FakeDevModeService>();
     }
 
     /// <summary>

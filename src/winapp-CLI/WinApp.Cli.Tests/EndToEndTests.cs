@@ -18,7 +18,8 @@ public class EndToEndTests : BaseCommandTests
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
     {
         return services
-            .AddSingleton<IPowerShellService, FakePowerShellService>();
+            .AddSingleton<IPowerShellService, FakePowerShellService>()
+            .AddSingleton<IDevModeService, FakeDevModeService>();
     }
 
     [TestMethod]
