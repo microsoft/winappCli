@@ -53,7 +53,6 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
                 if (lastLineCount > 0 && ansiConsole.Profile.Capabilities.Ansi)
                 {
                     ansiConsole.Cursor.MoveUp(lastLineCount);
-                    //console.Write("\x1b[J"); // Clear from cursor to end of screen
                 }
 
                 int beforeRenderTop = 0;
@@ -134,7 +133,6 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
                             if (ansiConsole.Profile.Capabilities.Ansi)
                             {
                                 ansiConsole.Cursor.MoveUp(lastLineCount);
-                                //console.Write("\x1b[J");
                             }
 
                             lastLineCount = 0; // Reset since we cleared
@@ -174,11 +172,11 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
         if (lastLineCount > 0 && ansiConsole.Profile.Capabilities.Ansi)
         {
             ansiConsole.Cursor.MoveUp(lastLineCount);
-            //console.Write("\x1b[J");
         }
 
         // Final render to show completed state
         ansiConsole.Write(task.Render().Item1);
+        ansiConsole.Write("\x1b[J");
 
         if (result != null)
         {
@@ -188,7 +186,7 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
             }
             else
             {
-                logger.LogInformation("Task completed successfully with message: {CompletedMessage}", result.Value.CompletedMessage);
+                logger.LogDebug("Task completed successfully with message: {CompletedMessage}", result.Value.CompletedMessage);
             }
             return result.Value.ReturnCode;
         }

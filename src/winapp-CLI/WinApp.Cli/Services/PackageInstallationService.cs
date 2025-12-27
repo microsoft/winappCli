@@ -34,7 +34,7 @@ internal sealed class PackageInstallationService(
     /// <param name="rootDirectory">The Root Directory path</param>
     /// <param name="packageName">Name of the package to install</param>
     /// <param name="version">Version to install (if null, gets latest)</param>
-    /// <param name="includeExperimental">Include experimental/prerelease versions when getting latest</param>
+    /// <param name="sdkInstallMode">SDK install mode</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The installed version</returns>
     private async Task<string> InstallPackageAsync(
@@ -42,7 +42,7 @@ internal sealed class PackageInstallationService(
         string packageName,
         TaskContext taskContext,
         string? version = null,
-        bool includeExperimental = false,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         CancellationToken cancellationToken = default)
     {
         var packagesDir = new DirectoryInfo(Path.Combine(rootDirectory.FullName, "packages"));
@@ -53,7 +53,7 @@ internal sealed class PackageInstallationService(
         // Get version if not specified
         if (version == null)
         {
-            version = await nugetService.GetLatestVersionAsync(packageName, includeExperimental, cancellationToken);
+            version = await nugetService.GetLatestVersionAsync(packageName, sdkInstallMode, cancellationToken);
         }
 
         // Check if already installed
@@ -76,7 +76,7 @@ internal sealed class PackageInstallationService(
     /// </summary>
     /// <param name="rootDirectory">The Root Directory path</param>
     /// <param name="packages">List of packages to install</param>
-    /// <param name="includeExperimental">Include experimental/prerelease versions</param>
+    /// <param name="sdkInstallMode">SDK install mode</param>
     /// <param name="ignoreConfig">Ignore configuration file for version management</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Dictionary of installed packages and their versions</returns>
@@ -84,7 +84,7 @@ internal sealed class PackageInstallationService(
         DirectoryInfo rootDirectory,
         IEnumerable<string> packages,
         TaskContext taskContext,
-        bool includeExperimental = false,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         bool ignoreConfig = false,
         CancellationToken cancellationToken = default)
     {
@@ -115,12 +115,12 @@ internal sealed class PackageInstallationService(
                 }
                 else
                 {
-                    version = await nugetService.GetLatestVersionAsync(packageName, includeExperimental, cancellationToken);
+                    version = await nugetService.GetLatestVersionAsync(packageName, sdkInstallMode, cancellationToken);
                 }
             }
             else
             {
-                version = await nugetService.GetLatestVersionAsync(packageName, includeExperimental, cancellationToken);
+                version = await nugetService.GetLatestVersionAsync(packageName, sdkInstallMode, cancellationToken);
             }
 
             // Check if already installed
@@ -191,7 +191,7 @@ internal sealed class PackageInstallationService(
     /// <param name="rootDirectory">The Root Directory path</param>
     /// <param name="packageName">Name of the package to install</param>
     /// <param name="version">Specific version to install (if null, gets latest or uses pinned version from config)</param>
-    /// <param name="includeExperimental">Include experimental/prerelease versions</param>
+    /// <param name="sdkInstallMode">SDK install mode</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if the package was installed successfully, false otherwise</returns>
     public async Task<bool> EnsurePackageAsync(
@@ -199,7 +199,7 @@ internal sealed class PackageInstallationService(
         string packageName,
         TaskContext taskContext,
         string? version = null,
-        bool includeExperimental = false,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         CancellationToken cancellationToken = default)
     {
         try
@@ -211,7 +211,7 @@ internal sealed class PackageInstallationService(
                 packageName,
                 taskContext,
                 version: version,
-                includeExperimental,
+                sdkInstallMode,
                 cancellationToken);
 
             return true;

@@ -22,7 +22,8 @@ internal partial class CertificateService(
         FileInfo CertificatePath,
         string Password,
         string Publisher,
-        string SubjectName
+        string SubjectName,
+        bool UpdatedGitignore
     );
 
     public async Task<CertificateResult> GenerateDevCertificateAsync(
@@ -87,7 +88,8 @@ internal partial class CertificateService(
                 CertificatePath: outputPath,
                 Password: password,
                 Publisher: cleanPublisher,
-                SubjectName: subjectName
+                SubjectName: subjectName,
+                UpdatedGitignore: false
             );
         }
         catch (Exception error)
@@ -251,11 +253,13 @@ internal partial class CertificateService(
     /// This method combines publisher inference, certificate generation, gitignore management, console messaging, and optional installation.
     /// </summary>
     /// <param name="outputPath">Path where the certificate should be generated</param>
+    /// <param name="taskContext">Task context for status messages and prompts</param>
     /// <param name="explicitPublisher">Explicit publisher to use (optional)</param>
     /// <param name="manifestPath">Specific manifest path to extract publisher from (optional)</param>
     /// <param name="password">Certificate password</param>
     /// <param name="validDays">Certificate validity period</param>
     /// <param name="skipIfExists">Skip generation if certificate already exists</param>
+    /// <param name="useDefaults">If true and file exists, skip without prompting; if false, prompt user to overwrite</param>
     /// <param name="updateGitignore">Whether to update .gitignore</param>
     /// <param name="install">Whether to install the certificate after generation</param>
     /// <param name="cancellationToken">Cancellation token</param>
@@ -268,19 +272,43 @@ internal partial class CertificateService(
         string password = "password",
         int validDays = 365,
         bool skipIfExists = true,
+        bool useDefaults = false,
         bool updateGitignore = true,
         bool install = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Skip if certificate already exists and skipIfExists is true
+            // Check if certificate already exists
             outputPath.Refresh();
-            if (skipIfExists && outputPath.Exists)
+            if (outputPath.Exists)
             {
-                // TODO: Already exists, ask: override or keep the existing one?
-                taskContext.AddStatusMessage($"{UiSymbols.Note} Development certificate already exists: {outputPath}");
-                return null;
+                // skipIfExists takes priority - silently skip
+                if (skipIfExists)
+                {
+                    taskContext.AddStatusMessage($"{UiSymbols.Note} Development certificate already exists: {outputPath}");
+                    return null;
+                }
+
+                taskContext.AddDebugMessage($"{UiSymbols.Check} Development certificate already exists: {outputPath}");
+
+                // useDefaults means skip without prompting (non-destructive for automation)
+                if (useDefaults)
+                {
+                    taskContext.AddStatusMessage($"{UiSymbols.Note} Development certificate already exists, skipping generation");
+                    return null;
+                }
+
+                // Interactive mode - prompt user to overwrite
+                var shouldOverwrite = await taskContext.PromptAsync(
+                    new Spectre.Console.ConfirmationPrompt("Development certificate already exists. Overwrite?"),
+                    cancellationToken);
+
+                if (!shouldOverwrite)
+                {
+                    taskContext.AddDebugMessage($"{UiSymbols.Skip} Development certificate generation skipped");
+                    return null;
+                }
             }
 
             // Start generation message
@@ -311,7 +339,11 @@ internal partial class CertificateService(
             {
                 var baseDirectory = outputPath.Directory ?? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
                 var certFileName = result.CertificatePath.Name;
-                gitignoreService.AddCertificateToGitignore(baseDirectory, certFileName, taskContext);
+
+                result = result with
+                {
+                    UpdatedGitignore = await gitignoreService.AddCertificateToGitignoreAsync(baseDirectory, certFileName, taskContext, cancellationToken)
+                };
             }
 
             // Display password information

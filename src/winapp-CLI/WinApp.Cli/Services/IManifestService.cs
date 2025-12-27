@@ -17,7 +17,7 @@ internal interface IManifestService
         string? entryPoint,
         ManifestTemplates manifestTemplate,
         FileInfo? logoPath,
-        bool yes,
+        bool useDefaults,
         TaskContext taskContext,
         CancellationToken cancellationToken = default);
 

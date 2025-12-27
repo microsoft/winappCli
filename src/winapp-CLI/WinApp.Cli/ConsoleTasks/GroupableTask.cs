@@ -118,12 +118,12 @@ internal class GroupableTask<T> : GroupableTask
             sb.AppendLine(task switch
             {
                 StatusMessageTask statusMessageTask => $"{indentStr} {Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}",
-                GroupableTask<T> genericTask => FormatCheckMarkMessage(indentStr, Markup.Escape((genericTask.CompletedMessage as ITuple) switch
+                GroupableTask<T> genericTask => FormatCheckMarkMessage(indentStr, (genericTask.CompletedMessage as ITuple) switch
                 {
                     ITuple tuple when tuple.Length > 0 && tuple[0] is string str => str,
                     ITuple tuple when tuple.Length > 0 && tuple[1] is string str2 => str2,
                     _ => genericTask.CompletedMessage?.ToString() ?? string.Empty
-                })),
+                }),
                 GroupableTask _ => FormatCheckMarkMessage(indentStr, Markup.Escape(task.InProgressMessage)),
             });
         }

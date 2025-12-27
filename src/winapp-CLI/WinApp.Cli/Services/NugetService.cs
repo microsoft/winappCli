@@ -18,9 +18,9 @@ internal class NugetService : INugetService
     [
         "Microsoft.Windows.CppWinRT",
         BuildToolsService.BUILD_TOOLS_PACKAGE,
-        "Microsoft.WindowsAppSDK",
+        BuildToolsService.WINAPP_SDK_PACKAGE,
         "Microsoft.Windows.ImplementationLibrary",
-        $"{BuildToolsService.CPP_SDK_PACKAGE}",
+        BuildToolsService.CPP_SDK_PACKAGE,
         $"{BuildToolsService.CPP_SDK_PACKAGE}.x64",
         $"{BuildToolsService.CPP_SDK_PACKAGE}.arm64"
     ];
@@ -41,8 +41,13 @@ internal class NugetService : INugetService
         await resp.Content.CopyToAsync(fs, cancellationToken);
     }
 
-    public async Task<string> GetLatestVersionAsync(string packageName, bool includePrerelease, CancellationToken cancellationToken = default)
+    public async Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, CancellationToken cancellationToken = default)
     {
+        if (sdkInstallMode == SdkInstallMode.None)
+        {
+            throw new ArgumentException("sdkInstallMode cannot be None", nameof(sdkInstallMode));
+        }
+
         var url = $"{FlatIndex}/{packageName.ToLowerInvariant()}/index.json";
         using var resp = await Http.GetAsync(url, cancellationToken);
         resp.EnsureSuccessStatusCode();
@@ -63,9 +68,33 @@ internal class NugetService : INugetService
             }
         }
 
-        if (!includePrerelease)
+        // If not WinApp SDK, preview and experimental versions are the same
+        if (packageName.StartsWith(BuildToolsService.WINAPP_SDK_PACKAGE, StringComparison.OrdinalIgnoreCase))
         {
-            list = list.Where(v => !v.Contains('-', StringComparison.Ordinal)).ToList();
+            if (sdkInstallMode == SdkInstallMode.Stable)
+            {
+                // Only stable versions (no prerelease suffix)
+                list = [.. list.Where(v => !v.Contains('-', StringComparison.Ordinal))];
+            }
+            else if (sdkInstallMode == SdkInstallMode.Preview)
+            {
+                // Only with preview
+                list = [.. list.Where(v => v.Contains("-preview", StringComparison.OrdinalIgnoreCase))];
+            }
+            else if (sdkInstallMode == SdkInstallMode.Experimental)
+            {
+                // Only with experimental
+                list = [.. list.Where(v => v.Contains("-experimental", StringComparison.OrdinalIgnoreCase))];
+            }
+            // For Experimental mode: keep all versions (no filtering needed)
+        }
+        else
+        {
+            if (sdkInstallMode == SdkInstallMode.Stable)
+            {
+                // Only stable versions (no prerelease suffix)
+                list = [.. list.Where(v => !v.Contains('-', StringComparison.Ordinal))];
+            }
         }
 
         if (list.Count == 0)
@@ -119,7 +148,7 @@ internal class NugetService : INugetService
             throw new InvalidOperationException($"nuget install failed for {package} {version}");
         }
 
-        var lines = stdout.Split(['\r', '\n' ], StringSplitOptions.RemoveEmptyEntries);
+        var lines = stdout.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             if (line.StartsWith("Successfully installed '", StringComparison.OrdinalIgnoreCase))

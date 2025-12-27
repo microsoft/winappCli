@@ -13,7 +13,7 @@ internal class GitignoreService : IGitignoreService
     /// </summary>
     /// <param name="projectDirectory">Directory containing the project</param>
     /// <returns>True if gitignore was updated, false if entry already existed</returns>
-    public async Task<bool> UpdateGitignoreAsync(DirectoryInfo projectDirectory, TaskContext taskContext, CancellationToken cancellationToken)
+    public async Task<bool> AddWinAppFolderToGitIgnoreAsync(DirectoryInfo projectDirectory, TaskContext taskContext, CancellationToken cancellationToken)
     {
         var result = await taskContext.AddSubTaskAsync("Updating .gitignore", async (taskContext, cancellationToken) =>
         {
@@ -26,7 +26,7 @@ internal class GitignoreService : IGitignoreService
                 // Read existing .gitignore if it exists
                 if (gitignoreExists)
                 {
-                    gitignoreContent = File.ReadAllText(gitignorePath);
+                    gitignoreContent = await File.ReadAllTextAsync(gitignorePath, cancellationToken);
                 }
 
                 // Check if .winapp is already in .gitignore
@@ -50,7 +50,7 @@ internal class GitignoreService : IGitignoreService
                     newContent += "# Windows SDK packages and generated files\n";
                     newContent += winappEntry + '\n';
 
-                    File.WriteAllText(gitignorePath, newContent);
+                    await File.WriteAllTextAsync(gitignorePath, newContent, cancellationToken);
 
                     taskContext.AddDebugMessage($"{UiSymbols.Check} Added .winapp to .gitignore");
                     taskContext.AddDebugMessage($"{UiSymbols.Note} Note: winapp.yaml should be committed to track SDK versions");
@@ -81,7 +81,7 @@ internal class GitignoreService : IGitignoreService
     /// <param name="projectDirectory">Directory containing the project</param>
     /// <param name="certificateFileName">Name of the certificate file to add</param>
     /// <returns>True if gitignore was updated, false if entry already existed</returns>
-    public bool AddCertificateToGitignore(DirectoryInfo projectDirectory, string certificateFileName, TaskContext taskContext)
+    public async Task<bool> AddCertificateToGitignoreAsync(DirectoryInfo projectDirectory, string certificateFileName, TaskContext taskContext, CancellationToken cancellationToken)
     {
         try
         {
@@ -92,7 +92,7 @@ internal class GitignoreService : IGitignoreService
             // Read existing .gitignore if it exists
             if (gitignoreExists)
             {
-                gitignoreContent = File.ReadAllText(gitignorePath);
+                gitignoreContent = await File.ReadAllTextAsync(gitignorePath, cancellationToken);
             }
 
             // Check if certificate file is already in .gitignore
@@ -115,7 +115,7 @@ internal class GitignoreService : IGitignoreService
                 newContent += "# Development certificate\n";
                 newContent += certificateFileName + '\n';
 
-                File.WriteAllText(gitignorePath, newContent);
+                await File.WriteAllTextAsync(gitignorePath, newContent, cancellationToken);
 
                 taskContext.AddDebugMessage($"{UiSymbols.Check} Added {certificateFileName} to .gitignore");
 

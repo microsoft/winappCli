@@ -16,6 +16,7 @@ internal interface ICertificateService
         string password = "password",
         int validDays = 365,
         bool skipIfExists = true,
+        bool useDefaults = false,
         bool updateGitignore = true,
         bool install = false,
         CancellationToken cancellationToken = default);

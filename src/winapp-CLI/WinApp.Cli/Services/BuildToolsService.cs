@@ -19,6 +19,8 @@ internal partial class BuildToolsService(
 {
     internal const string BUILD_TOOLS_PACKAGE = "Microsoft.Windows.SDK.BuildTools";
     internal const string CPP_SDK_PACKAGE = "Microsoft.Windows.SDK.CPP";
+    internal const string WINAPP_SDK_PACKAGE = "Microsoft.WindowsAppSDK";
+    internal const string WINAPP_SDK_RUNTIME_PACKAGE = "Microsoft.WindowsAppSDK.Runtime";
 
     /// <summary>
     /// Find a path within any package structure (generic version)
@@ -268,7 +270,7 @@ internal partial class BuildToolsService(
                 BUILD_TOOLS_PACKAGE,
                 taskContext,
                 version: pinnedVersion,
-                includeExperimental: false,
+                sdkInstallMode: SdkInstallMode.Stable,
                 cancellationToken: cancellationToken);
 
             if (!success)

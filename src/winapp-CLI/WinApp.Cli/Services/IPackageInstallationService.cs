@@ -13,7 +13,7 @@ internal interface IPackageInstallationService
         DirectoryInfo rootDirectory,
         IEnumerable<string> packages,
         TaskContext taskContext,
-        bool includeExperimental = false,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         bool ignoreConfig = false,
         CancellationToken cancellationToken = default);
     
@@ -22,6 +22,6 @@ internal interface IPackageInstallationService
         string packageName,
         TaskContext taskContext,
         string? version = null,
-        bool includeExperimental = false,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         CancellationToken cancellationToken = default);
 }

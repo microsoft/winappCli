@@ -11,19 +11,9 @@ namespace WinApp.Cli.Commands;
 
 internal class UpdateCommand : Command
 {
-    public static Option<bool> PrereleaseOption { get; }
-
-    static UpdateCommand()
-    {
-        PrereleaseOption = new Option<bool>("--prerelease")
-        {
-            Description = "Include prerelease versions when checking for updates"
-        };
-    }
-
     public UpdateCommand() : base("update", "Update packages in winapp.yaml and install/update build tools in cache")
     {
-        Options.Add(PrereleaseOption);
+        Options.Add(InitCommand.SetupSdksOption);
     }
 
     public class Handler(
@@ -37,7 +27,7 @@ internal class UpdateCommand : Command
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var prerelease = parseResult.GetValue(PrereleaseOption);
+            var setupSdks = parseResult.GetValue(InitCommand.SetupSdksOption) ?? SdkInstallMode.Stable;
 
             return await statusService.ExecuteWithStatusAsync("Updating packages and build tools...", async (taskContext, cancellationToken) =>
             {
@@ -69,7 +59,7 @@ internal class UpdateCommand : Command
 
                                     try
                                     {
-                                        var latestVersion = await nugetService.GetLatestVersionAsync(package.Name, prerelease, cancellationToken);
+                                        var latestVersion = await nugetService.GetLatestVersionAsync(package.Name, setupSdks, cancellationToken);
 
                                         if (latestVersion != package.Version)
                                         {
@@ -109,7 +99,7 @@ internal class UpdateCommand : Command
                                     globalWinappDir,
                                     packageNames,
                                     taskContext,
-                                    includeExperimental: prerelease,
+                                    sdkInstallMode: setupSdks,
                                     ignoreConfig: false, // Use the updated config
                                     cancellationToken: cancellationToken
                                 );

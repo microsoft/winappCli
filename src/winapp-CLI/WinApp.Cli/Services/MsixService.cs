@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using System;
 using System.IO.Compression;
 using System.Security;
 using System.Text;
@@ -1470,12 +1471,12 @@ $1");
 
         // Look for the runtime package in the cached dependencies
         var runtimePackage = cachedPackages.FirstOrDefault(kvp =>
-            kvp.Key.StartsWith("Microsoft.WindowsAppSDK.Runtime", StringComparison.OrdinalIgnoreCase));
+            kvp.Key.StartsWith(BuildToolsService.WINAPP_SDK_RUNTIME_PACKAGE, StringComparison.OrdinalIgnoreCase));
 
         // Create a dictionary with versions for FindWindowsAppSdkMsixDirectory
         var usedVersions = new Dictionary<string, string>
         {
-            ["Microsoft.WindowsAppSDK"] = mainVersion
+            [BuildToolsService.WINAPP_SDK_PACKAGE] = mainVersion
         };
 
         if (runtimePackage.Key != null)
@@ -1516,10 +1517,10 @@ $1");
         var config = configService.Load();
 
         // Get the main Windows App SDK version from config
-        var mainVersion = config.GetVersion("Microsoft.WindowsAppSDK");
+        var mainVersion = config.GetVersion(BuildToolsService.WINAPP_SDK_PACKAGE);
         if (string.IsNullOrEmpty(mainVersion))
         {
-            taskContext.AddDebugMessage($"{UiSymbols.Warning} No Microsoft.WindowsAppSDK package found in winapp.yaml");
+            taskContext.AddDebugMessage($"{UiSymbols.Warning} No ${BuildToolsService.WINAPP_SDK_PACKAGE} package found in winapp.yaml");
             return (null, null);
         }
 
@@ -1527,11 +1528,11 @@ $1");
         try
         {
             // Use PackageCacheService to find the runtime package that was installed with the main package
-            return (await packageCacheService.GetCachedPackageAsync("Microsoft.WindowsAppSDK", mainVersion, taskContext, cancellationToken), mainVersion);
+            return (await packageCacheService.GetCachedPackageAsync(BuildToolsService.WINAPP_SDK_PACKAGE, mainVersion, taskContext, cancellationToken), mainVersion);
         }
         catch (KeyNotFoundException)
         {
-            taskContext.AddDebugMessage($"{UiSymbols.Warning} Microsoft.WindowsAppSDK v{mainVersion} not found in package cache");
+            taskContext.AddDebugMessage($"{UiSymbols.Warning} {BuildToolsService.WINAPP_SDK_PACKAGE} v{mainVersion} not found in package cache");
         }
 
         return (null, null);

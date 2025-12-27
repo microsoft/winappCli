@@ -23,7 +23,7 @@ internal partial class ManifestService(
         string? entryPoint,
         ManifestTemplates manifestTemplate,
         FileInfo? logoPath,
-        bool yes,
+        bool useDefaults,
         TaskContext taskContext,
         CancellationToken cancellationToken = default)
     {
@@ -37,7 +37,7 @@ internal partial class ManifestService(
             throw new InvalidOperationException($"Manifest already exists at: {manifestPath}");
         }
 
-        // Interactive mode if not --yes (get defaults for prompts)
+        // Interactive mode if not --use-defaults (get defaults for prompts)
         if (string.IsNullOrEmpty(entryPoint))
         {
             packageName ??= SystemDefaultsHelper.GetDefaultPackageName(directory);
@@ -51,8 +51,8 @@ internal partial class ManifestService(
 
         packageName = CleanPackageName(packageName);
 
-        // Interactive mode if not --yes
-        if (!yes)
+        // Interactive mode if not --use-defaults
+        if (!useDefaults)
         {
             packageName = await PromptForValueAsync(taskContext, "Package name", packageName, cancellationToken);
             publisherName = await PromptForValueAsync(taskContext, "Publisher name", publisherName, cancellationToken);

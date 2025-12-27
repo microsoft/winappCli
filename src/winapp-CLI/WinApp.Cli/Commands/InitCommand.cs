@@ -33,8 +33,8 @@ internal class InitCommand : Command
         ConfigDirOption.AcceptExistingOnly();
         SetupSdksOption = new Option<SdkInstallMode?>("--setup-sdks")
         {
-            Description = "SDK installation mode: 'stable' (default), 'experimental' (preview packages), or 'none' (skip SDK installation)",
-            HelpName = "stable|experimental|none"
+            Description = "SDK installation mode: 'stable' (default), 'preview', 'experimental', or 'none' (skip SDK installation)",
+            HelpName = "stable|preview|experimental|none"
         };
         IgnoreConfigOption = new Option<bool>("--ignore-config", "--no-config")
         {
