@@ -323,7 +323,7 @@ async function handleAddonElectronDebugIdentity(args) {
     console.log('');
     console.log('This command will:');
     console.log('  1. Create a backup of node_modules/electron/dist/electron.exe');
-    console.log('  2. Generate a sparse MSIX manifest and assets in msix-debug folder');
+    console.log('  2. Generate a sparse MSIX manifest in .winapp/debug folder, and assets in node_modules/electron/dist/ folder');
     console.log('  3. Add MSIX identity to the Electron executable');
     console.log('  4. Register the sparse package with external location');
     console.log('');
