@@ -8,7 +8,9 @@ using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
-internal class NugetService(ILogger<NugetService> logger) : INugetService
+internal class NugetService(
+    ICurrentDirectoryProvider currentDirectoryProvider,
+    ILogger<NugetService> logger) : INugetService
 {
     private static readonly HttpClient Http = new();
     private const string NugetExeUrl = "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";
@@ -77,11 +79,11 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
         return list[^1];
     }
 
-    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo winappDir, string package, string version, DirectoryInfo outputDir, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo globalWinappDir, string package, string version, DirectoryInfo outputDir, CancellationToken cancellationToken = default)
     {
         var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        var nugetExe = Path.Combine(winappDir.FullName, "tools", "nuget.exe");
+        var nugetExe = Path.Combine(globalWinappDir.FullName, "tools", "nuget.exe");
         if (!File.Exists(nugetExe))
         {
             throw new FileNotFoundException("nuget.exe missing; call EnsureNugetExeAsync first", nugetExe);
@@ -106,7 +108,7 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = outputDir.FullName,
+            WorkingDirectory = currentDirectoryProvider.GetCurrentDirectory(),
         };
         using var p = Process.Start(psi)!;
         var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -119,7 +121,7 @@ internal class NugetService(ILogger<NugetService> logger) : INugetService
             throw new InvalidOperationException($"nuget install failed for {package} {version}");
         }
 
-        var lines = stdout.Split(['\r', '\n' ], StringSplitOptions.RemoveEmptyEntries);
+        var lines = stdout.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             if (line.StartsWith("Successfully installed '", StringComparison.OrdinalIgnoreCase))
