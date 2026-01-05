@@ -30,6 +30,8 @@
 </p>
 
 <h3 align="center">
+  <a href="#%EF%B8%8F-get-started">Get Started Guides</a>
+  <span> • </span>
   <a href="#-installation">Installation</a>
   <span> • </span>
   <a href="#-usage">Usage</a>
@@ -59,25 +61,34 @@ Perfect for:
 
 ## ✏️ Get started
 
-Checkout our getting started guides for step by step instructions:
-- [Electron guide](/docs/electron-get-started.md): step by step guide of using Windows App SDK APIs in a new Electron application with a C# addon, debugging with identity, and MSIX packaging.
+Checkout our getting started guides for step by step instructions of how to setup your environment, generate manifests, assets, and certificate, how to debug APIs that require package identity, and how to MSIX package your app.
+
+<p>
+  <a href="/docs/electron-get-started.md">
+    <img src="https://img.shields.io/badge/Electron-Get%20Started-47848F?style=for-the-badge&logo=electron&logoColor=white" alt="Get Started with Electron">
+  </a>
+    <br />
+  <a href="./docs/guides/rust.md">
+    <img src="https://img.shields.io/badge/Rust-Get%20Started-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Get Started with Rust">
+  </a>
+    <br />
+  <a href="/docs/guides/tauri.md">
+    <img src="https://img.shields.io/badge/Tauri-Get%20Started-FFC131?style=for-the-badge&logo=tauri&logoColor=black" alt="Get Started with Tauri">
+  </a>
+</p>
+
+Additional guides:
 - [Packaging an EXE/CLI](/docs/guides/packaging-cli.md): step by step guide of packaging an existing exe/cli as MSIX
 
 ## 📦 Installation
 
-### WinGet
-
-<img src="https://img.shields.io/winget/v/Microsoft.WinAppCli?style=for-the-badge&logo=windows&color=357EC7" alt="WinGet">
+### WinGet <img src="https://img.shields.io/winget/v/Microsoft.WinAppCli?style=for-the-badge&logo=windows&color=357EC7" alt="WinGet" height="24">
 
 The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
 
 `winget install Microsoft.WinAppCli`
 
-### NPM
-
-<a href="https://www.npmjs.com/package/@microsoft/winappcli">
-    <img src="https://img.shields.io/npm/v/%40microsoft%2Fwinappcli?style=for-the-badge&logo=npm" alt="NPM">
-</a>
+### NPM <a href="https://www.npmjs.com/package/@microsoft/winappcli"> <img src="https://img.shields.io/npm/v/%40microsoft%2Fwinappcli?style=for-the-badge&logo=npm" alt="NPM" height="24"></a>
 
 
 You can install the CLI for Electron projects via NPM:
@@ -86,8 +97,7 @@ You can install the CLI for Electron projects via NPM:
 
 ### Download Release Manually
 
-Download the latest build from GitHub Releases:
-**[👉 Download Latest Build](https://github.com/microsoft/WinAppCli/releases/latest)**
+**[Download the latest build from GitHub Releases](https://github.com/microsoft/WinAppCli/releases/latest)**
 
 ## 📋 Usage
 
