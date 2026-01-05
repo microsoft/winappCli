@@ -442,7 +442,7 @@ internal partial class MsixService(
                 logger.LogDebug("Merging with existing manifest using mt.exe...");
 
                 // Use mt.exe to merge existing manifest with new manifest
-                await RunMtToolAsync($@"-manifest ""{tempManifestPath}"" ""{manifestPath}"" -out:""{mergedManifestPath}""", cancellationToken);
+                await RunMtToolAsync($@"-manifest ""{tempManifestPath}"" ""{manifestPath}"" -out:""{mergedManifestPath}""", true, cancellationToken);
             }
             else
             {
@@ -455,7 +455,7 @@ internal partial class MsixService(
             logger.LogDebug("Embedding merged manifest into executable...");
 
             // Update the executable with merged manifest
-            await RunMtToolAsync($@"-manifest ""{mergedManifestPath}"" -outputresource:""{exePath}"";#1", cancellationToken);
+            await RunMtToolAsync($@"-manifest ""{mergedManifestPath}"" -outputresource:""{exePath}"";#1", true, cancellationToken);
 
             logger.LogDebug("{UISymbol} Successfully embedded manifest into: {ExecutablePath}", UiSymbols.Check, exePath);
         }
@@ -479,7 +479,7 @@ internal partial class MsixService(
         bool hasExistingManifest = false;
         try
         {
-            await RunMtToolAsync($@"-inputresource:""{exePath}"";#1 -out:""{tempManifestPath}""", cancellationToken);
+            await RunMtToolAsync($@"-inputresource:""{exePath}"";#1 -out:""{tempManifestPath}""", false, cancellationToken);
             tempManifestPath.Refresh();
             hasExistingManifest = tempManifestPath.Exists;
         }
@@ -1133,10 +1133,10 @@ internal partial class MsixService(
         await buildToolsService.RunBuildToolAsync(new MakeAppxTool(), makeappxArguments, cancellationToken: cancellationToken);
     }
 
-    private async Task RunMtToolAsync(string arguments, CancellationToken cancellationToken = default)
+    private async Task RunMtToolAsync(string arguments, bool printErrors, CancellationToken cancellationToken = default)
     {
         // Use BuildToolsService to run mt.exe
-        await buildToolsService.RunBuildToolAsync(new GenericTool("mt.exe"), arguments, cancellationToken: cancellationToken);
+        await buildToolsService.RunBuildToolAsync(new GenericTool("mt.exe"), arguments, printErrors, cancellationToken: cancellationToken);
     }
 
     private static void TryDeleteFile(FileInfo path)
@@ -1229,7 +1229,12 @@ internal partial class MsixService(
         logger.LogDebug("{UISymbol} Created debug manifest: {DebugManifestPath}", UiSymbols.Files, debugManifestPath.FullName);
 
         // Step 6: Copy all assets
-        await CopyAllAssetsAsync(originalManifestPath, debugDir, cancellationToken);
+        var entryPointDir = Path.GetDirectoryName(entryPointPath);
+        if (!string.IsNullOrEmpty(entryPointDir))
+        {
+            var entryPointDirInfo = new DirectoryInfo(entryPointDir);
+            await CopyAllAssetsAsync(originalManifestPath, entryPointDirInfo, cancellationToken);
+        }
 
         return (debugManifestPath, debugIdentity);
     }
@@ -1578,6 +1583,12 @@ $1");
     private async Task CopyAllAssetsAsync(FileInfo manifestPath, DirectoryInfo targetDir, CancellationToken cancellationToken)
     {
         var originalManifestDir = manifestPath.DirectoryName;
+
+        if (string.Equals(originalManifestDir, targetDir.FullName, StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogDebug("{UISymbol} Manifest directory and target directory are the same, skipping assets copy", UiSymbols.Warning);
+            return;
+        }
 
         logger.LogDebug("{UISymbol} Copying manifest-referenced files from: {OriginalManifestDir}", UiSymbols.Note, originalManifestDir);
 

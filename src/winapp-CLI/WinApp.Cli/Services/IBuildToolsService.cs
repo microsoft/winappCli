@@ -28,13 +28,14 @@ internal interface IBuildToolsService
     Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, CancellationToken cancellationToken = default);
 
     Task<DirectoryInfo?> EnsureBuildToolsAsync(bool forceLatest = false, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Execute a build tool with the specified arguments
     /// </summary>
     /// <param name="tool">The tool to execute</param>
     /// <param name="arguments">Arguments to pass to the tool</param>
+    /// <param name="printErrors">Whether to print errors using the tool's PrintErrorText method</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Tuple containing (stdout, stderr)</returns>
-    Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, CancellationToken cancellationToken = default);
+    Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, bool printErrors = true, CancellationToken cancellationToken = default);
 }
