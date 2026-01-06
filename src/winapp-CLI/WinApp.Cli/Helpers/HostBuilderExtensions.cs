@@ -34,7 +34,8 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IWinappDirectoryService, WinappDirectoryService>()
             .AddSingleton<IWorkspaceSetupService, WorkspaceSetupService>()
             .AddSingleton<IGitignoreService, GitignoreService>()
-            .AddSingleton<IFirstRunService, FirstRunService>();
+            .AddSingleton<IFirstRunService, FirstRunService>()
+            .AddSingleton<IMSStoreCLIService, MSStoreCLIService>();
     }
 
     public static IServiceCollection ConfigureCommands(this IServiceCollection serviceCollection)
@@ -54,7 +55,8 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<CertGenerateCommand, CertGenerateCommand.Handler>()
                 .UseCommandHandler<CertInstallCommand, CertInstallCommand.Handler>()
                 .UseCommandHandler<SignCommand, SignCommand.Handler>()
-                .UseCommandHandler<ToolCommand, ToolCommand.Handler>();
+                .UseCommandHandler<ToolCommand, ToolCommand.Handler>()
+                .UseCommandHandler<MSStoreCommand, MSStoreCommand.Handler>();
     }
 
     public static IServiceCollection UseCommandHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TCommand, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] THandler>(this IServiceCollection services)
