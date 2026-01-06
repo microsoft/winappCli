@@ -1,6 +1,6 @@
 # Electron WinML Sample
 
-This sample demonstrates how to integrate Windows Machine Learning (WinML) into an Electron application using the Windows App Development CLI. The app uses the SqueezeNet 1.1 model to classify images directly on the user's device.
+This sample demonstrates how to integrate Windows Machine Learning (WinML) into an Electron application using the Windows App Development CLI. The app uses the SqueezeNet 1.1 model to classify images directly on the user's device, and the Phi model for text generation.
 
 ## What's Included
 
@@ -37,12 +37,21 @@ This automatically runs the `postinstall` script which:
 - Adds debug identity to Electron
 
 ### 2. Download the Model
+The models are available in the [AI Dev Gallery](https://aka.ms/aidevgallery). Install the gallery to download the models. You don't need both models if you only care about one or the other. The *models* folder will need to be created.
 
-1. Install the [AI Dev Gallery](https://aka.ms/aidevgallery)
-2. Navigate to the **Classify Image** sample
-3. Download the **SqueezeNet 1.1** model
-4. Click **Open Containing Folder** to locate the `.onnx` file
-5. Copy `squeezenet1.1-7.onnx` to the `models/` folder in this project
+
+#### SqueezeNet
+1. Navigate to the **Classify Image** sample
+2. Download the **SqueezeNet 1.1** model
+3. Click **Open Containing Folder** to locate the `.onnx` file
+4. Copy `squeezenet1.1-7.onnx` to the `models/` folder in this project
+
+#### Phi
+1. Navigate to the **Generate Text** sample
+2. Download any of the Phi models from Custom models 
+3. Click **Open Containing Folder** to locate model files
+4. Copy all the contents of the folder (should have .onnx and .json files) to the `models/phi` folder in this project.
+
 
 ### 3. Build the C# Addon
 

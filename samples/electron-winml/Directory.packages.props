@@ -9,6 +9,10 @@
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
     <PackageVersion Include="System.Drawing.Common" Version="9.0.9" />
 
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="9.9.1" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntimeGenAI.Managed" Version="0.10.1" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntimeGenAI.WinML" Version="0.10.1" />
+
     <!-- These versions may be updated automatically during restore to match yaml -->
     <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.0.0-experimental3" />
     <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7175" />

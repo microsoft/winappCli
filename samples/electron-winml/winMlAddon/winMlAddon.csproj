@@ -26,6 +26,10 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" />
     <PackageReference Include="System.Drawing.Common" />
 
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI.Managed" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI.WinML" />
+
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>

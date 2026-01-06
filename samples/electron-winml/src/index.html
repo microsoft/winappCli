@@ -7,22 +7,47 @@
   </head>
   <body>
     <div class="container">
-      <h1>🖼️ Image Classification</h1>
-      
-      <button id="selectImageBtn" class="select-btn">Select Image</button>
-      
-      <div id="imagePreview" class="image-preview hidden">
-        <img id="selectedImage" src="" alt="Selected image" />
+      <div class="tabs">
+        <button id="tabImage" class="tab-btn active">Image Classification</button>
+        <button id="tabText" class="tab-btn">Text Generation</button>
       </div>
-      
-      <div id="loadingView" class="loading hidden">
-        <div class="spinner"></div>
-        <p>Classifying image...</p>
+
+      <div id="contentImage" class="tab-content">
+        <h1>🖼️ Image Classification</h1>
+        
+        <button id="selectImageBtn" class="select-btn">Select Image</button>
+        
+        <div id="imagePreview" class="image-preview hidden">
+          <img id="selectedImage" src="" alt="Selected image" />
+        </div>
+        
+        <div id="loadingView" class="loading hidden">
+          <div class="spinner"></div>
+          <p>Classifying image...</p>
+        </div>
+        
+        <div id="resultsContainer" class="results hidden">
+          <h2>Classification Results</h2>
+          <ul id="resultsList"></ul>
+        </div>
       </div>
-      
-      <div id="resultsContainer" class="results hidden">
-        <h2>Classification Results</h2>
-        <ul id="resultsList"></ul>
+
+      <div id="contentText" class="tab-content hidden">
+        <h1>📝 Text Generation</h1>
+        <!-- Placeholder for Text Generation Implementation -->
+        <div class="text-gen-container">
+            <textarea id="promptInput" class="prompt-input" placeholder="Enter your prompt here..."></textarea>
+            <button id="generateBtn" class="select-btn">Generate Text</button>
+            
+            <div id="textLoadingView" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Generating text...</p>
+            </div>
+
+            <div id="textOutput" class="text-output hidden">
+                <!-- Generated text will go here -->
+            </div>
+        </div>
       </div>
     </div>
     
