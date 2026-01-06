@@ -10,7 +10,7 @@ namespace WinApp.Cli.Commands;
 
 internal class MSStoreCommand : Command
 {
-    public MSStoreCommand() : base("store", "Run a Microsoft Store Developer CLI command.")
+    public MSStoreCommand() : base("store", "Run a Microsoft Store Developer CLI command. This command might prompt the installation of Microsoft Store Developer CLI (https://aka.ms/msstoredevcli).")
     {
         this.TreatUnmatchedTokensAsErrors = false;
     }

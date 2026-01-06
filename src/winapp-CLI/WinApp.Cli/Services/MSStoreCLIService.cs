@@ -20,13 +20,13 @@ internal class MSStoreCLIService(ILogger<MSStoreCLIService> logger) : IMSStoreCL
                 throw new InvalidOperationException("MSStoreCLI is required but not installed.");
             }
 
-            var args = "install \"Microsoft Store Developer CLI\" --source msstore";
+            var args = "install --id 9P53PC5S0PHJ -e --source msstore";
             logger.LogDebug("Running winget with arguments: {Args}", args);
 
             ProcessStartInfo installProcessStartInfo = new()
             {
                 FileName = "winget",
-                Arguments = "install \"Microsoft Store Developer CLI\" --source msstore",
+                Arguments = args,
                 RedirectStandardInput = false,
                 RedirectStandardOutput = false,
                 RedirectStandardError = false,
