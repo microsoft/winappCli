@@ -8,7 +8,7 @@ using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
-internal class NugetService : INugetService
+internal class NugetService(ICurrentDirectoryProvider currentDirectoryProvider) : INugetService
 {
     private static readonly HttpClient Http = new();
     private const string NugetExeUrl = "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";
@@ -106,11 +106,11 @@ internal class NugetService : INugetService
         return list[^1];
     }
 
-    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo winappDir, string package, string version, DirectoryInfo outputDir, TaskContext taskContext, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo globalWinappDir, string package, string version, DirectoryInfo outputDir, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        var nugetExe = Path.Combine(winappDir.FullName, "tools", "nuget.exe");
+        var nugetExe = Path.Combine(globalWinappDir.FullName, "tools", "nuget.exe");
         if (!File.Exists(nugetExe))
         {
             throw new FileNotFoundException("nuget.exe missing; call EnsureNugetExeAsync first", nugetExe);
@@ -135,7 +135,7 @@ internal class NugetService : INugetService
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = outputDir.FullName,
+            WorkingDirectory = currentDirectoryProvider.GetCurrentDirectory(),
         };
         using var p = Process.Start(psi)!;
         var stdout = await p.StandardOutput.ReadToEndAsync(cancellationToken);

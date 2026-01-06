@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.Services;
 using WinApp.Cli.Tools;
 
 namespace WinApp.Cli.Tests;
@@ -159,7 +160,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(fakeToolPath, "@echo Hello from fake tool");
 
         // Act
-        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync(new GenericTool("echo.cmd"), "", TestTaskContext, TestContext.CancellationToken);
+        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync(new GenericTool("echo.cmd"), "", TestTaskContext, true, TestContext.CancellationToken);
 
         // Assert
         Assert.Contains("Hello from fake tool", stdout);
@@ -175,7 +176,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         // Act & Assert
         await Assert.ThrowsExactlyAsync<FileNotFoundException>(async () =>
         {
-            await _buildToolsService.RunBuildToolAsync(new GenericTool("nonexistent.exe"), "", TestTaskContext, TestContext.CancellationToken);
+            await _buildToolsService.RunBuildToolAsync(new GenericTool("nonexistent.exe"), "", TestTaskContext, true, TestContext.CancellationToken);
         });
     }
 
@@ -322,7 +323,7 @@ public class BuildToolsServiceTests : BaseCommandTests
         {
             // Create a simple batch command that outputs something
             // This will either succeed (if BuildTools installs successfully) or throw an exception
-            await _buildToolsService.RunBuildToolAsync(new GenericTool("echo.cmd"), "test", TestTaskContext, TestContext.CancellationToken);
+            await _buildToolsService.RunBuildToolAsync(new GenericTool("echo.cmd"), "test", TestTaskContext, true, TestContext.CancellationToken);
             
             // If we reach here, the auto-installation worked - test passes
         }
@@ -349,10 +350,71 @@ public class BuildToolsServiceTests : BaseCommandTests
         File.WriteAllText(batchFile, "@echo Hello from test tool");
 
         // Act
-        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync(new GenericTool("test.cmd"), "", TestTaskContext, TestContext.CancellationToken);
+        var (stdout, stderr) = await _buildToolsService.RunBuildToolAsync(new GenericTool("test.cmd"), "", TestTaskContext, true, TestContext.CancellationToken);
 
         // Assert
         Assert.Contains("Hello from test tool", stdout);
         Assert.AreEqual(string.Empty, stderr.Trim());
+    }
+}
+
+/// <summary>
+/// Tests for BuildToolsService with non-verbose logging to test PrintErrorText behavior
+/// </summary>
+[TestClass]
+[DoNotParallelize]
+public class BuildToolsServicePrintErrorsTests() : BaseCommandTests(configPaths: true, verboseLogging: false)
+{
+    [TestMethod]
+    public async Task RunBuildToolAsync_WithPrintErrorsTrue_WritesErrorOutput()
+    {
+        // Arrange - Create a batch file that fails with exit code 1 and writes to stderr
+        var packagesDir = Path.Combine(_testCacheDirectory.FullName, "packages");
+        var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
+        var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
+        Directory.CreateDirectory(binDir);
+
+        var failingTool = Path.Combine(binDir, "failing.cmd");
+        File.WriteAllText(failingTool, "@echo Error message to stderr 1>&2\r\n@exit /b 1");
+
+        // Act: Run with printErrors=true - error SHOULD be printed via PrintErrorText
+        var exception = await Assert.ThrowsExactlyAsync<BuildToolsService.InvalidBuildToolException>(async () =>
+        {
+            await _buildToolsService.RunBuildToolAsync(new GenericTool("failing.cmd"), "", TestTaskContext, printErrors: true, TestContext.CancellationToken);
+        });
+
+        // Verify the exception captures the error info
+        Assert.Contains("Error message to stderr", exception.Stderr);
+
+        // Verify that error-level log output occurred when printErrors=true
+        // (PrintErrorText uses LogError which goes to stderr)
+        var stdErrOutput = ConsoleStdErr.ToString();
+        Assert.Contains("Error message to stderr", stdErrOutput, "Error output should be printed when printErrors is true");
+    }
+
+    [TestMethod]
+    public async Task RunBuildToolAsync_WithPrintErrorsFalse_DoesNotWriteErrorOutput()
+    {
+        // Arrange - Create a batch file that fails with exit code 1 and writes to stderr
+        var packagesDir = Path.Combine(_testCacheDirectory.FullName, "packages");
+        var buildToolsPackageDir = Path.Combine(packagesDir, "Microsoft.Windows.SDK.BuildTools.10.0.26100.1");
+        var binDir = Path.Combine(buildToolsPackageDir, "bin", "10.0.26100.0", "x64");
+        Directory.CreateDirectory(binDir);
+
+        var failingTool = Path.Combine(binDir, "failing.cmd");
+        File.WriteAllText(failingTool, "@echo Error message to stderr 1>&2\r\n@exit /b 1");
+
+        // Act: Run with printErrors=false - error should NOT be printed via PrintErrorText
+        var exception = await Assert.ThrowsExactlyAsync<BuildToolsService.InvalidBuildToolException>(async () =>
+        {
+            await _buildToolsService.RunBuildToolAsync(new GenericTool("failing.cmd"), "", TestTaskContext, printErrors: false, TestContext.CancellationToken);
+        });
+
+        // Verify the exception still captures the error info
+        Assert.Contains("Error message to stderr", exception.Stderr);
+
+        // Verify that NO error-level log output occurred when printErrors=false
+        var stdErrOutput = ConsoleStdErr.ToString();
+        Assert.DoesNotContain("Error message to stderr", stdErrOutput, "Error output should NOT be printed when printErrors is false");
     }
 }

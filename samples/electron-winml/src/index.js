@@ -3,6 +3,7 @@ const path = require('node:path');
 const winMlAddon = require('../winMlAddon/dist/winMlAddon.node');
 
 let addonInstance;
+let chatClientInstance;
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -64,6 +65,27 @@ ipcMain.handle('classify-image', async (event, imagePath) => {
     return results;
   } catch (error) {
     console.error('Classification error:', error);
+    throw error;
+  }
+});
+
+// IPC Handler: Generate text
+ipcMain.handle('generate-text', async (event, prompt) => {
+  try {
+    if (!chatClientInstance) {
+      let rootDir = path.join(__dirname, '..');
+      // if app.asar in path, adjust rootDir
+      if (rootDir.includes('app.asar')) {
+        rootDir = rootDir.replace('app.asar', 'app.asar.unpacked');
+      }
+      chatClientInstance = await winMlAddon.ChatClient.createAsync(rootDir);
+    }
+
+    const systemPrompt = "You are a helpful assistant.";
+    const response = await chatClientInstance.generateText(systemPrompt, prompt);
+    return response;
+  } catch (error) {
+    console.error('Text generation error:', error);
     throw error;
   }
 });

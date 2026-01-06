@@ -297,9 +297,11 @@ internal partial class BuildToolsService(
     /// </summary>
     /// <param name="tool">The tool to execute</param>
     /// <param name="arguments">Arguments to pass to the tool</param>
+    /// <param name="printErrors">Whether to print errors using the tool's PrintErrorText method</param>
+    /// <param name="taskContext">Task context for logging</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Tuple containing (stdout, stderr)</returns>
-    public async Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, TaskContext taskContext, CancellationToken cancellationToken = default)
+    public async Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, TaskContext taskContext, bool printErrors = true, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -330,14 +332,14 @@ internal partial class BuildToolsService(
 
         if (!string.IsNullOrWhiteSpace(stderr))
         {
-            taskContext.StatusError(stderr);
+            taskContext.AddDebugMessage(stderr);
         }
 
         if (p.ExitCode != 0)
         {
             // Print tool-specific error output when not in verbose mode
             // In verbose mode, all output is already visible via LogDebug above
-            if (!logger.IsEnabled(LogLevel.Debug))
+            if (!logger.IsEnabled(LogLevel.Debug) && printErrors)
             {
                 tool.PrintErrorText(stdout, stderr, logger);
             }

@@ -6,6 +6,56 @@ const loadingView = document.getElementById('loadingView');
 const resultsContainer = document.getElementById('resultsContainer');
 const resultsList = document.getElementById('resultsList');
 
+// Tabs
+const tabImage = document.getElementById('tabImage');
+const tabText = document.getElementById('tabText');
+const contentImage = document.getElementById('contentImage');
+const contentText = document.getElementById('contentText');
+
+// Text Gen Elements
+const promptInput = document.getElementById('promptInput');
+const generateBtn = document.getElementById('generateBtn');
+const textLoadingView = document.getElementById('textLoadingView');
+const textOutput = document.getElementById('textOutput');
+
+// Tab switching logic
+tabImage.addEventListener('click', () => {
+    tabImage.classList.add('active');
+    tabText.classList.remove('active');
+    contentImage.classList.remove('hidden');
+    contentText.classList.add('hidden');
+});
+
+tabText.addEventListener('click', () => {
+    tabImage.classList.remove('active');
+    tabText.classList.add('active');
+    contentImage.classList.add('hidden');
+    contentText.classList.remove('hidden');
+});
+
+// Handle text generation
+generateBtn.addEventListener('click', async () => {
+    const prompt = promptInput.value.trim();
+    if (!prompt) return;
+
+    try {
+        textOutput.classList.add('hidden');
+        textLoadingView.classList.remove('hidden');
+        generateBtn.disabled = true;
+
+        const response = await window.electronAPI.generateText(prompt);
+
+        textOutput.textContent = response;
+        textOutput.classList.remove('hidden');
+    } catch (error) {
+        console.error('Error generating text:', error);
+        alert('Error generating text: ' + error.message);
+    } finally {
+        textLoadingView.classList.add('hidden');
+        generateBtn.disabled = false;
+    }
+});
+
 // Handle image selection
 selectImageBtn.addEventListener('click', async () => {
   try {

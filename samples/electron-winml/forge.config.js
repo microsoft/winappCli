@@ -5,7 +5,7 @@ module.exports = {
   packagerConfig: {
     asar: {
           // This tells Forge: "Put everything in the ASAR, EXCEPT these files"
-          "unpack": "**/*.{dll,exe,node,onnx}"
+          "unpack": "{**/*.{dll,exe,node,onnx},**/models/phi/**}"
         },
     ignore: [
        /^\/.winapp\//,

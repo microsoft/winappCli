@@ -1,0 +1,10 @@
+/target
+
+# Development certificate
+devcert.pfx
+
+/.winapp
+
+*.msix
+
+/msix
