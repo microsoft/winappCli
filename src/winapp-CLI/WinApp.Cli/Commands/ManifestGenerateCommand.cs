@@ -50,7 +50,7 @@ internal class ManifestGenerateCommand : Command
         DescriptionOption = new Option<string>("--description")
         {
             Description = "Description",
-            DefaultValueFactory = (argumentResult) => "My Application"
+            DefaultValueFactory = (argumentResult) => SystemDefaultsHelper.GetDefaultDescription(),
         };
 
         EntryPointOption = new Option<FileInfo>("--entrypoint", "--executable")

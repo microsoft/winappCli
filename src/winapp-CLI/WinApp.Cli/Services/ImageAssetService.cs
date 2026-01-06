@@ -41,7 +41,15 @@ internal class ImageAssetService(ILogger<ImageAssetService> logger) : IImageAsse
         Bitmap sourceImage;
         try
         {
-            sourceImage = new Bitmap(sourceImagePath.FullName);
+            if (sourceImagePath.Extension.Equals(".ico", StringComparison.OrdinalIgnoreCase))
+            {
+                using var icon = new Icon(sourceImagePath.FullName);
+                sourceImage = icon.ToBitmap();
+            }
+            else
+            {
+                sourceImage = new Bitmap(sourceImagePath.FullName);
+            }
         }
         catch (Exception ex)
         {
