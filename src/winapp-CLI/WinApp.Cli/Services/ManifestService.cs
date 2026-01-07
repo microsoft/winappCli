@@ -212,12 +212,18 @@ internal partial class ManifestService(
 
     private static async Task<string> PromptForValueAsync(IAnsiConsole ansiConsole, string prompt, string defaultValue, CancellationToken cancellationToken)
     {
-        return (await ansiConsole.PromptAsync(
+        var result = await ansiConsole.PromptAsync(
             new TextPrompt<string>(prompt)
                 .AllowEmpty()
                 .DefaultValue(defaultValue)
                 .ShowDefaultValue(),
-            cancellationToken))!;
+            cancellationToken);
+
+        ansiConsole.Cursor.MoveUp();
+        ansiConsole.Write("\x1b[2K"); // Clear line
+        ansiConsole.MarkupLine($"{prompt}: [underline]{result}[/]");
+
+        return result;
     }
 
     [GeneratedRegex(@"[^A-Za-z0-9\-_. ]")]

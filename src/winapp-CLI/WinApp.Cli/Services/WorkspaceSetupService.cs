@@ -136,41 +136,45 @@ internal class WorkspaceSetupService(
             return 0;
         }
 
+        DirectoryInfo? globalWinappDir = null;
+        DirectoryInfo? localWinappDir = null;
+
         // If skipping SDK installation, we don't need workspace directories
         if (options.SdkInstallMode == SdkInstallMode.None)
         {
             logger.LogDebug("{UISymbol} SDK installation skipped by user choice", UiSymbols.Skip);
             logger.LogInformation("Configuration processed (SDK installation skipped)");
-            return 0;
-        }
-
-        // Step 3: Initialize workspace
-        var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
-        var localWinappDir = winappDirectoryService.GetLocalWinappDirectory(options.BaseDirectory);
-
-        // Setup-specific startup messages
-        if (!options.RequireExistingConfig)
-        {
-            logger.LogDebug("{UISymbol} using config → {ConfigPath}", UiSymbols.Rocket, configService.ConfigPath);
-            logger.LogDebug("{UISymbol} winapp init starting in {BaseDirectory}", UiSymbols.Rocket, options.BaseDirectory);
-            logger.LogDebug("{UISymbol} Global packages → {GlobalWinappDir}", UiSymbols.Folder, globalWinappDir);
-            logger.LogDebug("{UISymbol} Global workspace → {GlobalWinappDir}", UiSymbols.Folder, globalWinappDir);
-            logger.LogDebug("{UISymbol} Local workspace → {LocalWinappDir}", UiSymbols.Folder, localWinappDir);
-
-            if (options.SdkInstallMode == SdkInstallMode.Experimental)
-            {
-                logger.LogDebug("{UISymbol} Experimental/prerelease packages will be included", UiSymbols.Wrench);
-            }
         }
         else
         {
-            logger.LogDebug("{UISymbol} Global packages → {GlobalWinappDir}", UiSymbols.Folder, globalWinappDir);
-            logger.LogDebug("{UISymbol} Local workspace → {LocalWinappDir}", UiSymbols.Folder, localWinappDir);
-        }
+            // Step 3: Initialize workspace
+            globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
+            localWinappDir = winappDirectoryService.GetLocalWinappDirectory(options.BaseDirectory);
 
-        // First ensure basic workspace (for global packages)
-        logger.LogDebug("{UISymbol} Initializing workspace at {LocalWinappDir}", UiSymbols.Sync, localWinappDir);
-        packageInstallationService.InitializeWorkspace(globalWinappDir);
+            // Setup-specific startup messages
+            if (!options.RequireExistingConfig)
+            {
+                logger.LogDebug("{UISymbol} using config → {ConfigPath}", UiSymbols.Rocket, configService.ConfigPath);
+                logger.LogDebug("{UISymbol} winapp init starting in {BaseDirectory}", UiSymbols.Rocket, options.BaseDirectory);
+                logger.LogDebug("{UISymbol} Global packages → {GlobalWinappDir}", UiSymbols.Folder, globalWinappDir);
+                logger.LogDebug("{UISymbol} Global workspace → {GlobalWinappDir}", UiSymbols.Folder, globalWinappDir);
+                logger.LogDebug("{UISymbol} Local workspace → {LocalWinappDir}", UiSymbols.Folder, localWinappDir);
+
+                if (options.SdkInstallMode == SdkInstallMode.Experimental)
+                {
+                    logger.LogDebug("{UISymbol} Experimental/prerelease packages will be included", UiSymbols.Wrench);
+                }
+            }
+            else
+            {
+                logger.LogDebug("{UISymbol} Global packages → {GlobalWinappDir}", UiSymbols.Folder, globalWinappDir);
+                logger.LogDebug("{UISymbol} Local workspace → {LocalWinappDir}", UiSymbols.Folder, localWinappDir);
+            }
+
+            // First ensure basic workspace (for global packages)
+            logger.LogDebug("{UISymbol} Initializing workspace at {LocalWinappDir}", UiSymbols.Sync, localWinappDir);
+            packageInstallationService.InitializeWorkspace(globalWinappDir);
+        }
 
         return await statusService.ExecuteWithStatusAsync("Setting up workspace", async (taskContext, cancellationToken) =>
         {
@@ -649,6 +653,8 @@ internal class WorkspaceSetupService(
             }
         }
 
+        ansiConsole.WriteLine();
+
         return (0, config, hadExistingConfig, shouldGenerateManifest, manifestGenerationInfo, shouldGenerateCert);
 
         async Task<ManifestGenerationInfo?> PromptForManifestInfoAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken)
@@ -734,12 +740,12 @@ internal class WorkspaceSetupService(
                         sdkInstallMode: SdkInstallMode.Experimental,
                         cancellationToken: cancellationToken);
             await Task.WhenAll(
-            winSdkStableVersionTask,
-            winAppSdkStableVersionTask,
-            winSdkPreviewVersionTask,
-            winAppSdkPreviewVersionTask,
-            winSdkExperimentalVersionTask,
-            winAppSdkExperimentalVersionTask);
+                winSdkStableVersionTask,
+                winAppSdkStableVersionTask,
+                winSdkPreviewVersionTask,
+                winAppSdkPreviewVersionTask,
+                winSdkExperimentalVersionTask,
+                winAppSdkExperimentalVersionTask);
             var winSdkStableVersion = await winSdkStableVersionTask;
             var winAppSdkStableVersion = await winAppSdkStableVersionTask;
             var winSdkPreviewVersion = await winSdkPreviewVersionTask;
@@ -754,11 +760,14 @@ internal class WorkspaceSetupService(
                 "Do not setup SDKs"
             ];
 
+            ansiConsole.WriteLine("Select SDK setup option:");
             var sdkPrompt = new SelectionPrompt<string>()
-                .Title("Select SDK setup option:")
                 .AddChoices(sdkChoices);
 
             var sdkChoice = await ansiConsole.PromptAsync(sdkPrompt, cancellationToken);
+
+            ansiConsole.Cursor.MoveUp();
+            ansiConsole.Write("\x1b[2K"); // Clear line
 
             if (sdkChoice == sdkChoices[0])
             {
@@ -779,7 +788,7 @@ internal class WorkspaceSetupService(
                 return;
             }
 
-            ansiConsole.MarkupLine($"Setup SDKs: {sdkChoice["Setup ".Length..]}");
+            ansiConsole.MarkupLine($"Setup SDKs: [underline]{Markup.Remove(sdkChoice["Setup ".Length..])}[/]");
         }
     }
 

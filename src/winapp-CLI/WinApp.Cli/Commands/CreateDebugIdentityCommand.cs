@@ -61,7 +61,6 @@ internal class CreateDebugIdentityCommand : Command
                 {
                     var result = await msixService.AddMsixIdentityAsync(entryPointPath?.ToString(), manifest, noInstall, taskContext, cancellationToken);
 
-                    taskContext.AddStatusMessage($"{UiSymbols.Check} MSIX identity added successfully!");
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.PackageName}");
                     taskContext.AddStatusMessage($"{UiSymbols.User} Publisher: {result.Publisher}");
                     taskContext.AddStatusMessage($"{UiSymbols.Id} App ID: {result.ApplicationId}");
@@ -71,7 +70,7 @@ internal class CreateDebugIdentityCommand : Command
                     return (1, $"{UiSymbols.Error} Failed to add MSIX identity: {error.Message}");
                 }
 
-                return (0, "{UiSymbols.Check} MSIX identity created successfully.");
+                return (0, "MSIX identity created successfully.");
             }, cancellationToken);
         }
     }
