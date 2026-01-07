@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Download winapp CLI if not available in PATH
-find_program(WINAPP_CLI winapp2)
+find_program(WINAPP_CLI winapp)
 if(NOT WINAPP_CLI)
     set(WINAPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.winapp-tools")
     set(WINAPP_CLI "${WINAPP_DIR}/winapp.exe")
