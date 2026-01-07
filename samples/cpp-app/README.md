@@ -15,7 +15,6 @@ For a complete step-by-step guide, see the [C++ Getting Started Guide](../../doc
 
 - Visual Studio Build Tools or Visual Studio with C++ development tools
 - CMake 3.20 or later
-- WinAppCLI installed via winget: `winget install Microsoft.WinAppCli`
 
 ## Building and Running
 

@@ -38,7 +38,7 @@
       uap10:RuntimeBehavior="packagedClassicApp">
       <uap:VisualElements
         DisplayName="cpp-app"
-        Description="My Application"
+        Description="Windows Application"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
