@@ -312,7 +312,7 @@ Run these two commands after cloning the repo:
 # Restore Windows App SDK headers
 winapp restore
 
-# Generate development certificate
+# Generate development certificate (optional - only if planning to package the app and sideload)
 winapp cert generate --if-exists skip
 ```
 
