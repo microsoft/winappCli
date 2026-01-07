@@ -8,15 +8,13 @@ namespace WinApp.Cli.Services;
 
 internal interface ICertificateService
 {
-    public Task<CertificateResult?> GenerateDevCertificateWithInferenceAsync(
+    public Task<CertificateResult> GenerateDevCertificateWithInferenceAsync(
         FileInfo outputPath,
         TaskContext taskContext,
         string? explicitPublisher = null,
         FileInfo? manifestPath = null,
         string password = "password",
         int validDays = 365,
-        bool skipIfExists = true,
-        bool useDefaults = false,
         bool updateGitignore = true,
         bool install = false,
         CancellationToken cancellationToken = default);

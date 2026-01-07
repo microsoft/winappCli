@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
@@ -79,9 +80,10 @@ internal class ManifestGenerateCommand : Command
         Options.Add(EntryPointOption);
         Options.Add(TemplateOption);
         Options.Add(LogoPathOption);
+        Options.Add(CertGenerateCommand.IfExistsOption);
     }
 
-    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, IStatusService statusService) : AsynchronousCommandLineAction
+    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, IStatusService statusService, ILogger<ManifestGenerateCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -93,6 +95,30 @@ internal class ManifestGenerateCommand : Command
             var entryPoint = parseResult.GetValue(EntryPointOption);
             var template = parseResult.GetValue(TemplateOption);
             var logoPath = parseResult.GetValue(LogoPathOption);
+            var ifExists = parseResult.GetRequiredValue(CertGenerateCommand.IfExistsOption);
+
+            // Check if manifest already exists
+            var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, directory);
+            if (manifestPath?.Exists == true)
+            {
+                if (ifExists == IfExists.Error)
+                {
+                    logger.LogError("{UISymbol} Manifest file already exists: {Output}", UiSymbols.Error, manifestPath);
+                    logger.LogError("Please specify a different output path or remove the existing file.");
+                    return 1;
+                }
+                else if (ifExists == IfExists.Skip)
+                {
+                    logger.LogInformation("{UISymbol} Manifest file already exists: {Output}", UiSymbols.Warning, manifestPath);
+                    return 0;
+                }
+                else if (ifExists == IfExists.Overwrite)
+                {
+                    logger.LogInformation("{UISymbol} Overwriting existing manifest file: {Output}", UiSymbols.Warning, manifestPath);
+                }
+            }
+
+            var manifestGenerationInfo = await manifestService.PromptForManifestInfoAsync(directory, packageName, publisherName, version, description, entryPoint?.ToString(), true, cancellationToken);
 
             return await statusService.ExecuteWithStatusAsync("Generating manifest", async (taskContext, cancellationToken) =>
             {
@@ -100,14 +126,9 @@ internal class ManifestGenerateCommand : Command
                 {
                     await manifestService.GenerateManifestAsync(
                         directory,
-                        packageName,
-                        publisherName,
-                        version,
-                        description,
-                        entryPoint?.ToString(),
+                        manifestGenerationInfo,
                         template,
                         logoPath,
-                        true,
                         taskContext,
                         cancellationToken);
 

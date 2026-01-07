@@ -12,31 +12,18 @@ namespace WinApp.Cli.Services;
 internal partial class ManifestService(
     IManifestTemplateService manifestTemplateService,
     IImageAssetService imageAssetService,
-    ICurrentDirectoryProvider currentDirectoryProvider) : IManifestService
+    IAnsiConsole ansiConsole) : IManifestService
 {
-    public async Task GenerateManifestAsync(
+    public async Task<ManifestGenerationInfo> PromptForManifestInfoAsync(
         DirectoryInfo directory,
         string? packageName,
         string? publisherName,
         string version,
         string description,
         string? entryPoint,
-        ManifestTemplates manifestTemplate,
-        FileInfo? logoPath,
         bool useDefaults,
-        TaskContext taskContext,
         CancellationToken cancellationToken = default)
     {
-        taskContext.AddDebugMessage($"Generating manifest in directory: {directory}");
-
-        // Check if manifest already exists
-        var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, directory);
-        if (manifestPath?.Exists == true)
-        {
-            // TODO: Already exists, ask: override or keep the existing one?
-            throw new InvalidOperationException($"Manifest already exists at: {manifestPath}");
-        }
-
         // Interactive mode if not --use-defaults (get defaults for prompts)
         if (string.IsNullOrEmpty(entryPoint))
         {
@@ -54,12 +41,36 @@ internal partial class ManifestService(
         // Interactive mode if not --use-defaults
         if (!useDefaults)
         {
-            packageName = await PromptForValueAsync(taskContext, "Package name", packageName, cancellationToken);
-            publisherName = await PromptForValueAsync(taskContext, "Publisher name", publisherName, cancellationToken);
-            version = await PromptForValueAsync(taskContext, "Version", version, cancellationToken);
-            description = await PromptForValueAsync(taskContext, "Description", description, cancellationToken);
-            entryPoint = await PromptForValueAsync(taskContext, "EntryPoint/Executable", entryPoint, cancellationToken);
+            packageName = await PromptForValueAsync(ansiConsole, "Package name", packageName, cancellationToken);
+            publisherName = await PromptForValueAsync(ansiConsole, "Publisher name", publisherName, cancellationToken);
+            version = await PromptForValueAsync(ansiConsole, "Version", version, cancellationToken);
+            description = await PromptForValueAsync(ansiConsole, "Description", description, cancellationToken);
+            entryPoint = await PromptForValueAsync(ansiConsole, "EntryPoint/Executable", entryPoint, cancellationToken);
         }
+
+        return new ManifestGenerationInfo(
+            packageName,
+            publisherName,
+            version,
+            description,
+            entryPoint);
+    }
+
+    public async Task GenerateManifestAsync(
+        DirectoryInfo directory,
+        ManifestGenerationInfo manifestGenerationInfo,
+        ManifestTemplates manifestTemplate,
+        FileInfo? logoPath,
+        TaskContext taskContext,
+        CancellationToken cancellationToken = default)
+    {
+        taskContext.AddDebugMessage($"Generating manifest in directory: {directory}");
+
+        string? packageName = manifestGenerationInfo.PackageName;
+        string? publisherName = manifestGenerationInfo.PublisherName;
+        string version = manifestGenerationInfo.Version;
+        string description = manifestGenerationInfo.Description;
+        string? entryPoint = manifestGenerationInfo.EntryPoint;
 
         taskContext.AddDebugMessage($"Logo path: {logoPath?.FullName ?? "None"}");
 
@@ -199,9 +210,9 @@ internal partial class ManifestService(
         taskContext.AddDebugMessage($"Logo copied to: {destinationPath}");
     }
 
-    private static async Task<string> PromptForValueAsync(TaskContext taskContext, string prompt, string defaultValue, CancellationToken cancellationToken)
+    private static async Task<string> PromptForValueAsync(IAnsiConsole ansiConsole, string prompt, string defaultValue, CancellationToken cancellationToken)
     {
-        return (await taskContext.PromptAsync(
+        return (await ansiConsole.PromptAsync(
             new TextPrompt<string>(prompt)
                 .AllowEmpty()
                 .DefaultValue(defaultValue)

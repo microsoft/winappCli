@@ -54,7 +54,7 @@ internal class CertGenerateCommand : Command
         };
         IfExistsOption = new Option<IfExists>("--if-exists")
         {
-            Description = "Skip generation if the certificate file already exists",
+            Description = "Skip generation if the file already exists",
             DefaultValueFactory = (argumentResult) => IfExists.Error,
         };
     }
@@ -113,7 +113,6 @@ internal class CertGenerateCommand : Command
                     manifestPath: manifestPath,
                     password: password,
                     validDays: validDays,
-                    skipIfExists: false,
                     updateGitignore: true,
                     install: install,
                     cancellationToken: cancellationToken);

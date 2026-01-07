@@ -258,21 +258,17 @@ internal partial class CertificateService(
     /// <param name="manifestPath">Specific manifest path to extract publisher from (optional)</param>
     /// <param name="password">Certificate password</param>
     /// <param name="validDays">Certificate validity period</param>
-    /// <param name="skipIfExists">Skip generation if certificate already exists</param>
-    /// <param name="useDefaults">If true and file exists, skip without prompting; if false, prompt user to overwrite</param>
     /// <param name="updateGitignore">Whether to update .gitignore</param>
     /// <param name="install">Whether to install the certificate after generation</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Certificate generation result, or null if skipped</returns>
-    public async Task<CertificateResult?> GenerateDevCertificateWithInferenceAsync(
+    public async Task<CertificateResult> GenerateDevCertificateWithInferenceAsync(
         FileInfo outputPath,
         TaskContext taskContext,
         string? explicitPublisher = null,
         FileInfo? manifestPath = null,
         string password = "password",
         int validDays = 365,
-        bool skipIfExists = true,
-        bool useDefaults = false,
         bool updateGitignore = true,
         bool install = false,
         CancellationToken cancellationToken = default)
@@ -283,32 +279,7 @@ internal partial class CertificateService(
             outputPath.Refresh();
             if (outputPath.Exists)
             {
-                // skipIfExists takes priority - silently skip
-                if (skipIfExists)
-                {
-                    taskContext.AddStatusMessage($"{UiSymbols.Note} Development certificate already exists: {outputPath}");
-                    return null;
-                }
-
                 taskContext.AddDebugMessage($"{UiSymbols.Check} Development certificate already exists: {outputPath}");
-
-                // useDefaults means skip without prompting (non-destructive for automation)
-                if (useDefaults)
-                {
-                    taskContext.AddStatusMessage($"{UiSymbols.Note} Development certificate already exists, skipping generation");
-                    return null;
-                }
-
-                // Interactive mode - prompt user to overwrite
-                var shouldOverwrite = await taskContext.PromptAsync(
-                    new Spectre.Console.ConfirmationPrompt("Development certificate already exists. Overwrite?"),
-                    cancellationToken);
-
-                if (!shouldOverwrite)
-                {
-                    taskContext.AddDebugMessage($"{UiSymbols.Skip} Development certificate generation skipped");
-                    return null;
-                }
             }
 
             // Start generation message

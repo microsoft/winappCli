@@ -5,19 +5,30 @@ using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
+public record ManifestGenerationInfo(
+    string PackageName,
+    string PublisherName,
+    string Version,
+    string Description,
+    string EntryPoint);
 
 internal interface IManifestService
 {
-    public Task GenerateManifestAsync(
+    public Task<ManifestGenerationInfo> PromptForManifestInfoAsync(
         DirectoryInfo directory,
         string? packageName,
         string? publisherName,
         string version,
         string description,
         string? entryPoint,
+        bool useDefaults,
+        CancellationToken cancellationToken = default);
+
+    public Task GenerateManifestAsync(
+        DirectoryInfo directory,
+        ManifestGenerationInfo manifestGenerationInfo,
         ManifestTemplates manifestTemplate,
         FileInfo? logoPath,
-        bool useDefaults,
         TaskContext taskContext,
         CancellationToken cancellationToken = default);
 
