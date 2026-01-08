@@ -135,6 +135,7 @@ npx winapp --help
 **Development Tools:**
 
 - [`tool`](./docs/usage.md#tool) - Access Windows SDK tools
+- [`store`](./docs/usage.md#store) - Run Microsoft Store Developer CLI commands
 - [`get-winapp-path`](./docs/usage.md#get-winapp-path) - Get paths to installed SDK components
 
 **Node.js/Electron Specific:**

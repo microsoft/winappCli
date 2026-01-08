@@ -391,6 +391,36 @@ winapp tool signtool verify /pa MyApp.msix
 
 ---
 
+### store
+
+Run a Microsoft Store Developer CLI command. This command might prompt the installation of Microsoft Store Developer CLI ([https://aka.ms/msstoredevcli](https://aka.ms/msstoredevcli)).
+
+```bash
+winapp store [args...]
+```
+
+**Arguments:**
+
+- `args...` – Arguments to pass directly to the `msstore` CLI. See [MSStore CLI documentation](https://aka.ms/msstoredevcli/docs) for available commands and options.
+
+**What it does:**
+
+- Ensures the Microsoft Store Developer CLI (`msstore`) is installed and available on your system.
+- Forwards all arguments to the `msstore` CLI.
+- Runs the command showing output directly in your terminal.
+
+**Examples:**
+
+```bash
+# List all apps in your Microsoft Partner Center account
+winapp store app list
+
+# Publish a package to the Microsoft Store
+winapp store publish ./myapp.msix --appId <your-app-id>
+```
+
+---
+
 ### get-winapp-path
 
 Get paths to installed Windows SDK components.
