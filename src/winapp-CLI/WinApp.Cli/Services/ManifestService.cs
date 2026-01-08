@@ -2,6 +2,9 @@
 // Licensed under the MIT License.
 
 using Spectre.Console;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Text.RegularExpressions;
 using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
@@ -19,20 +22,33 @@ internal partial class ManifestService(
         string? packageName,
         string? publisherName,
         string version,
-        string description,
+        string? description,
         string? entryPoint,
         bool useDefaults,
         CancellationToken cancellationToken = default)
     {
         // Interactive mode if not --use-defaults (get defaults for prompts)
-        if (string.IsNullOrEmpty(entryPoint))
+        if (!string.IsNullOrEmpty(entryPoint))
         {
-            packageName ??= SystemDefaultsHelper.GetDefaultPackageName(directory);
+            var fileVersionInfo = FileVersionInfo.GetVersionInfo(entryPoint);
+            packageName ??= !string.IsNullOrWhiteSpace(fileVersionInfo.FileDescription)
+                ? fileVersionInfo.FileDescription
+                : Path.GetFileNameWithoutExtension(entryPoint);
+            if (!string.IsNullOrWhiteSpace(fileVersionInfo.Comments))
+            {
+                description = fileVersionInfo.Comments;
+            }
+            if (string.IsNullOrWhiteSpace(description) || description == packageName)
+            {
+                description = fileVersionInfo.FileDescription;
+            }
+            if (!string.IsNullOrWhiteSpace(fileVersionInfo.CompanyName))
+            {
+                publisherName ??= fileVersionInfo.CompanyName;
+            }
         }
-        else
-        {
-            packageName ??= Path.GetFileNameWithoutExtension(entryPoint);
-        }
+        packageName ??= SystemDefaultsHelper.GetDefaultPackageName(directory);
+        description ??= SystemDefaultsHelper.GetDefaultDescription();
         publisherName ??= SystemDefaultsHelper.GetDefaultPublisherCN();
         entryPoint ??= $"{packageName}.exe";
 
@@ -135,10 +151,61 @@ internal partial class ManifestService(
             taskContext,
             cancellationToken);
 
-        // If logo path is provided, copy it as additional asset
+        string? extractedLogoPath = null;
+
+        // If no logo provided, extract from entry point
+        if (logoPath == null)
+        {
+            taskContext.AddDebugMessage($"No logo path provided, attempting to extract from entry point: {entryPointAbsolute}");
+            Icon? extractedIcon = null;
+            try
+            {
+                extractedIcon = ShellIcon.GetJumboIcon(entryPointAbsolute);
+                // save temporary
+                if (extractedIcon != null)
+                {
+                    string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+                    Directory.CreateDirectory(tempDir);
+
+                    extractedLogoPath = Path.Combine(tempDir, "StoreLogo.png");
+                    using (var stream = new FileStream(extractedLogoPath, FileMode.Create))
+                    {
+                        extractedIcon.ToBitmap().Save(stream, ImageFormat.Png);
+                    }
+
+                    logoPath = new FileInfo(extractedLogoPath);
+                    taskContext.AddDebugMessage($"Extracted logo path: {logoPath.FullName}");
+                }
+            }
+            finally
+            {
+                if (extractedIcon != null)
+                {
+                    extractedIcon.Dispose();
+                }
+            }
+        }
+
+
+        // If logo path is provided, update manifest assets
         if (logoPath?.Exists == true)
         {
-            await CopyLogoAsAdditionalAssetAsync(directory, logoPath, taskContext, cancellationToken);
+            var manifestPath = new FileInfo(Path.Combine(directory.FullName, "appxmanifest.xml"));
+            await UpdateManifestAssetsAsync(manifestPath, logoPath, taskContext, cancellationToken);
+        }
+
+        if (extractedLogoPath != null)
+        {
+            // Clean up temporary extracted logo
+            try
+            {
+                File.Delete(extractedLogoPath);
+                Directory.Delete(Path.GetDirectoryName(extractedLogoPath)!);
+            }
+            catch (Exception ex)
+            {
+                taskContext.AddDebugMessage($"Could not delete temporary extracted logo: {ex.Message}");
+            }
         }
     }
 
@@ -193,21 +260,6 @@ internal partial class ManifestService(
         }
 
         return cleaned;
-    }
-
-    private static async Task CopyLogoAsAdditionalAssetAsync(DirectoryInfo directory, FileInfo logoPath, TaskContext taskContext, CancellationToken cancellationToken = default)
-    {
-        var assetsDir = directory.CreateSubdirectory("Assets");
-
-        var logoFileName = logoPath.Name;
-        var destinationPath = Path.Combine(assetsDir.FullName, logoFileName);
-
-        using var sourceStream = new FileStream(logoPath.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
-        using var destinationStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
-
-        await sourceStream.CopyToAsync(destinationStream, cancellationToken);
-
-        taskContext.AddDebugMessage($"Logo copied to: {destinationPath}");
     }
 
     private static async Task<string> PromptForValueAsync(IAnsiConsole ansiConsole, string prompt, string defaultValue, CancellationToken cancellationToken)

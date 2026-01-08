@@ -19,7 +19,7 @@ internal interface IManifestService
         string? packageName,
         string? publisherName,
         string version,
-        string description,
+        string? description,
         string? entryPoint,
         bool useDefaults,
         CancellationToken cancellationToken = default);
