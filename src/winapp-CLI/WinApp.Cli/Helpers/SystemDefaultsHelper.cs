@@ -27,4 +27,9 @@ internal static partial class SystemDefaultsHelper
 
         return $"CN={user}";
     }
+
+    public static string GetDefaultDescription()
+    {
+        return "My Application";
+    }
 }
