@@ -369,7 +369,7 @@ internal class WorkspaceSetupService(
                             packageName: null, // Will use defaults and prompt if not --yes
                             publisherName: null, // Will use defaults and prompt if not --yes
                             version: "1.0.0.0",
-                            description: "Windows Application",
+                            description: null,
                             entryPoint: null, // Will use defaults and prompt if not --yes
                             manifestTemplate: ManifestTemplates.Packaged, // Default to regular MSIX
                             logoPath: null, // Will prompt if not --yes
