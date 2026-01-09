@@ -99,6 +99,10 @@ You can install the CLI for Electron projects via NPM:
 
 `npm install @microsoft/winappcli --save-dev`
 
+### GitHub Actions / Azure DevOps
+
+For CI/CD pipelines on GitHub Actions or Azure DevOps, use the [`setup-WinAppCli`](https://github.com/microsoft/setup-WinAppCli?tab=readme-ov-file#setup-windows-app-developer-cli) action to automatically install the CLI on your runners/agents.
+
 ### Download Release Manually
 
 **[Download the latest build from GitHub Releases](https://github.com/microsoft/WinAppCli/releases/latest)**

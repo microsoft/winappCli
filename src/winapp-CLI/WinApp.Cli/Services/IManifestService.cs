@@ -12,7 +12,7 @@ internal interface IManifestService
         string? packageName,
         string? publisherName,
         string version,
-        string description,
+        string? description,
         string? entryPoint,
         ManifestTemplates manifestTemplate,
         FileInfo? logoPath,
