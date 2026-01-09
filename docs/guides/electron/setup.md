@@ -47,11 +47,20 @@ npm install --save-dev @microsoft/winappcli
 
 ## Step 3: Initialize the project for Windows development
 
-Now we'll initialize your project with the Windows SDKs and required assets.
+The `winapp init` command sets up everything you need in one go: app manifest, assets, SDKs, and development certificate.
+
+Run the following command and follow the prompts:
 
 ```bash
 npx winapp init
 ```
+
+When prompted:
+- **Package name**: Press Enter to accept the default (my-windows-app)
+- **Publisher name**: Press Enter to accept the default or enter your name
+- **Version**: Press Enter to accept 1.0.0.0
+- **Entry point**: Press Enter to accept the default (my-windows-app.exe)
+- **Setup SDKs**: Select "Stable SDKs"
 
 ### What Does `winapp init` Do?
 
@@ -72,9 +81,11 @@ This command sets up everything you need for Windows development:
 
 6. **Installs Windows App SDK runtime** - Required runtime components for modern APIs
 
-7. **Enables Dev Mode in Windows** - Required for debuging our application
+7. **Enables Dev Mode in Windows** - Required for debugging our application
 
 The `.winapp/` folder and `devcert.pfx` are automatically added to `.gitignore` since they can be regenerated and should not be checked in to source.
+
+You can open `appxmanifest.xml` to further customize properties like the display name, publisher, and capabilities.
 
 > **💡 About the Windows SDKs:**
 >
