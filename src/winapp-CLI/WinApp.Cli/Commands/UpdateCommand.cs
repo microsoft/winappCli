@@ -149,7 +149,7 @@ internal class UpdateCommand : Command
                         taskContext.AddDebugMessage($"{UiSymbols.Note} Windows App SDK packages not found, skipping runtime installation");
                     }
 
-                    return (0, $"{UiSymbols.Party} Update completed successfully!");
+                    return (0, "Update completed successfully!");
                 }
                 catch (Exception error)
                 {

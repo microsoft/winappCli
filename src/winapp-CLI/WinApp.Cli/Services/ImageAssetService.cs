@@ -35,7 +35,7 @@ internal class ImageAssetService : IImageAssetService
             throw new FileNotFoundException($"Source image not found: {sourceImagePath.FullName}");
         }
 
-        taskContext.AddStatusMessage($"{UiSymbols.Info} Generating MSIX image assets from: {sourceImagePath.Name}");
+        taskContext.AddStatusMessage($"{UiSymbols.Info} Generating MSIX image assets from: {sourceImagePath.FullName}");
 
         // Load the source image
         Bitmap sourceImage;
@@ -82,7 +82,14 @@ internal class ImageAssetService : IImageAssetService
                     taskContext.AddDebugMessage($"  {UiSymbols.Warning} Failed to generate {fileName}: {ex.Message}");
                 }
             }
-            taskContext.AddStatusMessage($"{UiSymbols.Party} Successfully generated {successCount} of {AssetSpecifications.Length} image assets");
+            if (successCount == AssetSpecifications.Length)
+            {
+                taskContext.AddStatusMessage($"{UiSymbols.Info} Successfully generated {AssetSpecifications.Length} image assets in: {outputDirectory.FullName}");
+            }
+            else
+            {
+                taskContext.AddStatusMessage($"{UiSymbols.Info} Successfully generated {successCount} of {AssetSpecifications.Length} image assets in: {outputDirectory.FullName}");
+            }
         }
     }
 

@@ -111,9 +111,17 @@ internal class GroupableTask<T> : GroupableTask
     {
         if (task.IsCompleted)
         {
-            static string FormatCheckMarkMessage(string indentStr, string? message)
+            static string FormatCheckMarkMessage(string indentStr, string message)
             {
-                return $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
+                bool firstCharIsEmojiOrOpenBracket = false;
+                if (message.Length > 0)
+                {
+                    var firstChar = message[0];
+                    firstCharIsEmojiOrOpenBracket = char.IsSurrogate(firstChar)
+                                                 || char.GetUnicodeCategory(firstChar) == System.Globalization.UnicodeCategory.OtherSymbol
+                                                 || firstChar == '[';
+                }
+                return firstCharIsEmojiOrOpenBracket ? $"{indentStr} {message}" : $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
             }
             sb.AppendLine(task switch
             {

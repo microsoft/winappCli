@@ -287,7 +287,7 @@ internal partial class ManifestService(
         TaskContext taskContext,
         CancellationToken cancellationToken = default)
     {
-        taskContext.AddStatusMessage($"{UiSymbols.Info} Updating assets for manifest: {manifestPath.Name}");
+        taskContext.AddStatusMessage($"{UiSymbols.Info} Updating assets for manifest: {manifestPath.FullName}");
 
         // Determine the Assets directory relative to the manifest
         var manifestDir = manifestPath.Directory;
@@ -303,9 +303,6 @@ internal partial class ManifestService(
 
         // Verify that the manifest references the Assets directory correctly
         VerifyManifestAssetReferences(manifestPath, taskContext);
-
-        taskContext.AddStatusMessage($"{UiSymbols.Party} Image assets updated successfully!");
-        taskContext.AddStatusMessage($"Assets generated in: {assetsDir.FullName}");
     }
 
     private static void VerifyManifestAssetReferences(FileInfo manifestPath, TaskContext taskContext)

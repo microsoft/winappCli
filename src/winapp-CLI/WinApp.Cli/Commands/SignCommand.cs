@@ -61,7 +61,7 @@ internal class SignCommand : Command
                 {
                     await certificateService.SignFileAsync(filePath, certPath, taskContext, password, timestamp, cancellationToken);
 
-                    return (0, $"{UiSymbols.Lock} Signed file: {filePath}");
+                    return (0, "Signed file: {filePath}");
                 }
                 catch (InvalidOperationException error)
                 {

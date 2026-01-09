@@ -65,7 +65,7 @@ internal class ManifestUpdateAssetsCommand : Command
                 try
                 {
                     await manifestService.UpdateManifestAssetsAsync(manifestPath, imagePath, taskContext, cancellationToken);
-                    return (0, $"{UiSymbols.Check} Successfully updated assets in manifest.");
+                    return (0, "Successfully updated assets for manifest.");
                 }
                 catch (Exception ex)
                 {
