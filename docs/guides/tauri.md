@@ -128,15 +128,28 @@ We'll update the app to check if it's running with package identity. We'll use t
 
     You should see "Not running with package identity" in the app window. This confirms that the standard development build is running without package identity.
 
-## 3. Generate App Manifest
+## 3. Initialize Project with WinAppCLI
 
-To give your application an identity, you need an `appxmanifest.xml`. This file describes your application to Windows. We will generate a default one now, and use it for both debugging and final packaging.
+The `winapp init` command sets up everything you need in one go: app manifest, assets, and development certificate.
+
+Run the following command and follow the prompts:
 
 ```powershell
-winapp manifest generate
+winapp init
 ```
 
-This creates an `appxmanifest.xml` file and an `Assets` folder in your current directory. You can open `appxmanifest.xml` to customize properties like the display name, publisher, and logo.
+When prompted:
+- **Package name**: Press Enter to accept the default (tauri-app)
+- **Publisher name**: Press Enter to accept the default or enter your name
+- **Version**: Press Enter to accept 1.0.0.0
+- **Entry point**: Press Enter to accept the default (tauri-app.exe)
+- **Setup SDKs**: Select "Do not setup SDKs"
+
+This command will:
+- Create `appxmanifest.xml` and `Assets` folder for your app identity
+- Generate a development certificate (`devcert.pfx`) for signing
+
+You can open `appxmanifest.xml` to further customize properties like the display name, publisher, and capabilities.
 
 ## 4. Debug with Identity
 
@@ -184,21 +197,23 @@ copy .\src-tauri\target\release\tauri-app.exe .\dist\
 ```
 
 ### Sign and Pack
-If you haven't already, generate and install a self-signed certificate for local testing:
 
-```powershell
-# will generate devcert.pfx with publisher details matching the appxmanifest.xml
-winapp cert generate --manifest .\appxmanifest.xml
-
-# install certificate locally - run with sudo or as administrator
-sudo winapp cert install .\devcert.pfx
-```
-
-Now, pack the application:
+Since `winapp init` already generated the development certificate, you can proceed directly to packaging:
 
 ```powershell
 # package and sign the app with the generated certificate
 winapp pack .\dist --cert .\devcert.pfx 
+```
+
+> Note: The `pack` command automatically uses the appxmanifest.xml from your current directory and copies it to the target folder before packaging. The generated .msix file will be in the current directory.
+
+### Install the Certificate
+
+Before you can install the MSIX package, you need to install the development certificate. Run this command as administrator:
+
+```powershell
+# install certificate locally - run with sudo or as administrator
+sudo winapp cert install .\devcert.pfx
 ```
 
 ### Install and Run
