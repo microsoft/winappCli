@@ -21,6 +21,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Spectre.Console.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\WinApp.Cli\WinApp.Cli.csproj" />
   </ItemGroup>
 

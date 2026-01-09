@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Tools;
@@ -18,6 +19,8 @@ internal partial class BuildToolsService(
 {
     internal const string BUILD_TOOLS_PACKAGE = "Microsoft.Windows.SDK.BuildTools";
     internal const string CPP_SDK_PACKAGE = "Microsoft.Windows.SDK.CPP";
+    internal const string WINAPP_SDK_PACKAGE = "Microsoft.WindowsAppSDK";
+    internal const string WINAPP_SDK_RUNTIME_PACKAGE = "Microsoft.WindowsAppSDK.Runtime";
 
     /// <summary>
     /// Find a path within any package structure (generic version)
@@ -196,7 +199,7 @@ internal partial class BuildToolsService(
     /// <returns>Full path to the executable. Throws an exception if the tool cannot be found or installed.</returns>
     /// <exception cref="FileNotFoundException">Thrown when the tool cannot be found even after installing BuildTools</exception>
     /// <exception cref="InvalidOperationException">Thrown when BuildTools installation fails</exception>
-    public async Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, CancellationToken cancellationToken = default)
+    public async Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         // First, try to find the tool in existing installation
         var toolPath = GetBuildToolPath(toolName);
@@ -208,7 +211,7 @@ internal partial class BuildToolsService(
         // If tool not found, ensure BuildTools are installed
         if (toolPath == null)
         {
-            var binPath = await EnsureBuildToolsAsync(cancellationToken: cancellationToken);
+            var binPath = await EnsureBuildToolsAsync(taskContext, cancellationToken: cancellationToken);
             if (binPath == null)
             {
                 throw new InvalidOperationException("Could not install or find Windows SDK Build Tools.");
@@ -237,7 +240,7 @@ internal partial class BuildToolsService(
     /// <param name="forceLatest">Force installation of the latest version, even if a version is already installed</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Path to BuildTools bin directory if successful, null otherwise</returns>
-    public async Task<DirectoryInfo?> EnsureBuildToolsAsync(bool forceLatest = false, CancellationToken cancellationToken = default)
+    public async Task<DirectoryInfo?> EnsureBuildToolsAsync(TaskContext taskContext, bool forceLatest = false, CancellationToken cancellationToken = default)
     {
         // Check if BuildTools are already installed (unless forcing latest)
         var existingBinPath = FindBuildToolsBinPath();
@@ -257,28 +260,34 @@ internal partial class BuildToolsService(
         // BuildTools not found or forcing latest, install them
         var actionMessage = existingBinPath != null ? "Updating" : "Installing";
         var versionInfo = !string.IsNullOrWhiteSpace(pinnedVersion) ? $" (pinned version {pinnedVersion})" : forceLatest ? " (latest version)" : "";
-        logger.LogInformation("{UISymbol} {ActionMessage} {BUILD_TOOLS_PACKAGE}{VersionInfo}...", UiSymbols.Wrench, actionMessage, BUILD_TOOLS_PACKAGE, versionInfo);
-
-        var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
-
-        var success = await packageInstallationService.EnsurePackageAsync(
-            globalWinappDir,
-            BUILD_TOOLS_PACKAGE,
-            version: pinnedVersion,
-            includeExperimental: false,
-            cancellationToken: cancellationToken);
-
-        if (!success)
+        DirectoryInfo? binPath = null;
+        await taskContext.AddSubTaskAsync($"{actionMessage} {BUILD_TOOLS_PACKAGE}{versionInfo}...", async (taskContext, cancellationToken) =>
         {
-            return null;
-        }
+            var globalWinappDir = winappDirectoryService.GetGlobalWinappDirectory();
 
-        // Verify installation and return bin path
-        var binPath = FindBuildToolsBinPath();
-        if (binPath != null)
-        {
-            logger.LogInformation("{UISymbol} BuildTools installed successfully → {BinPath}", UiSymbols.Check, binPath);
-        }
+            var success = await packageInstallationService.EnsurePackageAsync(
+                globalWinappDir,
+                BUILD_TOOLS_PACKAGE,
+                taskContext,
+                version: pinnedVersion,
+                sdkInstallMode: SdkInstallMode.Stable,
+                cancellationToken: cancellationToken);
+
+            if (!success)
+            {
+                return (1, $"Failed to install {BUILD_TOOLS_PACKAGE}.");
+            }
+
+            // Verify installation and return bin path
+            binPath = FindBuildToolsBinPath();
+            if (binPath != null)
+            {
+                taskContext.AddDebugMessage($"{UiSymbols.Check} BuildTools installed successfully → {binPath}");
+                return (0, "Windows SDK Build Tools installed successfully.");
+            }
+
+            return (1, $"Could not find BuildTools bin path after installation.");
+        }, cancellationToken);
 
         return binPath;
     }
@@ -289,14 +298,15 @@ internal partial class BuildToolsService(
     /// <param name="tool">The tool to execute</param>
     /// <param name="arguments">Arguments to pass to the tool</param>
     /// <param name="printErrors">Whether to print errors using the tool's PrintErrorText method</param>
+    /// <param name="taskContext">Task context for logging</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Tuple containing (stdout, stderr)</returns>
-    public async Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, bool printErrors, CancellationToken cancellationToken = default)
+    public async Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, TaskContext taskContext, bool printErrors = true, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         // Ensure the build tool is available, installing BuildTools if necessary
-        var toolPath = await EnsureBuildToolAvailableAsync(tool.ExecutableName, cancellationToken: cancellationToken);
+        var toolPath = await EnsureBuildToolAvailableAsync(tool.ExecutableName, taskContext, cancellationToken: cancellationToken);
 
         var psi = new ProcessStartInfo
         {
@@ -317,12 +327,12 @@ internal partial class BuildToolsService(
 
         if (!string.IsNullOrWhiteSpace(stdout))
         {
-            logger.LogDebug("{Stdout}", stdout);
+            taskContext.AddDebugMessage(stdout);
         }
 
         if (!string.IsNullOrWhiteSpace(stderr))
         {
-            logger.LogDebug("{StdErr}", stderr);
+            taskContext.AddDebugMessage(stderr);
         }
 
         if (p.ExitCode != 0)

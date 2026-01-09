@@ -18,7 +18,8 @@ public class EndToEndTests : BaseCommandTests
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
     {
         return services
-            .AddSingleton<IPowerShellService, FakePowerShellService>();
+            .AddSingleton<IPowerShellService, FakePowerShellService>()
+            .AddSingleton<IDevModeService, FakeDevModeService>();
     }
 
     [TestMethod]
@@ -63,12 +64,10 @@ public class EndToEndTests : BaseCommandTests
             projectDir.FullName,
             "--package-name", projectName,
             "--publisher-name", "CN=TestPublisher",
-            "--entrypoint", exePath,
-            "--yes"  // Skip interactive prompts
+            "--entrypoint", exePath
         };
 
-        var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);
-        var manifestExitCode = await manifestParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        var manifestExitCode = await ParseAndInvokeWithCaptureAsync(manifestGenerateCommand, manifestArgs);
         Assert.AreEqual(0, manifestExitCode, "Manifest generate command should complete successfully");
 
         // Verify manifest generated the necessary files
@@ -144,12 +143,11 @@ public class EndToEndTests : BaseCommandTests
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.5.0.0",
             "--description", "Custom test application",
-            "--entrypoint", exePath,
-            "--yes"
+            "--entrypoint", exePath
         };
 
-        var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);
-        var manifestExitCode = await manifestParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        var manifestExitCode = await ParseAndInvokeWithCaptureAsync(manifestGenerateCommand, manifestArgs);
+
         Assert.AreEqual(0, manifestExitCode, "Manifest generate command should complete successfully");
 
         // Verify custom options were applied
@@ -217,8 +215,7 @@ if __name__ == ""__main__"":
         {
             projectDir.FullName,
             "--template", "hostedapp",
-            "--entrypoint", scriptPath,
-            "--yes"  // Skip interactive prompts
+            "--entrypoint", scriptPath
         };
 
         var manifestParseResult = manifestGenerateCommand.Parse(manifestArgs);

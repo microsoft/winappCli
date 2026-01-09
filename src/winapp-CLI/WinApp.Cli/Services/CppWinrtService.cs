@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text;
+using WinApp.Cli.ConsoleTasks;
 
 namespace WinApp.Cli.Services;
 
@@ -22,7 +23,7 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
         return exe.Exists ? exe : null;
     }
 
-    public async Task RunWithRspAsync(FileInfo cppwinrtExe, IEnumerable<FileInfo> winmdInputs, DirectoryInfo outputDir, DirectoryInfo workingDirectory, CancellationToken cancellationToken = default)
+    public async Task RunWithRspAsync(FileInfo cppwinrtExe, IEnumerable<FileInfo> winmdInputs, DirectoryInfo outputDir, DirectoryInfo workingDirectory, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         outputDir.Create();
         var rspPath = new FileInfo(Path.Combine(outputDir.FullName, ".cppwinrt.rsp"));
@@ -41,7 +42,7 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
 
         await File.WriteAllTextAsync(rspPath.FullName, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
-        logger.LogDebug("cppwinrt: {CppWinrtExe} @{RspPath}", cppwinrtExe, rspPath);
+        taskContext.AddDebugMessage($"cppwinrt: {cppwinrtExe} @{rspPath}");
 
         var psi = new ProcessStartInfo
         {
@@ -61,12 +62,12 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
 
         if (!string.IsNullOrWhiteSpace(stdout))
         {
-            logger.LogDebug("{StdOut}", stdout);
+            taskContext.AddDebugMessage(stdout);
         }
 
         if (!string.IsNullOrWhiteSpace(stderr))
         {
-            logger.LogDebug("{StdErr}", stderr);
+            taskContext.AddDebugMessage(stderr);
         }
 
         if (p.ExitCode != 0)

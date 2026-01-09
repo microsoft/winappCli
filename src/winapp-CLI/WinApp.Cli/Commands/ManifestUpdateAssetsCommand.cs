@@ -35,7 +35,7 @@ internal class ManifestUpdateAssetsCommand : Command
         Options.Add(ManifestOption);
     }
 
-    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<ManifestUpdateAssetsCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IManifestService manifestService, ICurrentDirectoryProvider currentDirectoryProvider, IStatusService statusService, ILogger<ManifestUpdateAssetsCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -60,16 +60,18 @@ internal class ManifestUpdateAssetsCommand : Command
                 return 1;
             }
 
-            try
+            return await statusService.ExecuteWithStatusAsync("Updating manifest assets", async (taskContext, cancellationToken) =>
             {
-                await manifestService.UpdateManifestAssetsAsync(manifestPath, imagePath, cancellationToken);
-                return 0;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError("{UISymbol} Error updating assets: {ErrorMessage}", UiSymbols.Error, ex.Message);
-                return 1;
-            }
+                try
+                {
+                    await manifestService.UpdateManifestAssetsAsync(manifestPath, imagePath, taskContext, cancellationToken);
+                    return (0, "Successfully updated assets for manifest.");
+                }
+                catch (Exception ex)
+                {
+                    return (1, $"{UiSymbols.Error} Error updating assets: {ex.Message}");
+                }
+            }, cancellationToken);
         }
     }
 }

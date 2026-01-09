@@ -48,7 +48,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsFalse(result, "Should return false when Directory.Packages.props doesn't exist");
@@ -72,7 +72,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsTrue(result, "Should return true when update is successful");
@@ -105,7 +105,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsTrue(result, "Should return true when update is successful");
@@ -137,7 +137,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsTrue(result, "Should return true when update is successful");
@@ -165,7 +165,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsTrue(result, "Should return true even when no changes are needed");
@@ -194,7 +194,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsTrue(result, "Should return true when update is successful");
@@ -218,7 +218,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsFalse(result, "Should return false for empty/invalid XML file");
@@ -242,7 +242,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsFalse(result, "Should return false when no PackageVersion elements exist");
@@ -270,7 +270,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         };
 
         // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions);
+        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
         Assert.IsTrue(result, "Should return true when update is successful");

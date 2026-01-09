@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
@@ -10,6 +11,7 @@ internal interface IMsixService
     public Task<CreateMsixPackageResult> CreateMsixPackageAsync(
         DirectoryInfo inputFolder,
         FileSystemInfo? outputPath,
+        TaskContext taskContext,
         string? packageName = null,
         bool skipPri = false,
         bool autoSign = false,
@@ -26,5 +28,6 @@ internal interface IMsixService
         string? entryPointPath,
         FileInfo appxManifestPath,
         bool noInstall,
+        TaskContext taskContext,
         CancellationToken cancellationToken = default);
 }

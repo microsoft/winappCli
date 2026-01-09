@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 
@@ -18,6 +19,12 @@ public class ManifestCommandTests : BaseCommandTests
         // Create a fake logo file for testing
         _testLogoPath = Path.Combine(_tempDirectory.FullName, "testlogo.png");
         PngHelper.CreateTestImage(_testLogoPath);
+    }
+
+    protected override IServiceCollection ConfigureServices(IServiceCollection services)
+    {
+        return services
+            .AddSingleton<IDevModeService, FakeDevModeService>();
     }
 
     [TestMethod]
@@ -39,8 +46,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory.FullName,
-            "--yes" // Skip interactive prompts
+            _tempDirectory.FullName
         };
 
         // Act
@@ -74,8 +80,7 @@ public class ManifestCommandTests : BaseCommandTests
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.0.0.0",
             "--description", "Test Application",
-            "--entrypoint", exeFilePath,
-            "--yes" // Skip interactive prompts
+            "--entrypoint", exeFilePath
         };
 
         // Act
@@ -106,8 +111,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--template", "sparse",
-            "--yes" // Skip interactive prompts
+            "--template", "sparse"
         };
 
         // Act
@@ -135,8 +139,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--logo-path", _testLogoPath,
-            "--yes" // Skip interactive prompts
+            "--logo-path", _testLogoPath
         };
 
         // Act
@@ -185,8 +188,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory.FullName,
-            "--yes" // Skip interactive prompts
+            _tempDirectory.FullName
         };
 
         // Act
@@ -215,7 +217,6 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", exeFilePath,
             "--template", "sparse",
             "--logo-path", _testLogoPath,
-            "--yes",
             "--verbose"
         };
 
@@ -232,13 +233,9 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
-        var args = new[]
-        {
-            "--yes" // Skip interactive prompts - no directory argument
-        };
 
         // Act
-        var parseResult = generateCommand.Parse(args);
+        var parseResult = generateCommand.Parse([]);
 
         // Assert
         Assert.IsNotNull(parseResult, "Parse result should not be null");
@@ -256,18 +253,17 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--verbose",
-            "--yes" // Skip interactive prompts
+            "--verbose"
         };
 
-        var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        DefaultAnswers();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(generateCommand, args);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
-        var output = ConsoleStdOut.ToString();
-        Assert.Contains("Generating manifest", output, "Verbose output should contain generation message");
+        Assert.Contains("Generating manifest", TestAnsiConsole.Output, "Verbose output should contain generation message");
     }
 
     [TestMethod]
@@ -296,8 +292,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--logo-path", nonExistentLogoPath,
-            "--yes" // Skip interactive prompts
+            "--logo-path", nonExistentLogoPath
         };
 
         // Act
@@ -362,6 +357,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", pythonScriptPath
         };
 
+        DefaultAnswers();
+
         // Act
         var parseResult = generateCommand.Parse(args);
         var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -397,6 +394,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--template", "hostedapp",
             "--entrypoint", pythonScriptPath
         };
+
+        DefaultAnswers();
 
         var generateParseResult = generateCommand.Parse(generateArgs);
         var generateExitCode = await generateParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -436,6 +435,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", jsScriptPath
         };
 
+        DefaultAnswers();
+
         // Act
         var parseResult = generateCommand.Parse(args);
         var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -451,6 +452,16 @@ public class ManifestCommandTests : BaseCommandTests
         var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.Contains("Nodejs22", manifestContent, "HostedApp manifest should reference Nodejs22 host");
         Assert.Contains("app.js", manifestContent, "HostedApp manifest should reference the JavaScript file");
+    }
+
+    private void DefaultAnswers()
+    {
+        // Use default answers for prompts during generation (packageName, publisherName, version, description, entryPoint)
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
     }
 
     [TestMethod]
@@ -516,8 +527,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--entrypoint", exeFilePath,
-            "--yes" // Skip interactive prompts
+            "--entrypoint", exeFilePath
         };
 
         // Act

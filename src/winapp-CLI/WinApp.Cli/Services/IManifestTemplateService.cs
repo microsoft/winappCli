@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
@@ -20,5 +21,6 @@ internal interface IManifestTemplateService
         string? hostRuntimeDependencyPackageName,
         string? hostRuntimeDependencyPublisherName,
         string? hostRuntimeDependencyMinVersion,
+        TaskContext taskContext,
         CancellationToken cancellationToken = default);
 }
