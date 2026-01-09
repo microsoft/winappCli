@@ -1,55 +1,36 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using Spectre.Console;
+
 namespace WinApp.Cli.Helpers;
 
 internal static class UiSymbols
 {
-    private static bool? _useEmoji;
-    public static bool UseEmoji => _useEmoji ??= Compute();
-
-    private static bool Compute()
-    {
-        try
-        {
-            bool isUtf8 = Console.OutputEncoding?.CodePage == 65001;
-            bool isVsCode = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("VSCODE_PID")) ||
-                            string.Equals(Environment.GetEnvironmentVariable("TERM_PROGRAM"), "vscode", StringComparison.OrdinalIgnoreCase);
-            bool isWindowsTerminal = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION"));
-            bool notRedirected = !Console.IsOutputRedirected;
-            return isUtf8 && notRedirected && (isVsCode || isWindowsTerminal);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    public static string Rocket => UseEmoji ? "🚀" : "[INIT]";
-    public static string Folder => UseEmoji ? "📂" : "[DIR]";
-    public static string Note => UseEmoji ? "📝" : "[CFG]";
-    public static string New => UseEmoji ? "🆕" : "[NEW]";
-    public static string Wrench => UseEmoji ? "🔧" : "[TOOL]";
-    public static string Package => UseEmoji ? "📦" : "[PKG]";
-    public static string Bullet => UseEmoji ? "•" : "-";
-    public static string Skip => UseEmoji ? "⏭" : "[SKIP]";
-    public static string Tools => UseEmoji ? "🛠️" : "[TOOL]";
-    public static string Files => UseEmoji ? "📁" : "[COPY]";
-    public static string Check => UseEmoji ? "✅" : "[OK]";
-    public static string Books => UseEmoji ? "📚" : "[LIB]";
-    public static string Gear => UseEmoji ? "⚙️" : "[GEN]";
-    public static string Search => UseEmoji ? "🔎" : "[SCAN]";
-    public static string Save => UseEmoji ? "💾" : "[SAVE]";
-    public static string Party => UseEmoji ? "🎉" : "[DONE]";
-    public static string Warning => UseEmoji ? "⚠️" : "[WARN]";
-    public static string Error => UseEmoji ? "❌" : "[ERR]";
-    public static string Info => UseEmoji ? "ℹ️" : "[INFO]";
-    public static string Trash => UseEmoji ? "🗑️" : "[DEL]";
-    public static string Sync => UseEmoji ? "🔄" : "[SYNC]";
-    public static string Add => UseEmoji ? "➕" : "[ADD]";
-    public static string Lock => UseEmoji ? "🔐" : "[LOCK]";
-    public static string User => UseEmoji ? "👤" : "[USER]";
-    public static string Id => UseEmoji ? "🆔" : "[ID]";
-    public static string Clipboard => UseEmoji ? "📋" : "[CLIP]";
-    public static string Verbose => UseEmoji ? "🔍" : "[VERBOSE]";
+    public static string Rocket => Emoji.Known.Rocket;
+    public static string Folder => Emoji.Known.OpenFileFolder;
+    public static string Note => Emoji.Known.Memo;
+    public static string New => Emoji.Known.NewButton;
+    public static string Wrench => Emoji.Known.Wrench;
+    public static string Package => Emoji.Known.Package;
+    public static string Bullet => "•";
+    public static string Skip => Emoji.Known.NextTrackButton;
+    public static string Tools => Emoji.Known.HammerAndWrench;
+    public static string Files => Emoji.Known.FileFolder;
+    public static string Check => Emoji.Known.CheckMarkButton;
+    public static string Books => Emoji.Known.Books;
+    public static string Search => Emoji.Known.MagnifyingGlassTiltedRight;
+    public static string Save => Emoji.Known.FloppyDisk;
+    public static string Party => Emoji.Known.PartyPopper;
+    public static string Warning => Emoji.Known.Warning;
+    public static string Error => Emoji.Known.CrossMark;
+    public static string Info => Emoji.Known.Information;
+    public static string Trash => Emoji.Known.Broom;
+    public static string Sync => Emoji.Known.CounterclockwiseArrowsButton;
+    public static string Add => Emoji.Known.Plus;
+    public static string Lock => Emoji.Known.Locked;
+    public static string User => Emoji.Known.BustInSilhouette;
+    public static string Id => Emoji.Known.IdButton;
+    public static string Clipboard => Emoji.Known.Clipboard;
+    public static string Verbose => Emoji.Known.MagnifyingGlassTiltedLeft;
 }

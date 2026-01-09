@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
@@ -33,14 +34,15 @@ internal sealed class PackageInstallationService(
     /// <param name="rootDirectory">The Root Directory path</param>
     /// <param name="packageName">Name of the package to install</param>
     /// <param name="version">Version to install (if null, gets latest)</param>
-    /// <param name="includeExperimental">Include experimental/prerelease versions when getting latest</param>
+    /// <param name="sdkInstallMode">SDK install mode</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The installed version</returns>
     private async Task<string> InstallPackageAsync(
         DirectoryInfo rootDirectory,
         string packageName,
+        TaskContext taskContext,
         string? version = null,
-        bool includeExperimental = false,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         CancellationToken cancellationToken = default)
     {
         var packagesDir = new DirectoryInfo(Path.Combine(rootDirectory.FullName, "packages"));
@@ -51,21 +53,21 @@ internal sealed class PackageInstallationService(
         // Get version if not specified
         if (version == null)
         {
-            version = await nugetService.GetLatestVersionAsync(packageName, includeExperimental, cancellationToken);
+            version = await nugetService.GetLatestVersionAsync(packageName, sdkInstallMode, cancellationToken);
         }
 
         // Check if already installed
         var expectedFolder = Path.Combine(packagesDir.FullName, $"{packageName}.{version}");
         if (Directory.Exists(expectedFolder))
         {
-            logger.LogInformation("{UISymbol} {PackageName} {Version} already present", UiSymbols.Skip, packageName, version);
+            taskContext.AddStatusMessage($"{UiSymbols.Skip} {packageName} {version} already present");
             return version;
         }
 
         // Install the package
-        logger.LogInformation("{UISymbol} Installing {PackageName} {Version}...", UiSymbols.Package, packageName, version);
+        taskContext.AddStatusMessage($"{UiSymbols.Package} Installing {packageName} {version}...");
 
-        await nugetService.InstallPackageAsync(rootDirectory, packageName, version, packagesDir, cancellationToken);
+        await nugetService.InstallPackageAsync(rootDirectory, packageName, version, packagesDir, taskContext, cancellationToken);
         return version;
     }
 
@@ -74,14 +76,15 @@ internal sealed class PackageInstallationService(
     /// </summary>
     /// <param name="rootDirectory">The Root Directory path</param>
     /// <param name="packages">List of packages to install</param>
-    /// <param name="includeExperimental">Include experimental/prerelease versions</param>
+    /// <param name="sdkInstallMode">SDK install mode</param>
     /// <param name="ignoreConfig">Ignore configuration file for version management</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Dictionary of installed packages and their versions</returns>
     public async Task<Dictionary<string, string>> InstallPackagesAsync(
         DirectoryInfo rootDirectory,
         IEnumerable<string> packages,
-        bool includeExperimental = false,
+        TaskContext taskContext,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         bool ignoreConfig = false,
         CancellationToken cancellationToken = default)
     {
@@ -89,7 +92,7 @@ internal sealed class PackageInstallationService(
         var allInstalledVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Ensure nuget.exe is available once for all packages
-        logger.LogInformation("{UISymbol} Ensuring nuget.exe is available...", UiSymbols.Wrench);
+        taskContext.AddDebugMessage($"{UiSymbols.Wrench} Ensuring nuget.exe is available...");
         await nugetService.EnsureNugetExeAsync(rootDirectory, cancellationToken);
 
         // Load pinned config if available
@@ -112,19 +115,19 @@ internal sealed class PackageInstallationService(
                 }
                 else
                 {
-                    version = await nugetService.GetLatestVersionAsync(packageName, includeExperimental, cancellationToken);
+                    version = await nugetService.GetLatestVersionAsync(packageName, sdkInstallMode, cancellationToken);
                 }
             }
             else
             {
-                version = await nugetService.GetLatestVersionAsync(packageName, includeExperimental, cancellationToken);
+                version = await nugetService.GetLatestVersionAsync(packageName, sdkInstallMode, cancellationToken);
             }
 
             // Check if already installed
             var expectedFolder = Path.Combine(packagesDir.FullName, $"{packageName}.{version}");
             if (Directory.Exists(expectedFolder))
             {
-                logger.LogInformation("{UISymbol} {PackageName} {Version} already present", UiSymbols.Skip, packageName, version);
+                taskContext.AddStatusMessage($"{UiSymbols.Skip} {packageName} {version} already present");
                 
                 // Add the main package to installed versions
                 allInstalledVersions[packageName] = version;
@@ -132,7 +135,7 @@ internal sealed class PackageInstallationService(
                 // Try to get cached information about what else was installed with this package
                 try
                 {
-                    var cachedPackages = await cacheService.GetCachedPackageAsync(packageName, version, cancellationToken);
+                    var cachedPackages = await cacheService.GetCachedPackageAsync(packageName, version, taskContext, cancellationToken);
                     foreach (var (cachedPkg, cachedVer) in cachedPackages)
                     {
                         if (allInstalledVersions.TryGetValue(cachedPkg, out var existingVersion))
@@ -157,9 +160,9 @@ internal sealed class PackageInstallationService(
             }
 
             // Install the package
-            logger.LogInformation("{UISymbol} {PackageName} {Version}", UiSymbols.Bullet, packageName, version);
+            taskContext.AddStatusMessage($"{UiSymbols.Bullet} {packageName} {version}");
 
-            var installedVersions = await nugetService.InstallPackageAsync(rootDirectory, packageName, version, packagesDir, cancellationToken);
+            var installedVersions = await nugetService.InstallPackageAsync(rootDirectory, packageName, version, packagesDir, taskContext, cancellationToken);
             foreach (var (pkg, ver) in installedVersions)
             {
                 if (allInstalledVersions.TryGetValue(pkg, out var existingVersion))
@@ -176,7 +179,7 @@ internal sealed class PackageInstallationService(
             }
 
             // Update cache with this package installation
-            await cacheService.UpdatePackageAsync(packageName, version, installedVersions, cancellationToken);
+            await cacheService.UpdatePackageAsync(packageName, version, installedVersions, taskContext, cancellationToken);
         }
 
         return allInstalledVersions;
@@ -188,14 +191,15 @@ internal sealed class PackageInstallationService(
     /// <param name="rootDirectory">The Root Directory path</param>
     /// <param name="packageName">Name of the package to install</param>
     /// <param name="version">Specific version to install (if null, gets latest or uses pinned version from config)</param>
-    /// <param name="includeExperimental">Include experimental/prerelease versions</param>
+    /// <param name="sdkInstallMode">SDK install mode</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True if the package was installed successfully, false otherwise</returns>
     public async Task<bool> EnsurePackageAsync(
         DirectoryInfo rootDirectory,
         string packageName,
+        TaskContext taskContext,
         string? version = null,
-        bool includeExperimental = false,
+        SdkInstallMode sdkInstallMode = SdkInstallMode.Stable,
         CancellationToken cancellationToken = default)
     {
         try
@@ -205,8 +209,9 @@ internal sealed class PackageInstallationService(
             var installedVersion = await InstallPackageAsync(
                 rootDirectory,
                 packageName,
+                taskContext,
                 version: version,
-                includeExperimental,
+                sdkInstallMode,
                 cancellationToken);
 
             return true;

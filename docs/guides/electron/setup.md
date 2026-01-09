@@ -8,7 +8,7 @@ Before you begin, ensure you have:
 
 - **Windows 11** 
 - **Node.js** - `winget install OpenJS.NodeJS`
-- **.NET SDK v10** - `Microsoft.DotNet.SDK.10`
+- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10`
 - **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 ## Step 1: Create a New Electron App

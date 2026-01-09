@@ -1,31 +1,29 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text.Json;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
-internal class NugetService(
-    ICurrentDirectoryProvider currentDirectoryProvider,
-    ILogger<NugetService> logger) : INugetService
+internal class NugetService(ICurrentDirectoryProvider currentDirectoryProvider) : INugetService
 {
     private static readonly HttpClient Http = new();
     private const string NugetExeUrl = "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";
     private const string FlatIndex = "https://api.nuget.org/v3-flatcontainer";
 
-    public static readonly string[] SDK_PACKAGES = new[]
-    {
+    public static readonly string[] SDK_PACKAGES =
+    [
         "Microsoft.Windows.CppWinRT",
         BuildToolsService.BUILD_TOOLS_PACKAGE,
-        "Microsoft.WindowsAppSDK",
+        BuildToolsService.WINAPP_SDK_PACKAGE,
         "Microsoft.Windows.ImplementationLibrary",
-        $"{BuildToolsService.CPP_SDK_PACKAGE}",
+        BuildToolsService.CPP_SDK_PACKAGE,
         $"{BuildToolsService.CPP_SDK_PACKAGE}.x64",
         $"{BuildToolsService.CPP_SDK_PACKAGE}.arm64"
-    };
+    ];
 
     public async Task EnsureNugetExeAsync(DirectoryInfo winappDir, CancellationToken cancellationToken = default)
     {
@@ -43,8 +41,13 @@ internal class NugetService(
         await resp.Content.CopyToAsync(fs, cancellationToken);
     }
 
-    public async Task<string> GetLatestVersionAsync(string packageName, bool includePrerelease, CancellationToken cancellationToken = default)
+    public async Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, CancellationToken cancellationToken = default)
     {
+        if (sdkInstallMode == SdkInstallMode.None)
+        {
+            throw new ArgumentException("sdkInstallMode cannot be None", nameof(sdkInstallMode));
+        }
+
         var url = $"{FlatIndex}/{packageName.ToLowerInvariant()}/index.json";
         using var resp = await Http.GetAsync(url, cancellationToken);
         resp.EnsureSuccessStatusCode();
@@ -65,9 +68,33 @@ internal class NugetService(
             }
         }
 
-        if (!includePrerelease)
+        // If not WinApp SDK, preview and experimental versions are the same
+        if (packageName.StartsWith(BuildToolsService.WINAPP_SDK_PACKAGE, StringComparison.OrdinalIgnoreCase))
         {
-            list = list.Where(v => !v.Contains('-', StringComparison.Ordinal)).ToList();
+            if (sdkInstallMode == SdkInstallMode.Stable)
+            {
+                // Only stable versions (no prerelease suffix)
+                list = [.. list.Where(v => !v.Contains('-', StringComparison.Ordinal))];
+            }
+            else if (sdkInstallMode == SdkInstallMode.Preview)
+            {
+                // Only with preview
+                list = [.. list.Where(v => v.Contains("-preview", StringComparison.OrdinalIgnoreCase))];
+            }
+            else if (sdkInstallMode == SdkInstallMode.Experimental)
+            {
+                // Only with experimental
+                list = [.. list.Where(v => v.Contains("-experimental", StringComparison.OrdinalIgnoreCase))];
+            }
+            // For Experimental mode: keep all versions (no filtering needed)
+        }
+        else
+        {
+            if (sdkInstallMode == SdkInstallMode.Stable)
+            {
+                // Only stable versions (no prerelease suffix)
+                list = [.. list.Where(v => !v.Contains('-', StringComparison.Ordinal))];
+            }
         }
 
         if (list.Count == 0)
@@ -79,7 +106,7 @@ internal class NugetService(
         return list[^1];
     }
 
-    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo globalWinappDir, string package, string version, DirectoryInfo outputDir, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, string>> InstallPackageAsync(DirectoryInfo globalWinappDir, string package, string version, DirectoryInfo outputDir, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -95,7 +122,7 @@ internal class NugetService(
         var expectedFolder = Path.Combine(outputDir.FullName, $"{package}.{version}");
         if (Directory.Exists(expectedFolder))
         {
-            logger.LogInformation("{UISymbol} {Package} {Version} already present", UiSymbols.Skip, package, version);
+            taskContext.AddDebugMessage($"{UiSymbols.Skip} {package} {version} already present");
             packages[package] = version;
             return packages;
         }
@@ -116,8 +143,8 @@ internal class NugetService(
         await p.WaitForExitAsync(cancellationToken);
         if (p.ExitCode != 0)
         {
-            logger.LogError("{StdOut}", stdout);
-            logger.LogError("{StdErr}", stderr);
+            taskContext.StatusError(stdout);
+            taskContext.StatusError(stderr);
             throw new InvalidOperationException($"nuget install failed for {package} {version}");
         }
 
@@ -136,7 +163,7 @@ internal class NugetService(
                         var installedName = installed[..spaceIdx];
                         var installedVersion = installed[(spaceIdx + 1)..];
                         packages[installedName] = installedVersion;
-                        logger.LogInformation("{UISymbol} Installed {InstalledName} {InstalledVersion}", UiSymbols.Check, installedName, installedVersion);
+                        taskContext.AddStatusMessage($"{UiSymbols.Check} Installed {installedName} {installedVersion}");
                     }
                 }
             }

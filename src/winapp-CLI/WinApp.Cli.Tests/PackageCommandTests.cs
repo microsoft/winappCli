@@ -158,7 +158,7 @@ public class PackageCommandTests : BaseCommandTests
         var missingTools = new List<string>();
 
         // Ensure BuildTools are installed
-        var buildToolsPath = await _buildToolsService.EnsureBuildToolsAsync(cancellationToken: TestContext.CancellationToken);
+        var buildToolsPath = await _buildToolsService.EnsureBuildToolsAsync(TestTaskContext, cancellationToken: TestContext.CancellationToken);
         if (buildToolsPath == null)
         {
             Assert.Fail("Cannot run test - BuildTools installation failed.");
@@ -228,6 +228,7 @@ public class PackageCommandTests : BaseCommandTests
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
             outputPath: string.IsNullOrEmpty(outputPath) ? null : new FileInfo(Path.IsPathRooted(outputPath) ? outputPath : Path.Combine(currentDir, outputPath)),
+            TestTaskContext,
             packageName: "TestPackage",
             skipPri: true,
             autoSign: false,
@@ -251,6 +252,7 @@ public class PackageCommandTests : BaseCommandTests
             await _msixService.CreateMsixPackageAsync(
                 inputFolder: new DirectoryInfo(nonExistentDir),
                 outputPath: _tempDirectory,
+                TestTaskContext,
                 packageName: "TestPackage",
                 skipPri: true,
                 autoSign: false,
@@ -274,6 +276,7 @@ public class PackageCommandTests : BaseCommandTests
             async () => await _msixService.CreateMsixPackageAsync(
                 inputFolder: new DirectoryInfo(packageDir),
                 outputPath: _tempDirectory,
+                TestTaskContext,
                 packageName: "TestPackage",
                 skipPri: true,
                 autoSign: false,
@@ -313,6 +316,7 @@ public class PackageCommandTests : BaseCommandTests
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: new DirectoryInfo(packageDir),
             outputPath: _tempDirectory,
+            TestTaskContext,
             packageName: "ExternalTestPackage",
             skipPri: true,
             autoSign: false,
@@ -344,7 +348,7 @@ public class PackageCommandTests : BaseCommandTests
         const string testPublisher = "CN=TestPublisher"; // This matches StandardTestManifestContent
 
         await _certificateService.GenerateDevCertificateAsync(
-            testPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
+            testPublisher, certPath, TestTaskContext, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create minimal winapp.yaml
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
@@ -353,6 +357,7 @@ public class PackageCommandTests : BaseCommandTests
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
             outputPath: _tempDirectory,
+            TestTaskContext,
             packageName: "SigningTestPackage",
             skipPri: true,
             autoSign: true,
@@ -380,7 +385,7 @@ public class PackageCommandTests : BaseCommandTests
         const string wrongPublisher = "CN=WrongPublisher"; // This does NOT match StandardTestManifestContent
 
         var certResult = await _certificateService.GenerateDevCertificateAsync(
-            wrongPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
+            wrongPublisher, certPath, TestTaskContext, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create minimal winapp.yaml
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
@@ -390,6 +395,7 @@ public class PackageCommandTests : BaseCommandTests
             async () => await _msixService.CreateMsixPackageAsync(
                 inputFolder: packageDir,
                 outputPath: _tempDirectory,
+                TestTaskContext,
                 packageName: "MismatchedSigningTest",
                 skipPri: true,
                 autoSign: true,
@@ -425,7 +431,7 @@ public class PackageCommandTests : BaseCommandTests
         const string wrongPublisher = "CN=DifferentPublisher";
 
         await _certificateService.GenerateDevCertificateAsync(
-            wrongPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
+            wrongPublisher, certPath, TestTaskContext, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create minimal winapp.yaml
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
@@ -435,6 +441,7 @@ public class PackageCommandTests : BaseCommandTests
             async () => await _msixService.CreateMsixPackageAsync(
                 inputFolder: new DirectoryInfo(packageDir),
                 outputPath: _tempDirectory,
+                TestTaskContext,
                 packageName: "ExternalMismatchTest",
                 skipPri: true,
                 autoSign: true,
@@ -463,7 +470,7 @@ public class PackageCommandTests : BaseCommandTests
 
         // Create a test certificate using the existing certificate service
         _certificateService.GenerateDevCertificateAsync(
-            testPublisherCN, certPath, testPassword, cancellationToken: TestContext.CancellationToken).GetAwaiter().GetResult();
+            testPublisherCN, certPath, TestTaskContext, testPassword, cancellationToken: TestContext.CancellationToken).GetAwaiter().GetResult();
 
         // Act
         var extractedPublisher = CertificateService.ExtractPublisherFromCertificate(certPath, testPassword);
@@ -494,7 +501,7 @@ public class PackageCommandTests : BaseCommandTests
         const string wrongPassword = "wrong123";
 
         _certificateService.GenerateDevCertificateAsync(
-            "CN=PasswordTestPublisher", certPath, correctPassword, cancellationToken: TestContext.CancellationToken).GetAwaiter().GetResult();
+            "CN=PasswordTestPublisher", certPath, TestTaskContext, correctPassword, cancellationToken: TestContext.CancellationToken).GetAwaiter().GetResult();
 
         // Act & Assert
         Assert.ThrowsExactly<InvalidOperationException>(() =>
@@ -514,7 +521,7 @@ public class PackageCommandTests : BaseCommandTests
 
         // Create certificate
         await _certificateService.GenerateDevCertificateAsync(
-            commonPublisher, certPath, testPassword, cancellationToken: TestContext.CancellationToken);
+            commonPublisher, certPath, TestTaskContext, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create manifest with same publisher
         var manifestContent = StandardTestManifestContent.Replace(
@@ -535,7 +542,7 @@ public class PackageCommandTests : BaseCommandTests
 
         // Create certificate with one publisher
         await _certificateService.GenerateDevCertificateAsync(
-            "CN=CertificatePublisher", certPath, testPassword, cancellationToken: TestContext.CancellationToken);
+            "CN=CertificatePublisher", certPath, TestTaskContext, testPassword, cancellationToken: TestContext.CancellationToken);
 
         // Create manifest with different publisher
         var manifestContent = StandardTestManifestContent.Replace(
@@ -584,6 +591,7 @@ public class PackageCommandTests : BaseCommandTests
         var result = await _msixService.CreateMsixPackageAsync(
             inputFolder: packageDir,
             outputPath: _tempDirectory,
+            TestTaskContext,
             packageName: "WinAppSdkDependencyTest",
             skipPri: true,
             autoSign: false,

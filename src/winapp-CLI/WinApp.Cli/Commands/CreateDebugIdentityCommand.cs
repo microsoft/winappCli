@@ -41,7 +41,7 @@ internal class CreateDebugIdentityCommand : Command
         Options.Add(NoInstallOption);
     }
 
-    public class Handler(IMsixService msixService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<CreateDebugIdentityCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IMsixService msixService, ICurrentDirectoryProvider currentDirectoryProvider, IStatusService statusService, ILogger<CreateDebugIdentityCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -55,22 +55,23 @@ internal class CreateDebugIdentityCommand : Command
                 return 1;
             }
 
-            try
+            return await statusService.ExecuteWithStatusAsync("Creating MSIX Debug identity...", async (taskContext, cancellationToken) =>
             {
-                var result = await msixService.AddMsixIdentityAsync(entryPointPath?.ToString(), manifest, noInstall, cancellationToken);
+                try
+                {
+                    var result = await msixService.AddMsixIdentityAsync(entryPointPath?.ToString(), manifest, noInstall, taskContext, cancellationToken);
 
-                logger.LogInformation("{UISymbol} MSIX identity added successfully!", UiSymbols.Check);
-                logger.LogInformation("{UISymbol} Package: {PackageName}", UiSymbols.Package, result.PackageName);
-                logger.LogInformation("{UISymbol} Publisher: {Publisher}", UiSymbols.User, result.Publisher);
-                logger.LogInformation("{UISymbol} App ID: {ApplicationId}", UiSymbols.Id, result.ApplicationId);
-            }
-            catch (Exception error)
-            {
-                logger.LogError("{UISymbol} Failed to add MSIX identity: {ErrorMessage}", UiSymbols.Error, error.Message);
-                return 1;
-            }
+                    taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.PackageName}");
+                    taskContext.AddStatusMessage($"{UiSymbols.User} Publisher: {result.Publisher}");
+                    taskContext.AddStatusMessage($"{UiSymbols.Id} App ID: {result.ApplicationId}");
+                }
+                catch (Exception error)
+                {
+                    return (1, $"{UiSymbols.Error} Failed to add MSIX identity: {error.Message}");
+                }
 
-            return 0;
+                return (0, "MSIX identity created successfully.");
+            }, cancellationToken);
         }
     }
 }
