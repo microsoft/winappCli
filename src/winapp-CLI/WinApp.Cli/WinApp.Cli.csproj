@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>winapp</AssemblyName>
     <ApplicationIcon>Assets\winapp.ico</ApplicationIcon>
+    <Description>A command-line tool for managing Windows SDKs, packaging, generating app identity, manifests, certificates, and using build tools with any app framework.</Description>
 
     <!-- Enable Code Analysis -->
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -23,6 +24,8 @@
     <TrimmerRootDescriptor>TrimRoots.xml</TrimmerRootDescriptor>
     <OptimizationPreference>Size</OptimizationPreference>
     <TrimMode>full</TrimMode>
+    <CsWin32RunAsBuildTask>true</CsWin32RunAsBuildTask>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
 
     <!-- Faster startup for single-file -->
     <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
@@ -47,6 +50,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="Microsoft.Windows.CsWin32">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Spectre.Console" />
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="System.Diagnostics.EventLog" />
     <PackageReference Include="System.Drawing.Common" />

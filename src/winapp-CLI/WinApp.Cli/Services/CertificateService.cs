@@ -1,21 +1,20 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using WinApp.Cli.Helpers;
-using WinApp.Cli.Tools;
 using System.Diagnostics.Eventing.Reader;
-using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.RegularExpressions;
+using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.Helpers;
+using WinApp.Cli.Tools;
 
 namespace WinApp.Cli.Services;
 
 internal partial class CertificateService(
     IBuildToolsService buildToolsService,
     IGitignoreService gitignoreService,
-    ICurrentDirectoryProvider currentDirectoryProvider,
-    ILogger<CertificateService> logger) : ICertificateService
+    ICurrentDirectoryProvider currentDirectoryProvider) : ICertificateService
 {
     public const string DefaultCertFileName = "devcert.pfx";
 
@@ -23,12 +22,14 @@ internal partial class CertificateService(
         FileInfo CertificatePath,
         string Password,
         string Publisher,
-        string SubjectName
+        string SubjectName,
+        bool UpdatedGitignore
     );
 
     public async Task<CertificateResult> GenerateDevCertificateAsync(
         string publisher,
         FileInfo outputPath,
+        TaskContext taskContext,
         string password = "password",
         int validDays = 365,
         CancellationToken cancellationToken = default)
@@ -81,13 +82,14 @@ internal partial class CertificateService(
             var pfx = cert.Export(X509ContentType.Pfx, password);
             await File.WriteAllBytesAsync(outputPath.FullName, pfx, cancellationToken);
 
-            logger.LogDebug("Certificate generated: {OutputPath}", outputPath);
+            taskContext.AddDebugMessage($"Certificate generated: {outputPath}");
 
             return new CertificateResult(
                 CertificatePath: outputPath,
                 Password: password,
                 Publisher: cleanPublisher,
-                SubjectName: subjectName
+                SubjectName: subjectName,
+                UpdatedGitignore: false
             );
         }
         catch (Exception error)
@@ -96,7 +98,7 @@ internal partial class CertificateService(
         }
     }
 
-    public bool InstallCertificate(FileInfo certPath, string password, bool force)
+    public bool InstallCertificate(FileInfo certPath, string password, bool force, TaskContext taskContext)
     {
         certPath.Refresh();
         if (!certPath.Exists)
@@ -104,7 +106,7 @@ internal partial class CertificateService(
             throw new FileNotFoundException($"Certificate file not found: {certPath}");
         }
 
-        logger.LogDebug("Installing development certificate: {CertPath}", certPath);
+        taskContext.AddDebugMessage($"Installing development certificate: {certPath}");
 
         try
         {
@@ -130,14 +132,14 @@ internal partial class CertificateService(
 
                     if (existingCerts.Count > 0)
                     {
-                        logger.LogDebug("Certificate appears to already be installed");
+                        taskContext.AddDebugMessage("Certificate appears to already be installed");
                         return false;
                     }
                 }
                 catch (Exception ex)
                 {
                     // Continue with installation if check fails
-                    logger.LogDebug("Could not check existing certificates: {Message}", ex.Message);
+                    taskContext.AddDebugMessage($"Could not check existing certificates: {ex.Message}");
                 }
             }
 
@@ -162,7 +164,7 @@ internal partial class CertificateService(
                     "Please run this command as an administrator.", ex);
             }
 
-            logger.LogDebug("Certificate installed successfully to TrustedPeople store");
+            taskContext.AddDebugMessage("Certificate installed successfully to TrustedPeople store");
 
             return true;
         }
@@ -181,7 +183,7 @@ internal partial class CertificateService(
     /// <param name="password">Certificate password</param>
     /// <param name="timestampUrl">Timestamp server URL (optional)</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task SignFileAsync(FileInfo filePath, FileInfo certificatePath, string? password = "password", string? timestampUrl = null, CancellationToken cancellationToken = default)
+    public async Task SignFileAsync(FileInfo filePath, FileInfo certificatePath, TaskContext taskContext, string? password = "password", string? timestampUrl = null, CancellationToken cancellationToken = default)
     {
         filePath.Refresh();
         if (!filePath.Exists)
@@ -204,13 +206,13 @@ internal partial class CertificateService(
 
         arguments += $@" ""{filePath}""";
 
-        logger.LogDebug("Signing file: {FilePath}", filePath);
+        taskContext.AddDebugMessage($"Signing file: {filePath}");
 
         try
         {
-            await buildToolsService.RunBuildToolAsync(new GenericTool("signtool.exe"), arguments, cancellationToken: cancellationToken);
+            await buildToolsService.RunBuildToolAsync(new GenericTool("signtool.exe"), arguments, taskContext, cancellationToken: cancellationToken);
 
-            logger.LogDebug("File signed successfully");
+            taskContext.AddDebugMessage("File signed successfully");
         }
         catch (BuildToolsService.InvalidBuildToolException ex)
             when (ex.Stdout.Contains("0x800"))
@@ -251,98 +253,102 @@ internal partial class CertificateService(
     /// This method combines publisher inference, certificate generation, gitignore management, console messaging, and optional installation.
     /// </summary>
     /// <param name="outputPath">Path where the certificate should be generated</param>
+    /// <param name="taskContext">Task context for status messages and prompts</param>
     /// <param name="explicitPublisher">Explicit publisher to use (optional)</param>
     /// <param name="manifestPath">Specific manifest path to extract publisher from (optional)</param>
     /// <param name="password">Certificate password</param>
     /// <param name="validDays">Certificate validity period</param>
-    /// <param name="skipIfExists">Skip generation if certificate already exists</param>
     /// <param name="updateGitignore">Whether to update .gitignore</param>
     /// <param name="install">Whether to install the certificate after generation</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Certificate generation result, or null if skipped</returns>
-    public async Task<CertificateResult?> GenerateDevCertificateWithInferenceAsync(
+    public async Task<CertificateResult> GenerateDevCertificateWithInferenceAsync(
         FileInfo outputPath,
+        TaskContext taskContext,
         string? explicitPublisher = null,
         FileInfo? manifestPath = null,
         string password = "password",
         int validDays = 365,
-        bool skipIfExists = true,
         bool updateGitignore = true,
         bool install = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Skip if certificate already exists and skipIfExists is true
+            // Check if certificate already exists
             outputPath.Refresh();
-            if (skipIfExists && outputPath.Exists)
+            if (outputPath.Exists)
             {
-                logger.LogInformation("{UISymbol} Development certificate already exists: {OutputPath}", UiSymbols.Note, outputPath);
-                return null;
+                taskContext.AddDebugMessage($"{UiSymbols.Check} Development certificate already exists: {outputPath}");
             }
 
             // Start generation message
-            logger.LogInformation("{UISymbol} Generating development certificate...", UiSymbols.Gear);
+            taskContext.AddStatusMessage($"{UiSymbols.Info} Generating development certificate...");
 
             // Get default publisher from system defaults
             var defaultPublisher = SystemDefaultsHelper.GetDefaultPublisherCN();
 
             // Infer publisher using the specified hierarchy
-            string publisher = await InferPublisherAsync(explicitPublisher, manifestPath, defaultPublisher, cancellationToken);
+            string publisher = await InferPublisherAsync(explicitPublisher, manifestPath, defaultPublisher, taskContext, cancellationToken);
 
-            logger.LogInformation("Certificate publisher: {Publisher}", publisher);
+            taskContext.AddStatusMessage($"Certificate publisher: {publisher}");
 
             // Generate the certificate
             var result = await GenerateDevCertificateAsync(
                 publisher,
                 outputPath,
+                taskContext,
                 password,
                 validDays,
                 cancellationToken);
 
             // Success message
-            logger.LogInformation("{UISymbol} Development certificate generated → {CertificatePath}", UiSymbols.Check, result.CertificatePath);
+            taskContext.AddStatusMessage($"{UiSymbols.Check} Development certificate generated → {result.CertificatePath}");
 
             // Add certificate to .gitignore
             if (updateGitignore)
             {
                 var baseDirectory = outputPath.Directory ?? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
                 var certFileName = result.CertificatePath.Name;
-                gitignoreService.AddCertificateToGitignore(baseDirectory, certFileName);
+
+                result = result with
+                {
+                    UpdatedGitignore = await gitignoreService.AddCertificateToGitignoreAsync(baseDirectory, certFileName, taskContext, cancellationToken)
+                };
             }
 
             // Display password information
             if (password == "password")
             {
-                logger.LogInformation("{UISymbol} Using default password", UiSymbols.Note);
+                taskContext.AddStatusMessage($"{UiSymbols.Note} Using default password");
             }
 
             // Install certificate if requested
             if (install)
             {
-                logger.LogDebug("Installing certificate...");
+                taskContext.AddDebugMessage("Installing certificate...");
 
-                var installResult = InstallCertificate(result.CertificatePath, password, false);
+                var installResult = InstallCertificate(result.CertificatePath, password, false, taskContext);
                 if (installResult)
                 {
-                    logger.LogInformation("{UISymbol} Certificate installed successfully!", UiSymbols.Check);
+                    taskContext.AddStatusMessage($"{UiSymbols.Check} Certificate installed successfully!");
                 }
                 else
                 {
-                    logger.LogInformation("{UISymbol} Certificate was already installed", UiSymbols.Info);
+                    taskContext.AddStatusMessage($"{UiSymbols.Info} Certificate was already installed");
                 }
             }
             else
             {
-                logger.LogInformation("{UISymbol} Use 'winapp cert install' to install the certificate for development", UiSymbols.Note);
+                taskContext.AddStatusMessage($"{UiSymbols.Note} Use 'winapp cert install' to install the certificate for development");
             }
 
             return result;
         }
         catch (Exception ex)
         {
-            logger.LogError("{UISymbol} Failed to generate development certificate: {Message}", UiSymbols.Error, ex.Message);
-            logger.LogDebug(ex, "Certificate generation failed with exception");
+            taskContext.StatusError($"{UiSymbols.Error} Failed to generate development certificate: {ex.Message}");
+            taskContext.AddDebugMessage("Certificate generation failed with exception: " + ex.ToString());
             throw; // Re-throw for callers that want to handle the error differently
         }
     }
@@ -441,6 +447,7 @@ internal partial class CertificateService(
         string? explicitPublisher,
         FileInfo? manifestPath,
         string defaultPublisher,
+        TaskContext taskContext,
         CancellationToken cancellationToken)
     {
         // 1. If explicit publisher is provided, use that
@@ -454,14 +461,14 @@ internal partial class CertificateService(
         {
             try
             {
-                logger.LogInformation("Certificate publisher inferred from: {ManifestPath}", manifestPath);
+                taskContext.AddStatusMessage($"Certificate publisher inferred from: {manifestPath}");
 
                 var identityInfo = await MsixService.ParseAppxManifestFromPathAsync(manifestPath, cancellationToken);
                 return identityInfo.Publisher;
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Could not extract publisher from manifest: {Message}", ex.Message);
+                taskContext.AddDebugMessage($"Could not extract publisher from manifest: {ex.Message}");
             }
         }
 
@@ -471,19 +478,19 @@ internal partial class CertificateService(
         {
             try
             {
-                logger.LogInformation("Certificate publisher inferred from: {ProjectManifestPath}", projectManifestPath);
+                taskContext.AddStatusMessage($"Certificate publisher inferred from: {projectManifestPath}");
 
                 var identityInfo = await MsixService.ParseAppxManifestFromPathAsync(projectManifestPath, cancellationToken);
                 return identityInfo.Publisher;
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Could not extract publisher from project manifest: {Message}", ex.Message);
+                taskContext.AddDebugMessage($"Could not extract publisher from project manifest: {ex.Message}");
             }
         }
 
         // 4. Use default publisher
-        logger.LogInformation("No manifest found, using default publisher: {DefaultPublisher}", defaultPublisher);
+        taskContext.AddStatusMessage($"No manifest found, using default publisher: {defaultPublisher}");
         return defaultPublisher;
     }
 

@@ -3,6 +3,10 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
+using Spectre.Console.Testing;
+using System.CommandLine;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
@@ -17,16 +21,21 @@ public abstract class BaseCommandTests(bool configPaths = true, bool verboseLogg
     private protected IBuildToolsService _buildToolsService = null!;
 
     private ServiceProvider _serviceProvider = null!;
-    protected StringWriter ConsoleStdOut { private set; get; } = null!;
-    protected StringWriter ConsoleStdErr { private set; get; } = null!;
+    private protected OutputCapture ConsoleStdOut { private set; get; } = null!;
+    private protected OutputCapture ConsoleStdErr { private set; get; } = null!;
 
     public TestContext TestContext { get; set; } = null!;
+    private protected TaskContext TestTaskContext { private set; get; } = null!;
+    private protected LiveUpdateSignal LiveUpdateSignal { private set; get; } = null!;
+    private protected TestConsole TestAnsiConsole { private set; get; } = null!;
 
     [TestInitialize]
     public void SetupBase()
     {
-        ConsoleStdOut = new StringWriter();
-        ConsoleStdErr = new StringWriter();
+        TestAnsiConsole = new TestConsole();
+
+        ConsoleStdOut = new OutputCapture(TestAnsiConsole.Profile.Out.Writer);
+        ConsoleStdErr = new OutputCapture(Console.Error);
 
         // Create a temporary directory for testing
         _tempDirectory = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"{this.GetType().Name}_{Guid.NewGuid():N}"));
@@ -36,21 +45,27 @@ public abstract class BaseCommandTests(bool configPaths = true, bool verboseLogg
         _testWinappDirectory = _tempDirectory.CreateSubdirectory(".winapp");
 
         var services = new ServiceCollection()
-            .ConfigureServices()
+            .ConfigureServices(ConsoleStdOut)
             .ConfigureCommands();
         services =
             ConfigureServices(services)
             // Override services
             .AddSingleton<ICurrentDirectoryProvider>(sp => new CurrentDirectoryProvider(_tempDirectory.FullName))
+            .AddSingleton<IAnsiConsole>(TestAnsiConsole)
             .AddLogging(b =>
             {
                 b.ClearProviders();
-                b.AddTextWriterLogger([Console.Out, ConsoleStdOut], [Console.Error, ConsoleStdErr]);
+                b.AddTextWriterLogger(ConsoleStdOut, ConsoleStdErr);
                 // Use Debug level for verbose logging, Information level for non-verbose
                 b.SetMinimumLevel(verboseLogging ? LogLevel.Debug : LogLevel.Information);
             });
 
         _serviceProvider = services.BuildServiceProvider();
+
+        GroupableTask dummyTask = new GroupableTask("Dummy Task", null);
+
+        LiveUpdateSignal = new LiveUpdateSignal();
+        TestTaskContext = new TaskContext(dummyTask, null, TestAnsiConsole, GetRequiredService<ILogger<TaskContext>>(), LiveUpdateSignal);
 
         // Set up services with test cache directory
         if (configPaths)
@@ -63,6 +78,14 @@ public abstract class BaseCommandTests(bool configPaths = true, bool verboseLogg
             directoryService.SetCacheDirectoryForTesting(_testCacheDirectory);
             _buildToolsService = GetRequiredService<IBuildToolsService>();
         }
+    }
+
+    protected async Task<int> ParseAndInvokeWithCaptureAsync(Command command, string[] manifestArgs)
+    {
+        var parseResult = command.Parse(manifestArgs);
+        parseResult.InvocationConfiguration.Output = TestAnsiConsole.Profile.Out.Writer;
+        parseResult.InvocationConfiguration.Error = ConsoleStdErr;
+        return await parseResult.InvokeAsync(parseResult.InvocationConfiguration, cancellationToken: TestContext.CancellationToken);
     }
 
     protected virtual IServiceCollection ConfigureServices(IServiceCollection services)

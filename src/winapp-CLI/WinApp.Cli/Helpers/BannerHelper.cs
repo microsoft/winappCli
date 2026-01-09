@@ -46,12 +46,32 @@ internal static class BannerHelper
 
     private const string ResetColor = "\x1b[0m";
 
+    private static bool? _useEmoji;
+    public static bool UseEmoji => _useEmoji ??= Compute();
+
+    private static bool Compute()
+    {
+        try
+        {
+            bool isUtf8 = Console.OutputEncoding?.CodePage == 65001;
+            bool isVsCode = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("VSCODE_PID")) ||
+                            string.Equals(Environment.GetEnvironmentVariable("TERM_PROGRAM"), "vscode", StringComparison.OrdinalIgnoreCase);
+            bool isWindowsTerminal = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION"));
+            bool notRedirected = !Console.IsOutputRedirected;
+            return isUtf8 && notRedirected && (isVsCode || isWindowsTerminal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Displays the CLI banner with version information.
     /// </summary>
     public static void DisplayBanner()
     {
-        var useColor = UiSymbols.UseEmoji; // Same check - modern terminals support both
+        var useColor = UseEmoji; // Same check - modern terminals support both
         var version = GetVersionString();
         
         Console.WriteLine();

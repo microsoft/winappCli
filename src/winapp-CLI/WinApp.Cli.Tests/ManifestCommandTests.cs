@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 
@@ -16,17 +18,13 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Create a fake logo file for testing
         _testLogoPath = Path.Combine(_tempDirectory.FullName, "testlogo.png");
-        CreateFakeLogoFile(_testLogoPath);
+        PngHelper.CreateTestImage(_testLogoPath);
     }
 
-    /// <summary>
-    /// Creates a minimal fake logo file for testing
-    /// </summary>
-    private static void CreateFakeLogoFile(string path)
+    protected override IServiceCollection ConfigureServices(IServiceCollection services)
     {
-        // Create a minimal PNG-like file (just enough for file existence tests)
-        var pngHeader = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }; // PNG signature
-        File.WriteAllBytes(path, pngHeader);
+        return services
+            .AddSingleton<IDevModeService, FakeDevModeService>();
     }
 
     [TestMethod]
@@ -48,8 +46,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory.FullName,
-            "--yes" // Skip interactive prompts
+            _tempDirectory.FullName
         };
 
         // Act
@@ -83,8 +80,7 @@ public class ManifestCommandTests : BaseCommandTests
             "--publisher-name", "CN=TestPublisher",
             "--version", "2.0.0.0",
             "--description", "Test Application",
-            "--entrypoint", exeFilePath,
-            "--yes" // Skip interactive prompts
+            "--entrypoint", exeFilePath
         };
 
         // Act
@@ -115,8 +111,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--template", "sparse",
-            "--yes" // Skip interactive prompts
+            "--template", "sparse"
         };
 
         // Act
@@ -137,15 +132,14 @@ public class ManifestCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task ManifestGenerateCommandWithLogoShouldCopyLogo()
+    public async Task ManifestGenerateCommandWithLogoShouldGenerateAssets()
     {
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--logo-path", _testLogoPath,
-            "--yes" // Skip interactive prompts
+            "--logo-path", _testLogoPath
         };
 
         // Act
@@ -159,10 +153,29 @@ public class ManifestCommandTests : BaseCommandTests
         var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
         Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
 
-        // Verify logo was copied to Assets directory
+        // Verify Assets directory was created with generated asset files
         var assetsDir = Path.Combine(_tempDirectory.FullName, "Assets");
-        var copiedLogoPath = Path.Combine(assetsDir, "testlogo.png");
-        Assert.IsTrue(File.Exists(copiedLogoPath), "Logo should be copied to Assets directory");
+        Assert.IsTrue(Directory.Exists(assetsDir), "Assets directory should be created");
+
+        // Verify expected MSIX asset files were generated
+        var expectedAssets = new[]
+        {
+            "Square44x44Logo.png",
+            "Square150x150Logo.png",
+            "Wide310x150Logo.png",
+            "StoreLogo.png"
+        };
+
+        foreach (var assetName in expectedAssets)
+        {
+            var assetPath = Path.Combine(assetsDir, assetName);
+            Assert.IsTrue(File.Exists(assetPath), $"Asset {assetName} should be generated");
+
+            // Since the source image is a 1x1 transparent pixel, all generated assets
+            // should be fully transparent (empty canvases)
+            Assert.IsTrue(PngHelper.IsFullyTransparent(assetPath), 
+                $"Asset {assetName} should be fully transparent when generated from a transparent source");
+        }
     }
 
     [TestMethod]
@@ -175,8 +188,7 @@ public class ManifestCommandTests : BaseCommandTests
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
         var args = new[]
         {
-            _tempDirectory.FullName,
-            "--yes" // Skip interactive prompts
+            _tempDirectory.FullName
         };
 
         // Act
@@ -205,7 +217,6 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", exeFilePath,
             "--template", "sparse",
             "--logo-path", _testLogoPath,
-            "--yes",
             "--verbose"
         };
 
@@ -222,13 +233,9 @@ public class ManifestCommandTests : BaseCommandTests
     {
         // Arrange
         var generateCommand = GetRequiredService<ManifestGenerateCommand>();
-        var args = new[]
-        {
-            "--yes" // Skip interactive prompts - no directory argument
-        };
 
         // Act
-        var parseResult = generateCommand.Parse(args);
+        var parseResult = generateCommand.Parse([]);
 
         // Assert
         Assert.IsNotNull(parseResult, "Parse result should not be null");
@@ -246,18 +253,17 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--verbose",
-            "--yes" // Skip interactive prompts
+            "--verbose"
         };
 
-        var parseResult = generateCommand.Parse(args);
-        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+        DefaultAnswers();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(generateCommand, args);
 
         // Assert
         Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
 
-        var output = ConsoleStdOut.ToString();
-        Assert.Contains("Generating manifest", output, "Verbose output should contain generation message");
+        Assert.Contains("Generating manifest", TestAnsiConsole.Output, "Verbose output should contain generation message");
     }
 
     [TestMethod]
@@ -286,8 +292,7 @@ public class ManifestCommandTests : BaseCommandTests
         var args = new[]
         {
             _tempDirectory.FullName,
-            "--logo-path", nonExistentLogoPath,
-            "--yes" // Skip interactive prompts
+            "--logo-path", nonExistentLogoPath
         };
 
         // Act
@@ -352,6 +357,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", pythonScriptPath
         };
 
+        DefaultAnswers();
+
         // Act
         var parseResult = generateCommand.Parse(args);
         var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -387,6 +394,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--template", "hostedapp",
             "--entrypoint", pythonScriptPath
         };
+
+        DefaultAnswers();
 
         var generateParseResult = generateCommand.Parse(generateArgs);
         var generateExitCode = await generateParseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -426,6 +435,8 @@ public class ManifestCommandTests : BaseCommandTests
             "--entrypoint", jsScriptPath
         };
 
+        DefaultAnswers();
+
         // Act
         var parseResult = generateCommand.Parse(args);
         var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
@@ -441,6 +452,16 @@ public class ManifestCommandTests : BaseCommandTests
         var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
         Assert.Contains("Nodejs22", manifestContent, "HostedApp manifest should reference Nodejs22 host");
         Assert.Contains("app.js", manifestContent, "HostedApp manifest should reference the JavaScript file");
+    }
+
+    private void DefaultAnswers()
+    {
+        // Use default answers for prompts during generation (packageName, publisherName, version, description, entryPoint)
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
     }
 
     [TestMethod]
@@ -484,5 +505,56 @@ public class ManifestCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreNotEqual(0, exitCode, "Generate command should fail for unsupported hosted app entry point type");
+    }
+
+    [TestMethod]
+    public async Task ManifestGenerateCommandWithEntrypointShouldUseVersionInfoFromExecutable()
+    {
+        // Arrange - Use winapp.exe which has version info
+        var winappAssemblyPath = typeof(ManifestService).Assembly.Location;
+        
+        if (string.IsNullOrEmpty(winappAssemblyPath) || !File.Exists(winappAssemblyPath))
+        {
+            Assert.Inconclusive("winapp assembly not found");
+            return;
+        }
+
+        // Copy to temp directory with .exe extension
+        var exeFilePath = Path.Combine(_tempDirectory.FullName, "winapp.exe");
+        File.Copy(winappAssemblyPath, exeFilePath);
+
+        var generateCommand = GetRequiredService<ManifestGenerateCommand>();
+        var args = new[]
+        {
+            _tempDirectory.FullName,
+            "--entrypoint", exeFilePath
+        };
+
+        // Act
+        var parseResult = generateCommand.Parse(args);
+        var exitCode = await parseResult.InvokeAsync(cancellationToken: TestContext.CancellationToken);
+
+        // Assert
+        Assert.AreEqual(0, exitCode, "Generate command should complete successfully");
+
+        // Verify manifest was created
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "appxmanifest.xml");
+        Assert.IsTrue(File.Exists(manifestPath), "AppxManifest.xml should be created");
+
+        var manifestContent = await File.ReadAllTextAsync(manifestPath, TestContext.CancellationToken);
+
+        // Verify the executable is referenced in the manifest
+        Assert.Contains("Executable=\"winapp.exe\"", manifestContent, "Manifest should reference the executable entry point");
+
+        var fileVersionInfo = FileVersionInfo.GetVersionInfo(exeFilePath);
+        Assert.Contains($"Description=\"{fileVersionInfo.Comments}\"", manifestContent,
+            "Manifest description should contain FileDescription from executable");
+
+        Assert.Contains("Name=\"winapp\"", manifestContent,
+            "Manifest should contain package name derived from FileDescription");
+
+        // Verify Publisher is set to Microsoft Corporation as per the assembly info
+        Assert.Contains("CN=Microsoft Corporation", manifestContent,
+            "Manifest publisher should be set to Microsoft Corporation from executable");
     }
 }

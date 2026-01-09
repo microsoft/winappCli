@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
@@ -18,13 +19,6 @@ internal class CertGenerateCommand : Command
     public static Option<int> ValidDaysOption { get; }
     public static Option<bool> InstallOption { get; }
     public static Option<IfExists> IfExistsOption { get; }
-
-    internal enum IfExists
-    {
-        Error,
-        Overwrite,
-        Skip
-    }
 
     static CertGenerateCommand()
     {
@@ -58,9 +52,9 @@ internal class CertGenerateCommand : Command
             Description = "Install the certificate to the local machine store after generation",
             DefaultValueFactory = (argumentResult) => false,
         };
-        IfExistsOption = new Option<IfExists> ("--if-exists")
+        IfExistsOption = new Option<IfExists>("--if-exists")
         {
-            Description = "Skip generation if the certificate file already exists",
+            Description = "Skip generation if the file already exists",
             DefaultValueFactory = (argumentResult) => IfExists.Error,
         };
     }
@@ -77,7 +71,7 @@ internal class CertGenerateCommand : Command
         Options.Add(IfExistsOption);
     }
 
-    public class Handler(ICertificateService certificateService, ICurrentDirectoryProvider currentDirectoryProvider, ILogger<CertGenerateCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(ICertificateService certificateService, ICurrentDirectoryProvider currentDirectoryProvider, IStatusService statusService, ILogger<CertGenerateCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -109,19 +103,21 @@ internal class CertGenerateCommand : Command
                 }
             }
 
-            // Use the consolidated certificate generation method with all console output and error handling
-            await certificateService.GenerateDevCertificateWithInferenceAsync(
-                outputPath: output,
-                explicitPublisher: publisher,
-                manifestPath: manifestPath,
-                password: password,
-                validDays: validDays,
-                skipIfExists: false,
-                updateGitignore: true,
-                install: install,
-                cancellationToken: cancellationToken);
-
-            return 0;
+            return await statusService.ExecuteWithStatusAsync("Generating development certificate...", async (taskContext, cancellationToken) =>
+            {
+                // Use the consolidated certificate generation method with all console output and error handling
+                await certificateService.GenerateDevCertificateWithInferenceAsync(
+                    outputPath: output,
+                    taskContext: taskContext,
+                    explicitPublisher: publisher,
+                    manifestPath: manifestPath,
+                    password: password,
+                    validDays: validDays,
+                    updateGitignore: true,
+                    install: install,
+                    cancellationToken: cancellationToken);
+                return (0, "Development certificate generated successfully.");
+            }, cancellationToken);
         }
     }
 }

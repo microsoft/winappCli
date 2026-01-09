@@ -1,24 +1,31 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Win32;
+using Spectre.Console;
 using System.ComponentModel;
 using System.Diagnostics;
-using Microsoft.Extensions.Logging;
-using Microsoft.Win32;
+using WinApp.Cli.ConsoleTasks;
 
 namespace WinApp.Cli.Services;
 
-internal sealed class DevModeService(ILogger<DevModeService> logger) : IDevModeService
+internal sealed class DevModeService : IDevModeService
 {
-    public int EnsureWin11DevMode()
+    public async Task<int> EnsureWin11DevModeAsync(TaskContext taskContext, CancellationToken cancellationToken)
     {
         if (IsEnabled())
         {
-            logger.LogInformation("Developer Mode already enabled.");
+            taskContext.AddDebugMessage("Developer Mode already enabled.");
             return 0;
         }
 
-        logger.LogInformation("Developer Mode is OFF — enabling...");
+        taskContext.AddDebugMessage("Developer Mode is OFF — enabling...");
+
+        var shouldProceed = await taskContext.PromptAsync(new ConfirmationPrompt("Enabling Developer Mode requires administrative privileges. You may be prompted by User Account Control (UAC). Do you want to proceed?"), cancellationToken);
+        if (!shouldProceed)
+        {
+            return -1;
+        }
 
         // 1) Prefer PowerShell elevated
         string ps = Path.Combine(
@@ -37,7 +44,7 @@ Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModel
                 $"-NoProfile -ExecutionPolicy Bypass -Command \"& {{ {EscapeForPSArg(psScript)} }}\"");
             if (exit == 0 || exit == 3010)
             {
-                logger.LogInformation("Developer Mode enabled (via PowerShell).");
+                taskContext.AddDebugMessage("Developer Mode enabled (via PowerShell).");
                 return exit;
             }
         }
@@ -56,7 +63,7 @@ Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModel
         var cmdExit = RunElevated(cmd, "/c " + regCmds);
         if (cmdExit == 0)
         {
-            logger.LogInformation("Developer Mode enabled (via reg.exe fallback).");
+            taskContext.AddDebugMessage("Developer Mode enabled (via reg.exe fallback).");
         }
 
         return cmdExit;
