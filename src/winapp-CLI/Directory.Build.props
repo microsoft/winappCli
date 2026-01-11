@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <Copyright>Copyright (C) 2025 Microsoft Corporation</Copyright>
-    <AssemblyCompany>Microsoft Corp.</AssemblyCompany>
-    <AssemblyCopyright>Copyright (C) 2025 Microsoft Corporation</AssemblyCopyright>
+    <Copyright>Copyright (C) Microsoft Corporation</Copyright>
+    <AssemblyCompany>Microsoft Corporation</AssemblyCompany>
+    <AssemblyCopyright>Copyright (C) Microsoft Corporation</AssemblyCopyright>
     <AssemblyProduct>WinAppCli</AssemblyProduct>
     <Company>Microsoft Corporation</Company>
     <NeutralLanguage>en-US</NeutralLanguage>
