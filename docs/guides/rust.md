@@ -40,11 +40,10 @@ cargo run
 
 We'll update the app to check if it's running with package identity. We'll use the `windows` crate to access Windows APIs.
 
-First, add the `windows` dependency to your `Cargo.toml`:
+First, add the `windows` dependency to your `Cargo.toml` by running:
 
-```toml
-[dependencies]
-windows = { version = "0.58", features = ["ApplicationModel"] }
+```powershell
+cargo add windows --features ApplicationModel
 ```
 
 Next, replace the contents of `src/main.rs` with the following code. This code attempts to retrieve the current package identity. If it succeeds, it prints the Package Family Name; otherwise, it prints "Not packaged".
