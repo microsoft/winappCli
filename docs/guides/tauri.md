@@ -212,8 +212,7 @@ winapp pack .\dist --cert .\devcert.pfx
 Before you can install the MSIX package, you need to install the development certificate. Run this command as administrator:
 
 ```powershell
-# install certificate locally - run with sudo or as administrator
-sudo winapp cert install .\devcert.pfx
+winapp cert install .\devcert.pfx
 ```
 
 ### Install and Run

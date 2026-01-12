@@ -181,7 +181,6 @@ Open `appxmanifest.xml` and add the `uap5` namespace to the `<Package>` tag if i
 Since `winapp init` already generated the development certificate, you can proceed directly to packaging:
 
 ```powershell
-# package and sign the app with the generated certificate
 winapp pack .\dist --cert .\devcert.pfx 
 ```
 
