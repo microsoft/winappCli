@@ -5,10 +5,10 @@ using System.Text.Json.Serialization;
 
 namespace WinApp.Cli.Models;
 
-[JsonConverter(typeof(JsonStringEnumConverter<ManifestTemplates>))]
-public enum ManifestTemplates
+[JsonConverter(typeof(JsonStringEnumConverter<IfExists>))]
+public enum IfExists
 {
-    Packaged,
-    Sparse,
-    HostedApp
+    Error,
+    Overwrite,
+    Skip
 }

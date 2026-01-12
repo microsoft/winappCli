@@ -2,19 +2,19 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
-using System;
+using Spectre.Console;
 using System.Diagnostics;
 
 namespace WinApp.Cli.Services;
 
-internal class MSStoreCLIService(ILogger<MSStoreCLIService> logger) : IMSStoreCLIService
+internal class MSStoreCLIService(IAnsiConsole ansiConsole, ILogger<MSStoreCLIService> logger) : IMSStoreCLIService
 {
     public async Task EnsureMSStoreCLIAvailableAsync(CancellationToken cancellationToken = default)
     {
         if (!IsMSStoreCLIInPath())
         {
             // MSStoreCLI is not in the path, proceed to install it via winget
-            var confirm = Program.PromptYesNo("MSStoreCLI not installed - install MSStore Developer CLI with winget (user interaction may be required)? (y/N) ");
+            var confirm = await ansiConsole.PromptAsync(new ConfirmationPrompt("MSStoreCLI not installed - install MSStore Developer CLI with winget (user interaction may be required)?"), cancellationToken);
             if (!confirm)
             {
                 throw new InvalidOperationException("MSStoreCLI is required but not installed.");

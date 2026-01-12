@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
+using Spectre.Console;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Text.RegularExpressions;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
@@ -14,31 +15,19 @@ namespace WinApp.Cli.Services;
 internal partial class ManifestService(
     IManifestTemplateService manifestTemplateService,
     IImageAssetService imageAssetService,
-    ICurrentDirectoryProvider currentDirectoryProvider,
-    ILogger<ManifestService> logger) : IManifestService
+    IAnsiConsole ansiConsole) : IManifestService
 {
-    public async Task GenerateManifestAsync(
+    public async Task<ManifestGenerationInfo> PromptForManifestInfoAsync(
         DirectoryInfo directory,
         string? packageName,
         string? publisherName,
         string version,
         string? description,
         string? entryPoint,
-        ManifestTemplates manifestTemplate,
-        FileInfo? logoPath,
-        bool yes,
+        bool useDefaults,
         CancellationToken cancellationToken = default)
     {
-        logger.LogDebug("Generating manifest in directory: {Directory}", directory);
-
-        // Check if manifest already exists
-        var manifestPath = MsixService.FindProjectManifest(currentDirectoryProvider, directory);
-        if (manifestPath?.Exists == true)
-        {
-            throw new InvalidOperationException($"Manifest already exists at: {manifestPath}");
-        }
-
-        // Interactive mode if not --yes (get defaults for prompts)
+        // Interactive mode if not --use-defaults (get defaults for prompts)
         if (!string.IsNullOrEmpty(entryPoint))
         {
             var fileVersionInfo = FileVersionInfo.GetVersionInfo(entryPoint);
@@ -63,17 +52,43 @@ internal partial class ManifestService(
         publisherName ??= SystemDefaultsHelper.GetDefaultPublisherCN();
         entryPoint ??= $"{packageName}.exe";
 
-        // Interactive mode if not --yes
-        if (!yes)
+        packageName = CleanPackageName(packageName);
+
+        // Interactive mode if not --use-defaults
+        if (!useDefaults)
         {
-            packageName = PromptForValue("Package name", packageName);
-            publisherName = PromptForValue("Publisher name", publisherName);
-            version = PromptForValue("Version", version);
-            description = PromptForValue("Description", description);
-            entryPoint = PromptForValue("EntryPoint/Executable", entryPoint);
+            packageName = await PromptForValueAsync(ansiConsole, "Package name", packageName, cancellationToken);
+            publisherName = await PromptForValueAsync(ansiConsole, "Publisher name", publisherName, cancellationToken);
+            version = await PromptForValueAsync(ansiConsole, "Version", version, cancellationToken);
+            description = await PromptForValueAsync(ansiConsole, "Description", description, cancellationToken);
+            entryPoint = await PromptForValueAsync(ansiConsole, "EntryPoint/Executable", entryPoint, cancellationToken);
         }
 
-        logger.LogDebug("Logo path: {LogoPath}", logoPath?.FullName ?? "None");
+        return new ManifestGenerationInfo(
+            packageName,
+            publisherName,
+            version,
+            description,
+            entryPoint);
+    }
+
+    public async Task GenerateManifestAsync(
+        DirectoryInfo directory,
+        ManifestGenerationInfo manifestGenerationInfo,
+        ManifestTemplates manifestTemplate,
+        FileInfo? logoPath,
+        TaskContext taskContext,
+        CancellationToken cancellationToken = default)
+    {
+        taskContext.AddDebugMessage($"Generating manifest in directory: {directory}");
+
+        string? packageName = manifestGenerationInfo.PackageName;
+        string? publisherName = manifestGenerationInfo.PublisherName;
+        string version = manifestGenerationInfo.Version;
+        string description = manifestGenerationInfo.Description;
+        string? entryPoint = manifestGenerationInfo.EntryPoint;
+
+        taskContext.AddDebugMessage($"Logo path: {logoPath?.FullName ?? "None"}");
 
         packageName = CleanPackageName(packageName);
 
@@ -92,7 +107,7 @@ internal partial class ManifestService(
         {
             if (!File.Exists(entryPointAbsolute))
             {
-                logger.LogDebug("Hosted app entry point file not found: {EntryPointAbsolute}", entryPointAbsolute);
+                taskContext.AddDebugMessage($"Hosted app entry point file not found: {entryPointAbsolute}");
                 throw new FileNotFoundException($"Hosted app entry point file not found.", entryPointAbsolute);
             }
 
@@ -133,6 +148,7 @@ internal partial class ManifestService(
             hostRuntimeDependencyPackageName,
             hostRuntimeDependencyPublisherName,
             hostRuntimeDependencyMinVersion,
+            taskContext,
             cancellationToken);
 
         string? extractedLogoPath = null;
@@ -140,7 +156,7 @@ internal partial class ManifestService(
         // If no logo provided, extract from entry point
         if (logoPath == null)
         {
-            logger.LogDebug("No logo path provided, attempting to extract from entry point: {EntryPointAbsolute}", entryPointAbsolute);
+            taskContext.AddDebugMessage($"No logo path provided, attempting to extract from entry point: {entryPointAbsolute}");
             Icon? extractedIcon = null;
             try
             {
@@ -158,7 +174,7 @@ internal partial class ManifestService(
                     }
 
                     logoPath = new FileInfo(extractedLogoPath);
-                    logger.LogDebug("Extracted logo path: {ExtractedLogoPath}", logoPath.FullName);
+                    taskContext.AddDebugMessage($"Extracted logo path: {logoPath.FullName}");
                 }
             }
             finally
@@ -170,12 +186,12 @@ internal partial class ManifestService(
             }
         }
 
-        manifestPath ??= new FileInfo(Path.Combine(directory.FullName, "appxmanifest.xml"));
 
         // If logo path is provided, update manifest assets
         if (logoPath?.Exists == true)
         {
-            await UpdateManifestAssetsAsync(manifestPath, logoPath, cancellationToken);
+            var manifestPath = new FileInfo(Path.Combine(directory.FullName, "appxmanifest.xml"));
+            await UpdateManifestAssetsAsync(manifestPath, logoPath, taskContext, cancellationToken);
         }
 
         if (extractedLogoPath != null)
@@ -188,7 +204,7 @@ internal partial class ManifestService(
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Could not delete temporary extracted logo: {ErrorMessage}", ex.Message);
+                taskContext.AddDebugMessage($"Could not delete temporary extracted logo: {ex.Message}");
             }
         }
     }
@@ -246,16 +262,20 @@ internal partial class ManifestService(
         return cleaned;
     }
 
-    private static string PromptForValue(string prompt, string defaultValue)
+    private static async Task<string> PromptForValueAsync(IAnsiConsole ansiConsole, string prompt, string defaultValue, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrEmpty(defaultValue))
-        {
-            return defaultValue;
-        }
+        var result = await ansiConsole.PromptAsync(
+            new TextPrompt<string>(prompt)
+                .AllowEmpty()
+                .DefaultValue(defaultValue)
+                .ShowDefaultValue(),
+            cancellationToken);
 
-        Console.Write($"{prompt} ({defaultValue}): ");
-        var input = Console.ReadLine();
-        return string.IsNullOrWhiteSpace(input) ? defaultValue : input.Trim();
+        ansiConsole.Cursor.MoveUp();
+        ansiConsole.Write("\x1b[2K"); // Clear line
+        ansiConsole.MarkupLine($"{prompt}: [underline]{result}[/]");
+
+        return result;
     }
 
     [GeneratedRegex(@"[^A-Za-z0-9\-_. ]")]
@@ -264,9 +284,10 @@ internal partial class ManifestService(
     public async Task UpdateManifestAssetsAsync(
         FileInfo manifestPath,
         FileInfo imagePath,
+        TaskContext taskContext,
         CancellationToken cancellationToken = default)
     {
-        logger.LogInformation("{UISymbol} Updating assets for manifest: {ManifestPath}", UiSymbols.Info, manifestPath.Name);
+        taskContext.AddStatusMessage($"{UiSymbols.Info} Updating assets for manifest: {manifestPath.FullName}");
 
         // Determine the Assets directory relative to the manifest
         var manifestDir = manifestPath.Directory;
@@ -278,16 +299,13 @@ internal partial class ManifestService(
         var assetsDir = manifestDir.CreateSubdirectory("Assets");
 
         // Generate the image assets
-        await imageAssetService.GenerateAssetsAsync(imagePath, assetsDir, cancellationToken);
+        await imageAssetService.GenerateAssetsAsync(imagePath, assetsDir, taskContext, cancellationToken);
 
         // Verify that the manifest references the Assets directory correctly
-        VerifyManifestAssetReferences(manifestPath);
-
-        logger.LogInformation("{UISymbol} Image assets updated successfully!", UiSymbols.Party);
-        logger.LogInformation("Assets generated in: {AssetsPath}", assetsDir.FullName);
+        VerifyManifestAssetReferences(manifestPath, taskContext);
     }
 
-    private void VerifyManifestAssetReferences(FileInfo manifestPath)
+    private static void VerifyManifestAssetReferences(FileInfo manifestPath, TaskContext taskContext)
     {
         try
         {
@@ -322,13 +340,13 @@ internal partial class ManifestService(
 
             if (!hasAssetReferences)
             {
-                logger.LogWarning("{UISymbol} Manifest may not reference the Assets directory. Image assets were generated but may not be used by the manifest.", UiSymbols.Warning);
-                logger.LogInformation("Consider updating your manifest to reference assets like: Assets\\Square150x150Logo.png");
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} Manifest may not reference the Assets directory. Image assets were generated but may not be used by the manifest.");
+                taskContext.AddStatusMessage("Consider updating your manifest to reference assets like: Assets\\Square150x150Logo.png");
             }
         }
         catch (Exception ex)
         {
-            logger.LogDebug("Could not verify manifest asset references: {ErrorMessage}", ex.Message);
+            taskContext.AddDebugMessage($"Could not verify manifest asset references: {ex.Message}");
         }
     }
 }

@@ -1,15 +1,15 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using WinApp.Cli.ConsoleTasks;
 
 namespace WinApp.Cli.Services;
 
 /// <summary>
 /// Service for executing PowerShell commands
 /// </summary>
-internal class PowerShellService(ILogger<PowerShellService> logger) : IPowerShellService
+internal class PowerShellService : IPowerShellService
 {
     /// <summary>
     /// Runs a PowerShell command and returns the exit code and output
@@ -21,15 +21,16 @@ internal class PowerShellService(ILogger<PowerShellService> logger) : IPowerShel
     /// <returns>Tuple containing (exitCode, stdout)</returns>
     public async Task<(int exitCode, string output)> RunCommandAsync(
         string command,
+        TaskContext taskContext,
         bool elevated = false,
         Dictionary<string, string>? environmentVariables = null,
         CancellationToken cancellationToken = default)
     {
         var elevatedText = elevated ? "elevated " : "";
-        logger.LogDebug("Running {Elevated}PowerShell: {Command}", elevatedText, command);
+        taskContext.AddDebugMessage($"Running {elevatedText}PowerShell: {command}");
         if (elevated)
         {
-            logger.LogDebug("UAC prompt may appear...");
+            taskContext.AddDebugMessage("UAC prompt may appear...");
         }
 
         // Build a safe, profile-less, non-interactive PowerShell invocation
@@ -104,11 +105,11 @@ internal class PowerShellService(ILogger<PowerShellService> logger) : IPowerShel
 
         if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stdErr))
         {
-            logger.LogDebug("PowerShell error: {StdErr}", stdErr);
+            taskContext.AddDebugMessage($"PowerShell error: {stdErr}");
         }
         else if (!string.IsNullOrWhiteSpace(stdOut))
         {
-            logger.LogDebug("PowerShell output: {StdOut}", stdOut.Trim());
+            taskContext.AddDebugMessage($"PowerShell output: {stdOut.Trim()}");
         }
 
         // For elevated commands, exit codes may not be reliable, so we return 0 if no exception occurred

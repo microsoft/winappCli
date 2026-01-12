@@ -15,10 +15,10 @@ winapp init [base-directory] [options]
 **Options:**
 
 - `--config-dir <path>` - Directory to read/store configuration (default: current directory)
-- `--prerelease` - Include prerelease packages from NuGet
+- `--setup-sdks` - SDK installation mode: 'stable' (default), 'preview', 'experimental', or 'none' (skip SDK installation)
 - `--ignore-config`, `--no-config` - Don't use configuration file for version management
 - `--no-gitignore` - Don't update .gitignore file
-- `--yes`, `--no-prompt` - Assume yes to all prompts
+- `--use-defaults`, `--no-prompt` - Do not prompt, and use default of all prompts
 - `--no-cert` - Skip development certificate generation
 - `--config-only` - Only handle configuration file operations, skip package installation
 
@@ -38,11 +38,11 @@ winapp init [base-directory] [options]
 # Initialize current directory
 winapp init
 
-# Initialize with prerelease packages
-winapp init --prerelease
+# Initialize with experimental packages
+winapp init --setup-sdks experimental
 
-# Initialize specific directory with auto-yes
-winapp init ./my-project --yes
+# Initialize specific directory without promts
+winapp init ./my-project --use-defaults
 ```
 
 ---
@@ -71,9 +71,6 @@ winapp restore [options]
 ```bash
 # Restore from winapp.yaml in current directory
 winapp restore
-
-# Restore with prerelease packages
-winapp restore --prerelease
 ```
 
 ---
@@ -89,7 +86,7 @@ winapp update [options]
 **Options:**
 
 - `--config-dir <path>` - Directory containing winapp.yaml (default: current directory)
-- `--prerelease` - Include prerelease packages from NuGet
+- `----setup-sdks` - SDK installation mode: 'stable' (default), 'preview', 'experimental', or 'none' (skip SDK installation)
 
 **What it does:**
 
@@ -104,8 +101,8 @@ winapp update [options]
 # Update packages to latest versions
 winapp update
 
-# Update including prerelease packages
-winapp update --prerelease
+# Update including experimental packages
+winapp update --setup-sdks experimental
 ```
 
 ---
@@ -221,7 +218,7 @@ winapp manifest generate [directory] [options]
 - `--entrypoint <path>` - Entry point executable or script
 - `--template <type>` - Template type: `packaged` (default) or `hostedapp`
 - `--logo-path <path>` - Path to logo image file
-- `--yes`, `-y` - Skip interactive prompts
+- `--if-exists <Error|Overwrite|Skip>` - Set behavior if the certificate file already exists (default: Error)
 
 **Templates:**
 
@@ -239,7 +236,7 @@ winapp manifest generate
 winapp manifest generate --template hostedapp --entrypoint app.py
 
 # Generate with all options specified
-winapp manifest generate ./src --package-name MyApp --publisher-name "CN=My Company" --yes
+winapp manifest generate ./src --package-name MyApp --publisher-name "CN=My Company" --if-exists overwrite
 ```
 
 #### manifest update-assets

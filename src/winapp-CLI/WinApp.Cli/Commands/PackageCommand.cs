@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
@@ -94,7 +93,7 @@ internal class PackageCommand : Command
         Options.Add(SelfContainedOption);
     }
 
-    public class Handler(IMsixService msixService, ILogger<PackageCommand> logger) : AsynchronousCommandLineAction
+    public class Handler(IMsixService msixService, IStatusService statusService) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -109,29 +108,32 @@ internal class PackageCommand : Command
             var publisher = parseResult.GetValue(PublisherOption);
             var manifestPath = parseResult.GetValue(ManifestOption);
             var selfContained = parseResult.GetValue(SelfContainedOption);
-            try
+
+            return await statusService.ExecuteWithStatusAsync("Creating MSIX package...", async (taskContext, cancellationToken) =>
             {
-                // Auto-sign if certificate is provided or if generate-cert is specified
-                var autoSign = certPath != null || generateCert;
-
-                var result = await msixService.CreateMsixPackageAsync(inputFolder, output, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, cancellationToken);
-
-                logger.LogInformation("{UISymbol} MSIX package created successfully!", UiSymbols.Check);
-
-                logger.LogInformation("{UISymbol} Package: {PackagePath}", UiSymbols.Package, result.MsixPath);
-                if (result.Signed)
+                try
                 {
-                    logger.LogInformation("{UISymbol} Package has been signed", UiSymbols.Lock);
-                }
+                    // Auto-sign if certificate is provided or if generate-cert is specified
+                    var autoSign = certPath != null || generateCert;
 
-                return 0;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError("{UISymbol} Failed to create MSIX package: {ErrorMessage}", UiSymbols.Error, ex.Message);
-                logger.LogDebug("Stack Trace: {StackTrace}", ex.StackTrace);
-                return 1;
-            }
+                    var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, cancellationToken);
+
+                    taskContext.AddStatusMessage($"{UiSymbols.Check} MSIX package created successfully!");
+
+                    taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
+                    if (result.Signed)
+                    {
+                        taskContext.AddStatusMessage($"{UiSymbols.Lock} Package has been signed");
+                    }
+
+                    return (0, "MSIX package creation completed.");
+                }
+                catch (Exception ex)
+                {
+                    taskContext.AddDebugMessage($"Stack Trace: {ex.StackTrace}");
+                    return (1, $"{UiSymbols.Error} Failed to create MSIX package: {ex.Message}");
+                }
+            }, cancellationToken);
         }
     }
 }

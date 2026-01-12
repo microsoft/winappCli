@@ -50,12 +50,12 @@ internal static class Program
         }
 
         var services = new ServiceCollection()
-            .ConfigureServices()
+            .ConfigureServices(Console.Out)
             .ConfigureCommands()
             .AddLogging(b =>
             {
                 b.ClearProviders();
-                b.AddTextWriterLogger([Console.Out], [Console.Error]);
+                b.AddTextWriterLogger(Console.Out, Console.Error);
                 b.SetMinimumLevel(minimumLogLevel);
             });
 
@@ -93,13 +93,5 @@ internal static class Program
             Console.Error.WriteLine($"An unexpected error occurred: {ex.Message}");
             return 1;
         }
-    }
-
-    internal static bool PromptYesNo(string message)
-    {
-        Console.Write(message);
-        var input = Console.ReadLine()?.Trim() ?? "";
-        return input.Equals("y", StringComparison.OrdinalIgnoreCase) ||
-               input.Equals("yes", StringComparison.OrdinalIgnoreCase);
     }
 }

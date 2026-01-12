@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using System.CommandLine.Invocation;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Commands;
 
@@ -16,6 +18,26 @@ internal class WinAppRootCommand : RootCommand
     {
         Description = "Suppress progress messages"
     };
+
+    internal static readonly Option<bool> CliSchemaOption = new("--cli-schema")
+    {
+        Description = "Outputs the CLI command schema in JSON format",
+        Arity = ArgumentArity.Zero,
+        Recursive = true,
+        Hidden = true,
+        Action = new PrintCliSchemaAction()
+    };
+
+    private class PrintCliSchemaAction : SynchronousCommandLineAction
+    {
+        public override bool Terminating => true;
+
+        public override int Invoke(ParseResult parseResult)
+        {
+            CliSchema.PrintCliSchema(parseResult.CommandResult, parseResult.InvocationConfiguration.Output);
+            return 0;
+        }
+    }
 
     public WinAppRootCommand(
         InitCommand initCommand,
@@ -41,5 +63,7 @@ internal class WinAppRootCommand : RootCommand
         Subcommands.Add(signCommand);
         Subcommands.Add(toolCommand);
         Subcommands.Add(msStoreCommand);
+
+        Options.Add(CliSchemaOption);
     }
 }

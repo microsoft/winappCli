@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
@@ -12,7 +12,7 @@ namespace WinApp.Cli.Services;
 /// <summary>
 /// Shared service for manifest template operations and utilities
 /// </summary>
-internal partial class ManifestTemplateService(ILogger<ManifestTemplateService> logger) : IManifestTemplateService
+internal partial class ManifestTemplateService : IManifestTemplateService
 {
     private static readonly char[] WordSeparators = [' ', '-', '_'];
 
@@ -201,7 +201,7 @@ internal partial class ManifestTemplateService(ILogger<ManifestTemplateService> 
     /// </summary>
     /// <param name="outputDirectory">Directory to generate assets in</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    private async Task GenerateDefaultAssetsAsync(DirectoryInfo outputDirectory, CancellationToken cancellationToken = default)
+    private static async Task GenerateDefaultAssetsAsync(DirectoryInfo outputDirectory, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         var assetsDir = outputDirectory.CreateSubdirectory("Assets");
 
@@ -221,7 +221,7 @@ internal partial class ManifestTemplateService(ILogger<ManifestTemplateService> 
             await using var fs = File.Create(target);
             await s.CopyToAsync(fs, cancellationToken);
 
-            logger.LogDebug("✓ Generated asset: {FileName}", fileName);
+            taskContext.AddDebugMessage($"✓ Generated asset: {fileName}");
         }
     }
 
@@ -249,39 +249,40 @@ internal partial class ManifestTemplateService(ILogger<ManifestTemplateService> 
         string? hostRuntimeDependencyPackageName,
         string? hostRuntimeDependencyPublisherName,
         string? hostRuntimeDependencyMinVersion,
+        TaskContext taskContext,
         CancellationToken cancellationToken = default)
     {
         // Normalize publisher name
         publisherName = StripCnPrefix(NormalizePublisher(publisherName));
 
-        logger.LogDebug("Package name: {PackageName}", packageName);
-        logger.LogDebug("Publisher: {PublisherName}", publisherName);
-        logger.LogDebug("Version: {Version}", version);
-        logger.LogDebug("Description: {Description}", description);
+        taskContext.AddDebugMessage($"Package name: {packageName}");
+        taskContext.AddDebugMessage($"Publisher: {publisherName}");
+        taskContext.AddDebugMessage($"Version: {version}");
+        taskContext.AddDebugMessage($"Description: {description}");
         if (!string.IsNullOrEmpty(hostId))
         {
-            logger.LogDebug("Host ID: {HostId}", hostId);
+            taskContext.AddDebugMessage($"Host ID: {hostId}");
         }
         if (!string.IsNullOrEmpty(hostParameters))
         {
-            logger.LogDebug("Host Parameters: {HostParameters}", hostParameters);
+            taskContext.AddDebugMessage($"Host Parameters: {hostParameters}");
         }
         if (!string.IsNullOrEmpty(hostRuntimeDependencyPackageName))
         {
-            logger.LogDebug("Host Runtime Dependency Package Name: {HostRuntimeDependencyPackageName}", hostRuntimeDependencyPackageName);
+            taskContext.AddDebugMessage($"Host Runtime Dependency Package Name: {hostRuntimeDependencyPackageName}");
         }
         if (!string.IsNullOrEmpty(hostRuntimeDependencyPublisherName))
         {
             hostRuntimeDependencyPublisherName = StripCnPrefix(NormalizePublisher(hostRuntimeDependencyPublisherName));
-            logger.LogDebug("Host Runtime Dependency Publisher Name: {HostRuntimeDependencyPublisherName}", hostRuntimeDependencyPublisherName);
+            taskContext.AddDebugMessage($"Host Runtime Dependency Publisher Name: {hostRuntimeDependencyPublisherName}");
         }
         if (!string.IsNullOrEmpty(hostRuntimeDependencyMinVersion))
         {
-            logger.LogDebug("Host Runtime Dependency Min Version: {HostRuntimeDependencyMinVersion}", hostRuntimeDependencyMinVersion);
+            taskContext.AddDebugMessage($"Host Runtime Dependency Min Version: {hostRuntimeDependencyMinVersion}");
         }
 
-        logger.LogDebug("EntryPoint/Executable: {EntryPoint}", entryPoint);
-        logger.LogDebug("Manifest template: {ManifestTemplate}", manifestTemplate);
+        taskContext.AddDebugMessage($"EntryPoint/Executable: {entryPoint}");
+        taskContext.AddDebugMessage($"Manifest template: {manifestTemplate}");
 
         // Create output directory if needed
         outputDirectory.Create();
@@ -308,6 +309,6 @@ internal partial class ManifestTemplateService(ILogger<ManifestTemplateService> 
         await File.WriteAllTextAsync(manifestPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
         // Generate default assets
-        await GenerateDefaultAssetsAsync(outputDirectory, cancellationToken);
+        await GenerateDefaultAssetsAsync(outputDirectory, taskContext, cancellationToken);
     }
 }
