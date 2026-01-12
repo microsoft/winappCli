@@ -197,7 +197,7 @@ sudo winapp cert install .\devcert.pfx
 ```
 
 ### Install and Run
-Install the package by doubleclicking the generated *.msix file
+Install the package by double-clicking the generated *.msix file
 
 Now you can run your app from anywhere in the terminal by typing:
 
