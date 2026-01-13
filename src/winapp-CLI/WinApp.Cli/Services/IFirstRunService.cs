@@ -5,5 +5,5 @@ namespace WinApp.Cli.Services;
 
 internal interface IFirstRunService
 {
-    public void CheckAndDisplayFirstRunNotice();
+    public bool CheckAndDisplayFirstRunNotice();
 }
