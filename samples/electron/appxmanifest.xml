@@ -17,7 +17,7 @@
     Version="1.0.0.0" />
 
   <Properties>
-    <DisplayName>Electron WinApp Sample</DisplayName>
+    <DisplayName>Electron winapp Sample</DisplayName>
     <PublisherDisplayName>Sample Author</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -38,7 +38,7 @@
       uap10:TrustLevel="mediumIL" 
       uap10:RuntimeBehavior="packagedClassicApp">
       <uap:VisualElements
-        DisplayName="Electron WinApp Sample"
+        DisplayName="Electron winapp Sample"
         Description="Electron Application"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
