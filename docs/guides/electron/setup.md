@@ -39,7 +39,7 @@ npm start
 
 You should see the default Electron Forge window. Close it and let's add Windows capabilities!
 
-## Step 2: Install WinAppCLI
+## Step 2: Install winapp CLI
 
 ```bash
 npm install --save-dev @microsoft/winappcli

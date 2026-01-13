@@ -18,7 +18,7 @@ Building a Windows-enabled Electron app involves three main phases:
 
 First, you'll set up your development environment with the necessary tools and SDKs. This includes:
 - Creating or configuring an Electron app
-- Installing WinAppCLI
+- Installing winapp CLI
 - Initializing Windows SDKs and required assets
 - Setting up your build pipeline
 
@@ -76,7 +76,7 @@ Before starting, ensure you have:
 
 ## Additional Resources
 
-- **[WinAppCLI Documentation](usage.md)** - Full CLI reference
+- **[winapp CLI Documentation](usage.md)** - Full CLI reference
 - **[Sample Electron App](../samples/electron/)** - Complete working example
 - **[AI Dev Gallery](https://aka.ms/aidevgallery)** - Sample gallery of all AI APIs 
 - **[Windows App SDK Samples](https://github.com/microsoft/WindowsAppSDK-Samples)** - Collection of Windows App SDK samples

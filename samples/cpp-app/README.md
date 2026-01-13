@@ -1,6 +1,6 @@
 # C++ Sample Application
 
-This sample demonstrates how to use WinAppCLI with a C++ application built with CMake to add package identity and package as MSIX.
+This sample demonstrates how to use winapp CLI with a C++ application built with CMake to add package identity and package as MSIX.
 
 For a complete step-by-step guide, see the [C++ Getting Started Guide](../../docs/guides/cpp.md).
 

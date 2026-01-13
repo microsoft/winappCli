@@ -15,7 +15,7 @@ A standard executable (like one created with `cargo build`) does not have packag
     winget install Rustlang.Rustup
     ```
 
-2.  **WinAppCLI**: Install the `winapp` tool via winget:
+2.  **winapp CLI**: Install the `winapp` tool via winget:
     ```powershell
     winget install microsoft.winappcli
     ```
@@ -79,7 +79,7 @@ cargo run
 
 You should see the output "Not packaged". This confirms that the standard executable is running without any package identity.
 
-## 4. Initialize Project with WinAppCLI
+## 4. Initialize Project with winapp CLI
 
 The `winapp init` command sets up everything you need in one go: app manifest, assets, and development certificate.
 

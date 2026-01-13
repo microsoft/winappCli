@@ -1,4 +1,4 @@
-# Using WinAppCLI with C++ and CMake
+# Using winapp CLI with C++ and CMake
 
 This guide demonstrates how to use `winappcli` with a C++ application to debug with package identity and package your application as an MSIX.
 
@@ -18,9 +18,9 @@ A standard executable (like one created with `cmake --build`) does not have pack
     winget install Kitware.CMake
     ```
 
-3.  **WinAppCLI**: Install the `winapp` tool via winget:
+3.  **winapp CLI**: Install the `winapp` tool via winget:
     ```powershell
-    winget install Microsoft.WinAppCli
+    winget install Microsoft.winappcli
     ```
 
 ## 1. Create a New C++ App
@@ -127,7 +127,7 @@ cmake --build build --config Debug
 
 You should see the output "Not packaged". This confirms that the standard executable is running without any package identity.
 
-## 4. Initialize Project with WinAppCLI
+## 4. Initialize Project with winapp CLI
 
 The `winapp init` command sets up everything you need in one go: app manifest, assets, development certificate, and optionally Windows App SDK headers for C++ development.
 
@@ -336,7 +336,7 @@ if(NOT WINAPP_CLI)
     set(WINAPP_CLI "${WINAPP_DIR}/winapp.exe")
     
     if(NOT EXISTS "${WINAPP_CLI}")
-        message(STATUS "Downloading WinAppCLI...")
+        message(STATUS "Downloading winapp CLI...")
         
         # Determine architecture
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
@@ -355,7 +355,7 @@ if(NOT WINAPP_CLI)
         
         file(ARCHIVE_EXTRACT INPUT "${WINAPP_ZIP}" DESTINATION "${WINAPP_DIR}")
         file(REMOVE "${WINAPP_ZIP}")
-        message(STATUS "WinAppCLI downloaded to ${WINAPP_DIR}")
+        message(STATUS "winapp CLI downloaded to ${WINAPP_DIR}")
     endif()
 endif()
 

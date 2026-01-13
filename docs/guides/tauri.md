@@ -10,7 +10,7 @@ For a complete working example, check out the [Tauri sample](../../samples/tauri
 
 1. **Windows 11** 
 1. **Node.js** - `winget install OpenJS.NodeJS`
-1. **WinAppCLI** - `winget install microsoft.winappcli`
+1. **winapp CLI** - `winget install microsoft.winappcli`
 
 ## 1. Create a New Tauri App
 
@@ -128,7 +128,7 @@ We'll update the app to check if it's running with package identity. We'll use t
 
     You should see "Not running with package identity" in the app window. This confirms that the standard development build is running without package identity.
 
-## 3. Initialize Project with WinAppCLI
+## 3. Initialize Project with winapp CLI
 
 The `winapp init` command sets up everything you need in one go: app manifest, assets, and development certificate.
 

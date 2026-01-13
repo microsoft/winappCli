@@ -94,7 +94,7 @@ Additional guides:
 
 The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
 
-`winget install Microsoft.WinAppCli`
+`winget install Microsoft.winappcli`
 
 ### NPM <a href="https://www.npmjs.com/package/@microsoft/winappcli"> <img src="https://img.shields.io/npm/v/%40microsoft%2Fwinappcli?style=for-the-badge&logo=npm" alt="NPM" height="24"></a>
 

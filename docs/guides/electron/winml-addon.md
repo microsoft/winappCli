@@ -381,7 +381,7 @@ To fully integrate your ONNX model, you'll need to:
 ### Additional Resources
 
 - **[WinML Documentation](https://learn.microsoft.com/windows/ai/new-windows-ml/overview)** - Official WinML documentation
-- **[WinAppCLI Documentation](../../usage.md)** - Full CLI reference
+- **[winapp CLI Documentation](../../usage.md)** - Full CLI reference
 - **[Sample Electron App](../../../samples/electron/)** - Complete working example
 - **[AI Dev Gallery](https://aka.ms/aidevgallery)** - Sample gallery of all AI APIs 
 - **[Windows App SDK Samples](https://github.com/microsoft/WindowsAppSDK-Samples/tree/main/Samples/WindowsML)** - Collection of Windows App SDK samples

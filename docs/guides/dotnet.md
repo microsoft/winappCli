@@ -1,4 +1,4 @@
-# Using WinAppCLI with .NET 
+# Using winapp CLI with .NET 
 
 > This guide should work for most .NET projects types. The steps have been tested with both console and UI-based projects like WPF. For working examples, check out the [dotnet-app](../../samples/dotnet-app) (console) and [wpf-app](../../samples/wpf-app) (WPF) samples in the samples folder.
 
@@ -15,9 +15,9 @@ A standard executable (like one created with `dotnet build`) does not have packa
     winget install Microsoft.DotNet.SDK.10
     ```
 
-2.  **WinAppCLI**: Install the `winapp` tool via winget:
+2.  **winapp CLI**: Install the `winapp` tool via winget:
     ```powershell
-    winget install Microsoft.WinAppCli
+    winget install Microsoft.winappcli
     ```
 
 ## 1. Create a New .NET App
@@ -83,7 +83,7 @@ dotnet run
 
 You should see the output "Not packaged". This confirms that the standard executable is running without any package identity.
 
-## 4. Initialize Project with WinAppCLI
+## 4. Initialize Project with winapp CLI
 
 The `winapp init` command sets up everything you need in one go: app manifest, assets, and development certificate.
 

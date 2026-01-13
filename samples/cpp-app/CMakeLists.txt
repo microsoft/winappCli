@@ -11,7 +11,7 @@ if(NOT WINAPP_CLI)
     set(WINAPP_CLI "${WINAPP_DIR}/winapp.exe")
     
     if(NOT EXISTS "${WINAPP_CLI}")
-        message(STATUS "Downloading WinAppCLI...")
+        message(STATUS "Downloading winapp CLI...")
         
         # Determine architecture
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
@@ -30,7 +30,7 @@ if(NOT WINAPP_CLI)
         
         file(ARCHIVE_EXTRACT INPUT "${WINAPP_ZIP}" DESTINATION "${WINAPP_DIR}")
         file(REMOVE "${WINAPP_ZIP}")
-        message(STATUS "WinAppCLI downloaded to ${WINAPP_DIR}")
+        message(STATUS "winapp CLI downloaded to ${WINAPP_DIR}")
     endif()
 endif()
 

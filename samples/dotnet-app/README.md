@@ -1,6 +1,6 @@
 # .NET Console Sample Application
 
-This sample demonstrates how to use WinAppCLI with a .NET console application to add package identity and package as MSIX.
+This sample demonstrates how to use winapp CLI with a .NET console application to add package identity and package as MSIX.
 
 For a complete step-by-step guide, see the [.NET Getting Started Guide](../../docs/guides/dotnet.md).
 
@@ -15,7 +15,7 @@ For a complete step-by-step guide, see the [.NET Getting Started Guide](../../do
 ## Prerequisites
 
 - .NET 10.0 SDK
-- WinAppCLI installed via winget: `winget install Microsoft.WinAppCli`
+- winapp CLI installed via winget: `winget install Microsoft.winappcli`
 
 ## Building and Running
 
