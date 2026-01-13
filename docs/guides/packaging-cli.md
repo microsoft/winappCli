@@ -20,9 +20,9 @@ cd MyCliPackage
 # Copy your CLI executable and dependencies here
 ```
 
-### 2. Install WinApp CLI
+### 2. Install winapp CLI
 
-The quickest way to get started is to install WinApp CLI via Windows Package Manager:
+The quickest way to get started is to install winapp CLI via Windows Package Manager:
 
 ```powershell
 winget install microsoft.winappcli

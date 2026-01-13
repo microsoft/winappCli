@@ -11,7 +11,7 @@ module.exports = {
   addMsixIdentityToExe: msixUtils.addMsixIdentityToExe,
   addElectronDebugIdentity: msixUtils.addElectronDebugIdentity,
 
-  // WinApp directory utilities
+  // winapp directory utilities
   getGlobalWinappPath: winappPathUtils.getGlobalWinappPath,
   getLocalWinappPath: winappPathUtils.getLocalWinappPath
 };

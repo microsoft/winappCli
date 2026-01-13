@@ -22,7 +22,22 @@ Before packaging, make sure you've:
 > **⚠️ Important:** Verify that your `appxmanifest.xml` matches your packaged app structure:
 > - The `Executable` attribute should point to the correct .exe file in your packaged output
 
-## Build Your Electron App
+## Packaging Options
+
+You have two options for creating an MSIX package for your Electron app:
+
+1. **Option 1: Using winapp CLI directly** - More configurable, works with any packager
+2. **Option 2: Using Electron Forge MSIX Maker** - More integrated into the Forge workflow
+
+Choose the option that best fits your workflow.
+
+---
+
+### Option 1: Using winapp CLI directly (Recommended for flexibility)
+
+This approach gives you more control over the packaging process and works with any Electron packager.
+
+#### Build Your Electron App
 
 To package your Electron app with MSIX, we need to first create the production layout. With electron forge, we can use the package command:
 
@@ -33,9 +48,9 @@ npx electron-forge package
 
 This will create a production version of your app in the `./out/` folder. The exact folder name will depend on your app name and architecture (e.g., `my-windows-app-win32-x64`).
 
-## Create the MSIX Package
+#### Create the MSIX Package
 
-Now use WinAppCLI to create and sign an MSIX package from your packaged app:
+Now use the winapp CLI to create and sign an MSIX package from your packaged app:
 
 ```bash
 npx winapp pack .\out\<your-app-folder> --output .\out --cert .\devcert.pfx --manifest .\appxmanifest.xml
@@ -61,6 +76,69 @@ The MSIX package will be created as `./out/<your-app-name>.msix`.
 > ```
 > Just make sure to update the path to match your actual output folder name.
 
+---
+
+### Option 2: Using Electron Forge MSIX Maker (for Forge users)
+
+If you're already using Electron Forge, you can integrate MSIX packaging directly into the Forge workflow using the [`@electron-forge/maker-msix`](https://www.electronforge.io/config/makers/msix) maker.
+
+#### Install the MSIX Maker
+
+```bash
+npm install --save-dev @electron-forge/maker-msix
+```
+
+#### Configure forge.config.js
+
+Add the MSIX maker to your `forge.config.js`:
+
+```javascript
+module.exports = {
+  // ... other config
+  makers: [
+    {
+      name: '@electron-forge/maker-msix',
+      config: {
+        appManifest: '.\\appxmanifest.xml',
+        windowsSignOptions: {
+          certificateFile: '.\\devcert.pfx',
+          certificatePassword: 'password'
+        }
+      }
+    }
+  ],
+  // ... rest of your config
+};
+```
+
+#### Update appxmanifest.xml
+
+The Electron Forge MSIX maker uses a different folder layout than the winapp CLI approach. Update the `Executable` path in your `appxmanifest.xml` to point to the `app` folder:
+
+```xml
+<Applications>
+  <Application Id="myApp"
+    Executable="app\my-app.exe"
+    EntryPoint="Windows.FullTrustApplication">
+    <!-- ... rest of your application config -->
+  </Application>
+</Applications>
+```
+
+Replace `my-app.exe` with your actual executable name.
+
+#### Create the MSIX Package
+
+Now you can create the MSIX package with a single command:
+
+```bash
+npm run make
+```
+
+The MSIX package will be created in the `./out/make/msix/` folder.
+
+> **💡 Tip:** This approach is more integrated with the Electron Forge workflow and automatically handles packaging and MSIX creation in one step.
+
 ## Install and Test the MSIX
 
 First, install the development certificate (one-time setup):
@@ -73,7 +151,7 @@ npx winapp cert install .\devcert.pfx
 Now install the MSIX package. Double click the msix file or run the following command:
 
 ```bash
-Add-AppxPackage .\out\my-windows-app.msix
+Add-AppxPackage .\my-windows-app.msix
 ```
 
 Your app will appear in the Start Menu! Launch it and test your Windows API features.
@@ -131,7 +209,7 @@ Congratulations! You've successfully packaged your Windows-enabled Electron app 
 
 ### Additional Resources
 
-- **[WinAppCLI Documentation](../../usage.md)** - Full CLI reference
+- **[winapp CLI Documentation](../../usage.md)** - Full CLI reference
 - **[Sample Electron App](../../../samples/electron/)** - Complete working example
 - **[MSIX Packaging Documentation](https://learn.microsoft.com/windows/msix/)** - Learn more about MSIX
 - **[Windows App Certification Kit](https://learn.microsoft.com/windows/uwp/debug-test-perf/windows-app-certification-kit)** - Test your app before Store submission

@@ -68,7 +68,7 @@ internal class NugetService(ICurrentDirectoryProvider currentDirectoryProvider) 
             }
         }
 
-        // If not WinApp SDK, preview and experimental versions are the same
+        // If not winapp SDK, preview and experimental versions are the same
         if (packageName.StartsWith(BuildToolsService.WINAPP_SDK_PACKAGE, StringComparison.OrdinalIgnoreCase))
         {
             if (sdkInstallMode == SdkInstallMode.Stable)
