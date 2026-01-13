@@ -1,6 +1,6 @@
 # WinApp.CLI Tests
 
-This test project provides comprehensive unit tests for the WinApp CLI application, focusing on the `SignCommand` functionality and related certificate services.
+This test project provides comprehensive unit tests for the winapp CLI application, focusing on the `SignCommand` functionality and related certificate services.
 
 ## Test Structure
 
