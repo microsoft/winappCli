@@ -11,11 +11,11 @@ The [Windows App Development CLI](usage.md) (WinAppCLI) includes a telemetry fea
 The collected data is anonymous. No personal information such as usernames, email addresses, or source code is collected.
 
 > [!IMPORTANT]
-> Telemetry is **only sent by the official, signed releases** of the WinAppCLI distributed through official channels (winget, npm, GitHub releases, etc.). If you clone the repository and build the CLI yourself, or run it in a debugger, **no telemetry data is sent**. This means developers and contributors working on the CLI source code do not transmit telemetry events during development, testing, or debugging.
+> Telemetry is **only sent by the official, signed releases** of the winapp CLI distributed through official channels (winget, npm, GitHub releases, etc.). If you clone the repository and build the CLI yourself, or run it in a debugger, **no telemetry data is sent**. This means developers and contributors working on the CLI source code do not transmit telemetry events during development, testing, or debugging.
 
 ## Scope
 
-Telemetry **is collected** when using any WinAppCLI command, including:
+Telemetry **is collected** when using any winapp CLI command, including:
 
 - `winapp init`
 - `winapp restore`
@@ -28,7 +28,7 @@ Telemetry **is collected** when using any WinAppCLI command, including:
 
 ## How to opt out
 
-The WinAppCLI telemetry feature is enabled by default. To opt out of the telemetry feature, set the `WINAPP_CLI_TELEMETRY_OPTOUT` environment variable to `1`.
+The winapp CLI telemetry feature is enabled by default. To opt out of the telemetry feature, set the `WINAPP_CLI_TELEMETRY_OPTOUT` environment variable to `1`.
 
 **Windows (PowerShell):**
 ```powershell
@@ -48,7 +48,7 @@ To make this permanent, add the environment variable through System Properties >
 
 ## Disclosure
 
-The WinAppCLI displays the following (or similar) message when you first run any CLI command. This "first run" experience is how Microsoft notifies you about data collection.
+The winapp CLI displays the following (or similar) message when you first run any CLI command. This "first run" experience is how Microsoft notifies you about data collection.
 
 ```console
 Welcome to the Windows App Development CLI! By using this tool, you agree to the 
@@ -80,13 +80,13 @@ The telemetry feature collects the following data:
 | Command options | The names and sanitized values of command options. String values are replaced with `[string]` to avoid collecting sensitive information. Boolean values and enums are collected as-is. |
 | Exit code | The exit code returned by the command (0 for success, non-zero for failure). |
 | Timestamp | When the command was invoked and when it completed. |
-| CLI version | The version of the WinAppCLI tool (from assembly version). |
+| CLI version | The version of the winapp CLI tool (from assembly version). |
 | CI environment | A boolean flag indicating whether the CLI is running in a Continuous Integration environment. |
 | Caller | The value of the `WINAPP_CLI_CALLER` environment variable, if set. This allows wrapper tools (like the npm package) to identify themselves. |
 
 ### Sanitization of sensitive data
 
-The WinAppCLI takes several measures to protect your privacy:
+The winapp CLI takes several measures to protect your privacy:
 
 - **Command arguments and options** of type `string`, `FileInfo`, or `DirectoryInfo` are replaced with `[string]`.
 - **Implicit values** (default values that weren't explicitly provided) are not collected.
@@ -95,9 +95,9 @@ The WinAppCLI takes several measures to protect your privacy:
 
 ## Crash exception telemetry
 
-If the WinAppCLI crashes, it collects the name of the exception and stack trace of the CLI code. This information is collected to assess problems and improve the quality of the tool. This article provides information about the data we collect. It also provides tips on how users building their own version of the WinAppCLI can avoid inadvertent disclosure of personal or sensitive information.
+If the winapp CLI crashes, it collects the name of the exception and stack trace of the CLI code. This information is collected to assess problems and improve the quality of the tool. This article provides information about the data we collect. It also provides tips on how users building their own version of the winapp CLI can avoid inadvertent disclosure of personal or sensitive information.
 
-The WinAppCLI collects information for CLI exceptions only, not exceptions in your application. The collected data contains the name of the exception and the stack trace. This stack trace is of CLI code only.
+The winapp CLI collects information for CLI exceptions only, not exceptions in your application. The collected data contains the name of the exception and the stack trace. This stack trace is of CLI code only.
 
 The following example shows the kind of data that is collected:
 
@@ -111,7 +111,7 @@ System.IO.IOException
 
 ## Developer and contributor information
 
-**If you build the WinAppCLI from source yourself, no telemetry data is sent.** Telemetry is only active in the official, signed releases of the tool.
+**If you build the winapp CLI from source yourself, no telemetry data is sent.** Telemetry is only active in the official, signed releases of the tool.
 
 This means:
 - Cloning the repository and building locally: **No telemetry sent**
@@ -119,7 +119,7 @@ This means:
 - Building from source for testing: **No telemetry sent**
 - Using official releases from npm or GitHub: **Telemetry is sent** (unless opted out)
 
-Contributors and developers can work on the WinAppCLI source code without any concern about inadvertently sending telemetry data during development.
+Contributors and developers can work on the winapp CLI source code without any concern about inadvertently sending telemetry data during development.
 
 ## See also
 
