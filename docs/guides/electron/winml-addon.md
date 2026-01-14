@@ -42,7 +42,7 @@ Let's verify everything is set up correctly by building the addon:
 npm run build-winMlAddon
 ```
 
-> **Note:** You can also create a C++ addon using `npx winapp node create-addon` (without the `--template` flag). C++ addons use [node-addon-api](https://github.com/nodejs/node-addon-api) and provide direct access to Windows APIs with maximum performance. See the [full command documentation](../../usage.md#node-create-addon) for more options.
+> **Note:** You can also create a C++ addon using `npx winapp node create-addon` (without the `--template` flag). C++ addons use [node-addon-api](https://github.com/nodejs/node-addon-api) and provide direct access to Windows APIs with maximum performance. See the [C++ Notification Addon guide](cpp-notification-addon.md) for a walkthrough or the [full command documentation](../../usage.md#node-create-addon) for more options.
 
 ## Step 2: Download the SqueezeNet Model and Get Sample Code
 
