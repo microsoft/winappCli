@@ -49,7 +49,7 @@ Create a `CMakeLists.txt` file to configure the build:
 cmake_minimum_required(VERSION 3.20)
 project(cpp-app)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(cpp-app main.cpp)
@@ -74,13 +74,13 @@ First, update your `CMakeLists.txt` to link against the Windows App Model librar
 cmake_minimum_required(VERSION 3.20)
 project(cpp-app)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(cpp-app main.cpp)
 
 # Link Windows Runtime libraries
-target_link_libraries(cpp-app PRIVATE WindowsApp.lib)
+target_link_libraries(cpp-app PRIVATE WindowsApp.lib OneCoreUap.lib)
 ```
 
 Next, replace the contents of `main.cpp` with the following code. This code attempts to retrieve the current package identity using the Windows Runtime API. If it succeeds, it prints the Package Family Name; otherwise, it prints "Not packaged".
@@ -90,24 +90,21 @@ Next, replace the contents of `main.cpp` with the following code. This code atte
 #include <windows.h>
 #include <appmodel.h>
 
-#pragma comment(lib, "kernel32.lib")
-
 int main() {
     UINT32 length = 0;
     LONG result = GetCurrentPackageFamilyName(&length, nullptr);
     
     if (result == ERROR_INSUFFICIENT_BUFFER) {
-        // We have a package identity, get the family name
-        wchar_t* familyName = new wchar_t[length];
-        result = GetCurrentPackageFamilyName(&length, familyName);
+        // We have a package identity
+        std::wstring familyName;
+        familyName.resize(length);
+        
+        result = GetCurrentPackageFamilyName(&length, familyName.data());
         
         if (result == ERROR_SUCCESS) {
-            std::wcout << L"Package Family Name: " << familyName << std::endl;
-            delete[] familyName;
+            std::wcout << L"Package Family Name: " << familyName.c_str() << std::endl;
             return 0;
         }
-        
-        delete[] familyName;
     }
     
     // No package identity or error
@@ -211,13 +208,13 @@ Add the Windows App SDK include directory and link the necessary libraries:
 cmake_minimum_required(VERSION 3.20)
 project(cpp-app)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(cpp-app main.cpp)
 
 # Link Windows Runtime libraries
-target_link_libraries(cpp-app PRIVATE WindowsApp.lib)
+target_link_libraries(cpp-app PRIVATE WindowsApp.lib OneCoreUap.lib)
 
 # Add Windows App SDK include directory
 target_include_directories(cpp-app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.winapp/include)
@@ -316,7 +313,7 @@ winapp restore
 winapp cert generate --if-exists skip
 ```
 
-Then they can build and run normally with `cmake -B build` and `cmake --build build --config Debug`.
+Then you can build and run normally with `cmake -B build` and `cmake --build build --config Debug`.
 
 ### Automated Setup with CMake
 
@@ -326,7 +323,7 @@ Alternatively, you can automate this by adding setup logic to your `CMakeLists.t
 cmake_minimum_required(VERSION 3.20)
 project(cpp-app)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Download winapp CLI if not available in PATH
@@ -478,5 +475,6 @@ You should see the "Package Family Name" output, confirming it's installed and r
 
 ### Tips:
 1. Once you are ready for distribution, you can sign your MSIX with a code signing certificate from a Certificate Authority so your users don't have to install a self-signed certificate.
-2. The Microsoft Store will sign the MSIX for you, no need to sign before submission.
-3. You might need to create multiple MSIX packages, one for each architecture you support (x64, Arm64). Configure CMake with the appropriate generator and architecture flags.
+2. The [Azure Trusted Signing](https://azure.microsoft.com/products/trusted-signing) service is a great way to manage your certificates securely and integrate signing into your CI/CD pipeline.
+3. The Microsoft Store will sign the MSIX for you, no need to sign before submission.
+4. You might need to create multiple MSIX packages, one for each architecture you support (x64, Arm64). Configure CMake with the appropriate generator and architecture flags.

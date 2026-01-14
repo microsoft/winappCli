@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(cpp-app)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Download winapp CLI if not available in PATH
@@ -63,7 +63,7 @@ endif()
 add_executable(cpp-app main.cpp)
 
 # Link Windows Runtime libraries
-target_link_libraries(cpp-app PRIVATE WindowsApp.lib)
+target_link_libraries(cpp-app PRIVATE WindowsApp.lib OneCoreUap.lib)
 
 # Add Windows App SDK include directory
 target_include_directories(cpp-app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.winapp/include)

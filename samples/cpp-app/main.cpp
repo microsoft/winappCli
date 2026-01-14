@@ -3,8 +3,6 @@
 #include <appmodel.h>
 #include <winrt/Microsoft.Windows.ApplicationModel.WindowsAppRuntime.h>
 
-#pragma comment(lib, "kernel32.lib")
-
 int main() {
     // Initialize WinRT
     winrt::init_apartment();
@@ -14,21 +12,20 @@ int main() {
     
     if (result == ERROR_INSUFFICIENT_BUFFER) {
         // We have a package identity
-        wchar_t* familyName = new wchar_t[length];
-        result = GetCurrentPackageFamilyName(&length, familyName);
+        std::wstring familyName;
+        familyName.resize(length);
+        
+        result = GetCurrentPackageFamilyName(&length, familyName.data());
         
         if (result == ERROR_SUCCESS) {
-            std::wcout << L"Package Family Name: " << familyName << std::endl;
+            std::wcout << L"Package Family Name: " << familyName.c_str() << std::endl;
             
             // Get Windows App Runtime version using the API
             auto runtimeVersion = winrt::Microsoft::Windows::ApplicationModel::WindowsAppRuntime::RuntimeInfo::AsString();
             std::wcout << L"Windows App Runtime Version: " << runtimeVersion.c_str() << std::endl;
             
-            delete[] familyName;
             return 0;
         }
-        
-        delete[] familyName;
     }
     
     std::cout << "Not packaged" << std::endl;
