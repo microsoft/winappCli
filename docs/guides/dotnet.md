@@ -145,8 +145,6 @@ To streamline your development workflow, you can configure MSBuild to automatica
           WorkingDirectory="$(ProjectDir)" 
           IgnoreExitCode="false" />
   </Target>
-
-</Project>
 ```
 
 With this configuration, simply running `dotnet build` or `dotnet run` will automatically apply the debug identity, and you can immediately run the executable with identity without the manual step.
@@ -170,7 +168,6 @@ This will update your `.csproj` file to include the Windows App SDK package refe
 Let's update the app to use the Windows App Runtime API to get the runtime version:
 
 ```csharp
-using System;
 using Windows.ApplicationModel;
 
 class Program
@@ -311,8 +308,6 @@ To automate MSIX packaging as part of your Release builds, add this target to yo
           WorkingDirectory="$(ProjectDir)" 
           IgnoreExitCode="false" />
   </Target>
-
-</Project>
 ```
 
 With this configuration:
