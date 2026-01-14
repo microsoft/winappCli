@@ -198,7 +198,7 @@ class Program
 
 ### Build and Run
 
-Rebuild and run the application with Windows App SDK. If you updated the csproj to auto set debug identity, simply run `dotnet run`. Otherwise:
+Rebuild and run the application with Windows App SDK. Since we've added the WinAppSDK, we need to re-generate the debug identity, so `winapp` adds the runtime dependency to the WinAppSDK. If you updated the csproj to auto set debug identity, simply run `dotnet run`. Otherwise:
 
 ```powershell
 dotnet build -c Debug
