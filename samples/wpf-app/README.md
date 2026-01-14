@@ -45,7 +45,7 @@ winapp cert generate --if-exists skip
 dotnet build -c Release
 
 # Install certificate (first time only, requires admin)
-sudo winapp cert install .\devcert.pfx
+winapp cert install .\devcert.pfx
 
 # Install the generated MSIX
 # The .msix file will be in the root directory

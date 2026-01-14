@@ -213,6 +213,7 @@ Or explore other guides:
 
 - **[winapp CLI Documentation](../../usage.md)** - Full CLI reference
 - **[Sample Electron App](../../../samples/electron/)** - Complete working example
+- **[Windows AI Addon for Electron](https://github.com/microsoft/winapp-windows-ai)** - The Windows AI Addon for Electron is a Node.js native addon that provides access to the [Windows AI APIs](https://learn.microsoft.com/en-us/windows/ai/apis/) directly from JavaScript.
 - **[AI Dev Gallery](https://aka.ms/aidevgallery)** - Sample gallery of all AI APIs 
 - **[Windows App SDK Samples](https://github.com/microsoft/WindowsAppSDK-Samples)** - Collection of Windows App SDK samples
 - **[node-api-dotnet](https://github.com/microsoft/node-api-dotnet)** - C# ↔ JavaScript interop library

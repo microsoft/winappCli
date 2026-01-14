@@ -20,17 +20,6 @@ npm create electron-app@latest my-windows-app
 cd my-windows-app
 ```
 
-This creates a new Electron app with the following structure:
-```
-my-windows-app/
-├── src/
-│   ├── index.js          # Main process
-│   ├── index.html        # UI
-│   └── preload.js        # Preload script
-├── package.json
-└── forge.config.js       # Electron Forge configuration
-```
-
 Verify the app runs:
 
 ```bash
@@ -81,9 +70,10 @@ This command sets up everything you need for Windows development:
 
 6. **Installs Windows App SDK runtime** - Required runtime components for modern APIs
 
-7. **Enables Dev Mode in Windows** - Required for debugging our application
+7. **Enables Developer Mode in Windows** - Required for debugging our application
 
-The `.winapp/` folder and `devcert.pfx` are automatically added to `.gitignore` since they can be regenerated and should not be checked in to source.
+> [!NOTE]
+> The `.winapp/` folder and `devcert.pfx` are automatically added to `.gitignore` and should not be checked in to source.
 
 You can open `appxmanifest.xml` to further customize properties like the display name, publisher, and capabilities.
 

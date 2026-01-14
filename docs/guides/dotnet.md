@@ -234,24 +234,29 @@ To allow users to run your app from the command line after installation (like `d
 
 Open `appxmanifest.xml` and add the `uap5` namespace to the `<Package>` tag if it's missing, and then add the extension inside `<Applications><Application><Extensions>...`:
 
-```diff
+```xml
 <Package
   ...
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
-+ xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   IgnorableNamespaces="uap uap2 uap3 rescap desktop desktop6 uap10">
 
   ...
   <Applications>
     <Application ...>
       ...
-+     <Extensions>
-+       <uap5:Extension Category="windows.appExecutionAlias">
-+         <uap5:AppExecutionAlias>
-+           <uap5:ExecutionAlias Alias="dotnet-app.exe" />
-+         </uap5:AppExecutionAlias>
-+       </uap5:Extension>
-+     </Extensions>
+
+      <!-- Add this Extensions element in your manifest 
+           along with the xmlns:uap5 namespace above -->
+      <Extensions>
+        <uap5:Extension Category="windows.appExecutionAlias">
+          <uap5:AppExecutionAlias>
+            <uap5:ExecutionAlias Alias="dotnet-app.exe" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
+
+      ...
     </Application>
   </Applications>
 </Package>
@@ -273,8 +278,7 @@ winapp pack .\bin\Release\net10.0-windows10.0.26100.0 --manifest .\appxmanifest.
 Before you can install the MSIX package, you need to install the development certificate. Run this command as administrator:
 
 ```powershell
-# install certificate locally - run with sudo or as administrator
-sudo winapp cert install .\devcert.pfx
+winapp cert install .\devcert.pfx
 ```
 
 ### Install and Run

@@ -59,6 +59,9 @@ We'll use the **Classify Image** sample from the [AI Dev Gallery](https://aka.ms
 
 5. Copy the `squeezenet1.1.onnx` file to a `models/` folder in your project root
 
+> [!NOTE]
+> The model can also be downloaded directly from the [ONNX Model Zoo GitHub repo](https://github.com/onnx/models/blob/main/validated/vision/classification/squeezenet/model/squeezenet1.1-7.onnx)
+
 ## Step 3: Add Required NuGet Packages
 
 Before adding the WinML code, we need to add two additional NuGet packages that are required for image processing and ONNX Runtime extensions.

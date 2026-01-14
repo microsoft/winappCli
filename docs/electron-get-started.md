@@ -10,6 +10,15 @@ By the end of this guide, you'll have an Electron app that:
 - ✅ Runs with app identity for testing protected APIs
 - ✅ Packages as a signed MSIX for distribution
 
+## Prerequisites
+
+Before starting, ensure you have:
+
+- **Windows 11** (Copilot+ PC if using Phi Silica)
+- **Node.js** - `winget install OpenJS.NodeJS`
+- **.NET SDK v10** - `Microsoft.DotNet.SDK.10`
+- **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
+
 ## The Process
 
 Building a Windows-enabled Electron app involves three main phases:
@@ -55,15 +64,6 @@ Finally, you'll package your app as an MSIX for distribution. This includes:
 **Time:** ~10 minutes | **Difficulty:** Easy
 
 [Package Your App →](guides/electron/packaging.md)
-
-## Prerequisites
-
-Before starting, ensure you have:
-
-- **Windows 11** (Copilot+ PC if using Phi Silica)
-- **Node.js** - `winget install OpenJS.NodeJS`
-- **.NET SDK v10** - `Microsoft.DotNet.SDK.10`
-- **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 ## Quick Navigation
 

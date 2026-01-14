@@ -62,8 +62,7 @@ To fully package the application as an MSIX and install it:
 
 2. **Install the Certificate**: Install the certificate locally (requires Admin privileges).
    ```powershell
-   # Run from an Administrator PowerShell or use sudo if available
-   sudo winapp cert install .\devcert.pfx
+   winapp cert install .\devcert.pfx
    ```
 
 3. **Build for Release**:
