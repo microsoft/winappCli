@@ -51,7 +51,6 @@ This gives you access to Windows Runtime APIs without needing additional package
 Now replace the contents of `Program.cs` with the following code. This code attempts to retrieve the current package identity using the Windows Runtime API. If it succeeds, it prints the Package Family Name; otherwise, it prints "Not packaged".
 
 ```csharp
-using System;
 using Windows.ApplicationModel;
 
 class Program
