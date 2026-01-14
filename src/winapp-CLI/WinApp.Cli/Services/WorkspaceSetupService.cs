@@ -491,6 +491,7 @@ internal class WorkspaceSetupService(
                     }
                 }
 
+                bool showedGitignoreMessage = false;
                 if (!options.RequireExistingConfig && options.SdkInstallMode != SdkInstallMode.None && !options.NoGitignore && localWinappDir?.Parent != null)
                 {
                     var gitignorePath = Path.Combine(localWinappDir.Parent.FullName, ".gitignore");
@@ -499,6 +500,7 @@ internal class WorkspaceSetupService(
                     {
                         await taskContext.AddSubTaskAsync("Updating .gitignore", async (taskContext, cancellationToken) =>
                         {
+                            showedGitignoreMessage = true;
                             // Update .gitignore to exclude .winapp folder (unless --no-gitignore is specified)
                             var addedWinAppToGitIgnore = await gitignoreService.AddWinAppFolderToGitIgnoreAsync(localWinappDir.Parent, taskContext, cancellationToken);
 
@@ -518,6 +520,14 @@ internal class WorkspaceSetupService(
                             return (0, "[underline].gitignore[/] is up to date");
                         }, cancellationToken);
                     }
+                }
+
+                if (!showedGitignoreMessage && addedCertToGitignore)
+                {
+                    await taskContext.AddSubTaskAsync("Updating .gitignore", (taskContext, cancellationToken) =>
+                    {
+                        return Task.FromResult((0, "Added devcert.pfx to [underline].gitignore[/]"));
+                    }, cancellationToken);
                 }
 
                 // Update Directory.Packages.props versions to match winapp.yaml if needed (only with SDK installation)

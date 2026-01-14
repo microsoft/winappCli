@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -18,11 +19,13 @@ internal class FirstRunService : IFirstRunService
         _logger = logger;
     }
 
-    public void CheckAndDisplayFirstRunNotice()
+    public bool CheckAndDisplayFirstRunNotice()
     {
         _firstRunMarkerFile.Refresh();
         if (!_firstRunMarkerFile.Exists)
         {
+            BannerHelper.DisplayBanner();
+
             _logger.LogInformation("Welcome to the Windows App Development CLI! By using this tool, you agree to the collection of anonymous usage data to help improve the product. You can read the full privacy policy at https://go.microsoft.com/fwlink/?LinkId=521839");
             _logger.LogInformation("You can opt out of telemetry by setting the WINAPP_CLI_TELEMETRY_OPTOUT environment variable to '1'.");
             _logger.LogInformation("For more information, please visit: https://aka.ms/winappcli-telemetry-optout{NewLine}", Environment.NewLine);
@@ -37,6 +40,10 @@ internal class FirstRunService : IFirstRunService
             {
                 _logger.LogWarning("Failed to create first run marker file: {ErrorMessage}", ex.Message);
             }
+
+            return true;
         }
+
+        return false;
     }
 }
