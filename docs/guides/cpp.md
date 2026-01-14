@@ -103,12 +103,14 @@ int main() {
         
         if (result == ERROR_SUCCESS) {
             std::wcout << L"Package Family Name: " << familyName.c_str() << std::endl;
-            return 0;
+        } else {
+            std::wcout << L"Error retrieving Package Family Name" << std::endl;
         }
+    } else {
+        // No package identity
+        std::cout << "Not packaged" << std::endl;
     }
-    
-    // No package identity or error
-    std::cout << "Not packaged" << std::endl;
+
     return 0;
 }
 ```
@@ -240,8 +242,6 @@ Replace the contents of `main.cpp` to use the Windows App Runtime API:
 #include <appmodel.h>
 #include <winrt/Microsoft.Windows.ApplicationModel.WindowsAppRuntime.h>
 
-#pragma comment(lib, "kernel32.lib")
-
 int main() {
     // Initialize WinRT
     winrt::init_apartment();
@@ -251,24 +251,24 @@ int main() {
     
     if (result == ERROR_INSUFFICIENT_BUFFER) {
         // We have a package identity
-        wchar_t* familyName = new wchar_t[length];
-        result = GetCurrentPackageFamilyName(&length, familyName);
+        std::wstring familyName;
+        familyName.resize(length);
+        
+        result = GetCurrentPackageFamilyName(&length, familyName.data());
         
         if (result == ERROR_SUCCESS) {
-            std::wcout << L"Package Family Name: " << familyName << std::endl;
+            std::wcout << L"Package Family Name: " << familyName.c_str() << std::endl;
             
             // Get Windows App Runtime version using the API
             auto runtimeVersion = winrt::Microsoft::Windows::ApplicationModel::WindowsAppRuntime::RuntimeInfo::AsString();
             std::wcout << L"Windows App Runtime Version: " << runtimeVersion.c_str() << std::endl;
-            
-            delete[] familyName;
-            return 0;
+        } else {
+            std::wcout << L"Error retrieving Package Family Name" << std::endl;
         }
-        
-        delete[] familyName;
+    } else {
+        std::cout << "Not packaged" << std::endl;
     }
     
-    std::cout << "Not packaged" << std::endl;
     return 0;
 }
 ```
@@ -317,7 +317,7 @@ Then you can build and run normally with `cmake -B build` and `cmake --build bui
 
 ### Automated Setup with CMake
 
-Alternatively, you can automate this by adding setup logic to your `CMakeLists.txt` at the top, before the `add_executable` line. You can even download `winapp` automatically if team members don't have it installed:
+Alternatively, you can automate this by adding setup logic to your `CMakeLists.txt`. Here is the full `CMakeLists.txt` with automation, proper linking, and minimal C++20 standard:
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
@@ -384,7 +384,21 @@ endif()
 
 add_executable(cpp-app main.cpp)
 
-# ... rest of your CMakeLists.txt
+# Link Windows Runtime libraries
+target_link_libraries(cpp-app PRIVATE WindowsApp.lib OneCoreUap.lib)
+
+# Add Windows App SDK include directory
+target_include_directories(cpp-app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.winapp/include)
+
+# Add a post-build command to apply debug identity in Debug builds
+add_custom_command(TARGET cpp-app POST_BUILD
+    COMMAND $<$<CONFIG:Debug>:winapp>
+            $<$<CONFIG:Debug>:create-debug-identity>
+            $<$<CONFIG:Debug>:$<TARGET_FILE:cpp-app>>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND_EXPAND_LISTS
+    COMMENT "Applying debug identity to executable..."
+)
 ```
 
 With this setup:
@@ -419,24 +433,26 @@ To allow users to run your app from the command line after installation (like `c
 
 Open `appxmanifest.xml` and add the `uap5` namespace to the `<Package>` tag if it's missing, and then add the extension inside `<Applications><Application><Extensions>...`:
 
-```diff
+```xml
 <Package
   ...
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
-+ xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
-  IgnorableNamespaces="uap uap2 uap3 rescap desktop desktop6 uap10">
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  IgnorableNamespaces="uap uap2 uap3 uap5 rescap desktop desktop6 uap10">
 
   ...
   <Applications>
     <Application ...>
       ...
-+     <Extensions>
-+       <uap5:Extension Category="windows.appExecutionAlias">
-+         <uap5:AppExecutionAlias>
-+           <uap5:ExecutionAlias Alias="cpp-app.exe" />
-+         </uap5:AppExecutionAlias>
-+       </uap5:Extension>
-+     </Extensions>
+      <!-- Add this Extensions section and the uap5 namespace above-->
+      <Extensions>
+        <uap5:Extension Category="windows.appExecutionAlias">
+          <uap5:AppExecutionAlias>
+            <uap5:ExecutionAlias Alias="cpp-app.exe" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
+      ...
     </Application>
   </Applications>
 </Package>
@@ -463,7 +479,11 @@ sudo winapp cert install .\devcert.pfx
 ```
 
 ### Install and Run
-Now install the package by double-clicking the generated *.msix file in the `dist` folder.
+The `winapp pack` command generates the MSIX file in your project root directory. You can install the package using PowerShell:
+
+```powershell
+Add-AppxPackage .\cpp-app.msix
+```
 
 Now you can run your app from anywhere in the terminal by typing:
 

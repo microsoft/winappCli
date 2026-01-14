@@ -23,11 +23,12 @@ int main() {
             // Get Windows App Runtime version using the API
             auto runtimeVersion = winrt::Microsoft::Windows::ApplicationModel::WindowsAppRuntime::RuntimeInfo::AsString();
             std::wcout << L"Windows App Runtime Version: " << runtimeVersion.c_str() << std::endl;
-            
-            return 0;
+        } else {
+            std::wcout << L"Error retrieving Package Family Name" << std::endl;
         }
+    } else {
+        std::cout << "Not packaged" << std::endl;
     }
     
-    std::cout << "Not packaged" << std::endl;
     return 0;
 }
