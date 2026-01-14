@@ -3,8 +3,6 @@
 
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using System;
-using System.IO;
 using System.Runtime.InteropServices;
 using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
