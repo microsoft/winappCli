@@ -95,9 +95,11 @@ winapp init
 When prompted:
 - **Package name**: Press Enter to accept the default (dotnet-app)
 - **Publisher name**: Press Enter to accept the default or enter your name
+- **Description**: Press Enter to accept the default (Windows Application) or enter a description
 - **Version**: Press Enter to accept 1.0.0.0
 - **Entry point**: Press Enter to accept the default (dotnet-app.exe)
 - **Setup SDKs**: Select "Do not setup SDKs" - we'll add Windows App SDK via NuGet instead
+- **Developer Mode"**: If you are prompted about "Developer Mode", you can turn it on if you would like, but be aware that it requires administrative privileges
 
 This command will:
 - Create `appxmanifest.xml` and `Assets` folder for your app identity
@@ -158,7 +160,7 @@ If you want to use Windows App SDK APIs in your .NET application, add the Window
 Add the WindowsAppSDK package to your project:
 
 ```powershell
-dotnet add package Microsoft.WindowsAppSDK --version 1.8.*
+dotnet add package Microsoft.WindowsAppSDK
 ```
 
 This will update your `.csproj` file to include the Windows App SDK package reference.
