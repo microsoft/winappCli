@@ -62,14 +62,18 @@ internal static class Program
         using var serviceProvider = services.BuildServiceProvider();
 
         var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
-        firstRunService.CheckAndDisplayFirstRunNotice();
+        var didShowFirstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();
 
         var rootCommand = serviceProvider.GetRequiredService<WinAppRootCommand>();
 
         // If no arguments provided, display banner and show help
         if (args.Length == 0)
         {
-            BannerHelper.DisplayBanner();
+            if (!didShowFirstRunNotice)
+            {
+                BannerHelper.DisplayBanner();
+            }
+
             // Show help by invoking with --help
             await rootCommand.Parse(["--help"]).InvokeAsync();
             return 0;
