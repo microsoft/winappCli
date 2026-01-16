@@ -48,7 +48,7 @@ async function main() {
     }
 
     // Route everything else to winapp-cli
-    await callWinappCli(args, { verbose: false, exitOnError: true });
+    await callWinappCli(args, { exitOnError: true });
     
   } catch (error) {
     console.error(`Error: ${error.message}`);
@@ -262,8 +262,13 @@ async function handleCreateAddon(args) {
       });
       
       console.log(`New addon at: ${result.addonPath}`);
+
+      const args = ['restore'];
+      if (verbose) {
+        args.push('--verbose');
+      }
       
-      await callWinappCli(['restore'], { verbose: options.verbose, exitOnError: true });
+      await callWinappCli(args, { exitOnError: true });
 
       console.log('');
       

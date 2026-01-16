@@ -33,7 +33,7 @@ async function addMsixIdentityToExe(exePath, appxManifestPath, options = {}) {
   }
   
   // Call native CLI
-  await callWinappCli(args, { verbose });
+  await callWinappCli(args);
   
   return {
     success: true,
@@ -91,7 +91,7 @@ async function addElectronDebugIdentity(options = {}) {
       args.push('--verbose');
     }
     
-    await callWinappCli(args, { verbose });
+    await callWinappCli(args);
     
     if (verbose) {
       console.log('✅ Debug identity created and package registered successfully');

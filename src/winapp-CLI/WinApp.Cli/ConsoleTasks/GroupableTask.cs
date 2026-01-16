@@ -73,42 +73,44 @@ internal class GroupableTask<T> : GroupableTask
         return CompletedMessage;
     }
 
-    public (IRenderable, int) Render()
+    public IRenderable Render()
     {
         var sb = new StringBuilder();
 
         int maxDepth = _logger.IsEnabled(LogLevel.Debug) ? int.MaxValue : 1;
-        var lineCount = RenderTask(this, sb, 0, string.Empty, maxDepth);
+        RenderTask(this, sb, 0, string.Empty, maxDepth);
+        var allTasksString = sb.ToString().TrimEnd([.. Environment.NewLine]);
+        if (!allTasksString.Contains(Environment.NewLine))
+        {
+            allTasksString = $"{allTasksString}{Environment.NewLine}";
+        }
 
-        var panel = new Panel(new Markup(sb.ToString().TrimEnd([.. Environment.NewLine])))
+        var panel = new Panel(allTasksString)
         {
             Border = BoxBorder.None,
             Padding = new Padding(0, 0),
             Expand = true
         };
 
-        return (panel, lineCount);
+        return panel;
     }
 
-    private static int RenderSubTasks(GroupableTask task, StringBuilder sb, int indentLevel, int maxForcedDepth)
+    private static void RenderSubTasks(GroupableTask task, StringBuilder sb, int indentLevel, int maxForcedDepth)
     {
         if (task.SubTasks.Count == 0)
         {
-            return 0;
+            return;
         }
 
         var indentStr = new string(' ', indentLevel * 2);
-        int lineCount = 0;
 
         foreach (var subTask in task.SubTasks)
         {
-            lineCount += RenderTask(subTask, sb, indentLevel, indentStr, maxForcedDepth);
+            RenderTask(subTask, sb, indentLevel, indentStr, maxForcedDepth);
         }
-
-        return lineCount;
     }
 
-    private static int RenderTask(GroupableTask task, StringBuilder sb, int indentLevel, string indentStr, int maxForcedDepth)
+    private static void RenderTask(GroupableTask task, StringBuilder sb, int indentLevel, string indentStr, int maxForcedDepth)
     {
         string msg;
 
@@ -165,14 +167,10 @@ internal class GroupableTask<T> : GroupableTask
 
         sb.AppendLine(msg);
 
-        int lineCount = msg.Count(c => c == '\n') + 1;
-
         bool shouldRenderChildren = indentLevel + 1 <= maxForcedDepth || !task.IsCompleted;
         if (shouldRenderChildren)
         {
-            lineCount += RenderSubTasks(task, sb, indentLevel + 1, maxForcedDepth);
+            RenderSubTasks(task, sb, indentLevel + 1, maxForcedDepth);
         }
-
-        return lineCount;
     }
 }

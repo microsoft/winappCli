@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 using WinApp.Cli.ConsoleTasks;
 
 namespace WinApp.Cli.Services;
@@ -21,31 +22,35 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
         // Start the task execution
         var taskExecution = task.ExecuteAsync(null, cancellationToken);
 
+        IRenderable rendered = task.Render();
         // Run the Live display until task completes
-        await ansiConsole.Live(task.Render().Item1)
-            .AutoClear(false)
-            .Overflow(VerticalOverflow.Ellipsis)
+        await ansiConsole.Live(rendered)
+            .AutoClear(true)
+            .Overflow(VerticalOverflow.Crop)
+            .Cropping(VerticalOverflowCropping.Top)
             .StartAsync(async ctx =>
             {
                 while (!taskExecution.IsCompleted)
                 {
                     lock (renderLock)
                     {
-                        ctx.UpdateTarget(task.Render().Item1);
+                        rendered = task.Render();
+                        ctx.UpdateTarget(rendered);
                     }
                     ctx.Refresh();
 
                     // Wait for animation refresh (100ms) or task completion
                     await Task.WhenAny(taskExecution, Task.Delay(100, cancellationToken));
                 }
-
-                // Final render to show completed state
-                lock (renderLock)
-                {
-                    ctx.UpdateTarget(task.Render().Item1);
-                }
-                ctx.Refresh();
             });
+
+        // Final render to show completed state
+        lock (renderLock)
+        {
+            rendered = task.Render();
+        }
+
+        ansiConsole.Write(rendered);
 
         // Get the result
         (int ReturnCode, T CompletedMessage)? result = null;
