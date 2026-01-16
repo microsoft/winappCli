@@ -17,6 +17,7 @@ internal class GroupableTask(string inProgressMessage, GroupableTask? parent) : 
     public bool IsCompleted { get; protected set; }
     public GroupableTask? Parent { get; } = parent;
     public string InProgressMessage { get; set; } = inProgressMessage;
+    public bool EscapeInProgressMessage { get; set; } = true;
     public string? SubStatus { get; set; }
 
     public void Dispose()
@@ -33,16 +34,16 @@ internal class GroupableTask<T> : GroupableTask
     public T? CompletedMessage { get; protected set; }
     private readonly Func<TaskContext, CancellationToken, Task<T>>? _taskFunc;
     protected readonly IAnsiConsole AnsiConsole;
-    protected readonly LiveUpdateSignal Signal;
+    protected readonly Lock RenderLock;
     private readonly ILogger _logger;
 
-    public GroupableTask(string inProgressMessage, GroupableTask? parent, Func<TaskContext, CancellationToken, Task<T>>? taskFunc, IAnsiConsole ansiConsole, ILogger logger, LiveUpdateSignal signal)
+    public GroupableTask(string inProgressMessage, GroupableTask? parent, Func<TaskContext, CancellationToken, Task<T>>? taskFunc, IAnsiConsole ansiConsole, ILogger logger, Lock renderLock)
         : base(inProgressMessage, parent)
     {
         _taskFunc = taskFunc;
         AnsiConsole = ansiConsole;
         _logger = logger;
-        Signal = signal;
+        RenderLock = renderLock;
     }
 
     public virtual async Task<T?> ExecuteAsync(Action? onUpdate, CancellationToken cancellationToken, bool startSpinner = true)
@@ -53,7 +54,7 @@ internal class GroupableTask<T> : GroupableTask
         {
             if (_taskFunc != null)
             {
-                var context = new TaskContext(this, onUpdate, AnsiConsole, _logger, Signal);
+                var context = new TaskContext(this, onUpdate, AnsiConsole, _logger, RenderLock);
                 CompletedMessage = await _taskFunc(context, cancellationToken);
                 IsCompleted = true;
             }
@@ -109,6 +110,8 @@ internal class GroupableTask<T> : GroupableTask
 
     private static int RenderTask(GroupableTask task, StringBuilder sb, int indentLevel, string indentStr, int maxForcedDepth)
     {
+        string msg;
+
         if (task.IsCompleted)
         {
             static string FormatCheckMarkMessage(string indentStr, string message)
@@ -123,7 +126,8 @@ internal class GroupableTask<T> : GroupableTask
                 }
                 return firstCharIsEmojiOrOpenBracket ? $"{indentStr} {message}" : $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
             }
-            sb.AppendLine(task switch
+
+            msg = task switch
             {
                 StatusMessageTask statusMessageTask => $"{indentStr} {Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}",
                 GroupableTask<T> genericTask => FormatCheckMarkMessage(indentStr, (genericTask.CompletedMessage as ITuple) switch
@@ -133,7 +137,7 @@ internal class GroupableTask<T> : GroupableTask
                     _ => genericTask.CompletedMessage?.ToString() ?? string.Empty
                 }),
                 GroupableTask _ => FormatCheckMarkMessage(indentStr, Markup.Escape(task.InProgressMessage)),
-            });
+            };
         }
         else
         {
@@ -141,16 +145,27 @@ internal class GroupableTask<T> : GroupableTask
             var spinnerIndex = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 100) % spinnerChars.Length;
             var spinner = spinnerChars[spinnerIndex];
 
-            var msg = task.InProgressMessage;
+            msg = task.InProgressMessage;
             if (!string.IsNullOrEmpty(task.SubStatus))
             {
                 msg = $"{msg} ({task.SubStatus})";
             }
-
-            sb.AppendLine($"{indentStr}[yellow]{spinner}[/]  {Markup.Escape(msg)}");
+            if (task.EscapeInProgressMessage)
+            {
+                msg = Markup.Escape(msg);
+            }
+            if (task is not PromptConfirmationTask promptConfirmationTask || promptConfirmationTask.State != PromptState.WaitingForInput)
+            {
+                msg = $"{indentStr}[yellow]{spinner}[/]  {msg}";
+            }
         }
 
-        int lineCount = 1;
+        // make line endings consistent
+        msg = msg.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine).TrimEnd([.. Environment.NewLine]);
+
+        sb.AppendLine(msg);
+
+        int lineCount = msg.Count(c => c == '\n') + 1;
 
         bool shouldRenderChildren = indentLevel + 1 <= maxForcedDepth || !task.IsCompleted;
         if (shouldRenderChildren)

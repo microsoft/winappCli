@@ -21,7 +21,7 @@ internal sealed class DevModeService : IDevModeService
 
         taskContext.AddDebugMessage("Developer Mode is OFF — enabling...");
 
-        var shouldProceed = await taskContext.PromptAsync(new ConfirmationPrompt("Enabling Developer Mode requires administrative privileges. You may be prompted by User Account Control (UAC). Do you want to proceed?"), cancellationToken);
+        var shouldProceed = await taskContext.PromptConfirmationAsync("Enabling Developer Mode requires administrative privileges. You may be prompted by User Account Control (UAC). Do you want to proceed?", cancellationToken);
         if (!shouldProceed)
         {
             return -1;
