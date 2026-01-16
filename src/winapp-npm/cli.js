@@ -48,7 +48,7 @@ async function main() {
     }
 
     // Route everything else to winapp-cli
-    await callWinappCli(args, { verbose: true, exitOnError: true });
+    await callWinappCli(args, { exitOnError: true });
     
   } catch (error) {
     console.error(`Error: ${error.message}`);
@@ -212,7 +212,7 @@ async function handleCreateAddon(args) {
   const options = parseArgs(args, {
     name: undefined, // Will be set based on template
     template: 'cpp',
-    verbose: true
+    verbose: false
   });
 
   // Set default name based on template
@@ -228,7 +228,7 @@ async function handleCreateAddon(args) {
     console.log('Options:');
     console.log('  --name <name>         Addon name (default depends on template)');
     console.log('  --template <type>     Addon template: cpp, cs (default: cpp)');
-    console.log('  --verbose             Enable verbose output (default: true)');
+    console.log('  --verbose             Enable verbose output (default: false)');
     console.log('  --help                Show this help');
     console.log('');
     console.log('Templates:');
@@ -262,8 +262,13 @@ async function handleCreateAddon(args) {
       });
       
       console.log(`New addon at: ${result.addonPath}`);
+
+      const args = ['restore'];
+      if (verbose) {
+        args.push('--verbose');
+      }
       
-      await callWinappCli(['restore'], { verbose: options.verbose, exitOnError: true });
+      await callWinappCli(args, { exitOnError: true });
 
       console.log('');
       
@@ -313,7 +318,7 @@ function printTerminalRestartInstructions() {
 
 async function handleAddonElectronDebugIdentity(args) {
   const options = parseArgs(args, {
-    verbose: true
+    verbose: false
   });
 
   if (options.help) {
@@ -328,7 +333,7 @@ async function handleAddonElectronDebugIdentity(args) {
     console.log('  4. Register the sparse package with external location');
     console.log('');
     console.log('Options:');
-    console.log('  --verbose             Enable verbose output (default: true)');
+    console.log('  --verbose             Enable verbose output (default: false)');
     console.log('  --help                Show this help');
     console.log('');
     console.log('Note: This command must be run from the root of an Electron project');

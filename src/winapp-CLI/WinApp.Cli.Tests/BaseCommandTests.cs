@@ -26,7 +26,7 @@ public abstract class BaseCommandTests(bool configPaths = true, bool verboseLogg
 
     public TestContext TestContext { get; set; } = null!;
     private protected TaskContext TestTaskContext { private set; get; } = null!;
-    private protected LiveUpdateSignal LiveUpdateSignal { private set; get; } = null!;
+    private protected Lock RenderLock { private set; get; } = null!;
     private protected TestConsole TestAnsiConsole { private set; get; } = null!;
 
     [TestInitialize]
@@ -64,8 +64,8 @@ public abstract class BaseCommandTests(bool configPaths = true, bool verboseLogg
 
         GroupableTask dummyTask = new GroupableTask("Dummy Task", null);
 
-        LiveUpdateSignal = new LiveUpdateSignal();
-        TestTaskContext = new TaskContext(dummyTask, null, TestAnsiConsole, GetRequiredService<ILogger<TaskContext>>(), LiveUpdateSignal);
+        RenderLock = new Lock();
+        TestTaskContext = new TaskContext(dummyTask, null, TestAnsiConsole, GetRequiredService<ILogger<TaskContext>>(), RenderLock);
 
         // Set up services with test cache directory
         if (configPaths)

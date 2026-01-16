@@ -11,7 +11,7 @@ const { callWinappCli: callWinappCli } = require('./winapp-cli-utils');
  * @param {boolean} options.verbose - Enable verbose logging (default: true)
  */
 async function addMsixIdentityToExe(exePath, appxManifestPath, options = {}) {
-  const { verbose = true } = options;
+  const { verbose = false } = options;
   
   if (verbose) {
     console.log('Adding MSIX identity to executable using native CLI...');
@@ -33,7 +33,7 @@ async function addMsixIdentityToExe(exePath, appxManifestPath, options = {}) {
   }
   
   // Call native CLI
-  await callWinappCli(args, { verbose });
+  await callWinappCli(args);
   
   return {
     success: true,
@@ -46,7 +46,7 @@ async function addMsixIdentityToExe(exePath, appxManifestPath, options = {}) {
  * @param {boolean} options.verbose - Enable verbose logging (default: true)
  */
 async function addElectronDebugIdentity(options = {}) {
-  const { verbose = true } = options;
+  const { verbose = false } = options;
   
   if (verbose) {
     console.log('� Adding MSIX debug identity to Electron...');
@@ -85,11 +85,13 @@ async function addElectronDebugIdentity(options = {}) {
       console.log('🔐 Creating debug identity using native CLI...');
     }
     
-    await callWinappCli([
-      'create-debug-identity',
-      electronExePath,
-      verbose ? '-v' : ''
-    ], { verbose });
+    // Build arguments for native CLI
+    const args = ['create-debug-identity', electronExePath];
+    if (verbose) {
+      args.push('--verbose');
+    }
+    
+    await callWinappCli(args);
     
     if (verbose) {
       console.log('✅ Debug identity created and package registered successfully');

@@ -33,4 +33,5 @@ internal static class UiSymbols
     public static string Id => Emoji.Known.IdButton;
     public static string Clipboard => Emoji.Known.Clipboard;
     public static string Verbose => Emoji.Known.MagnifyingGlassTiltedLeft;
+    public static string Question => Emoji.Known.RedQuestionMark;
 }
