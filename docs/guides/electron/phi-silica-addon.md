@@ -42,7 +42,7 @@ Let's verify everything is set up correctly by building the addon:
 npm run build-csAddon
 ```
 
-> **Note:** You can also create a C++ addon using `npx winapp node create-addon` (without the `--template` flag). C++ addons use [node-addon-api](https://github.com/nodejs/node-addon-api) and provide direct access to Windows APIs with maximum performance. See the [full command documentation](../../usage.md#node-create-addon) for more options.
+> **Note:** You can also create a C++ addon using `npx winapp node create-addon` (without the `--template` flag). C++ addons use [node-addon-api](https://github.com/nodejs/node-addon-api) and provide direct access to Windows APIs with maximum performance. See the [C++ Notification Addon guide](cpp-notification-addon.md) for a walkthrough or the [full command documentation](../../usage.md#node-create-addon) for more options.
 
 ## Step 2: Add AI Capabilities with Phi Silica
 
@@ -211,8 +211,9 @@ Or explore other guides:
 
 ### Additional Resources
 
-- **[WinAppCLI Documentation](../../usage.md)** - Full CLI reference
+- **[winapp CLI Documentation](../../usage.md)** - Full CLI reference
 - **[Sample Electron App](../../../samples/electron/)** - Complete working example
+- **[Windows AI Addon for Electron](https://github.com/microsoft/winapp-windows-ai)** - The Windows AI Addon for Electron is a Node.js native addon that provides access to the [Windows AI APIs](https://learn.microsoft.com/en-us/windows/ai/apis/) directly from JavaScript.
 - **[AI Dev Gallery](https://aka.ms/aidevgallery)** - Sample gallery of all AI APIs 
 - **[Windows App SDK Samples](https://github.com/microsoft/WindowsAppSDK-Samples)** - Collection of Windows App SDK samples
 - **[node-api-dotnet](https://github.com/microsoft/node-api-dotnet)** - C# ↔ JavaScript interop library

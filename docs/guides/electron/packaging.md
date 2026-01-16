@@ -39,7 +39,7 @@ This approach gives you more control over the packaging process and works with a
 
 #### Build Your Electron App
 
-To package your Electron app with MSIX, we need to first create the production layout. With electron forge, we can use the package command:
+To package your Electron app with MSIX, we need to first create the production layout. With Electron Forge, we can use the package command:
 
 ```bash
 # Package with Electron Forge (or your preferred packager)

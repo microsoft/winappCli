@@ -19,8 +19,8 @@ This sample demonstrates how to integrate Windows Machine Learning (WinML) into 
 ## Prerequisites
 
 - **Windows 11** or Windows 10 (version 1809+)
-- **Node.js** - `winget install OpenJS.NodeJS`
-- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10`
+- **Node.js** - `winget install OpenJS.NodeJS --source winget`
+- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10 --source winget`
 - **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 ## Getting Started
@@ -73,7 +73,7 @@ npm start
 ## Learn More
 
 - **[Full Guide](../../docs/guides/electron/winml-addon.md)** - Step-by-step tutorial
-- **[WinAppCLI Documentation](../../docs/usage.md)** - CLI reference
+- **[winapp CLI Documentation](../../docs/usage.md)** - CLI reference
 - **[WinML Documentation](https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/overview)** - Official WinML docs
 - **[AI Dev Gallery](https://aka.ms/aidevgallery)** 
 

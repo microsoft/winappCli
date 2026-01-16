@@ -42,7 +42,7 @@ Let's verify everything is set up correctly by building the addon:
 npm run build-winMlAddon
 ```
 
-> **Note:** You can also create a C++ addon using `npx winapp node create-addon` (without the `--template` flag). C++ addons use [node-addon-api](https://github.com/nodejs/node-addon-api) and provide direct access to Windows APIs with maximum performance. See the [full command documentation](../../usage.md#node-create-addon) for more options.
+> **Note:** You can also create a C++ addon using `npx winapp node create-addon` (without the `--template` flag). C++ addons use [node-addon-api](https://github.com/nodejs/node-addon-api) and provide direct access to Windows APIs with maximum performance. See the [C++ Notification Addon guide](cpp-notification-addon.md) for a walkthrough or the [full command documentation](../../usage.md#node-create-addon) for more options.
 
 ## Step 2: Download the SqueezeNet Model and Get Sample Code
 
@@ -58,6 +58,9 @@ We'll use the **Classify Image** sample from the [AI Dev Gallery](https://aka.ms
 ![Downloading SqueezeNet from AI Dev Gallery](../../images/ai-dev-gallery-squeezenet.png)
 
 5. Copy the `squeezenet1.1.onnx` file to a `models/` folder in your project root
+
+> [!NOTE]
+> The model can also be downloaded directly from the [ONNX Model Zoo GitHub repo](https://github.com/onnx/models/blob/main/validated/vision/classification/squeezenet/model/squeezenet1.1-7.onnx)
 
 ## Step 3: Add Required NuGet Packages
 
@@ -381,7 +384,7 @@ To fully integrate your ONNX model, you'll need to:
 ### Additional Resources
 
 - **[WinML Documentation](https://learn.microsoft.com/windows/ai/new-windows-ml/overview)** - Official WinML documentation
-- **[WinAppCLI Documentation](../../usage.md)** - Full CLI reference
+- **[winapp CLI Documentation](../../usage.md)** - Full CLI reference
 - **[Sample Electron App](../../../samples/electron/)** - Complete working example
 - **[AI Dev Gallery](https://aka.ms/aidevgallery)** - Sample gallery of all AI APIs 
 - **[Windows App SDK Samples](https://github.com/microsoft/WindowsAppSDK-Samples/tree/main/Samples/WindowsML)** - Collection of Windows App SDK samples

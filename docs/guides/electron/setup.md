@@ -7,8 +7,8 @@ This guide walks you through setting up your Electron development environment fo
 Before you begin, ensure you have:
 
 - **Windows 11** 
-- **Node.js** - `winget install OpenJS.NodeJS`
-- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10`
+- **Node.js** - `winget install OpenJS.NodeJS --source winget`
+- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10 --source winget`
 - **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 ## Step 1: Create a New Electron App
@@ -20,17 +20,6 @@ npm create electron-app@latest my-windows-app
 cd my-windows-app
 ```
 
-This creates a new Electron app with the following structure:
-```
-my-windows-app/
-├── src/
-│   ├── index.js          # Main process
-│   ├── index.html        # UI
-│   └── preload.js        # Preload script
-├── package.json
-└── forge.config.js       # Electron Forge configuration
-```
-
 Verify the app runs:
 
 ```bash
@@ -39,7 +28,7 @@ npm start
 
 You should see the default Electron Forge window. Close it and let's add Windows capabilities!
 
-## Step 2: Install WinAppCLI
+## Step 2: Install winapp CLI
 
 ```bash
 npm install --save-dev @microsoft/winappcli
@@ -47,11 +36,20 @@ npm install --save-dev @microsoft/winappcli
 
 ## Step 3: Initialize the project for Windows development
 
-Now we'll initialize your project with the Windows SDKs and required assets.
+The `winapp init` command sets up everything you need in one go: app manifest, assets, SDKs, and development certificate.
+
+Run the following command and follow the prompts:
 
 ```bash
 npx winapp init
 ```
+
+When prompted:
+- **Package name**: Press Enter to accept the default (my-windows-app)
+- **Publisher name**: Press Enter to accept the default or enter your name
+- **Version**: Press Enter to accept 1.0.0.0
+- **Entry point**: Press Enter to accept the default (my-windows-app.exe)
+- **Setup SDKs**: Select "Stable SDKs"
 
 ### What Does `winapp init` Do?
 
@@ -72,9 +70,12 @@ This command sets up everything you need for Windows development:
 
 6. **Installs Windows App SDK runtime** - Required runtime components for modern APIs
 
-7. **Enables Dev Mode in Windows** - Required for debuging our application
+7. **Enables Developer Mode in Windows** - Required for debugging our application
 
-The `.winapp/` folder and `devcert.pfx` are automatically added to `.gitignore` since they can be regenerated and should not be checked in to source.
+> [!NOTE]
+> The `.winapp/` folder and `devcert.pfx` are automatically added to `.gitignore` and should not be checked in to source.
+
+You can open `appxmanifest.xml` to further customize properties like the display name, publisher, and capabilities.
 
 > **💡 About the Windows SDKs:**
 >

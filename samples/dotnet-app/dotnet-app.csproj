@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <RootNamespace>dotnet_app</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.251106002" />
+  </ItemGroup>
+
+   <!-- Automatically apply debug identity after Debug builds -->
+  <Target Name="ApplyDebugIdentity" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
+    <Exec Command="winapp create-debug-identity &quot;$(TargetDir)$(TargetName).exe&quot;" WorkingDirectory="$(ProjectDir)" IgnoreExitCode="false" />
+  </Target>
+
+     <!-- Automatically package as MSIX after Release builds -->
+  <Target Name="PackageMsix" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <!-- Package and sign directly from build output -->
+    <Exec Command="winapp pack &quot;$(TargetDir.TrimEnd('\'))&quot; --manifest &quot;$(ProjectDir)appxmanifest.xml&quot; --cert &quot;$(ProjectDir)devcert.pfx&quot;" 
+          WorkingDirectory="$(ProjectDir)" 
+          IgnoreExitCode="false" />
+  </Target>
+
+</Project>
