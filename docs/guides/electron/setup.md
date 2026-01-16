@@ -7,8 +7,8 @@ This guide walks you through setting up your Electron development environment fo
 Before you begin, ensure you have:
 
 - **Windows 11** 
-- **Node.js** - `winget install OpenJS.NodeJS`
-- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10`
+- **Node.js** - `winget install OpenJS.NodeJS --source winget`
+- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10 --source winget`
 - **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 ## Step 1: Create a New Electron App

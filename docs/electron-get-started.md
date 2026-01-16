@@ -15,8 +15,8 @@ By the end of this guide, you'll have an Electron app that:
 Before starting, ensure you have:
 
 - **Windows 11** (Copilot+ PC if using Phi Silica)
-- **Node.js** - `winget install OpenJS.NodeJS`
-- **.NET SDK v10** - `Microsoft.DotNet.SDK.10`
+- **Node.js** - `winget install OpenJS.NodeJS --source winget`
+- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10 --source winget`
 - **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
 ## The Process

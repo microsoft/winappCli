@@ -9,8 +9,8 @@ For a complete working example, check out the [Tauri sample](../../samples/tauri
 ## Prerequisites
 
 1. **Windows 11** 
-1. **Node.js** - `winget install OpenJS.NodeJS`
-1. **winapp CLI** - `winget install microsoft.winappcli`
+1. **Node.js** - `winget install OpenJS.NodeJS --source winget`
+1. **winapp CLI** - `winget install microsoft.winappcli --source winget`
 
 ## 1. Create a New Tauri App
 

@@ -12,12 +12,12 @@ A standard executable (like one created with `dotnet build`) does not have packa
 
 1.  **.NET SDK**: Install the .NET SDK:
     ```powershell
-    winget install Microsoft.DotNet.SDK.10
+    winget install Microsoft.DotNet.SDK.10 --source winget
     ```
 
 2.  **winapp CLI**: Install the `winapp` tool via winget:
     ```powershell
-    winget install Microsoft.winappcli
+    winget install Microsoft.winappcli --source winget
     ```
 
 ## 1. Create a New .NET App

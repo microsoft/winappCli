@@ -10,17 +10,17 @@ A standard executable (like one created with `cmake --build`) does not have pack
 
 1.  **Build Tools**: Use a compiler toolchain supported by CMake. This example uses Visual Studio. You can install the community edition with:
     ```powershell
-    winget install Microsoft.VisualStudio.BuildTools
+    winget install Microsoft.VisualStudio.BuildTools --source winget
     ```
 
 2.  **CMake**: Install CMake:
     ```powershell
-    winget install Kitware.CMake
+    winget install Kitware.CMake --source winget
     ```
 
 3.  **winapp CLI**: Install the `winapp` tool via winget:
     ```powershell
-    winget install Microsoft.winappcli
+    winget install Microsoft.winappcli --source winget
     ```
 
 ## 1. Create a New C++ App

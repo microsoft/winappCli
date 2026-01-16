@@ -15,7 +15,7 @@ For a complete step-by-step guide, see the [.NET Getting Started Guide](../../do
 ## Prerequisites
 
 - .NET 10.0 SDK
-- winapp CLI installed via winget: `winget install Microsoft.winappcli`
+- winapp CLI installed via winget: `winget install Microsoft.winappcli --source winget`
 
 ## Building and Running
 

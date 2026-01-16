@@ -12,12 +12,12 @@ A standard executable (like one created with `cargo build`) does not have packag
 
 1.  **Rust Toolchain**: Install Rust using [rustup](https://rustup.rs/) or winget:
     ```powershell
-    winget install Rustlang.Rustup
+    winget install Rustlang.Rustup --source winget
     ```
 
 2.  **winapp CLI**: Install the `winapp` tool via winget:
     ```powershell
-    winget install microsoft.winappcli
+    winget install microsoft.winappcli --source winget
     ```
 
 ## 1. Create a New Rust App

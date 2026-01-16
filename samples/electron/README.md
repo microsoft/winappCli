@@ -5,10 +5,10 @@ This sample demonstrates usage of the @microsoft/winappcli npm package with an E
 ## Prerequisites
 
 - **Windows 11** or Windows 10 (version 1809+)
-- **Node.js** - `winget install OpenJS.NodeJS`
-- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10`
+- **Node.js** - `winget install OpenJS.NodeJS --source winget`
+- **.NET SDK v10** - `winget install Microsoft.DotNet.SDK.10 --source winget`
 - **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
-- **Python** - `winget install Python.PythonInstallManager`
+- **Python** - `winget install Python.PythonInstallManager --source winget`
 
 ## 🚀 Quick Start: How to build and run the sample
 
@@ -52,7 +52,7 @@ a .node file that is trimmed and doesn't require the .net runtime to be installe
 ## Prerequisites
 
 - **Windows 11** 
-- **Node.js** - `winget install OpenJS.NodeJS`
+- **Node.js** - `winget install OpenJS.NodeJS --source winget`
 - **.NET SDK v10** - `Microsoft.DotNet.SDK.10`
 - **Visual Studio with the Native Desktop Workload** - `winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"`
 
