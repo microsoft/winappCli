@@ -688,6 +688,11 @@ internal class WorkspaceSetupService(
         {
             if (!options.ConfigOnly && !options.RequireExistingConfig && !devModeService.IsEnabled())
             {
+                if (options.UseDefaults)
+                {
+                    return false;
+                }
+
                 shouldEnableDeveloperMode = await ansiConsole.PromptAsync(new ConfirmationPrompt("Developer Mode is not enabled. Enabling Developer Mode requires administrative privileges. You may be prompted by User Account Control (UAC). Do you want to proceed?"), cancellationToken);
             }
 
