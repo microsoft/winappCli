@@ -10,14 +10,14 @@ Before running the sample, ensure you have Rust and the `winappcli` tool install
 If you haven't installed Rust yet, you can download it from [rust-lang.org](https://www.rust-lang.org/tools/install) or use winget:
 
 ```powershell
-winget install Rustlang.Rustup
+winget install Rustlang.Rustup --source winget
 ```
 
 ### Install winappcli
 Install the `winapp` command line tool using winget:
 
 ```powershell
-winget install microsoft.winappcli
+winget install microsoft.winappcli --source winget
 ```
 
 ## How to Run
@@ -62,8 +62,7 @@ To fully package the application as an MSIX and install it:
 
 2. **Install the Certificate**: Install the certificate locally (requires Admin privileges).
    ```powershell
-   # Run from an Administrator PowerShell or use sudo if available
-   sudo winapp cert install .\devcert.pfx
+   winapp cert install .\devcert.pfx
    ```
 
 3. **Build for Release**:
