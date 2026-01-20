@@ -22,27 +22,44 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
         // Start the task execution
         var taskExecution = task.ExecuteAsync(null, cancellationToken);
 
-        IRenderable rendered = task.Render();
-        // Run the Live display until task completes
-        await ansiConsole.Live(rendered)
-            .AutoClear(true)
-            .Overflow(VerticalOverflow.Crop)
-            .Cropping(VerticalOverflowCropping.Top)
-            .StartAsync(async ctx =>
-            {
-                while (!taskExecution.IsCompleted)
-                {
-                    lock (renderLock)
-                    {
-                        rendered = task.Render();
-                        ctx.UpdateTarget(rendered);
-                    }
-                    ctx.Refresh();
+        IRenderable rendered;
 
-                    // Wait for animation refresh (100ms) or task completion
-                    await Task.WhenAny(taskExecution, Task.Delay(100, cancellationToken));
-                }
-            });
+        (int ReturnCode, T CompletedMessage)? result = null;
+        if (!Console.IsOutputRedirected)
+        {
+            rendered = task.Render();
+            // Run the Live display until task completes
+            await ansiConsole.Live(rendered)
+                .AutoClear(true)
+                .Overflow(VerticalOverflow.Crop)
+                .Cropping(VerticalOverflowCropping.Top)
+                .StartAsync(async ctx =>
+                {
+                    while (!taskExecution.IsCompleted)
+                    {
+                        lock (renderLock)
+                        {
+                            rendered = task.Render();
+                            ctx.UpdateTarget(rendered);
+                        }
+                        ctx.Refresh();
+
+                        // Wait for animation refresh (100ms) or task completion
+                        await Task.WhenAny(taskExecution, Task.Delay(100, cancellationToken));
+                    }
+                });
+        }
+        else
+        {
+            // if output is redirected, just wait for the task to complete without live rendering
+            try
+            {
+                result = await taskExecution;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
 
         // Final render to show completed state
         lock (renderLock)
@@ -53,7 +70,6 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
         ansiConsole.Write(rendered);
 
         // Get the result
-        (int ReturnCode, T CompletedMessage)? result = null;
         try
         {
             result = await taskExecution;
