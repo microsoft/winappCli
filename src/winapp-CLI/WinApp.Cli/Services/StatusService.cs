@@ -25,7 +25,7 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
         IRenderable rendered;
 
         (int ReturnCode, T CompletedMessage)? result = null;
-        if (!Console.IsOutputRedirected)
+        if (Environment.UserInteractive && !Console.IsOutputRedirected)
         {
             rendered = task.Render();
             // Run the Live display until task completes
