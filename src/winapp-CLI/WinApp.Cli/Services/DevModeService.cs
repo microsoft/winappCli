@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using Microsoft.Win32;
-using Spectre.Console;
 using System.ComponentModel;
 using System.Diagnostics;
 using WinApp.Cli.ConsoleTasks;
@@ -20,12 +19,6 @@ internal sealed class DevModeService : IDevModeService
         }
 
         taskContext.AddDebugMessage("Developer Mode is OFF — enabling...");
-
-        var shouldProceed = await taskContext.PromptAsync(new ConfirmationPrompt("Enabling Developer Mode requires administrative privileges. You may be prompted by User Account Control (UAC). Do you want to proceed?"), cancellationToken);
-        if (!shouldProceed)
-        {
-            return -1;
-        }
 
         // 1) Prefer PowerShell elevated
         string ps = Path.Combine(

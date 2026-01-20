@@ -31,14 +31,12 @@ function getWinappCliPath() {
  * Always captures output and returns it along with the exit code
  */
 async function callWinappCli(args, options = {}) {
-  const { verbose = false, exitOnError = false } = options;
+  const { exitOnError = false } = options;
   const winappCliPath = getWinappCliPath();
   
   return new Promise((resolve, reject) => {
-    let stderr = '';
-    
     const child = spawn(winappCliPath, args, {
-      stdio: verbose ? 'inherit' : 'pipe',
+      stdio: 'inherit',
       cwd: process.cwd(),
       shell: false,
       env: {
@@ -47,29 +45,19 @@ async function callWinappCli(args, options = {}) {
       }
     });
     
-    // Only capture stderr when not using inherit mode (needed for error messages)
-    if (!verbose) {
-      child.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-    }
-    
     child.on('close', (code) => {
       if (code === 0) {
         resolve({ exitCode: code });
       } else {
         if (exitOnError) {
-          // Print stderr only if not verbose, as it would have been printed already
-          if (!verbose) {
-            console.error(`winapp-cli failed: ${stderr}`);
-          }
+          console.error(`winapp-cli exited with code ${code}`);
           process.exit(code);
         } else {
-          reject(new Error(`winapp-cli exited with code ${code}: ${stderr}`));
+          reject(new Error(`winapp-cli exited with code ${code}`));
         }
       }
     });
-    
+
     child.on('error', (error) => {
       if (exitOnError) {
         console.error(`Failed to execute winapp-cli: ${error.message}`);
