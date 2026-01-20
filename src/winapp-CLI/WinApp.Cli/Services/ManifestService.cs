@@ -289,24 +289,39 @@ internal partial class ManifestService(
     {
         taskContext.AddStatusMessage($"{UiSymbols.Info} Updating assets for manifest: {manifestPath.FullName}");
 
-        // Determine the Assets directory relative to the manifest
+        // Determine the manifest directory
         var manifestDir = manifestPath.Directory;
         if (manifestDir == null)
         {
             throw new InvalidOperationException("Could not determine manifest directory");
         }
 
-        var assetsDir = manifestDir.CreateSubdirectory("Assets");
+        // Extract asset references from the manifest
+        var assetReferences = ExtractAssetReferencesFromManifest(manifestPath, taskContext);
 
-        // Generate the image assets
-        await imageAssetService.GenerateAssetsAsync(imagePath, assetsDir, taskContext, cancellationToken);
-
-        // Verify that the manifest references the Assets directory correctly
-        VerifyManifestAssetReferences(manifestPath, taskContext);
+        if (assetReferences.Count > 0)
+        {
+            // Generate assets based on manifest references
+            await imageAssetService.GenerateAssetsFromManifestAsync(imagePath, manifestDir, assetReferences, taskContext, cancellationToken);
+        }
+        else
+        {
+            // Fallback to default behavior if no asset references found
+            taskContext.AddStatusMessage($"{UiSymbols.Warning} No asset references found in manifest, generating default assets");
+            var assetsDir = manifestDir.CreateSubdirectory("Assets");
+            await imageAssetService.GenerateAssetsAsync(imagePath, assetsDir, taskContext, cancellationToken);
+        }
     }
 
-    private static void VerifyManifestAssetReferences(FileInfo manifestPath, TaskContext taskContext)
+    /// <summary>
+    /// Extracts asset references from an AppxManifest.xml file.
+    /// Parses the manifest to find Logo, Square150x150Logo, Square44x44Logo, Wide310x150Logo, 
+    /// and other image asset attributes, then determines their expected dimensions.
+    /// </summary>
+    private static List<ManifestAssetReference> ExtractAssetReferencesFromManifest(FileInfo manifestPath, TaskContext taskContext)
     {
+        var assetReferences = new List<ManifestAssetReference>();
+
         try
         {
             var doc = new System.Xml.XmlDocument();
@@ -316,37 +331,182 @@ internal partial class ManifestService(
             nsmgr.AddNamespace("m", "http://schemas.microsoft.com/appx/manifest/foundation/windows10");
             nsmgr.AddNamespace("uap", "http://schemas.microsoft.com/appx/manifest/uap/windows10");
 
-            // Check if Logo references exist and use Assets folder
-            var logoNode = doc.SelectSingleNode("//m:Properties/m:Logo", nsmgr);
-            var visualElementsNode = doc.SelectSingleNode("//uap:VisualElements", nsmgr);
-
-            var hasAssetReferences = false;
-            if (logoNode?.InnerText.Contains("Assets", StringComparison.OrdinalIgnoreCase) == true)
+            // Known asset types and their base dimensions
+            var assetTypeDimensions = new Dictionary<string, (int Width, int Height)>(StringComparer.OrdinalIgnoreCase)
             {
-                hasAssetReferences = true;
+                // Square logos
+                { "Square44x44Logo", (44, 44) },
+                { "Square71x71Logo", (71, 71) },
+                { "Square150x150Logo", (150, 150) },
+                { "Square310x310Logo", (310, 310) },
+                // Wide logos
+                { "Wide310x150Logo", (310, 150) },
+                // Store logo (typically 50x50)
+                { "Logo", (50, 50) },
+                { "StoreLogo", (50, 50) },
+                // Splash screen
+                { "SplashScreen", (620, 300) },
+                // Badge logo
+                { "BadgeLogo", (24, 24) },
+                // Lock screen logo
+                { "LockScreenLogo", (24, 24) },
+            };
+
+            var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Extract Logo from Properties
+            var logoNode = doc.SelectSingleNode("//m:Properties/m:Logo", nsmgr);
+            if (logoNode != null && !string.IsNullOrWhiteSpace(logoNode.InnerText))
+            {
+                var logoPath = logoNode.InnerText.Trim();
+                if (!addedPaths.Contains(logoPath))
+                {
+                    // Determine dimensions from filename or use default Store logo size
+                    var dimensions = GetDimensionsFromPath(logoPath, assetTypeDimensions);
+                    assetReferences.Add(new ManifestAssetReference(logoPath, dimensions.Width, dimensions.Height));
+                    addedPaths.Add(logoPath);
+                    taskContext.AddDebugMessage($"  Found Logo: {logoPath} ({dimensions.Width}x{dimensions.Height})");
+                }
             }
 
-            if (visualElementsNode?.Attributes != null)
+            // Extract from uap:VisualElements attributes
+            var visualElementsNodes = doc.SelectNodes("//uap:VisualElements", nsmgr);
+            if (visualElementsNodes != null)
             {
-                foreach (System.Xml.XmlAttribute attr in visualElementsNode.Attributes)
+                foreach (System.Xml.XmlNode visualElements in visualElementsNodes)
                 {
-                    if (attr.Value.Contains("Assets", StringComparison.OrdinalIgnoreCase))
+                    if (visualElements.Attributes == null)
                     {
-                        hasAssetReferences = true;
-                        break;
+                        continue;
+                    }
+
+                    foreach (System.Xml.XmlAttribute attr in visualElements.Attributes)
+                    {
+                        if (assetTypeDimensions.TryGetValue(attr.Name, out var dimensions) && !string.IsNullOrWhiteSpace(attr.Value))
+                        {
+                            var assetPath = attr.Value.Trim();
+                            if (!addedPaths.Contains(assetPath))
+                            {
+                                assetReferences.Add(new ManifestAssetReference(assetPath, dimensions.Width, dimensions.Height));
+                                addedPaths.Add(assetPath);
+                                taskContext.AddDebugMessage($"  Found {attr.Name}: {assetPath} ({dimensions.Width}x{dimensions.Height})");
+                            }
+                        }
                     }
                 }
             }
 
-            if (!hasAssetReferences)
+            // Extract from uap:DefaultTile attributes
+            var defaultTileNodes = doc.SelectNodes("//uap:DefaultTile", nsmgr);
+            if (defaultTileNodes != null)
             {
-                taskContext.AddStatusMessage($"{UiSymbols.Warning} Manifest may not reference the Assets directory. Image assets were generated but may not be used by the manifest.");
-                taskContext.AddStatusMessage("Consider updating your manifest to reference assets like: Assets\\Square150x150Logo.png");
+                foreach (System.Xml.XmlNode defaultTile in defaultTileNodes)
+                {
+                    if (defaultTile.Attributes == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (System.Xml.XmlAttribute attr in defaultTile.Attributes)
+                    {
+                        if (assetTypeDimensions.TryGetValue(attr.Name, out var dimensions) && !string.IsNullOrWhiteSpace(attr.Value))
+                        {
+                            var assetPath = attr.Value.Trim();
+                            if (!addedPaths.Contains(assetPath))
+                            {
+                                assetReferences.Add(new ManifestAssetReference(assetPath, dimensions.Width, dimensions.Height));
+                                addedPaths.Add(assetPath);
+                                taskContext.AddDebugMessage($"  Found {attr.Name}: {assetPath} ({dimensions.Width}x{dimensions.Height})");
+                            }
+                        }
+                    }
+                }
             }
+
+            // Extract from uap:SplashScreen attributes
+            var splashScreenNodes = doc.SelectNodes("//uap:SplashScreen", nsmgr);
+            if (splashScreenNodes != null)
+            {
+                foreach (System.Xml.XmlNode splashScreen in splashScreenNodes)
+                {
+                    var imageAttr = splashScreen.Attributes?["Image"];
+                    if (imageAttr != null && !string.IsNullOrWhiteSpace(imageAttr.Value))
+                    {
+                        var assetPath = imageAttr.Value.Trim();
+                        if (!addedPaths.Contains(assetPath))
+                        {
+                            var dimensions = assetTypeDimensions["SplashScreen"];
+                            assetReferences.Add(new ManifestAssetReference(assetPath, dimensions.Width, dimensions.Height));
+                            addedPaths.Add(assetPath);
+                            taskContext.AddDebugMessage($"  Found SplashScreen: {assetPath} ({dimensions.Width}x{dimensions.Height})");
+                        }
+                    }
+                }
+            }
+
+            // Extract from uap:LockScreen attributes
+            var lockScreenNodes = doc.SelectNodes("//uap:LockScreen", nsmgr);
+            if (lockScreenNodes != null)
+            {
+                foreach (System.Xml.XmlNode lockScreen in lockScreenNodes)
+                {
+                    var badgeLogoAttr = lockScreen.Attributes?["BadgeLogo"];
+                    if (badgeLogoAttr != null && !string.IsNullOrWhiteSpace(badgeLogoAttr.Value))
+                    {
+                        var assetPath = badgeLogoAttr.Value.Trim();
+                        if (!addedPaths.Contains(assetPath))
+                        {
+                            var dimensions = assetTypeDimensions["BadgeLogo"];
+                            assetReferences.Add(new ManifestAssetReference(assetPath, dimensions.Width, dimensions.Height));
+                            addedPaths.Add(assetPath);
+                            taskContext.AddDebugMessage($"  Found BadgeLogo: {assetPath} ({dimensions.Width}x{dimensions.Height})");
+                        }
+                    }
+                }
+            }
+
+            taskContext.AddDebugMessage($"Extracted {assetReferences.Count} asset references from manifest");
         }
         catch (Exception ex)
         {
-            taskContext.AddDebugMessage($"Could not verify manifest asset references: {ex.Message}");
+            taskContext.AddDebugMessage($"Error parsing manifest for asset references: {ex.Message}");
         }
+
+        return assetReferences;
     }
+
+    /// <summary>
+    /// Attempts to determine asset dimensions from the file path/name.
+    /// Parses patterns like "Square150x150Logo.png" or "Wide310x150Logo.png".
+    /// </summary>
+    private static (int Width, int Height) GetDimensionsFromPath(string path, Dictionary<string, (int Width, int Height)> knownDimensions)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(path);
+
+        // Check if the filename matches any known asset type
+        foreach (var kvp in knownDimensions)
+        {
+            if (fileName.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                return kvp.Value;
+            }
+        }
+
+        // Try to parse dimensions from filename pattern like "Square150x150" or "Wide310x150"
+        var match = DimensionRegex().Match(fileName);
+        if (match.Success)
+        {
+            if (int.TryParse(match.Groups[1].Value, out var width) &&
+                int.TryParse(match.Groups[2].Value, out var height))
+            {
+                return (width, height);
+            }
+        }
+
+        // Default to store logo size
+        return (50, 50);
+    }
+
+    [GeneratedRegex(@"(\d+)x(\d+)", RegexOptions.IgnoreCase)]
+    private static partial Regex DimensionRegex();
 }
