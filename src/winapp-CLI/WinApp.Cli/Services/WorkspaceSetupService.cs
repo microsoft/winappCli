@@ -693,7 +693,7 @@ internal class WorkspaceSetupService(
                     return false;
                 }
 
-                shouldEnableDeveloperMode = await ansiConsole.PromptAsync(new ConfirmationPrompt("Developer Mode is not enabled. Enabling Developer Mode requires administrative privileges. You may be prompted by User Account Control (UAC). Do you want to proceed?"), cancellationToken);
+                shouldEnableDeveloperMode = await ansiConsole.PromptAsync(new ConfirmationPrompt("Enable Developer Mode (requires elevation and you will be prompted by User Account Control)"), cancellationToken);
             }
 
             return shouldEnableDeveloperMode;
