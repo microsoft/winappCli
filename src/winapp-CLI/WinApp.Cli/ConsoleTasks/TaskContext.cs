@@ -14,21 +14,21 @@ internal class TaskContext
     private readonly Action? _onUpdate;
     private readonly IAnsiConsole _ansiConsole;
     private readonly ILogger _logger;
-    private readonly LiveUpdateSignal _signal;
+    private readonly Lock _renderLock;
 
-    public TaskContext(GroupableTask task, Action? onUpdate, IAnsiConsole ansiConsole, ILogger logger, LiveUpdateSignal signal)
+    public TaskContext(GroupableTask task, Action? onUpdate, IAnsiConsole ansiConsole, ILogger logger, Lock renderLock)
     {
         _task = task;
         _onUpdate = onUpdate;
         _ansiConsole = ansiConsole;
         _logger = logger;
-        _signal = signal;
+        _renderLock = renderLock;
     }
 
     public async Task<T?> AddSubTaskAsync<T>(string inProgressMessage, Func<TaskContext, CancellationToken, Task<T>> taskFunc, CancellationToken cancellationToken)
     {
-        var subTask = new GroupableTask<T>(inProgressMessage, _task, taskFunc, _ansiConsole, _logger, _signal);
-        lock (_signal.Lock)
+        var subTask = new GroupableTask<T>(inProgressMessage, _task, taskFunc, _ansiConsole, _logger, _renderLock);
+        lock (_renderLock)
         {
             _task.SubTasks.Add(subTask, cancellationToken);
         }
@@ -60,8 +60,8 @@ internal class TaskContext
         {
             message = message.Insert(UiSymbols.Info.Length, " ");
         }
-        var subTask = new StatusMessageTask(message, _task, _ansiConsole, _logger, _signal);
-        lock (_signal.Lock)
+        var subTask = new StatusMessageTask(message, _task, _ansiConsole, _logger, _renderLock);
+        lock (_renderLock)
         {
             _task.SubTasks.Add(subTask);
         }
@@ -100,10 +100,19 @@ internal class TaskContext
 #pragma warning restore CA2254 // Template should be a static expression
     }
 
-    public async Task<T?> PromptAsync<T>(IPrompt<T> prompt, CancellationToken cancellationToken)
+    public async Task<bool> PromptConfirmationAsync(string prompt, CancellationToken cancellationToken)
     {
-        // Use the signal-based approach: signal the main thread to handle the prompt
-        return await _signal.SignalPromptAsync(prompt, cancellationToken);
+        // Create a prompt task that displays and tracks the confirmation state
+        var promptTask = new PromptConfirmationTask(prompt, _task, _ansiConsole, _logger, _renderLock, _onUpdate);
+        
+        lock (_renderLock)
+        {
+            _task.SubTasks.Add(promptTask, cancellationToken);
+        }
+        _onUpdate?.Invoke();
+
+        // Wait for user input (Y/N/Enter/Escape)
+        return await promptTask.WaitForInputAsync(cancellationToken);
     }
 
     internal void UpdateSubStatus(string? subStatus)

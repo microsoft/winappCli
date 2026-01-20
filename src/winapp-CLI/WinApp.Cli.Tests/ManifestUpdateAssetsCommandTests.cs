@@ -232,7 +232,7 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         // Assert
         Assert.AreEqual(0, exitCode, "Update-assets command should complete successfully");
 
-        Assert.Contains("Updating manifest assets", TestAnsiConsole.Output, "Should log update message");
+        Assert.Contains("Updating assets for manifest", TestAnsiConsole.Output, "Should log update message");
         Assert.Contains("generated", TestAnsiConsole.Output.ToLowerInvariant(), "Should log generation progress");
     }
 

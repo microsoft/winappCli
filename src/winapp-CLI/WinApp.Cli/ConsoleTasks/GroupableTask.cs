@@ -17,6 +17,7 @@ internal class GroupableTask(string inProgressMessage, GroupableTask? parent) : 
     public bool IsCompleted { get; protected set; }
     public GroupableTask? Parent { get; } = parent;
     public string InProgressMessage { get; set; } = inProgressMessage;
+    public bool EscapeInProgressMessage { get; set; } = true;
     public string? SubStatus { get; set; }
 
     public void Dispose()
@@ -33,16 +34,16 @@ internal class GroupableTask<T> : GroupableTask
     public T? CompletedMessage { get; protected set; }
     private readonly Func<TaskContext, CancellationToken, Task<T>>? _taskFunc;
     protected readonly IAnsiConsole AnsiConsole;
-    protected readonly LiveUpdateSignal Signal;
+    protected readonly Lock RenderLock;
     private readonly ILogger _logger;
 
-    public GroupableTask(string inProgressMessage, GroupableTask? parent, Func<TaskContext, CancellationToken, Task<T>>? taskFunc, IAnsiConsole ansiConsole, ILogger logger, LiveUpdateSignal signal)
+    public GroupableTask(string inProgressMessage, GroupableTask? parent, Func<TaskContext, CancellationToken, Task<T>>? taskFunc, IAnsiConsole ansiConsole, ILogger logger, Lock renderLock)
         : base(inProgressMessage, parent)
     {
         _taskFunc = taskFunc;
         AnsiConsole = ansiConsole;
         _logger = logger;
-        Signal = signal;
+        RenderLock = renderLock;
     }
 
     public virtual async Task<T?> ExecuteAsync(Action? onUpdate, CancellationToken cancellationToken, bool startSpinner = true)
@@ -53,7 +54,7 @@ internal class GroupableTask<T> : GroupableTask
         {
             if (_taskFunc != null)
             {
-                var context = new TaskContext(this, onUpdate, AnsiConsole, _logger, Signal);
+                var context = new TaskContext(this, onUpdate, AnsiConsole, _logger, RenderLock);
                 CompletedMessage = await _taskFunc(context, cancellationToken);
                 IsCompleted = true;
             }
@@ -72,43 +73,47 @@ internal class GroupableTask<T> : GroupableTask
         return CompletedMessage;
     }
 
-    public (IRenderable, int) Render()
+    public IRenderable Render()
     {
         var sb = new StringBuilder();
 
         int maxDepth = _logger.IsEnabled(LogLevel.Debug) ? int.MaxValue : 1;
-        var lineCount = RenderTask(this, sb, 0, string.Empty, maxDepth);
+        RenderTask(this, sb, 0, string.Empty, maxDepth);
+        var allTasksString = sb.ToString().TrimEnd([.. Environment.NewLine]);
+        if (!allTasksString.Contains(Environment.NewLine))
+        {
+            allTasksString = $"{allTasksString}{Environment.NewLine}";
+        }
 
-        var panel = new Panel(new Markup(sb.ToString().TrimEnd([.. Environment.NewLine])))
+        var panel = new Panel(allTasksString)
         {
             Border = BoxBorder.None,
             Padding = new Padding(0, 0),
             Expand = true
         };
 
-        return (panel, lineCount);
+        return panel;
     }
 
-    private static int RenderSubTasks(GroupableTask task, StringBuilder sb, int indentLevel, int maxForcedDepth)
+    private static void RenderSubTasks(GroupableTask task, StringBuilder sb, int indentLevel, int maxForcedDepth)
     {
         if (task.SubTasks.Count == 0)
         {
-            return 0;
+            return;
         }
 
         var indentStr = new string(' ', indentLevel * 2);
-        int lineCount = 0;
 
         foreach (var subTask in task.SubTasks)
         {
-            lineCount += RenderTask(subTask, sb, indentLevel, indentStr, maxForcedDepth);
+            RenderTask(subTask, sb, indentLevel, indentStr, maxForcedDepth);
         }
-
-        return lineCount;
     }
 
-    private static int RenderTask(GroupableTask task, StringBuilder sb, int indentLevel, string indentStr, int maxForcedDepth)
+    private static void RenderTask(GroupableTask task, StringBuilder sb, int indentLevel, string indentStr, int maxForcedDepth)
     {
+        string msg;
+
         if (task.IsCompleted)
         {
             static string FormatCheckMarkMessage(string indentStr, string message)
@@ -123,7 +128,8 @@ internal class GroupableTask<T> : GroupableTask
                 }
                 return firstCharIsEmojiOrOpenBracket ? $"{indentStr} {message}" : $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
             }
-            sb.AppendLine(task switch
+
+            msg = task switch
             {
                 StatusMessageTask statusMessageTask => $"{indentStr} {Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}",
                 GroupableTask<T> genericTask => FormatCheckMarkMessage(indentStr, (genericTask.CompletedMessage as ITuple) switch
@@ -133,7 +139,7 @@ internal class GroupableTask<T> : GroupableTask
                     _ => genericTask.CompletedMessage?.ToString() ?? string.Empty
                 }),
                 GroupableTask _ => FormatCheckMarkMessage(indentStr, Markup.Escape(task.InProgressMessage)),
-            });
+            };
         }
         else
         {
@@ -141,23 +147,30 @@ internal class GroupableTask<T> : GroupableTask
             var spinnerIndex = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 100) % spinnerChars.Length;
             var spinner = spinnerChars[spinnerIndex];
 
-            var msg = task.InProgressMessage;
+            msg = task.InProgressMessage;
             if (!string.IsNullOrEmpty(task.SubStatus))
             {
                 msg = $"{msg} ({task.SubStatus})";
             }
-
-            sb.AppendLine($"{indentStr}[yellow]{spinner}[/]  {Markup.Escape(msg)}");
+            if (task.EscapeInProgressMessage)
+            {
+                msg = Markup.Escape(msg);
+            }
+            if (task is not PromptConfirmationTask promptConfirmationTask || promptConfirmationTask.State != PromptState.WaitingForInput)
+            {
+                msg = $"{indentStr}[yellow]{spinner}[/]  {msg}";
+            }
         }
 
-        int lineCount = 1;
+        // make line endings consistent
+        msg = msg.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine).TrimEnd([.. Environment.NewLine]);
+
+        sb.AppendLine(msg);
 
         bool shouldRenderChildren = indentLevel + 1 <= maxForcedDepth || !task.IsCompleted;
         if (shouldRenderChildren)
         {
-            lineCount += RenderSubTasks(task, sb, indentLevel + 1, maxForcedDepth);
+            RenderSubTasks(task, sb, indentLevel + 1, maxForcedDepth);
         }
-
-        return lineCount;
     }
 }
