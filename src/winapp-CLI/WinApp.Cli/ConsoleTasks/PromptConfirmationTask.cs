@@ -3,7 +3,6 @@
 
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using System.Globalization;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.ConsoleTasks;

@@ -3,7 +3,6 @@
 
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;

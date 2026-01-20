@@ -3,8 +3,6 @@
 
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using System;
-using System.IO;
 using System.Runtime.InteropServices;
 using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
@@ -59,7 +57,7 @@ internal class WorkspaceSetupService(
         bool shouldGenerateManifest = true;
         bool shouldGenerateCert = !options.NoCert;
 
-        (var initializationResult, WinappConfig? config, hadExistingConfig, shouldGenerateManifest, var manifestGenerationInfo, shouldGenerateCert) = await InitializeConfigurationAsync(options, cancellationToken);
+        (var initializationResult, WinappConfig? config, hadExistingConfig, shouldGenerateManifest, var manifestGenerationInfo, shouldGenerateCert, bool shouldEnableDeveloperMode) = await InitializeConfigurationAsync(options, cancellationToken);
         if (initializationResult != 0)
         {
             return initializationResult;
@@ -191,6 +189,11 @@ internal class WorkspaceSetupService(
                 {
                     await taskContext.AddSubTaskAsync("Configuring developer mode", async (taskContext, cancellationToken) =>
                     {
+                        if (!shouldEnableDeveloperMode)
+                        {
+                            taskContext.AddDebugMessage($"{UiSymbols.Skip} Developer Mode setup skipped");
+                            return (0, "Developer Mode setup skipped");
+                        }
                         try
                         {
                             if (devModeService.IsEnabled())
@@ -578,7 +581,7 @@ internal class WorkspaceSetupService(
         }, cancellationToken);
     }
 
-    private async Task<(int ReturnCode, WinappConfig? Config, bool HadExistingConfig, bool ShouldGenerateManifest, ManifestGenerationInfo? ManifestGenerationInfo, bool ShouldGenerateCert)> InitializeConfigurationAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken)
+    private async Task<(int ReturnCode, WinappConfig? Config, bool HadExistingConfig, bool ShouldGenerateManifest, ManifestGenerationInfo? ManifestGenerationInfo, bool ShouldGenerateCert, bool ShouldEnableDeveloperMode)> InitializeConfigurationAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken)
     {
         if (!options.RequireExistingConfig && !options.ConfigOnly && options.SdkInstallMode == null && options.UseDefaults)
         {
@@ -589,6 +592,7 @@ internal class WorkspaceSetupService(
         var hadExistingConfig = configService.Exists();
         bool shouldGenerateManifest = true;
         bool shouldGenerateCert = !options.NoCert;
+        bool shouldEnableDeveloperMode = false;
         ManifestGenerationInfo? manifestGenerationInfo = null;
         WinappConfig? config = null;
 
@@ -597,7 +601,7 @@ internal class WorkspaceSetupService(
         {
             logger.LogInformation("winapp.yaml not found in {ConfigDir}", options.ConfigDir);
             logger.LogInformation("Run 'winapp init' to initialize a new workspace or navigate to a directory with winapp.yaml");
-            return (1, config, hadExistingConfig, shouldGenerateManifest, manifestGenerationInfo, shouldGenerateCert);
+            return (1, config, hadExistingConfig, shouldGenerateManifest, manifestGenerationInfo, shouldGenerateCert, shouldEnableDeveloperMode);
         }
 
         // Step 2: Load or prepare configuration
@@ -608,7 +612,8 @@ internal class WorkspaceSetupService(
             if (config.Packages.Count == 0 && options.RequireExistingConfig)
             {
                 logger.LogInformation("{UISymbol} winapp.yaml found but contains no packages. Nothing to restore.", UiSymbols.Note);
-                return (0, config, hadExistingConfig, shouldGenerateManifest, manifestGenerationInfo, shouldGenerateCert);
+                shouldEnableDeveloperMode = await AskShouldEnableDeveloperModeAsync(options, shouldEnableDeveloperMode, cancellationToken);
+                return (0, config, hadExistingConfig, shouldGenerateManifest, manifestGenerationInfo, shouldGenerateCert, shouldEnableDeveloperMode);
             }
 
             var operation = options.RequireExistingConfig ? "Found" : "Found existing";
@@ -663,9 +668,11 @@ internal class WorkspaceSetupService(
             }
         }
 
+        shouldEnableDeveloperMode = await AskShouldEnableDeveloperModeAsync(options, shouldEnableDeveloperMode, cancellationToken);
+
         ansiConsole.WriteLine();
 
-        return (0, config, hadExistingConfig, shouldGenerateManifest, manifestGenerationInfo, shouldGenerateCert);
+        return (0, config, hadExistingConfig, shouldGenerateManifest, manifestGenerationInfo, shouldGenerateCert, shouldEnableDeveloperMode);
 
         async Task<ManifestGenerationInfo?> PromptForManifestInfoAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken)
         {
@@ -675,6 +682,16 @@ internal class WorkspaceSetupService(
             }
 
             return await manifestService.PromptForManifestInfoAsync(options.BaseDirectory, null, null, "1.0.0.0", "Windows Application", null, options.UseDefaults, cancellationToken);
+        }
+
+        async Task<bool> AskShouldEnableDeveloperModeAsync(WorkspaceSetupOptions options, bool shouldEnableDeveloperMode, CancellationToken cancellationToken)
+        {
+            if (!options.ConfigOnly && !options.RequireExistingConfig && !devModeService.IsEnabled())
+            {
+                shouldEnableDeveloperMode = await ansiConsole.PromptAsync(new ConfirmationPrompt("Developer Mode is not enabled. Enabling Developer Mode requires administrative privileges. You may be prompted by User Account Control (UAC). Do you want to proceed?"), cancellationToken);
+            }
+
+            return shouldEnableDeveloperMode;
         }
     }
 
