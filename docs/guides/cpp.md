@@ -10,7 +10,7 @@ A standard executable (like one created with `cmake --build`) does not have pack
 
 1.  **Build Tools**: Use a compiler toolchain supported by CMake. This example uses Visual Studio. You can install the community edition with:
     ```powershell
-    winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait
+    winget install --id Microsoft.VisualStudio.Community --source winget --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --passive --wait"
     ```
     Reboot after installation. 
 
