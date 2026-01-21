@@ -264,7 +264,7 @@ async function handleCreateAddon(args) {
       console.log(`New addon at: ${result.addonPath}`);
 
       const args = ['restore'];
-      if (verbose) {
+      if (options.verbose) {
         args.push('--verbose');
       }
       
