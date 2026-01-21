@@ -193,9 +193,9 @@ Add the `--no-sandbox` flag to your start script in `package.json`. This works a
 **Important:** This issue does **not** affect full MSIX packaging - only debug identity during development.
 
 **To undo debug identity** (if needed for troubleshooting):
-1. Navigate to `node_modules\electron\dist\` in your project
-2. Delete `electron.exe`
-3. Rename `electron.backup.exe` to `electron.exe`
+```bash
+npx winapp node clear-electron-debug-identity
+```
 
 This restores the original Electron executable without the debug identity.
 
