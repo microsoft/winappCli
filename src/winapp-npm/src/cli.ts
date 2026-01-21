@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 
-const { generateCppAddonFiles } = require('./cpp-addon-utils');
-const { generateCsAddonFiles } = require('./cs-addon-utils');
-const { addElectronDebugIdentity } = require('./msix-utils');
-const { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } = require('./winapp-cli-utils');
-const { spawn, exec } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+import { generateCppAddonFiles } from './cpp-addon-utils';
+import { generateCsAddonFiles } from './cs-addon-utils';
+import { addElectronDebugIdentity } from './msix-utils';
+import { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } from './winapp-cli-utils';
+import { spawn } from 'child_process';
+import * as fs from 'fs';
 
 // CLI name - change this to rebrand the tool
 const CLI_NAME = 'winapp';
@@ -15,27 +13,41 @@ const CLI_NAME = 'winapp';
 // Commands that should be handled by Node.js (everything else goes to winapp-cli)
 const NODE_ONLY_COMMANDS = new Set(['node']);
 
+interface ParsedArgs {
+  help?: boolean;
+  name?: string;
+  template?: string;
+  verbose?: boolean;
+  [key: string]: string | boolean | undefined;
+}
+
+interface PackageJson {
+  name: string;
+  version: string;
+  description?: string;
+}
+
 /**
  * Main CLI entry point for winapp package
  */
-async function main() {
+export async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  
+
   if (args.length === 0) {
     await showCombinedHelp();
     process.exit(1);
   }
-  
+
   const command = args[0];
   const commandArgs = args.slice(1);
-  
+
   try {
     // Handle help/version specially to show combined info
     if (['help', '--help', '-h'].includes(command)) {
       await showCombinedHelp();
       return;
     }
-    
+
     if (['version', '--version', '-v'].includes(command)) {
       await showVersion();
       return;
@@ -49,58 +61,63 @@ async function main() {
 
     // Route everything else to winapp-cli
     await callWinappCli(args, { exitOnError: true });
-    
   } catch (error) {
-    console.error(`Error: ${error.message}`);
+    const err = error as Error;
+    console.error(`Error: ${err.message}`);
     process.exit(1);
   }
 }
 
-async function handleNodeCommand(command, args) {
+async function handleNodeCommand(command: string, args: string[]): Promise<void> {
   switch (command) {
     case 'node':
       await handleNode(args);
       break;
-      
+
     default:
       console.error(`Unknown Node.js command: ${command}`);
       process.exit(1);
   }
 }
 
-async function showCombinedHelp() {
-  const packageJson = require('./package.json');
-  
+function getPackageJson(): PackageJson {
+  const packageJsonPath = require.resolve('../package.json');
+  return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+}
+
+async function showCombinedHelp(): Promise<void> {
+  const packageJson = getPackageJson();
+
   console.log(`${packageJson.name} v${packageJson.version}`);
   console.log(packageJson.description);
   console.log('');
-  
+
   // Try to get help from winapp-cli first
   try {
     const winappCliPath = getWinappCliPath();
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve) => {
       const child = spawn(winappCliPath, ['--help'], {
         stdio: 'inherit',
         shell: false,
         env: {
           ...process.env,
-          WINAPP_CLI_CALLER: WINAPP_CLI_CALLER_VALUE
-        }
+          WINAPP_CLI_CALLER: WINAPP_CLI_CALLER_VALUE,
+        },
       });
-      
-      child.on('close', (code) => {
+
+      child.on('close', () => {
         resolve();
       });
-      
-      child.on('error', (error) => {
+
+      child.on('error', () => {
         // If winapp-cli is not available, continue without showing fallback help
         resolve();
       });
     });
-  } catch (error) {
+  } catch {
     // Continue without showing fallback help if winapp-cli is not available
   }
-  
+
   // Add Node.js-specific commands
   console.log('');
   console.log('Node.js Extensions:');
@@ -116,59 +133,52 @@ async function showCombinedHelp() {
   console.log(`  ${CLI_NAME} node add-electron-debug-identity`);
 }
 
-async function showVersion() {
-  const packageJson = require('./package.json');
-  
+async function showVersion(): Promise<void> {
+  const packageJson = getPackageJson();
+
   console.log(`${packageJson.description || 'Windows App Development CLI'}`);
   console.log('');
   console.log(`Node.js Package: ${packageJson.name} v${packageJson.version}`);
-  
+
   // Try to get version from native CLI
   try {
     const winappCliPath = getWinappCliPath();
-    
+
     if (!fs.existsSync(winappCliPath)) {
       console.log('Native CLI: Not available (executable not found)');
       return;
     }
-    
+
     console.log('Native CLI:');
-    
-    await new Promise((resolve, reject) => {
+
+    await new Promise<void>((resolve) => {
       const child = spawn(winappCliPath, ['--version'], {
         stdio: 'inherit',
         shell: false,
         env: {
           ...process.env,
-          WINAPP_CLI_CALLER: WINAPP_CLI_CALLER_VALUE
-        }
+          WINAPP_CLI_CALLER: WINAPP_CLI_CALLER_VALUE,
+        },
       });
-      
+
       child.on('close', (code) => {
         if (code !== 0) {
           console.log('  (version command failed)');
         }
         resolve();
       });
-      
-      child.on('error', (error) => {
+
+      child.on('error', () => {
         console.log('  Not available (execution failed)');
         resolve();
       });
     });
-  } catch (error) {
+  } catch {
     console.log('Native CLI: Not available');
   }
 }
 
-// Run if called directly
-if (require.main === module) {
-  main();
-}
-
-module.exports = { main };
-
-async function handleNode(args) {
+async function handleNode(args: string[]): Promise<void> {
   // Handle help flags
   if (args.length === 0 || ['--help', '-h', 'help'].includes(args[0])) {
     console.log(`Usage: ${CLI_NAME} node <subcommand> [options]`);
@@ -196,11 +206,11 @@ async function handleNode(args) {
     case 'create-addon':
       await handleCreateAddon(subcommandArgs);
       break;
-      
+
     case 'add-electron-debug-identity':
       await handleAddonElectronDebugIdentity(subcommandArgs);
       break;
-      
+
     default:
       console.error(`❌ Unknown node subcommand: ${subcommand}`);
       console.error(`Run "${CLI_NAME} node" for available subcommands.`);
@@ -208,11 +218,11 @@ async function handleNode(args) {
   }
 }
 
-async function handleCreateAddon(args) {
+async function handleCreateAddon(args: string[]): Promise<void> {
   const options = parseArgs(args, {
     name: undefined, // Will be set based on template
     template: 'cpp',
-    verbose: false
+    verbose: false,
   });
 
   // Set default name based on template
@@ -246,50 +256,49 @@ async function handleCreateAddon(args) {
   }
 
   // Validate template
-  if (!['cpp', 'cs'].includes(options.template)) {
+  if (!['cpp', 'cs'].includes(options.template as string)) {
     console.error(`❌ Invalid template: ${options.template}. Valid options: cpp, cs`);
     process.exit(1);
   }
 
   try {
     let result;
-    
+
     if (options.template === 'cs') {
       // Use C# addon generator
       result = await generateCsAddonFiles({
-        name: options.name,
-        verbose: options.verbose
+        name: options.name as string,
+        verbose: options.verbose as boolean,
       });
-      
+
       console.log(`New addon at: ${result.addonPath}`);
 
-      const args = ['restore'];
-      if (verbose) {
-        args.push('--verbose');
+      const restoreArgs = ['restore'];
+      if (options.verbose) {
+        restoreArgs.push('--verbose');
       }
-      
-      await callWinappCli(args, { exitOnError: true });
+
+      await callWinappCli(restoreArgs, { exitOnError: true });
 
       console.log('');
-      
+
       if (result.needsTerminalRestart) {
         printTerminalRestartInstructions();
       }
-      
+
       console.log(`Next steps:`);
       console.log(`  1. npm run build-${result.addonName}`);
       console.log(`  2. See ${result.addonName}/README.md for usage examples`);
-
     } else {
       // Use C++ addon generator
       result = await generateCppAddonFiles({
-        name: options.name,
-        verbose: options.verbose
+        name: options.name as string,
+        verbose: options.verbose as boolean,
       });
 
       console.log(`New addon at: ${result.addonPath}`);
       console.log('');
-      
+
       if (result.needsTerminalRestart) {
         printTerminalRestartInstructions();
       }
@@ -297,28 +306,35 @@ async function handleCreateAddon(args) {
       console.log(`Next steps:`);
       console.log(`  1. npm run build-${result.addonName}`);
       console.log(`  2. In your source, import the addon with:`);
-      console.log(`     "const ${result.addonName} = require('./${result.addonName}/build/Release/${result.addonName}.node')";`);
+      console.log(
+        `     "const ${result.addonName} = require('./${result.addonName}/build/Release/${result.addonName}.node')";`
+      );
     }
   } catch (error) {
-    console.error(`❌ Failed to generate addon files: ${error.message}`);
+    const err = error as Error;
+    console.error(`❌ Failed to generate addon files: ${err.message}`);
     process.exit(1);
   }
 }
 
-function printTerminalRestartInstructions() {
-  console.log('⚠️ IMPORTANT: You need to restart your terminal/command prompt for newly installed tools to be available in your PATH.');
+function printTerminalRestartInstructions(): void {
+  console.log(
+    '⚠️ IMPORTANT: You need to restart your terminal/command prompt for newly installed tools to be available in your PATH.'
+  );
 
   // Simple check: This variable usually only exists if running inside PowerShell
   if (process.env.PSModulePath) {
     console.log('💡 To refresh current session, copy and run this line:');
-    console.log('   \x1b[36m$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")\x1b[0m');
+    console.log(
+      '   \x1b[36m$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")\x1b[0m'
+    );
   }
   console.log('');
 }
 
-async function handleAddonElectronDebugIdentity(args) {
+async function handleAddonElectronDebugIdentity(args: string[]): Promise<void> {
   const options = parseArgs(args, {
-    verbose: false
+    verbose: false,
   });
 
   if (options.help) {
@@ -328,7 +344,9 @@ async function handleAddonElectronDebugIdentity(args) {
     console.log('');
     console.log('This command will:');
     console.log('  1. Create a backup of node_modules/electron/dist/electron.exe');
-    console.log('  2. Generate a sparse MSIX manifest in .winapp/debug folder, and assets in node_modules/electron/dist/ folder');
+    console.log(
+      '  2. Generate a sparse MSIX manifest in .winapp/debug folder, and assets in node_modules/electron/dist/ folder'
+    );
     console.log('  3. Add MSIX identity to the Electron executable');
     console.log('  4. Register the sparse package with external location');
     console.log('');
@@ -342,29 +360,30 @@ async function handleAddonElectronDebugIdentity(args) {
   }
 
   try {
-    const result = await addElectronDebugIdentity({
-      verbose: options.verbose
+    await addElectronDebugIdentity({
+      verbose: options.verbose as boolean,
     });
 
     console.log(`✅ Electron debug identity setup completed successfully!`);
   } catch (error) {
-    console.error(`❌ Failed to add Electron debug identity: ${error.message}`);
+    const err = error as Error;
+    console.error(`❌ Failed to add Electron debug identity: ${err.message}`);
     process.exit(1);
   }
 }
 
-function parseArgs(args, defaults = {}) {
-  const result = { ...defaults };
-  
+function parseArgs(args: string[], defaults: ParsedArgs = {}): ParsedArgs {
+  const result: ParsedArgs = { ...defaults };
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    
+
     if (arg === '--help' || arg === '-h') {
       result.help = true;
     } else if (arg.startsWith('--')) {
       const key = arg.slice(2);
       const nextArg = args[i + 1];
-      
+
       if (nextArg && !nextArg.startsWith('--')) {
         // Value argument
         result[key] = nextArg;
@@ -375,6 +394,11 @@ function parseArgs(args, defaults = {}) {
       }
     }
   }
-  
+
   return result;
+}
+
+// Run if called directly
+if (require.main === module) {
+  main();
 }

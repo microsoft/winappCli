@@ -1,32 +1,41 @@
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const { checkAndInstallPython, checkAndInstallVisualStudioBuildTools } = require('./dependency-utils');
+import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import { checkAndInstallPython, checkAndInstallVisualStudioBuildTools } from './dependency-utils';
+
+export interface GenerateCppAddonOptions {
+  name?: string;
+  projectRoot?: string;
+  verbose?: boolean;
+}
+
+export interface GenerateCppAddonResult {
+  success: boolean;
+  addonName: string;
+  addonPath: string;
+  needsTerminalRestart: boolean;
+  files: string[];
+}
 
 /**
  * Generates addon files for an Electron project
- * @param {Object} options - Configuration options
- * @param {string} options.name - Name of the addon (default: 'nativeWindowsAddon')
- * @param {string} options.projectRoot - Root directory of the project (default: current working directory)
- * @param {boolean} options.verbose - Enable verbose logging (default: true)
+ * @param options - Configuration options
  */
-async function generateCppAddonFiles(options = {}) {
-  const { 
-    name = 'nativeWindowsAddon', 
-    projectRoot = process.cwd(), 
-    verbose = true 
-  } = options;
+export async function generateCppAddonFiles(options: GenerateCppAddonOptions = {}): Promise<GenerateCppAddonResult> {
+  const { name = 'nativeWindowsAddon', projectRoot = process.cwd(), verbose = true } = options;
 
   let needsTerminalRestart = false;
 
   try {
     // Check for Python and offer to install if missing
     const pythonInstalled = await checkAndInstallPython(false); // Don't show verbose Python info
-    if (pythonInstalled) needsTerminalRestart = true;
+    if (pythonInstalled) {
+      needsTerminalRestart = true;
+    }
 
     // Check for Visual Studio Build Tools and offer to install if missing
-    const vsInstalled = await checkAndInstallVisualStudioBuildTools(false); // Don't show verbose VS info
+    await checkAndInstallVisualStudioBuildTools(false); // Don't show verbose VS info
     // VS tools are typically found without PATH restart, so we don't set needsTerminalRestart for it
 
     if (verbose) {
@@ -36,7 +45,7 @@ async function generateCppAddonFiles(options = {}) {
     // Find a unique addon directory name
     const addonDirName = await findUniqueAddonName(name, projectRoot);
     const addonDir = path.join(projectRoot, addonDirName);
-    
+
     if (verbose) {
       console.log(`📁 Creating addon directory: ${addonDirName}`);
     }
@@ -53,15 +62,12 @@ async function generateCppAddonFiles(options = {}) {
     // Add build script to package.json
     await addBuildScript(addonDirName, projectRoot, verbose);
 
-    const result = {
+    const result: GenerateCppAddonResult = {
       success: true,
       addonName: addonDirName,
       addonPath: addonDir,
       needsTerminalRestart: needsTerminalRestart,
-      files: [
-        path.join(addonDir, 'binding.gyp'),
-        path.join(addonDir, `${addonDirName}.cc`)
-      ]
+      files: [path.join(addonDir, 'binding.gyp'), path.join(addonDir, `${addonDirName}.cc`)],
     };
 
     if (verbose) {
@@ -72,19 +78,19 @@ async function generateCppAddonFiles(options = {}) {
     }
 
     return result;
-
   } catch (error) {
-    throw new Error(`Failed to generate addon files: ${error.message}`);
+    const err = error as Error;
+    throw new Error(`Failed to generate addon files: ${err.message}`);
   }
 }
 
 /**
  * Finds a unique addon name by appending numbers if needed
- * @param {string} baseName - Base name for the addon
- * @param {string} projectRoot - Root directory of the project
- * @returns {Promise<string>} - Unique addon name
+ * @param baseName - Base name for the addon
+ * @param projectRoot - Root directory of the project
+ * @returns Unique addon name
  */
-async function findUniqueAddonName(baseName, projectRoot) {
+async function findUniqueAddonName(baseName: string, projectRoot: string): Promise<string> {
   let addonName = baseName;
   let counter = 1;
 
@@ -98,13 +104,13 @@ async function findUniqueAddonName(baseName, projectRoot) {
 
 /**
  * Copies template files to the addon directory
- * @param {string} addonName - Name of the addon
- * @param {string} addonDir - Target addon directory
- * @param {boolean} verbose - Enable verbose logging
+ * @param addonName - Name of the addon
+ * @param addonDir - Target addon directory
+ * @param verbose - Enable verbose logging
  */
-async function copyTemplateFiles(addonName, addonDir, verbose) {
-  const templateDir = path.join(__dirname, 'addon-template');
-  
+async function copyTemplateFiles(addonName: string, addonDir: string, verbose: boolean): Promise<void> {
+  const templateDir = path.join(__dirname, '../addon-template');
+
   if (!fsSync.existsSync(templateDir)) {
     throw new Error(`Template directory not found: ${templateDir}`);
   }
@@ -112,12 +118,12 @@ async function copyTemplateFiles(addonName, addonDir, verbose) {
   // Copy and process binding.gyp
   const bindingGypTemplate = path.join(templateDir, 'binding.gyp');
   const bindingGypTarget = path.join(addonDir, 'binding.gyp');
-  
+
   let bindingGypContent = await fs.readFile(bindingGypTemplate, 'utf8');
   bindingGypContent = bindingGypContent.replace(/{addon-name}/g, addonName);
-  
+
   await fs.writeFile(bindingGypTarget, bindingGypContent, 'utf8');
-  
+
   if (verbose) {
     console.log(`📄 Created binding.gyp`);
   }
@@ -125,9 +131,9 @@ async function copyTemplateFiles(addonName, addonDir, verbose) {
   // Copy and rename addon.cc
   const addonCcTemplate = path.join(templateDir, 'addon.cc');
   const addonCcTarget = path.join(addonDir, `${addonName}.cc`);
-  
+
   await fs.copyFile(addonCcTemplate, addonCcTarget);
-  
+
   if (verbose) {
     console.log(`📄 Created ${addonName}.cc`);
   }
@@ -135,12 +141,12 @@ async function copyTemplateFiles(addonName, addonDir, verbose) {
 
 /**
  * Installs required npm packages
- * @param {string} projectRoot - Root directory of the project
- * @param {boolean} verbose - Enable verbose logging
+ * @param projectRoot - Root directory of the project
+ * @param verbose - Enable verbose logging
  */
-async function installRequiredPackages(projectRoot, verbose) {
+async function installRequiredPackages(projectRoot: string, verbose: boolean): Promise<void> {
   const requiredPackages = ['nan', 'node-addon-api', 'node-gyp'];
-  
+
   // Check if package.json exists
   const packageJsonPath = path.join(projectRoot, 'package.json');
   if (!fsSync.existsSync(packageJsonPath)) {
@@ -153,7 +159,7 @@ async function installRequiredPackages(projectRoot, verbose) {
 
   // Check which packages are missing
   const devDependencies = packageJson.devDependencies || {};
-  const missingPackages = requiredPackages.filter(pkg => !devDependencies[pkg]);
+  const missingPackages = requiredPackages.filter((pkg) => !devDependencies[pkg]);
 
   if (missingPackages.length > 0) {
     if (verbose) {
@@ -161,15 +167,16 @@ async function installRequiredPackages(projectRoot, verbose) {
     }
 
     const installCommand = `npm install --save-dev ${missingPackages.join(' ')}`;
-    
+
     try {
       execSync(installCommand, { cwd: projectRoot, stdio: verbose ? 'inherit' : 'pipe' });
-      
+
       if (verbose) {
         console.log(`✅ Packages installed successfully`);
       }
     } catch (error) {
-      throw new Error(`Failed to install packages: ${error.message}`);
+      const err = error as Error;
+      throw new Error(`Failed to install packages: ${err.message}`);
     }
   } else {
     if (verbose) {
@@ -180,13 +187,13 @@ async function installRequiredPackages(projectRoot, verbose) {
 
 /**
  * Adds build script to package.json
- * @param {string} addonName - Name of the addon
- * @param {string} projectRoot - Root directory of the project
- * @param {boolean} verbose - Enable verbose logging
+ * @param addonName - Name of the addon
+ * @param projectRoot - Root directory of the project
+ * @param verbose - Enable verbose logging
  */
-async function addBuildScript(addonName, projectRoot, verbose) {
+async function addBuildScript(addonName: string, projectRoot: string, verbose: boolean): Promise<void> {
   const packageJsonPath = path.join(projectRoot, 'package.json');
-  
+
   // Read current package.json
   const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
   const packageJson = JSON.parse(packageJsonContent);
@@ -199,7 +206,7 @@ async function addBuildScript(addonName, projectRoot, verbose) {
   // Find a unique script name
   let scriptName = `build-${addonName}`;
   let counter = 1;
-  
+
   while (packageJson.scripts[scriptName]) {
     scriptName = `build-${addonName}${counter}`;
     counter++;
@@ -215,7 +222,3 @@ async function addBuildScript(addonName, projectRoot, verbose) {
     console.log(`📝 Added build script: ${scriptName}`);
   }
 }
-
-module.exports = {
-  generateCppAddonFiles: generateCppAddonFiles
-};
