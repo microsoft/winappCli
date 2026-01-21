@@ -2,19 +2,28 @@
   "name": "@microsoft/winappcli",
   "version": "1.0.0",
   "description": "Windows App Development CLI and BuildTools utilities for Node.js native addon development",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "winapp": "./cli.js"
+    "winapp": "./dist/cli.js"
   },
   "scripts": {
     "test": "node examples/test-buildtools.js",
-    "build": "npm run build-x64 && npm run build-arm64",
+    "compile": "tsc",
+    "compile:watch": "tsc --watch",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "build": "npm run format:check && npm run lint && npm run compile && npm run build-cli",
+    "build-cli": "npm run build-x64 && npm run build-arm64",
     "build-x64": "dotnet publish ../winapp-CLI/WinApp.Cli/WinApp.Cli.csproj -c Release -r win-x64 --self-contained -o bin/win-x64",
     "build-arm64": "dotnet publish ../winapp-CLI/WinApp.Cli/WinApp.Cli.csproj -c Release -r win-arm64 --self-contained -o bin/win-arm64",
     "build-copy-only": "npm run copy-x64 && npm run copy-arm64",
     "copy-x64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winapp-CLI/WinApp.Cli/bin/Release/net10.0-windows/win-x64/publish'; const dest = 'bin/win-x64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
     "copy-arm64": "node -e \"const fs = require('fs'); const path = require('path'); const src = '../winapp-CLI/WinApp.Cli/bin/Release/net10.0-windows/win-arm64/publish'; const dest = 'bin/win-arm64'; fs.mkdirSync(dest, {recursive: true}); fs.cpSync(src, dest, {recursive: true});\"",
-    "clean": "node -e \"require('fs').rmSync('bin', {recursive: true, force: true})\"",
+    "clean": "node -e \"require('fs').rmSync('bin', {recursive: true, force: true}); require('fs').rmSync('dist', {recursive: true, force: true});\"",
+    "prepublishOnly": "npm run compile",
     "postinstall": "node -e \"console.log('\\\\n🎉 Windows App Development CLI installed successfully!\\\\n\\\\nGet started with: npx winapp --help\\\\n')\""
   },
   "keywords": [
@@ -24,7 +33,8 @@
     "nuget",
     "cppwinrt",
     "windows-app-sdk",
-    "native-addon"
+    "native-addon",
+    "typescript"
   ],
   "author": "Microsoft",
   "license": "MIT",
@@ -38,21 +48,22 @@
   "os": [
     "win32"
   ],
-  "dependencies": {},
-  "devDependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.0.9",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.0.0",
+    "prettier": "^3.8.0",
+    "typescript": "^5.9.3"
+  },
   "files": [
-    "index.js",
-    "cli.js",
-    "buildtools-utils.js",
-    "msix-utils.js",
-    "winapp-cli-utils.js",
-    "winapp-path-utils.js",
-    "cpp-addon-utils.js",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map",
     "addon-template/",
-    "cs-addon-utils.js",
     "cs-addon-template/",
-    "dependency-utils.js",
-    "utils.js",
     "bin/**/*.exe",
     "README.md",
     "LICENSE"
