@@ -215,13 +215,16 @@ export async function clearElectronDebugIdentity(
     const electronBackupPath = path.join(electronDistPath, 'electron.backup.exe');
     const electronBackupVersionPath = path.join(electronDistPath, 'electron.backup.version');
 
-    if (!fsSync.existsSync(electronExePath)) {
-      throw new Error(`Electron executable not found at: ${electronExePath}`);
+    const electronExeExists = fsSync.existsSync(electronExePath);
+    const electronBackupExists = fsSync.existsSync(electronBackupPath);
+
+    if (!electronExeExists && !electronBackupExists) {
+      throw new Error(`Neither Electron executable nor backup found in: ${electronDistPath}`);
     }
 
     let restoredFromBackup = false;
 
-    if (fsSync.existsSync(electronBackupPath)) {
+    if (electronBackupExists) {
       // Restore from backup
       if (verbose) {
         console.log('💾 Restoring electron.exe from backup...');
