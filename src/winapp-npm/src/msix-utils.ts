@@ -19,10 +19,16 @@ export interface ElectronDebugIdentityResult {
   assetsDir: string;
 }
 
+export interface ClearElectronDebugIdentityResult {
+  success: boolean;
+  electronExePath: string;
+  restoredFromBackup: boolean;
+}
+
 /**
- * Adds MSIX identity information from an appxmanifest.xml file to an executable's embedded manifest
+ * Adds package identity information from an appxmanifest.xml file to an executable's embedded manifest
  * @param exePath - Path to the executable file
- * @param appxManifestPath - Path to the appxmanifest.xml file containing MSIX identity data
+ * @param appxManifestPath - Path to the appxmanifest.xml file containing package identity data
  * @param options - Optional configuration
  */
 export async function addMsixIdentityToExe(
@@ -33,7 +39,7 @@ export async function addMsixIdentityToExe(
   const { verbose = false } = options;
 
   if (verbose) {
-    console.log('Adding MSIX identity to executable using native CLI...');
+    console.log('Adding package identity to executable using native CLI...');
   }
 
   // Build arguments for native CLI
@@ -60,7 +66,7 @@ export async function addMsixIdentityToExe(
 }
 
 /**
- * Adds MSIX identity to the Electron debug process
+ * Adds package identity to the Electron debug process
  * @param options - Configuration options
  */
 export async function addElectronDebugIdentity(
@@ -73,31 +79,80 @@ export async function addElectronDebugIdentity(
   }
 
   try {
-    // Step 1: Make a backup of electron.exe
-    const electronExePath = path.join(process.cwd(), 'node_modules', 'electron', 'dist', 'electron.exe');
-    const electronBackupPath = path.join(process.cwd(), 'node_modules', 'electron', 'dist', 'electron.backup.exe');
+    // Step 1: Handle backup of electron.exe
+    const electronDistPath = path.join(process.cwd(), 'node_modules', 'electron', 'dist');
+    const electronExePath = path.join(electronDistPath, 'electron.exe');
+    const electronBackupPath = path.join(electronDistPath, 'electron.backup.exe');
+    const electronBackupVersionPath = path.join(electronDistPath, 'electron.backup.version');
+    const electronPackageJsonPath = path.join(process.cwd(), 'node_modules', 'electron', 'package.json');
 
     if (!fsSync.existsSync(electronExePath)) {
       throw new Error(`Electron executable not found at: ${electronExePath}`);
     }
 
-    if (verbose) {
-      console.log('💾 Creating backup of electron.exe...');
+    // Get current Electron version from package.json
+    let currentElectronVersion: string | undefined;
+    if (fsSync.existsSync(electronPackageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(fsSync.readFileSync(electronPackageJsonPath, 'utf-8'));
+        currentElectronVersion = packageJson.version;
+      } catch {
+        // Ignore errors reading package.json
+      }
     }
 
-    // Create backup if it doesn't exist, or if the current exe is newer than the backup
-    if (
-      !fsSync.existsSync(electronBackupPath) ||
-      fsSync.statSync(electronExePath).mtime > fsSync.statSync(electronBackupPath).mtime
-    ) {
+    // Get backup version if it exists
+    let backupVersion: string | undefined;
+    if (fsSync.existsSync(electronBackupVersionPath)) {
+      try {
+        backupVersion = fsSync.readFileSync(electronBackupVersionPath, 'utf-8').trim();
+      } catch {
+        // Ignore errors reading version file
+      }
+    }
+
+    const backupExists = fsSync.existsSync(electronBackupPath);
+    let versionMismatch = false;
+    if (backupExists && currentElectronVersion) {
+      if (backupVersion) {
+        versionMismatch = currentElectronVersion !== backupVersion;
+      } else {
+        // Treat missing backup version as a mismatch when current version is known
+        versionMismatch = true;
+      }
+    }
+
+    if (backupExists && !versionMismatch) {
+      // Backup exists and version matches (or we couldn't determine versions)
+      // Restore from backup to ensure we're working with a clean electron.exe
+      if (verbose) {
+        console.log('💾 Restoring electron.exe from backup...');
+      }
+      await fs.copyFile(electronBackupPath, electronExePath);
+
+      if (verbose) {
+        console.log('✅ Restored clean electron.exe from backup');
+      }
+    } else {
+      // No backup exists, or Electron was updated - create a fresh backup
+      if (verbose) {
+        if (versionMismatch) {
+          console.log(
+            `💾 Electron version changed (${backupVersion} → ${currentElectronVersion}), creating new backup...`
+          );
+        } else {
+          console.log('💾 Creating backup of electron.exe...');
+        }
+      }
       await fs.copyFile(electronExePath, electronBackupPath);
+
+      // Store the version alongside the backup
+      if (currentElectronVersion) {
+        await fs.writeFile(electronBackupVersionPath, currentElectronVersion, 'utf-8');
+      }
 
       if (verbose) {
         console.log(`✅ Backup created: ${electronBackupPath}`);
-      }
-    } else {
-      if (verbose) {
-        console.log('⏭️  Backup already exists and is up to date');
       }
     }
 
@@ -138,5 +193,69 @@ export async function addElectronDebugIdentity(
   } catch (error) {
     const err = error as Error;
     throw new Error(`Failed to add Electron debug identity: ${err.message}`);
+  }
+}
+
+/**
+ * Clears/removes package identity from the Electron debug process by restoring from backup
+ * @param options - Configuration options
+ */
+export async function clearElectronDebugIdentity(
+  options: MsixIdentityOptions = {}
+): Promise<ClearElectronDebugIdentityResult> {
+  const { verbose = false } = options;
+
+  if (verbose) {
+    console.log('🧹 Clearing Electron debug identity...');
+  }
+
+  try {
+    const electronDistPath = path.join(process.cwd(), 'node_modules', 'electron', 'dist');
+    const electronExePath = path.join(electronDistPath, 'electron.exe');
+    const electronBackupPath = path.join(electronDistPath, 'electron.backup.exe');
+    const electronBackupVersionPath = path.join(electronDistPath, 'electron.backup.version');
+
+    const electronExeExists = fsSync.existsSync(electronExePath);
+    const electronBackupExists = fsSync.existsSync(electronBackupPath);
+
+    if (!electronExeExists && !electronBackupExists) {
+      throw new Error(`Neither Electron executable nor backup found in: ${electronDistPath}`);
+    }
+
+    let restoredFromBackup = false;
+
+    if (electronBackupExists) {
+      // Restore from backup
+      if (verbose) {
+        console.log('💾 Restoring electron.exe from backup...');
+      }
+      await fs.copyFile(electronBackupPath, electronExePath);
+
+      // Remove the backup files
+      await fs.unlink(electronBackupPath);
+      if (fsSync.existsSync(electronBackupVersionPath)) {
+        await fs.unlink(electronBackupVersionPath);
+      }
+
+      restoredFromBackup = true;
+
+      if (verbose) {
+        console.log('✅ Restored clean electron.exe from backup');
+        console.log('🗑️  Removed backup files');
+      }
+    } else {
+      if (verbose) {
+        console.log('ℹ️  No backup found - electron.exe may already be clean');
+      }
+    }
+
+    return {
+      success: true,
+      electronExePath,
+      restoredFromBackup,
+    };
+  } catch (error) {
+    const err = error as Error;
+    throw new Error(`Failed to clear Electron debug identity: ${err.message}`);
   }
 }

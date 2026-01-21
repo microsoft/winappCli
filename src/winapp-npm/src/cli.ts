@@ -2,7 +2,7 @@
 
 import { generateCppAddonFiles } from './cpp-addon-utils';
 import { generateCsAddonFiles } from './cs-addon-utils';
-import { addElectronDebugIdentity } from './msix-utils';
+import { addElectronDebugIdentity, clearElectronDebugIdentity } from './msix-utils';
 import { getWinappCliPath, callWinappCli, WINAPP_CLI_CALLER_VALUE } from './winapp-cli-utils';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
@@ -125,12 +125,14 @@ async function showCombinedHelp(): Promise<void> {
   console.log('');
   console.log('Node.js Subcommands:');
   console.log('  node create-addon         Generate native addon files for Electron');
-  console.log('  node add-electron-debug-identity  Add MSIX identity to Electron debug process');
+  console.log('  node add-electron-debug-identity  Add package identity to Electron debug process');
+  console.log('  node clear-electron-debug-identity  Remove package identity from Electron debug process');
   console.log('');
   console.log('Examples:');
   console.log(`  ${CLI_NAME} node create-addon --name myAddon`);
   console.log(`  ${CLI_NAME} node create-addon --template cs --name myAddon`);
   console.log(`  ${CLI_NAME} node add-electron-debug-identity`);
+  console.log(`  ${CLI_NAME} node clear-electron-debug-identity`);
 }
 
 async function showVersion(): Promise<void> {
@@ -186,14 +188,16 @@ async function handleNode(args: string[]): Promise<void> {
     console.log('Node.js-specific commands');
     console.log('');
     console.log('Subcommands:');
-    console.log('  create-addon                Generate native addon files for Electron');
-    console.log('  add-electron-debug-identity Add MSIX identity to Electron debug process');
+    console.log('  create-addon                  Generate native addon files for Electron');
+    console.log('  add-electron-debug-identity   Add package identity to Electron debug process');
+    console.log('  clear-electron-debug-identity Remove package identity from Electron debug process');
     console.log('');
     console.log('Examples:');
     console.log(`  ${CLI_NAME} node create-addon --help`);
     console.log(`  ${CLI_NAME} node create-addon --name myAddon`);
     console.log(`  ${CLI_NAME} node create-addon --name myCsAddon --template cs`);
     console.log(`  ${CLI_NAME} node add-electron-debug-identity`);
+    console.log(`  ${CLI_NAME} node clear-electron-debug-identity`);
     console.log('');
     console.log(`Use "${CLI_NAME} node <subcommand> --help" for detailed help on each subcommand.`);
     return;
@@ -209,6 +213,10 @@ async function handleNode(args: string[]): Promise<void> {
 
     case 'add-electron-debug-identity':
       await handleAddonElectronDebugIdentity(subcommandArgs);
+      break;
+
+    case 'clear-electron-debug-identity':
+      await handleClearElectronDebugIdentity(subcommandArgs);
       break;
 
     default:
@@ -340,14 +348,14 @@ async function handleAddonElectronDebugIdentity(args: string[]): Promise<void> {
   if (options.help) {
     console.log(`Usage: ${CLI_NAME} node add-electron-debug-identity [options]`);
     console.log('');
-    console.log('Add MSIX identity to Electron debug process');
+    console.log('Add package identity to Electron debug process');
     console.log('');
     console.log('This command will:');
     console.log('  1. Create a backup of node_modules/electron/dist/electron.exe');
     console.log(
       '  2. Generate a sparse MSIX manifest in .winapp/debug folder, and assets in node_modules/electron/dist/ folder'
     );
-    console.log('  3. Add MSIX identity to the Electron executable');
+    console.log('  3. Add package identity to the Electron executable');
     console.log('  4. Register the sparse package with external location');
     console.log('');
     console.log('Options:');
@@ -368,6 +376,46 @@ async function handleAddonElectronDebugIdentity(args: string[]): Promise<void> {
   } catch (error) {
     const err = error as Error;
     console.error(`❌ Failed to add Electron debug identity: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+async function handleClearElectronDebugIdentity(args: string[]): Promise<void> {
+  const options = parseArgs(args, {
+    verbose: false,
+  });
+
+  if (options.help) {
+    console.log(`Usage: ${CLI_NAME} node clear-electron-debug-identity [options]`);
+    console.log('');
+    console.log('Remove package identity from Electron debug process');
+    console.log('');
+    console.log('This command will:');
+    console.log('  1. Restore electron.exe from the backup created by add-electron-debug-identity');
+    console.log('  2. Remove the backup files');
+    console.log('');
+    console.log('Options:');
+    console.log('  --verbose             Enable verbose output (default: false)');
+    console.log('  --help                Show this help');
+    console.log('');
+    console.log('Note: This command must be run from the root of an Electron project');
+    console.log('      (directory containing node_modules/electron)');
+    return;
+  }
+
+  try {
+    const result = await clearElectronDebugIdentity({
+      verbose: options.verbose as boolean,
+    });
+
+    if (result.restoredFromBackup) {
+      console.log(`✅ Electron debug identity cleared successfully!`);
+    } else {
+      console.log(`ℹ️  No backup found - electron.exe may already be clean.`);
+    }
+  } catch (error) {
+    const err = error as Error;
+    console.error(`❌ Failed to clear Electron debug identity: ${err.message}`);
     process.exit(1);
   }
 }
