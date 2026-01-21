@@ -220,10 +220,6 @@ try {
 
     Write-TestStep "Creating new Electron app..." 3
 
-    # Clear npm cache to avoid ECOMPROMISED errors in CI environments
-    Write-Verbose "Clearing npm cache to avoid lock file issues..."
-    npm cache clean --force 2>$null
-
     # Use Electron Forge to scaffold basic app (no webpack)
     # Retry logic for CI environments where npm can have transient failures
     $maxRetries = 3
@@ -243,7 +239,7 @@ try {
                 Start-Sleep -Seconds 2
             }
             
-            $electronCommand = "npx -y create-electron-app@latest electron-app --template=webpack"
+            $electronCommand = "npx -y create-electron-app@7.11.1 electron-app --template=webpack"
             Write-Verbose "Running: $electronCommand"
             Invoke-Expression $electronCommand
             
@@ -300,12 +296,8 @@ try {
 
     # Verify winapp is installed
     $nodeModulesPath = Join-Path $electronAppDir "node_modules" ".bin" "winapp"
-    if ($PSVersionTable.Platform -eq 'Win32NT' -or $PSVersionTable.OS -like 'Windows*') {
-        $winappCli = Join-Path $electronAppDir "node_modules" ".bin" "winapp.cmd"
-        Assert-FileExists $winappCli "winapp CLI"
-    } else {
-        Assert-FileExists $nodeModulesPath "winapp CLI"
-    }
+    $winappCli = Join-Path $electronAppDir "node_modules" ".bin" "winapp.cmd"
+    Assert-FileExists $winappCli "winapp CLI"
 
     # ========================================================================
     # Initialize WinApp Workspace
@@ -382,13 +374,6 @@ try {
 
     $addIdentityCommand = "npx winapp node add-electron-debug-identity --no-install"
     Assert-Command $addIdentityCommand "Failed to add Electron debug identity"
-
-    # Verify manifest was updated
-    $manifestPath = Join-Path $electronAppDir "appxmanifest.xml"
-    $manifestContent = Get-Content $manifestPath -Raw
-    if ($manifestContent -like "*VisualElements*") {
-        Write-TestSuccess "Manifest updated with visual elements"
-    }
 
     # ========================================================================
     # Package Application
