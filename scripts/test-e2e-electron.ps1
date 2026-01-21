@@ -452,7 +452,7 @@ try {
 
     if (-not $SkipCleanup) {
         Write-TestHeader "Cleanup"
-        Write-TestStep "Cleaning up temporary test directory..." 15
+        Write-TestStep "Cleaning up temporary test directory..." 14
 
         try {
             Remove-Item -Path $testDir -Recurse -Force -ErrorAction SilentlyContinue
