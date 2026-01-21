@@ -169,7 +169,11 @@ async function installRequiredPackages(projectRoot: string, verbose: boolean): P
     const installCommand = `npm install --save-dev ${missingPackages.join(' ')}`;
 
     try {
-      execSync(installCommand, { cwd: projectRoot, stdio: verbose ? 'inherit' : 'pipe' });
+      execSync(installCommand, {
+        cwd: projectRoot,
+        stdio: verbose ? 'inherit' : 'pipe',
+        shell: process.env.ComSpec || 'cmd.exe',
+      });
 
       if (verbose) {
         console.log(`✅ Packages installed successfully`);

@@ -295,6 +295,7 @@ async function installNodeApiDotnet(projectRoot: string, verbose: boolean): Prom
     execSync(installCommand, {
       cwd: projectRoot,
       stdio: verbose ? 'inherit' : 'pipe',
+      shell: process.env.ComSpec || 'cmd.exe',
     });
 
     if (verbose) {
