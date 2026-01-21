@@ -32,7 +32,7 @@
   </Resources>
 
   <Applications>
-    <Application Id="rust-app"
+    <Application Id="rustApp"
       Executable="rust-app.exe"
       EntryPoint="Windows.FullTrustApplication"
       uap10:TrustLevel="mediumIL" 

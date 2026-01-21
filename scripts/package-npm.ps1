@@ -135,6 +135,37 @@ try
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "npm clean failed, continuing..."
     }
+
+    # Install dependencies and compile TypeScript
+    Write-Host "[NPM] Installing dependencies..." -ForegroundColor Blue
+    npm ci
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "npm ci failed"
+        Pop-Location
+        exit 1
+    }
+
+    Write-Host "[NPM] Running format check, lint, and compile..." -ForegroundColor Blue
+    npm run format:check
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Format check failed - run 'npm run format' to fix"
+        Pop-Location
+        exit 1
+    }
+
+    npm run lint
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Lint failed"
+        Pop-Location
+        exit 1
+    }
+
+    npm run compile
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "TypeScript compilation failed"
+        Pop-Location
+        exit 1
+    }
     
     # Backup original package.json
     Write-Host "[NPM] Setting package version to $Version..." -ForegroundColor Blue

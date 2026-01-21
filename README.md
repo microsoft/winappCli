@@ -68,6 +68,14 @@ Checkout our getting started guides for step by step instructions of how to setu
     <img src="https://img.shields.io/badge/Electron-Get%20Started-47848F?style=for-the-badge&logo=electron&logoColor=white" alt="Get Started with Electron">
   </a>
     <br />
+  <a href="./docs/guides/dotnet.md">
+    <img src="https://img.shields.io/badge/.NET/WPF/WinForms-Get%20Started-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt="Get Started with .NET">
+  </a>
+    <br />
+  <a href="./docs/guides/cpp.md">
+    <img src="https://img.shields.io/badge/C++-Get%20Started-00599C?style=for-the-badge&logo=cplusplus&logoColor=white" alt="Get Started with C++">
+  </a>
+    <br />
   <a href="./docs/guides/rust.md">
     <img src="https://img.shields.io/badge/Rust-Get%20Started-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Get Started with Rust">
   </a>
@@ -86,7 +94,7 @@ Additional guides:
 
 The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
 
-`winget install Microsoft.WinAppCli`
+`winget install Microsoft.winappcli --source winget`
 
 ### NPM <a href="https://www.npmjs.com/package/@microsoft/winappcli"> <img src="https://img.shields.io/npm/v/%40microsoft%2Fwinappcli?style=for-the-badge&logo=npm" alt="NPM" height="24"></a>
 

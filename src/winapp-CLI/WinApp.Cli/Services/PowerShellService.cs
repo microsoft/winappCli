@@ -105,11 +105,11 @@ internal class PowerShellService : IPowerShellService
 
         if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stdErr))
         {
-            taskContext.AddDebugMessage($"PowerShell error: {stdErr}");
+            taskContext.AddDebugMessage($"PowerShell error: {Environment.NewLine}{stdErr.Trim()}");
         }
         else if (!string.IsNullOrWhiteSpace(stdOut))
         {
-            taskContext.AddDebugMessage($"PowerShell output: {stdOut.Trim()}");
+            taskContext.AddDebugMessage($"PowerShell output: {Environment.NewLine}{stdOut.Trim().TrimStart(Environment.NewLine).TrimEnd(Environment.NewLine)}");
         }
 
         // For elevated commands, exit codes may not be reliable, so we return 0 if no exception occurred

@@ -10,155 +10,66 @@ namespace WinApp.Cli.Services;
 
 /// <summary>
 /// Service for managing Spectre.Console status displays with ILogger integration.
-/// Uses manual rendering with cursor manipulation instead of Live display.
+/// Uses Spectre.Console Live display for automatic terminal handling.
 /// </summary>
 internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> logger) : IStatusService
 {
     public async Task<int> ExecuteWithStatusAsync<T>(string inProgressMessage, Func<TaskContext, CancellationToken, Task<(int ReturnCode, T CompletedMessage)>> taskFunc, CancellationToken cancellationToken)
     {
-        using var signal = new LiveUpdateSignal();
-        GroupableTask<(int ReturnCode, T CompletedMessage)> task = new(inProgressMessage, null, taskFunc, ansiConsole, logger, signal);
+        var renderLock = new Lock();
+        GroupableTask<(int ReturnCode, T CompletedMessage)> task = new(inProgressMessage, null, taskFunc, ansiConsole, logger, renderLock);
 
-        (int ReturnCode, T CompletedMessage)? result = default;
+        // Start the task execution
+        var taskExecution = task.ExecuteAsync(null, cancellationToken);
 
-        // Start the task execution on a separate thread
-        var taskExecution = Task.Run(async () =>
+        IRenderable rendered;
+
+        (int ReturnCode, T CompletedMessage)? result = null;
+        if (Environment.UserInteractive && !Console.IsOutputRedirected)
         {
-            return await task.ExecuteAsync(signal.SignalRefresh, cancellationToken);
-        }, cancellationToken);
-
-        // Track rendered line count for cursor restoration
-        var lastLineCount = 0;
-
-        // Hide cursor during animation
-        if (!Console.IsOutputRedirected)
-        {
-            ansiConsole.Cursor.Hide();
-        }
-
-        try
-        {
-            // Main loop: render and handle signals
-            while (!taskExecution.IsCompleted)
-            {
-                IRenderable rendered;
-                int lineCount;
-                // Render current state
-                lock (signal.Lock)
+            rendered = task.Render();
+            // Run the Live display until task completes
+            await ansiConsole.Live(rendered)
+                .AutoClear(true)
+                .Overflow(VerticalOverflow.Crop)
+                .Cropping(VerticalOverflowCropping.Top)
+                .StartAsync(async ctx =>
                 {
-                    (rendered, lineCount) = task.Render();
-                }
-
-                // Move cursor up to overwrite previous render (if any)
-                if (lastLineCount > 0 && ansiConsole.Profile.Capabilities.Ansi)
-                {
-                    ansiConsole.Cursor.MoveUp(lastLineCount);
-                }
-
-                int beforeRenderTop = 0;
-                if (!Console.IsOutputRedirected)
-                {
-                    beforeRenderTop = Console.CursorTop;
-                }
-
-                // Write the new render
-                ansiConsole.Write(rendered);
-                int afterRenderTop = 0;
-                if (!Console.IsOutputRedirected)
-                {
-                    afterRenderTop = Console.CursorTop;
-                }
-                else
-                {
-                    // For test environments without a real console, estimate cursor position
-                    afterRenderTop = lineCount;
-                }
-
-                // There is something very weird going on with Spectre.Console rendering where sometimes the cursor ends up in the wrong place.
-                if (afterRenderTop != lineCount + beforeRenderTop)
-                {
-                    var diff = afterRenderTop - (lineCount + beforeRenderTop);
-                    ansiConsole.Cursor.MoveUp(diff);
-                }
-
-                ansiConsole.Write("\x1b[J"); // Clear from cursor to end of screen
-
-                //console.Profile.Out.Writer.Flush();
-                lastLineCount = lineCount;
-
-                // Wait for a signal or timeout
-                var signalType = await signal.WaitForSignalAsync(cancellationToken);
-
-                // Handle prompt if requested
-                if (signalType == LiveUpdateType.Prompt && !taskExecution.IsCompleted)
-                {
-                    var promptRequest = signal.GetPendingPromptAndReset();
-                    if (promptRequest != null)
+                    while (!taskExecution.IsCompleted)
                     {
-                        try
+                        lock (renderLock)
                         {
-                            // Show cursor for user input
-                            if (!Console.IsOutputRedirected)
-                            {
-                                ansiConsole.Cursor.Show();
-                            }
-
-                            int beforePromptTop;
-                            if (!Console.IsOutputRedirected)
-                            {
-                                beforePromptTop = Console.CursorTop;
-                            }
-                            else
-                            {
-                                beforePromptTop = 0;
-                            }
-
-                            // Execute the prompt
-                            var promptResult = await promptRequest.Prompt.ShowAsync(ansiConsole, promptRequest.CancellationToken);
-                            promptRequest.SetResult(promptResult);
-
-                            if (!Console.IsOutputRedirected)
-                            {
-                                var afterPromptTop = Console.CursorTop;
-
-                                // Move cursor up once to overwrite prompt result line
-                                var diff = afterPromptTop - beforePromptTop;
-                                ansiConsole.Cursor.MoveUp(diff);
-
-                                // Hide cursor again
-                                ansiConsole.Cursor.Hide();
-                            }
-
-                            // Move cursor back up past the prompt result line and current render
-                            if (ansiConsole.Profile.Capabilities.Ansi)
-                            {
-                                ansiConsole.Cursor.MoveUp(lastLineCount);
-                            }
-
-                            lastLineCount = 0; // Reset since we cleared
+                            rendered = task.Render();
+                            ctx.UpdateTarget(rendered);
                         }
-                        catch (OperationCanceledException)
-                        {
-                            promptRequest.SetCancelled();
-                        }
-                        catch (Exception ex)
-                        {
-                            promptRequest.SetException(ex);
-                        }
+                        ctx.Refresh();
+
+                        // Wait for animation refresh (100ms) or task completion
+                        await Task.WhenAny(taskExecution, Task.Delay(100, cancellationToken));
                     }
-                }
-            }
+                });
         }
-        finally
+        else
         {
-            // Always show cursor when done
-            if (!Console.IsOutputRedirected)
+            // if output is redirected, just wait for the task to complete without live rendering
+            try
             {
-                ansiConsole.Cursor.Show();
+                result = await taskExecution;
+            }
+            catch (OperationCanceledException)
+            {
             }
         }
 
-        // Get the final result
+        // Final render to show completed state
+        lock (renderLock)
+        {
+            rendered = task.Render();
+        }
+
+        ansiConsole.Write(rendered);
+
+        // Get the result
         try
         {
             result = await taskExecution;
@@ -167,16 +78,6 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
         {
             return 1;
         }
-
-        // Clear last in-progress render and show final state
-        if (lastLineCount > 0 && ansiConsole.Profile.Capabilities.Ansi)
-        {
-            ansiConsole.Cursor.MoveUp(lastLineCount);
-        }
-
-        // Final render to show completed state
-        ansiConsole.Write(task.Render().Item1);
-        ansiConsole.Write("\x1b[J");
 
         if (result != null)
         {

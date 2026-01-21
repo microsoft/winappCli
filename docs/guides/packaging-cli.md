@@ -25,7 +25,7 @@ cd MyCliPackage
 The quickest way to get started is to install winapp CLI via Windows Package Manager:
 
 ```powershell
-winget install microsoft.winappcli
+winget install microsoft.winappcli --source winget
 ```
 
 ### 3. Generate the appxmanifest.xml

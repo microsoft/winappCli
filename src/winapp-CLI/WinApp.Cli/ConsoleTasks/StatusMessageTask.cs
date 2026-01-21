@@ -8,8 +8,8 @@ namespace WinApp.Cli.ConsoleTasks;
 
 internal class StatusMessageTask : GroupableTask<string>
 {
-    public StatusMessageTask(string inProgressMessage, GroupableTask? parent, IAnsiConsole ansiConsole, ILogger logger, LiveUpdateSignal signal)
-        : base(inProgressMessage, parent, null, ansiConsole, logger, signal)
+    public StatusMessageTask(string inProgressMessage, GroupableTask? parent, IAnsiConsole ansiConsole, ILogger logger, Lock renderLock)
+        : base(inProgressMessage, parent, null, ansiConsole, logger, renderLock)
     {
         IsCompleted = true;
         CompletedMessage = InProgressMessage;

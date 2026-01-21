@@ -6,7 +6,7 @@ ms.date: 2025-11-13
 
 # Windows App Development CLI telemetry
 
-The [Windows App Development CLI](usage.md) (WinAppCLI) includes a telemetry feature that collects anonymous usage data and sends it to Microsoft when you use CLI commands. The usage data includes exception information when the CLI crashes. Telemetry data helps the Windows App team understand how the tool is used so it can be improved. Information on failures helps the team resolve problems and fix bugs.
+The [Windows App Development CLI](usage.md) (winapp) includes a telemetry feature that collects anonymous usage data and sends it to Microsoft when you use CLI commands. The usage data includes exception information when the CLI crashes. Telemetry data helps the Windows App team understand how the tool is used so it can be improved. Information on failures helps the team resolve problems and fix bugs.
 
 The collected data is anonymous. No personal information such as usernames, email addresses, or source code is collected.
 
@@ -123,5 +123,5 @@ Contributors and developers can work on the winapp CLI source code without any c
 
 ## See also
 
-- [WinAppCLI Usage Documentation](usage.md)
+- [winapp CLI Usage Documentation](usage.md)
 - [Microsoft Privacy Statement](https://go.microsoft.com/fwlink/?LinkId=521839)
