@@ -455,6 +455,7 @@ npx winapp node add-electron-debug-identity [options]
 | Option | Description |
 |--------|-------------|
 | `--manifest <path>` | Path to custom appxmanifest.xml (default: appxmanifest.xml in current directory) |
+| `--no-install` | Do not install or modify dependencies; only configure the Electron debug identity |
 | `--verbose` | Enable verbose output |
 
 **What it does:**
