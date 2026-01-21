@@ -183,6 +183,17 @@ try {
     Write-Verbose "Working directory: $(Get-Location)"
 
     # ========================================================================
+    # Configure npm for CI environment
+    # ========================================================================
+
+    # Set a unique npm cache directory to avoid ECOMPROMISED errors in CI
+    # This prevents conflicts with concurrent builds and stale cache issues
+    $npmCacheDir = Join-Path $testDir ".npm-cache"
+    $null = New-Item -ItemType Directory -Path $npmCacheDir -Force
+    $env:npm_config_cache = $npmCacheDir
+    Write-Verbose "npm cache directory set to: $npmCacheDir"
+
+    # ========================================================================
     # Create Electron Application
     # ========================================================================
 
@@ -190,9 +201,48 @@ try {
 
     Write-TestStep "Creating new Electron app..." 3
 
+    # Clear npm cache to avoid ECOMPROMISED errors in CI environments
+    Write-Verbose "Clearing npm cache to avoid lock file issues..."
+    npm cache clean --force 2>$null
+
     # Use Electron Forge to scaffold basic app (no webpack)
-    $electronCommand = "npx -y create-electron-app@latest electron-app --template=webpack"
-    Assert-Command $electronCommand "Failed to create Electron app"
+    # Retry logic for CI environments where npm can have transient failures
+    $maxRetries = 3
+    $retryCount = 0
+    $electronAppCreated = $false
+    
+    while (-not $electronAppCreated -and $retryCount -lt $maxRetries) {
+        $retryCount++
+        Write-Verbose "Attempt $retryCount of $maxRetries to create Electron app..."
+        
+        try {
+            # Use --prefer-offline to reduce network issues and clear package-lock before retry
+            if ($retryCount -gt 1) {
+                Write-Verbose "Cleaning up failed attempt..."
+                Remove-Item -Path (Join-Path $testDir "electron-app") -Recurse -Force -ErrorAction SilentlyContinue
+                npm cache clean --force 2>$null
+                Start-Sleep -Seconds 2
+            }
+            
+            $electronCommand = "npx -y create-electron-app@latest electron-app --template=webpack"
+            Write-Verbose "Running: $electronCommand"
+            Invoke-Expression $electronCommand
+            
+            if ($LASTEXITCODE -eq 0) {
+                $electronAppCreated = $true
+                Write-TestSuccess "Electron app created successfully"
+            } else {
+                Write-Verbose "npx command failed with exit code $LASTEXITCODE"
+            }
+        } catch {
+            Write-Verbose "Exception during Electron app creation: $_"
+        }
+    }
+    
+    if (-not $electronAppCreated) {
+        Write-TestError "Failed to create Electron app after $maxRetries attempts"
+        throw "Failed to create Electron app"
+    }
 
     $electronAppDir = Join-Path $testDir "electron-app"
     Assert-DirectoryExists $electronAppDir "Electron app directory"
