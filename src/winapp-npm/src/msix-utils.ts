@@ -112,7 +112,15 @@ export async function addElectronDebugIdentity(
     }
 
     const backupExists = fsSync.existsSync(electronBackupPath);
-    const versionMismatch = currentElectronVersion && backupVersion && currentElectronVersion !== backupVersion;
+    let versionMismatch = false;
+    if (backupExists) {
+      if (currentElectronVersion && backupVersion) {
+        versionMismatch = currentElectronVersion !== backupVersion;
+      } else if (currentElectronVersion && !backupVersion) {
+        // Treat missing backup version as a mismatch when current version is known
+        versionMismatch = true;
+      }
+    }
 
     if (backupExists && !versionMismatch) {
       // Backup exists and version matches (or we couldn't determine versions)
