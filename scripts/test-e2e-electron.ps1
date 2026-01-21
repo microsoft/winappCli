@@ -243,7 +243,7 @@ try {
                 Start-Sleep -Seconds 2
             }
             
-            $electronCommand = "npx -y create-electron-app@latest electron-app --template=webpack"
+            $electronCommand = "npx -y create-electron-app@7.11.1 electron-app --template=webpack"
             Write-Verbose "Running: $electronCommand"
             Invoke-Expression $electronCommand
             
