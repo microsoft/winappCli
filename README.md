@@ -5,9 +5,7 @@
 
 <p align="center">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="./docs/images/hero-dark.png">
-      <source media="(prefers-color-scheme: light)" srcset="./docs/images/hero-light.png">
-      <img  src="./docs/images/hero-dark.png">
+      <img  src="./docs/images/winapp-terminal.png">
     </picture>
 </p>
 <br/>
