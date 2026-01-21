@@ -283,7 +283,7 @@ try {
         $packageJson.version = "1.0.0"
     }
 
-    $packageJson | ConvertTo-Json | Set-Content $packageJsonPath
+    $packageJson | ConvertTo-Json -Depth 10 | Set-Content $packageJsonPath
     Write-TestSuccess "package.json configured"
 
     # ========================================================================
