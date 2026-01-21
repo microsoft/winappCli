@@ -450,6 +450,13 @@ To undo the Electron debug identity, the easiest approach is to clear your node_
 npx winapp node add-electron-debug-identity [options]
 ```
 
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--manifest <path>` | Path to custom appxmanifest.xml (default: appxmanifest.xml in current directory) |
+| `--verbose` | Enable verbose output |
+
 **What it does:**
 
 - Registers debug identity for electron.exe process
@@ -461,6 +468,9 @@ npx winapp node add-electron-debug-identity [options]
 ```bash
 # Add identity to Electron development process
 npx winapp node add-electron-debug-identity
+
+# Use a custom manifest file
+npx winapp node add-electron-debug-identity --manifest ./custom/appxmanifest.xml
 ```
 
 ---

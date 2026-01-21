@@ -279,7 +279,7 @@ internal partial class MsixService(
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}. You can generate one using 'winapp manifest generate'.");
         }
 
-        if (!devModeService.IsEnabled())
+        if (!devModeService.IsEnabled() && noInstall == false)
         {
             throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }

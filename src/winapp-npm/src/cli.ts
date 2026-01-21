@@ -335,6 +335,8 @@ function printTerminalRestartInstructions(): void {
 async function handleAddonElectronDebugIdentity(args: string[]): Promise<void> {
   const options = parseArgs(args, {
     verbose: false,
+    'no-install': false,
+    manifest: undefined,
   });
 
   if (options.help) {
@@ -351,6 +353,10 @@ async function handleAddonElectronDebugIdentity(args: string[]): Promise<void> {
     console.log('  4. Register the sparse package with external location');
     console.log('');
     console.log('Options:');
+    console.log(
+      '  --manifest <path>     Path to custom appxmanifest.xml (default: appxmanifest.xml in current directory)'
+    );
+    console.log('  --no-install          Do not install the package after creation (will require manual registration)');
     console.log('  --verbose             Enable verbose output (default: false)');
     console.log('  --help                Show this help');
     console.log('');
@@ -362,6 +368,8 @@ async function handleAddonElectronDebugIdentity(args: string[]): Promise<void> {
   try {
     await addElectronDebugIdentity({
       verbose: options.verbose as boolean,
+      noInstall: options['no-install'] as boolean,
+      manifest: options.manifest as string | undefined,
     });
 
     console.log(`✅ Electron debug identity setup completed successfully!`);
