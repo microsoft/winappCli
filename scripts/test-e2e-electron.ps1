@@ -146,15 +146,34 @@ try {
 
 # Verify artifacts path or npm package path
 if ($ArtifactsPath -and (Test-Path $ArtifactsPath)) {
-    Write-TestSuccess "Artifacts folder found: $ArtifactsPath"
-    $localNpmPackagePath = $ArtifactsPath
+    # Convert to absolute path to ensure it works after directory changes
+    $resolvedArtifactsPath = (Resolve-Path $ArtifactsPath).Path
+    
+    # Check if this is a directory containing .tgz files (from CI artifact download)
+    # or a directory with package.json (local npm package)
+    $tgzFiles = Get-ChildItem -Path $resolvedArtifactsPath -Filter "*.tgz" -ErrorAction SilentlyContinue
+    if ($tgzFiles) {
+        # Use the first .tgz file found
+        $localNpmPackagePath = $tgzFiles[0].FullName
+        Write-TestSuccess "Found npm tarball: $localNpmPackagePath"
+    } elseif (Test-Path (Join-Path $resolvedArtifactsPath "package.json")) {
+        # It's a directory with package.json (local development)
+        $localNpmPackagePath = $resolvedArtifactsPath
+        Write-TestSuccess "Found npm package directory: $localNpmPackagePath"
+    } else {
+        Write-TestError "Artifacts path exists but contains no .tgz files or package.json: $resolvedArtifactsPath"
+        throw "Invalid artifacts path - no installable npm package found"
+    }
 } elseif (Test-Path $NpmPackagePath) {
     Write-TestSuccess "npm package found: $NpmPackagePath"
-    $localNpmPackagePath = $NpmPackagePath
+    # Convert to absolute path to ensure it works after directory changes
+    $localNpmPackagePath = (Resolve-Path $NpmPackagePath).Path
 } else {
     Write-TestError "Neither artifacts path nor npm package path exists"
     throw "Cannot find winapp npm package at $ArtifactsPath or $NpmPackagePath"
 }
+
+Write-Verbose "Using npm package path: $localNpmPackagePath"
 
 # ============================================================================
 # Setup Test Environment
