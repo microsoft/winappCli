@@ -22,6 +22,8 @@ internal interface IDirectoryPackagesService
     /// </summary>
     /// <param name="configDir">Directory containing winapp.yaml and potentially Directory.Packages.props</param>
     /// <param name="packageVersions">Dictionary of package names to versions from winapp.yaml</param>
-    /// <returns>True if file was found and updated, false otherwise</returns>
+    /// <returns>True if any package versions were changed, false if no changes were needed</returns>
+    /// <exception cref="FileNotFoundException">Thrown when Directory.Packages.props does not exist</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the file is invalid or has no PackageVersion elements</exception>
     bool UpdatePackageVersions(DirectoryInfo configDir, Dictionary<string, string> packageVersions, TaskContext taskContext);
 }
