@@ -166,10 +166,21 @@ async function installRequiredPackages(projectRoot: string, verbose: boolean): P
       console.log(`📦 Installing missing packages: ${missingPackages.join(', ')}`);
     }
 
-    const installCommand = `npm install --save-dev ${missingPackages.join(' ')}`;
+    // Get npm path - use the npm that's in the same location as the running node
+    const nodeDir = path.dirname(process.execPath);
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npmPath = path.join(nodeDir, npmCmd);
+    const npmExecutable = fsSync.existsSync(npmPath) ? `"${npmPath}"` : 'npm';
+
+    const installCommand = `${npmExecutable} install --save-dev ${missingPackages.join(' ')}`;
 
     try {
-      execSync(installCommand, { cwd: projectRoot, stdio: verbose ? 'inherit' : 'pipe' });
+      execSync(installCommand, {
+        cwd: projectRoot,
+        stdio: verbose ? 'inherit' : 'pipe',
+        shell: process.env.ComSpec || 'cmd.exe',
+        env: process.env,
+      });
 
       if (verbose) {
         console.log(`✅ Packages installed successfully`);

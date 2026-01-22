@@ -224,7 +224,7 @@ internal partial class MsixService(
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}");
         }
 
-        // Read and extract MSIX identity from appxmanifest.xml
+        // Read and extract package identity from appxmanifest.xml
         var appxManifestContent = await File.ReadAllTextAsync(appxManifestPath.FullName, Encoding.UTF8, cancellationToken);
 
         return ParseAppxManifestAsync(appxManifestContent);
@@ -279,7 +279,7 @@ internal partial class MsixService(
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}. You can generate one using 'winapp manifest generate'.");
         }
 
-        if (!devModeService.IsEnabled())
+        if (!devModeService.IsEnabled() && noInstall == false)
         {
             throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }
