@@ -118,8 +118,6 @@ internal class PackageCommand : Command
 
                     var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, cancellationToken);
 
-                    taskContext.AddStatusMessage($"{UiSymbols.Check} MSIX package created successfully!");
-
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
                     if (result.Signed)
                     {

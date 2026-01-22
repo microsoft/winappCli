@@ -14,14 +14,13 @@ internal static class UiSymbols
     public static string Wrench => Emoji.Known.Wrench;
     public static string Package => Emoji.Known.Package;
     public static string Bullet => "•";
-    public static string Skip => Emoji.Known.NextTrackButton;
-    public static string Tools => Emoji.Known.HammerAndWrench;
+    public static string Skip => "\U000027A1 ";
+    public static string Tools => $"{Emoji.Known.HammerAndWrench} ";
     public static string Files => Emoji.Known.FileFolder;
     public static string Check => Emoji.Known.CheckMarkButton;
     public static string Books => Emoji.Known.Books;
     public static string Search => Emoji.Known.MagnifyingGlassTiltedRight;
     public static string Save => Emoji.Known.FloppyDisk;
-    public static string Party => Emoji.Known.PartyPopper;
     public static string Warning => Emoji.Known.Warning;
     public static string Error => Emoji.Known.CrossMark;
     public static string Info => Emoji.Known.Information;
@@ -33,5 +32,4 @@ internal static class UiSymbols
     public static string Id => Emoji.Known.IdButton;
     public static string Clipboard => Emoji.Known.Clipboard;
     public static string Verbose => Emoji.Known.MagnifyingGlassTiltedLeft;
-    public static string Question => Emoji.Known.RedQuestionMark;
 }
