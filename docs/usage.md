@@ -474,11 +474,19 @@ npx winapp node create-addon --name myWindowsAddon
 > [!IMPORTANT]  
 > There is a known issue with sparse packaging Electron applications which causes the app to crash on start or not render the web content. The issue has been fixed in Windows but it has not propagated to external Windows devices yet. If you are seeing this issue after calling `add-electron-debug-identity`, you can [disable sandboxing in your Electron app](https://www.electronjs.org/docs/latest/tutorial/sandbox#disabling-chromiums-sandbox-testing-only) for debug purposes with the `--no-sandbox` flag. This issue does not affect full MSIX packaging.
 <br /><br />
-To undo the Electron debug identity, the easiest approach is to clear your node_modules folder (or just the electron folder) and run `npm install` again.
+To undo the Electron debug identity, use `winapp node clear-electron-debug-identity`.
 
 ```bash
 npx winapp node add-electron-debug-identity [options]
 ```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--manifest <path>` | Path to custom appxmanifest.xml (default: appxmanifest.xml in current directory) |
+| `--no-install` | Do not install or modify dependencies; only configure the Electron debug identity |
+| `--verbose` | Enable verbose output |
 
 **What it does:**
 
@@ -491,6 +499,38 @@ npx winapp node add-electron-debug-identity [options]
 ```bash
 # Add identity to Electron development process
 npx winapp node add-electron-debug-identity
+
+# Use a custom manifest file
+npx winapp node add-electron-debug-identity --manifest ./custom/appxmanifest.xml
+```
+
+---
+
+### node clear-electron-debug-identity
+
+*(Available in NPM package only)* Remove package identity from the Electron debug process by restoring the original electron.exe from backup.
+
+```bash
+npx winapp node clear-electron-debug-identity [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--verbose` | Enable verbose output |
+
+**What it does:**
+
+- Restores electron.exe from the backup created by `add-electron-debug-identity`
+- Removes the backup files after restoration
+- Returns Electron to its original state without package identity
+
+**Examples:**
+
+```bash
+# Remove identity from Electron development process
+npx winapp node clear-electron-debug-identity
 ```
 
 ---

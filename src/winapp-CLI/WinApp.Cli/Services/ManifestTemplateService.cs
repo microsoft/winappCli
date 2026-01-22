@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
@@ -221,7 +222,7 @@ internal partial class ManifestTemplateService : IManifestTemplateService
             await using var fs = File.Create(target);
             await s.CopyToAsync(fs, cancellationToken);
 
-            taskContext.AddDebugMessage($"✓ Generated asset: {fileName}");
+            taskContext.AddDebugMessage($"{UiSymbols.Check} Generated asset: {fileName}");
         }
     }
 

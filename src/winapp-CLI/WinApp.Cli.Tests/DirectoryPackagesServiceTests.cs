@@ -39,7 +39,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void UpdatePackageVersionsNoFileExistsReturnsFalse()
+    public void UpdatePackageVersionsNoFileExistsThrowsFileNotFoundException()
     {
         // Arrange
         var packageVersions = new Dictionary<string, string>
@@ -47,11 +47,9 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
             { "Microsoft.Windows.SDK.BuildTools", "10.0.22621.3233" }
         };
 
-        // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
-
-        // Assert
-        Assert.IsFalse(result, "Should return false when Directory.Packages.props doesn't exist");
+        // Act & Assert
+        Assert.ThrowsExactly<FileNotFoundException>(() =>
+            _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext));
     }
 
     [TestMethod]
@@ -148,7 +146,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void UpdatePackageVersionsNoChangesNeededReturnsTrue()
+    public void UpdatePackageVersionsNoChangesNeededReturnsFalse()
     {
         // Arrange
         var propsFilePath = Path.Combine(_testTempDirectory, "Directory.Packages.props");
@@ -168,7 +166,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
         var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
 
         // Assert
-        Assert.IsTrue(result, "Should return true even when no changes are needed");
+        Assert.IsFalse(result, "Should return false when no changes are needed");
         
         var updatedContent = File.ReadAllText(propsFilePath);
         Assert.AreEqual(originalContent, updatedContent, "Content should remain unchanged");
@@ -206,7 +204,7 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void UpdatePackageVersionsEmptyFileReturnsFalse()
+    public void UpdatePackageVersionsEmptyFileThrowsXmlException()
     {
         // Arrange
         var propsFilePath = Path.Combine(_testTempDirectory, "Directory.Packages.props");
@@ -217,15 +215,13 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
             { "Microsoft.Windows.SDK.BuildTools", "10.0.22621.3233" }
         };
 
-        // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
-
-        // Assert
-        Assert.IsFalse(result, "Should return false for empty/invalid XML file");
+        // Act & Assert
+        Assert.ThrowsExactly<System.Xml.XmlException>(() =>
+            _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext));
     }
 
     [TestMethod]
-    public void UpdatePackageVersionsNoPackageVersionElementsReturnsFalse()
+    public void UpdatePackageVersionsNoPackageVersionElementsThrowsInvalidOperationException()
     {
         // Arrange
         var propsFilePath = Path.Combine(_testTempDirectory, "Directory.Packages.props");
@@ -241,11 +237,9 @@ public class DirectoryPackagesServiceTests : BaseCommandTests
             { "Microsoft.Windows.SDK.BuildTools", "10.0.22621.3233" }
         };
 
-        // Act
-        var result = _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext);
-
-        // Assert
-        Assert.IsFalse(result, "Should return false when no PackageVersion elements exist");
+        // Act & Assert
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            _directoryPackagesService.UpdatePackageVersions(new DirectoryInfo(_testTempDirectory), packageVersions, TestTaskContext));
     }
 
     [TestMethod]

@@ -78,3 +78,26 @@ jobs:
         name: msix-packages
         path: artifacts/msix-packages/*.msix
         if-no-files-found: error
+
+  # E2E test for Electron workflow - runs after build completes
+  e2e-test:
+    runs-on: windows-latest
+    needs: build-and-package
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '24'
+
+    - name: Download npm package artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: npm-package
+        path: artifacts/npm
+
+    - name: Run E2E Electron test
+      run: |
+        .\scripts\test-e2e-electron.ps1 -ArtifactsPath "artifacts/npm" -Verbose

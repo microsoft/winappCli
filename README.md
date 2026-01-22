@@ -1,13 +1,11 @@
-# Windows App Development CLI
+# winapp CLI
 
 > [!IMPORTANT]
-> :warning: **Status: Public Preview** - The Windows App Development CLI is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
+> :warning: **Status: Public Preview** - The Windows App Development CLI (winapp CLI) is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
 
 <p align="center">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="./docs/images/hero-dark.png">
-      <source media="(prefers-color-scheme: light)" srcset="./docs/images/hero-light.png">
-      <img  src="./docs/images/hero-dark.png">
+      <img  src="./docs/images/winapp-terminal.png">
     </picture>
 </p>
 <br/>
@@ -44,7 +42,7 @@
 </h3>
 <br/>
 
-The Windows App Development CLI is a single command-line interface for managing Windows SDKs, packaging, generating app identity, manifests, certificates, and using build tools with any app framework. This tool bridges the gap between cross-platform development and Windows-native capabilities.
+The Windows App Development CLI (winapp CLI) is a single command-line interface for managing Windows SDKs, packaging, generating app identity, manifests, certificates, and using build tools with any app framework. This tool bridges the gap between cross-platform development and Windows-native capabilities.
 <br/><br/>
 Whether you're building with Electron, .NET/Win32, CMake, or Python, this CLI gives you access to:
 
@@ -154,6 +152,7 @@ npx winapp --help
 
 - [`node create-addon`](./docs/usage.md#node-create-addon) - Generate native C# or C++ addons
 - [`node add-electron-debug-identity`](./docs/usage.md#node-add-electron-debug-identity) - Add identity to Electron processes
+- [`node clear-electron-debug-identity`](./docs/usage.md#node-clear-electron-debug-identity) - Remove identity from Electron processes
 - [Windows AI Addon for Electron](https://github.com/microsoft/winapp-windows-ai) - The Windows AI Addon for Electron is a Node.js native addon that provides access to the [Windows AI APIs](https://learn.microsoft.com/en-us/windows/ai/apis/) directly from JavaScript.
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
@@ -161,10 +160,17 @@ The full CLI usage can be found here: [Documentation](/docs/usage.md)
 
 ## 🧾 Samples
 
-This repository will continue to be added with samples. Currently the following samples exist:
+This repository includes samples demonstrating how to use the CLI with various frameworks:
 
-- [Electron sample](/samples/electron/README.md): a default Electron Forge generated application + initialized a winapp project with appxmanifest, assets + native addon + C# addon + generates cert
-- [Electron WinML sample](/samples/electron-winml/README.md): a simple Electron application using Windows ML for classifying images
+| Sample | Description |
+|--------|-------------|
+| [Electron](/samples/electron/README.md) | Electron Forge app with appxmanifest, assets, native C++ addon, and C# addon |
+| [Electron WinML](/samples/electron-winml/README.md) | Electron app using Windows ML for image classification |
+| [C++ App](/samples/cpp-app/README.md) | Native C++ Win32 application with CMake |
+| [.NET Console](/samples/dotnet-app/README.md) | .NET console application |
+| [WPF App](/samples/wpf-app/README.md) | WPF desktop application |
+| [Rust App](/samples/rust-app/README.md) | Rust application using Windows APIs |
+| [Tauri App](/samples/tauri-app/README.md) | Tauri cross-platform app with Rust backend |
 
 ## 🔧 Feedback
 

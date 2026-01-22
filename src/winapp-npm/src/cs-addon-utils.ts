@@ -289,12 +289,20 @@ async function installNodeApiDotnet(projectRoot: string, verbose: boolean): Prom
     console.log(`📦 Installing node-api-dotnet...`);
   }
 
-  const installCommand = 'npm install node-api-dotnet';
+  // Get npm path - use the npm that's in the same location as the running node
+  const nodeDir = path.dirname(process.execPath);
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmPath = path.join(nodeDir, npmCmd);
+  const npmExecutable = fsSync.existsSync(npmPath) ? `"${npmPath}"` : 'npm';
+
+  const installCommand = `${npmExecutable} install node-api-dotnet`;
 
   try {
     execSync(installCommand, {
       cwd: projectRoot,
       stdio: verbose ? 'inherit' : 'pipe',
+      shell: process.env.ComSpec || 'cmd.exe',
+      env: process.env,
     });
 
     if (verbose) {

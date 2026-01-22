@@ -1,3 +1,6 @@
+# Test working directory
+test-wd/
+
 # Logs
 logs
 *.log

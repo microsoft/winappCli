@@ -54,14 +54,15 @@ internal class WorkspaceSetupService(
         configService.ConfigPath = new FileInfo(Path.Combine(options.ConfigDir.FullName, "winapp.yaml"));
 
         bool hadExistingConfig = default;
-        bool shouldGenerateManifest = true;
-        bool shouldGenerateCert = !options.NoCert;
 
-        (var initializationResult, WinappConfig? config, hadExistingConfig, shouldGenerateManifest, var manifestGenerationInfo, shouldGenerateCert, bool shouldEnableDeveloperMode) = await InitializeConfigurationAsync(options, cancellationToken);
+
+        (var initializationResult, WinappConfig? config, hadExistingConfig, bool shouldGenerateManifest, var manifestGenerationInfo, bool shouldGenerateCert, bool shouldEnableDeveloperMode) = await InitializeConfigurationAsync(options, cancellationToken);
         if (initializationResult != 0)
         {
             return initializationResult;
         }
+
+        var certPath = new FileInfo(Path.Combine(options.BaseDirectory.FullName, CertificateService.DefaultCertFileName));
 
         // Handle config-only mode: just create/validate config file and exit
         if (options.ConfigOnly)
@@ -391,10 +392,20 @@ internal class WorkspaceSetupService(
                             if (msixDir != null)
                             {
                                 // Install Windows App SDK runtime packages
-                                await InstallWindowsAppRuntimeAsync(msixDir, taskContext, cancellationToken);
+                                (int installedCount, int errorCount) = await InstallWindowsAppRuntimeAsync(msixDir, taskContext, cancellationToken);
 
-                                taskContext.AddDebugMessage($"{UiSymbols.Check} Windows App Runtime installation complete");
-                                return (0, $"WinAppSDK Runtime installed: [underline]{usedVersions[BuildToolsService.WINAPP_SDK_RUNTIME_PACKAGE]}[/]");
+                                string version = usedVersions[BuildToolsService.WINAPP_SDK_RUNTIME_PACKAGE];
+
+                                if (errorCount > 0)
+                                {
+                                    return (1, "Some Windows App Runtime packages failed to install.");
+                                }
+                                else if (installedCount == 0)
+                                {
+                                    return (0, "Windows App SDK Runtime ([underline]{version}[/]) already installed");
+                                }
+
+                                return (0, $"WinAppSDK Runtime installed: [underline]{version}[/]");
                             }
                             else
                             {
@@ -472,8 +483,6 @@ internal class WorkspaceSetupService(
                     {
                         await taskContext.AddSubTaskAsync("Generating development certificate", async (taskContext, cancellationToken) =>
                         {
-                            var certPath = new FileInfo(Path.Combine(options.BaseDirectory.FullName, CertificateService.DefaultCertFileName));
-
                             var result = await certificateService.GenerateDevCertificateWithInferenceAsync(
                                 outputPath: certPath,
                                 taskContext: taskContext,
@@ -490,9 +499,26 @@ internal class WorkspaceSetupService(
                                 addedCertToGitignore = true;
                             }
 
+                            if (result == null || !result.CertificatePath.Exists)
+                            {
+                                return (1, "Development certificate generation failed.");
+                            }
+
                             return (0, $"Development certificate created: [underline]{certPath.Name}[/]");
 
                         }, cancellationToken);
+                    }
+                    else
+                    {
+                        // Should not generate cert
+                        if (certPath.Exists)
+                        {
+                            taskContext.AddStatusMessage($"{UiSymbols.Check} Development certificate already exists → {certPath.FullName}");
+                        }
+                        else
+                        {
+                            taskContext.AddStatusMessage($"{UiSymbols.Skip} Development certificate generation skipped");
+                        }
                     }
                 }
 
@@ -547,8 +573,10 @@ internal class WorkspaceSetupService(
                                 p => p.Version,
                                 StringComparer.OrdinalIgnoreCase);
 
-                            directoryPackagesService.UpdatePackageVersions(options.ConfigDir, packageVersions, taskContext);
-                            return Task.FromResult((0, "Directory.Packages.props updated"));
+                            var wasUpdated = directoryPackagesService.UpdatePackageVersions(options.ConfigDir, packageVersions, taskContext);
+                            return Task.FromResult((0, message: wasUpdated
+                                ? "Directory.Packages.props updated"
+                                : "Directory.Packages.props is up to date"));
                         }
                         catch (Exception ex)
                         {
@@ -649,6 +677,12 @@ internal class WorkspaceSetupService(
                         await AskSdkInstallModeAsync(options, cancellationToken);
                     }
                 }
+            }
+            else
+            {
+                var certPath = new FileInfo(Path.Combine(options.BaseDirectory.FullName, CertificateService.DefaultCertFileName));
+
+                shouldGenerateCert = !options.NoCert && !certPath.Exists;
             }
         }
         else
@@ -886,7 +920,7 @@ internal class WorkspaceSetupService(
     /// </summary>
     /// <param name="msixDir">Directory containing the MSIX packages</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task InstallWindowsAppRuntimeAsync(DirectoryInfo msixDir, TaskContext taskContext, CancellationToken cancellationToken)
+    public async Task<(int InstalledCount, int ErrorCount)> InstallWindowsAppRuntimeAsync(DirectoryInfo msixDir, TaskContext taskContext, CancellationToken cancellationToken)
     {
         var architecture = GetSystemArchitecture();
 
@@ -894,7 +928,7 @@ internal class WorkspaceSetupService(
         var packageEntries = await ParseMsixInventoryAsync(taskContext, msixDir, cancellationToken);
         if (packageEntries == null || packageEntries.Count == 0)
         {
-            return;
+            return (0, 0);
         }
 
         var msixArchDir = Path.Combine(msixDir.FullName, $"win10-{architecture}");
@@ -920,7 +954,7 @@ internal class WorkspaceSetupService(
 
         if (packageData.Count == 0)
         {
-            return;
+            return (0, 0);
         }
 
         // Create compact PowerShell script with reusable function
@@ -1033,6 +1067,8 @@ if ($toInstall.Count -gt 0) {{
         {
             taskContext.AddDebugMessage($"{UiSymbols.Note} {errorCount} packages failed to install");
         }
+
+        return (installedCount, errorCount);
     }
 
     /// <summary>
