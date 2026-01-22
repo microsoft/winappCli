@@ -85,13 +85,13 @@ public class ManifestUpdateAssetsCommandTests : BaseCommandTests
         var assetsDir = Path.Combine(_tempDirectory.FullName, "Assets");
         Assert.IsTrue(Directory.Exists(assetsDir), "Assets directory should be created");
 
-        // Verify at least some of the required assets were generated
+        // Verify assets referenced in manifest were generated
+        // The test manifest references: StoreLogo.png, Square150x150Logo.png, Square44x44Logo.png, Wide310x150Logo.png
         var expectedAssets = new[]
         {
             "Square44x44Logo.png",
             "Square150x150Logo.png",
             "Wide310x150Logo.png",
-            "SplashScreen.png",
             "StoreLogo.png"
         };
 
