@@ -21,11 +21,7 @@ internal class ImageAssetService : IImageAssetService
         ("Square150x150Logo.scale-200.png", 300, 300),
         ("Wide310x150Logo.png", 310, 150),
         ("Wide310x150Logo.scale-200.png", 620, 300),
-        ("SplashScreen.png", 620, 300),
-        ("SplashScreen.scale-200.png", 1240, 600),
         ("StoreLogo.png", 50, 50),
-        ("LockScreenLogo.png", 24, 24),
-        ("LockScreenLogo.scale-200.png", 48, 48),
     ];
 
     // Scale factors to generate for each asset
