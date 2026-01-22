@@ -2,12 +2,10 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Buffers;
-using Command = System.CommandLine.Command;
-using CommandResult = System.CommandLine.Parsing.CommandResult;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Helpers;
@@ -45,23 +43,20 @@ internal partial class CliSchemaJsonContext : JsonSerializerContext
 
 internal static class CliSchema
 {
-    public record ArgumentDetails(string? description, int order, bool hidden, string? helpName, string valueType, bool hasDefaultValue, object? defaultValue, ArityDetails arity);
+    public record ArgumentDetails(string? description, int order, string? helpName, string valueType, bool hasDefaultValue, object? defaultValue, ArityDetails arity);
     public record ArityDetails(int minimum, int? maximum);
     public record OptionDetails(
         string? description,
-        bool hidden,
         string[]? aliases,
         string? helpName,
         string valueType,
         bool hasDefaultValue,
         object? defaultValue,
         ArityDetails arity,
-        bool required,
-        bool recursive
+        bool required
     );
     public record CommandDetails(
         string? description,
-        bool hidden,
         string[]? aliases,
         Dictionary<string, ArgumentDetails>? arguments,
         Dictionary<string, OptionDetails>? options,
@@ -70,12 +65,11 @@ internal static class CliSchema
         string name,
         string version,
         string? description,
-        bool hidden,
         string[]? aliases,
         Dictionary<string, ArgumentDetails>? arguments,
         Dictionary<string, OptionDetails>? options,
         Dictionary<string, CommandDetails>? subcommands
-    ) : CommandDetails(description, hidden, aliases, arguments, options, subcommands);
+    ) : CommandDetails(description, aliases, arguments, options, subcommands);
 
 
     public static void PrintCliSchema(CommandResult commandResult, TextWriter outputWriter)
@@ -105,7 +99,6 @@ internal static class CliSchema
             name: command.Name,
             version: System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!.ToString(),
             description: command.Description?.ReplaceLineEndings("\n"),
-            hidden: command.Hidden,
             aliases: DetermineAliases(command.Aliases),
             arguments: arguments,
             options: options,
@@ -163,7 +156,7 @@ internal static class CliSchema
         }
 
         // Order the aliases to ensure consistent output.
-        return aliases.Order().ToArray();
+        return [.. aliases.Order()];
     }
 
     public static string ToCliTypeString(this Type type)
@@ -174,52 +167,60 @@ internal static class CliSchema
             return typeName;
         }
 
-        var genericTypeName = typeName.Substring(0, typeName.IndexOf('`'));
+        var genericTypeName = typeName[..typeName.IndexOf('`')];
         var genericTypes = string.Join(", ", type.GenericTypeArguments.Select(generic => generic.ToCliTypeString()));
         return $"{genericTypeName}<{genericTypes}>";
     }
 
-    private static CommandDetails CreateCommandDetails(Command subCommand) => new CommandDetails(
+    private static CommandDetails CreateCommandDetails(Command subCommand)
+    {
+        return new CommandDetails(
                 subCommand.Description?.ReplaceLineEndings("\n"),
-                subCommand.Hidden,
                 DetermineAliases(subCommand.Aliases),
                 CreateArgumentsDictionary(subCommand.Arguments),
                 CreateOptionsDictionary(subCommand.Options),
                 CreateSubcommandsDictionary(subCommand.Subcommands)
             );
+    }
 
-    private static OptionDetails CreateOptionDetails(Option option) => new OptionDetails(
+    private static OptionDetails CreateOptionDetails(Option option)
+    {
+        return new OptionDetails(
                 option.Description?.ReplaceLineEndings("\n"),
-                option.Hidden,
                 DetermineAliases(option.Aliases),
                 option.HelpName,
                 option.ValueType.ToCliTypeString(),
                 option.HasDefaultValue,
                 option.HasDefaultValue ? HumanizeValue(option.GetDefaultValue()) : null,
                 CreateArityDetails(option.Arity),
-                option.Required,
-                option.Recursive
+                option.Required
             );
+    }
 
     /// <summary>
     /// Maps some types that don't serialize well to more human-readable strings.
     /// For example, <see cref="VerbosityOptions"/> is serialized as a string instead of an integer.
     /// </summary>
-    private static object? HumanizeValue(object? v) => v switch
+    private static object? HumanizeValue(object? v)
     {
-        //VerbosityOptions o => Enum.GetName(o),
-        null => null,
-        _ => v // For other types, return as is
-    };
+        return v switch
+        {
+            //VerbosityOptions o => Enum.GetName(o),
+            null => null,
+            _ => v // For other types, return as is
+        };
+    }
 
-    private static ArgumentDetails CreateArgumentDetails(int index, Argument argument) => new ArgumentDetails(
+    private static ArgumentDetails CreateArgumentDetails(int index, Argument argument)
+    {
+        return new ArgumentDetails(
                 argument.Description?.ReplaceLineEndings("\n"),
                 index,
-                argument.Hidden,
                 argument.HelpName,
                 argument.ValueType.ToCliTypeString(),
                 argument.HasDefaultValue,
                 argument.HasDefaultValue ? HumanizeValue(argument.GetDefaultValue()) : null,
                 CreateArityDetails(argument.Arity)
             );
+    }
 }

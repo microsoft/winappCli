@@ -57,7 +57,8 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<CertGenerateCommand, CertGenerateCommand.Handler>()
                 .UseCommandHandler<CertInstallCommand, CertInstallCommand.Handler>()
                 .UseCommandHandler<SignCommand, SignCommand.Handler>()
-                .UseCommandHandler<ToolCommand, ToolCommand.Handler>();
+                .UseCommandHandler<ToolCommand, ToolCommand.Handler>()
+                .UseCommandHandler<McpCommand, McpCommand.Handler>();
     }
 
     public static IServiceCollection UseCommandHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TCommand, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] THandler>(this IServiceCollection services)
