@@ -126,12 +126,12 @@ internal class GroupableTask<T> : GroupableTask
                                                  || char.GetUnicodeCategory(firstChar) == System.Globalization.UnicodeCategory.OtherSymbol
                                                  || firstChar == '[';
                 }
-                return firstCharIsEmojiOrOpenBracket ? $"{indentStr} {message}" : $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
+                return firstCharIsEmojiOrOpenBracket ? $"{indentStr}{message}" : $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
             }
 
             msg = task switch
             {
-                StatusMessageTask statusMessageTask => $"{indentStr} {Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}",
+                StatusMessageTask statusMessageTask => $"{indentStr}{Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}",
                 GroupableTask<T> genericTask => FormatCheckMarkMessage(indentStr, (genericTask.CompletedMessage as ITuple) switch
                 {
                     ITuple tuple when tuple.Length > 0 && tuple[0] is string str => str,

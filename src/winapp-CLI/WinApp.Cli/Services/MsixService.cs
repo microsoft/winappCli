@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
 using System.IO.Compression;
 using System.Security;
 using System.Text;
@@ -22,6 +23,7 @@ internal partial class MsixService(
     IPackageCacheService packageCacheService,
     IWorkspaceSetupService workspaceSetupService,
     IDevModeService devModeService,
+    ILogger<MsixService> logger,
     ICurrentDirectoryProvider currentDirectoryProvider) : IMsixService
 {
     [GeneratedRegex(@"PublicFolder\s*=\s*[""']([^""']*)[""']", RegexOptions.IgnoreCase, "en-US")]
@@ -787,7 +789,7 @@ internal partial class MsixService(
                 tempFiles.Add(priConfigFilePath);
                 var resourceFiles = await GeneratePriFileAsync(inputFolder, taskContext, cancellationToken: cancellationToken);
                 tempFiles.AddRange(resourceFiles);
-                if (resourceFiles.Count > 0)
+                if (resourceFiles.Count > 0 && logger.IsEnabled(LogLevel.Debug))
                 {
                     taskContext.AddDebugMessage($"Resource files included in PRI:");
                     await taskContext.AddSubTaskAsync("Pri Resources", async (taskContext, cancellationToken) =>
