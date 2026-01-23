@@ -64,7 +64,7 @@ $Schema = $SchemaJson | ConvertFrom-Json
 Write-Host "[DOCS] Generating llm-context.md..." -ForegroundColor Blue
 
 $LlmContext = @"
-# WinApp CLI Context for LLMs
+# winapp CLI Context for LLMs
 
 > Auto-generated from CLI v$($Schema.version) (schema version $($Schema.schemaVersion))
 > 

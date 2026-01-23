@@ -180,7 +180,7 @@ The winapp CLI is designed to work well with AI coding assistants like GitHub Co
 Copy and paste this into your AI coding assistant:
 
 ```
-I'm working with WinAppCli - a CLI for generating and managing appxmanifest.xml, 
+I'm working with winapp CLI - a CLI for generating and managing appxmanifest.xml, 
 image assets, test certificates, Windows (App) SDK projections, package identity, 
 and packaging for any app framework targeting Windows.
 
