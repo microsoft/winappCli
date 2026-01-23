@@ -287,6 +287,55 @@ winapp manifest update-assets mylogo.png --manifest ./dist/appxmanifest.xml
 winapp manifest update-assets mylogo.png --verbose
 ```
 
+#### manifest validate
+
+Validate an AppxManifest.xml file against the official Windows App SDK schemas using MakeAppx.exe.
+
+```bash
+winapp manifest validate <manifest-path>
+```
+
+**Arguments:**
+
+- `manifest-path` - Path to AppxManifest.xml or Package.appxmanifest file to validate
+
+**Description:**
+
+Validates an AppxManifest.xml file to ensure it conforms to the official Microsoft MSIX schemas. The command:
+
+- Uses MakeAppx.exe from the Windows SDK BuildTools package for complete schema validation
+- Validates the XML structure, required elements, and attribute values against official schemas
+- Provides detailed error messages with line numbers
+- Suggests fixes for common validation errors (e.g., invalid Application Id format, Publisher format)
+
+The command automatically downloads the required Windows SDK BuildTools package if not already installed.
+
+**Examples:**
+
+```bash
+# Validate a manifest file
+winapp manifest validate ./appxmanifest.xml
+
+# Validate with verbose output
+winapp manifest validate ./appxmanifest.xml --verbose
+```
+
+**Example output for valid manifest:**
+
+```
+✓ Manifest is valid: appxmanifest.xml
+```
+
+**Example output for invalid manifest:**
+
+```
+Error at Line 25:
+  Application Id 'My-App' contains invalid characters.
+  Suggestion: Application Id must start with a letter and contain only letters, numbers, and periods.
+
+✗ Manifest validation failed with 1 error(s).
+```
+
 ---
 
 ### cert

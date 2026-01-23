@@ -50,6 +50,7 @@ internal static class StoreHostBuilderExtensions
                 .ConfigureCommand<ManifestCommand>()
                 .UseCommandHandler<ManifestGenerateCommand, ManifestGenerateCommand.Handler>()
                 .UseCommandHandler<ManifestUpdateAssetsCommand, ManifestUpdateAssetsCommand.Handler>()
+                .UseCommandHandler<ManifestValidateCommand, ManifestValidateCommand.Handler>()
                 .UseCommandHandler<UpdateCommand, UpdateCommand.Handler>()
                 .UseCommandHandler<CreateDebugIdentityCommand, CreateDebugIdentityCommand.Handler>()
                 .UseCommandHandler<GetWinappPathCommand, GetWinappPathCommand.Handler>()
