@@ -27,7 +27,7 @@ internal class RestoreCommand : Command
         ConfigDirOption.AcceptExistingOnly();
     }
 
-    public RestoreCommand() : base("restore", "Restore packages from winapp.yaml and ensure workspace is ready")
+    public RestoreCommand() : base("restore", "Reinstall packages defined in winapp.yaml. Use this after cloning a project or when packages are missing. Requires an existing winapp.yaml file (created by 'init'). Does not update package versions - use 'update' for that.")
     {
         Arguments.Add(BaseDirectoryArgument);
         Options.Add(ConfigDirOption);

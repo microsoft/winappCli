@@ -11,7 +11,7 @@ namespace WinApp.Cli.Commands;
 
 internal class UpdateCommand : Command
 {
-    public UpdateCommand() : base("update", "Update packages in winapp.yaml and install/update build tools in cache")
+    public UpdateCommand() : base("update", "Check for newer versions of packages in winapp.yaml and update them. Also refreshes build tools cache. Requires an existing winapp.yaml file (created by 'init'). Use --setup-sdks to control whether to use stable, preview, or experimental SDK versions.")
     {
         Options.Add(InitCommand.SetupSdksOption);
     }

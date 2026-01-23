@@ -46,6 +46,12 @@ jobs:
         echo "base_version=$baseVersion" >> $env:GITHUB_OUTPUT
         echo "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
     
+    # Validate LLM documentation is up-to-date
+    - name: Validate LLM documentation
+      run: |
+        $FailOnDrift = ("${{ github.event_name }}" -eq "pull_request" -and "${{ github.base_ref }}" -eq "main")
+        .\scripts\validate-llm-docs.ps1 -FailOnDrift:$FailOnDrift
+    
     # Upload all build artifacts
     - name: Upload test results
       if: ${{ !cancelled() }}

@@ -58,7 +58,7 @@ internal class InitCommand : Command
         };
     }
 
-    public InitCommand() : base("init", "Initializes a directory with required assets (manifest, certs, libraries) for building a modern Windows app. ")
+    public InitCommand() : base("init", "Set up a new Windows app project. Interactive by default, use --use-defaults to skip prompts. Creates appxmanifest.xml with default assets, generates a devcert.pfx development certificate, creates winapp.yaml for version management, and downloads Windows SDK and Windows App SDK packages and generates projections. This is the recommended way to start - it combines what 'manifest generate' and 'cert generate' do individually. For existing projects, use 'restore' to reinstall packages from winapp.yaml.")
     {
         Arguments.Add(BaseDirectoryArgument);
         Options.Add(ConfigDirOption);

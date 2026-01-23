@@ -171,6 +171,25 @@ This repository includes samples demonstrating how to use the CLI with various f
 | [Rust App](/samples/rust-app/README.md) | Rust application using Windows APIs |
 | [Tauri App](/samples/tauri-app/README.md) | Tauri cross-platform app with Rust backend |
 
+## 🤖 Using with AI Assistants
+
+The winapp CLI is designed to work well with AI coding assistants like GitHub Copilot, Cursor, and other LLM-powered tools.
+
+### Context for AI Assistants
+
+Point your AI assistant to these resources for accurate help:
+
+- **[LLM Context Guide](./docs/llm-context.md)** - Comprehensive command reference with workflows and prerequisites
+- **[CLI Schema (JSON)](./docs/cli-schema.json)** - Machine-readable command structure for tooling
+
+### Programmatic Access
+
+Get the complete CLI structure as JSON for tooling or analysis:
+
+```bash
+winapp --cli-schema
+```
+
 ## 🔧 Feedback
 
 - [File an issue, feature request or bug](https://github.com/microsoft/WinAppCli/issues): please ensure that you are not filing a duplicate issue

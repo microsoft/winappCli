@@ -37,7 +37,7 @@ internal class SignCommand : Command
         };
     }
 
-    public SignCommand() : base("sign", "Sign a file/package with a certificate")
+    public SignCommand() : base("sign", "Code-sign a package or executable with a certificate. Use a development certificate for testing, or a trusted certificate for distribution.")
     {
         Arguments.Add(FilePathArgument);
         Arguments.Add(CertPathArgument);
