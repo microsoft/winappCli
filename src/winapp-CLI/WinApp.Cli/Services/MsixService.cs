@@ -23,6 +23,7 @@ internal partial class MsixService(
     IPackageCacheService packageCacheService,
     IWorkspaceSetupService workspaceSetupService,
     IDevModeService devModeService,
+    IDotNetService dotnetService,
     ILogger<MsixService> logger,
     ICurrentDirectoryProvider currentDirectoryProvider) : IMsixService
 {
@@ -273,7 +274,7 @@ internal partial class MsixService(
         return new MsixIdentityResult(packageName, publisher, applicationId);
     }
 
-    public async Task<MsixIdentityResult> AddMsixIdentityAsync(string? entryPointPath, FileInfo appxManifestPath, bool noInstall, TaskContext taskContext, CancellationToken cancellationToken = default)
+    public async Task<MsixIdentityResult> AddSparseIdentityAsync(string? entryPointPath, FileInfo appxManifestPath, bool noInstall, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         // Validate inputs
         if (!appxManifestPath.Exists)
@@ -357,6 +358,102 @@ internal partial class MsixService(
         }
 
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
+    }
+
+    public async Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, CancellationToken cancellationToken = default)
+    {
+        // Validate inputs
+        if (!appxManifestPath.Exists)
+        {
+            throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}. You can generate one using 'winapp manifest generate'.");
+        }
+
+        if (!devModeService.IsEnabled())
+        {
+            throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
+        }
+
+        taskContext.AddDebugMessage($"Using AppX manifest: {appxManifestPath}");
+
+        if (!outputAppXDirectory.Exists)
+        {
+            outputAppXDirectory.Create();
+        }
+
+        // Recursive copy all files to output directory, but exclude the outputAppXFolder itself if it's inside the input directory
+        if (inputDirectory != null && !string.Equals(inputDirectory.FullName.TrimEnd(Path.DirectorySeparatorChar),
+            outputAppXDirectory.FullName.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            var outputFullPath = outputAppXDirectory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+            foreach (var file in inputDirectory.EnumerateFiles("*", SearchOption.AllDirectories))
+            {
+                // Skip files that are inside the output folder (if output is nested inside input)
+                if (file.FullName.StartsWith(outputFullPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var relativePath = Path.GetRelativePath(inputDirectory.FullName, file.FullName);
+                var destFile = new FileInfo(Path.Combine(outputAppXDirectory.FullName, relativePath));
+
+                destFile.Directory?.Create();
+                file.CopyTo(destFile.FullName, overwrite: true);
+
+                taskContext.AddDebugMessage($"{UiSymbols.Files} Copied: {relativePath}");
+            }
+
+            taskContext.AddStatusMessage($"{UiSymbols.Check} Copied files to output directory: {outputAppXDirectory.FullName}");
+        }
+
+        // Copy the appxmanifest to the output directory, if not already present
+        appxManifestPath.CopyTo(Path.Combine(outputAppXDirectory.FullName, appxManifestPath.Name), overwrite: true);
+
+        // If its Package.appxmanifest, rename to appxmanifest.xml
+        if (string.Equals(appxManifestPath.Name, "Package.appxmanifest", StringComparison.OrdinalIgnoreCase))
+        {
+            var renamedPath = Path.Combine(outputAppXDirectory.FullName, "appxmanifest.xml");
+            var originalPath = Path.Combine(outputAppXDirectory.FullName, appxManifestPath.Name);
+            File.Move(originalPath, renamedPath, true);
+            taskContext.AddDebugMessage($"{UiSymbols.Files} Renamed Package.appxmanifest to appxmanifest.xml");
+            appxManifestPath = new FileInfo(renamedPath);
+        }
+
+        var copiedAppxManifestPath = new FileInfo(Path.Combine(outputAppXDirectory.FullName, appxManifestPath.Name));
+        var manifestContent = await File.ReadAllTextAsync(copiedAppxManifestPath.FullName, Encoding.UTF8, cancellationToken);
+        var executableMatch = outputAppXDirectory.EnumerateFiles("*", SearchOption.AllDirectories)
+            .FirstOrDefault(f => string.Equals(f.Extension, ".exe", StringComparison.OrdinalIgnoreCase));
+
+        if (executableMatch == null)
+        {
+            throw new FileNotFoundException("No executable (.exe) file found in the output directory for token replacement.");
+        }
+
+        manifestContent = manifestContent.Replace("$targetnametoken$", Path.GetFileNameWithoutExtension(executableMatch.Name), StringComparison.OrdinalIgnoreCase);
+        manifestContent = manifestContent.Replace("$targetentrypoint$", "Windows.FullTrustApplication", StringComparison.OrdinalIgnoreCase);
+        manifestContent = manifestContent.Replace("x-generate", "EN-US");
+        manifestContent = await UpdateWindowsAppSdkDependencyAsync(manifestContent, taskContext, cancellationToken);
+
+        // If there is a pri file named after the executable, rename it to resources.pri
+        var priFilePath = Path.Combine(outputAppXDirectory.FullName, Path.GetFileNameWithoutExtension(executableMatch.Name) + ".pri");
+        if (File.Exists(priFilePath))
+        {
+            var resourcesPriPath = Path.Combine(outputAppXDirectory.FullName, "resources.pri");
+            File.Move(priFilePath, resourcesPriPath, overwrite: true);
+            taskContext.AddDebugMessage($"{UiSymbols.Files} Renamed {Path.GetFileName(priFilePath)} to resources.pri");
+        }
+
+        await File.WriteAllTextAsync(copiedAppxManifestPath.FullName, manifestContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+
+        var identity = ParseAppxManifestAsync(manifestContent);
+
+        // Unregister any existing package first
+        await UnregisterExistingPackageAsync(identity.PackageName, taskContext, cancellationToken);
+
+        // Register the new debug manifest with external location
+        await RegisterLooseLayoutPackageAsync(copiedAppxManifestPath, taskContext, cancellationToken);
+
+        return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
     }
 
     private async Task EmbedMsixIdentityToExeAsync(FileInfo exePath, MsixIdentityResult identityInfo, TaskContext taskContext, CancellationToken cancellationToken)
@@ -1513,17 +1610,43 @@ $1");
 
     private async Task<(Dictionary<string, string>? CachedPackages, string? MainVersion)> GetCachedPackagesAsync(TaskContext taskContext, CancellationToken cancellationToken)
     {
+        string? mainVersion;
+
         // Load the locked config to get the actual package versions
         if (!configService.Exists())
         {
             taskContext.AddDebugMessage($"{UiSymbols.Warning} No winapp.yaml found, cannot determine locked Windows App SDK version");
-            return (null, null);
+
+            var result = await dotnetService.RunDotnetCommandAsync(currentDirectoryProvider.GetCurrentDirectoryInfo(), "package list --include-transitive --format json", cancellationToken);
+            if (result.ExitCode != 0)
+            {
+                taskContext.AddDebugMessage($"{UiSymbols.Warning} Failed to list installed packages via 'dotnet package list'");
+                return (null, null);
+            }
+
+            var packageList = await dotnetService.ParseDotnetPackageListJsonAsync(result.Output, cancellationToken);
+
+            Dictionary<string, string>? packages = packageList?.Projects.FirstOrDefault()?.Frameworks
+                .SelectMany(f =>
+                {
+                    var packages = f.TopLevelPackages.ToList();
+                    packages.AddRange(f.TransitivePackages);
+                    return packages;
+                })
+                .ToDictionary(p => p.Id, p => p.ResolvedVersion);
+
+            mainVersion = packages != null && packages.TryGetValue(BuildToolsService.WINAPP_SDK_PACKAGE, out var version)
+                ? version
+                : null;
+
+            return packages
+                != null ? (packages, mainVersion) : (null, null);
         }
 
         var config = configService.Load();
 
         // Get the main Windows App SDK version from config
-        var mainVersion = config.GetVersion(BuildToolsService.WINAPP_SDK_PACKAGE);
+        mainVersion = config.GetVersion(BuildToolsService.WINAPP_SDK_PACKAGE);
         if (string.IsNullOrEmpty(mainVersion))
         {
             taskContext.AddDebugMessage($"{UiSymbols.Warning} No ${BuildToolsService.WINAPP_SDK_PACKAGE} package found in winapp.yaml");
@@ -1950,6 +2073,29 @@ $1");
         catch (Exception ex)
         {
             throw new InvalidOperationException($"Failed to register sparse package: {ex.Message}", ex);
+        }
+    }
+
+    public async Task RegisterLooseLayoutPackageAsync(FileInfo manifestPath, TaskContext taskContext, CancellationToken cancellationToken = default)
+    {
+        taskContext.AddDebugMessage($"{UiSymbols.Clipboard} Registering loose layout package...");
+
+        var registerCommand = $"Add-AppxPackage -Register '{manifestPath.FullName}'";
+
+        try
+        {
+            var (exitCode, _) = await powerShellService.RunCommandAsync(registerCommand, taskContext, cancellationToken: cancellationToken);
+
+            if (exitCode != 0)
+            {
+                throw new InvalidOperationException($"PowerShell command failed with exit code {exitCode}");
+            }
+
+            taskContext.AddDebugMessage($"{UiSymbols.Check} Package registered successfully");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to register package: {ex.Message}", ex);
         }
     }
 

@@ -46,6 +46,7 @@ internal class WinAppRootCommand : RootCommand
         ManifestCommand manifestCommand,
         UpdateCommand updateCommand,
         CreateDebugIdentityCommand createDebugIdentityCommand,
+        RunCommand runCommand,
         GetWinappPathCommand getWinappPathCommand,
         CertCommand certCommand,
         SignCommand signCommand,
@@ -57,6 +58,7 @@ internal class WinAppRootCommand : RootCommand
         Subcommands.Add(manifestCommand);
         Subcommands.Add(updateCommand);
         Subcommands.Add(createDebugIdentityCommand);
+        Subcommands.Add(runCommand);
         Subcommands.Add(getWinappPathCommand);
         Subcommands.Add(certCommand);
         Subcommands.Add(signCommand);

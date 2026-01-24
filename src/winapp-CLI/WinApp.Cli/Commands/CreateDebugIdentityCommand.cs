@@ -59,7 +59,7 @@ internal class CreateDebugIdentityCommand : Command
             {
                 try
                 {
-                    var result = await msixService.AddMsixIdentityAsync(entryPointPath?.ToString(), manifest, noInstall, taskContext, cancellationToken);
+                    var result = await msixService.AddSparseIdentityAsync(entryPointPath?.ToString(), manifest, noInstall, taskContext, cancellationToken);
 
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.PackageName}");
                     taskContext.AddStatusMessage($"{UiSymbols.User} Publisher: {result.Publisher}");

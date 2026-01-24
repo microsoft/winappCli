@@ -3,3 +3,5 @@ SHGetImageList
 IImageList2
 IMAGE_LIST_DRAW_STYLE
 SHIL_JUMBO
+IApplicationActivationManager
+ApplicationActivationManager

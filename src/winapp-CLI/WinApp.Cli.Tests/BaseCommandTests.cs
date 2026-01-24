@@ -45,7 +45,7 @@ public abstract class BaseCommandTests(bool configPaths = true, bool verboseLogg
         _testWinappDirectory = _tempDirectory.CreateSubdirectory(".winapp");
 
         var services = new ServiceCollection()
-            .ConfigureServices(ConsoleStdOut)
+            .ConfigureServices()
             .ConfigureCommands();
         services =
             ConfigureServices(services)

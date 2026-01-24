@@ -1,0 +1,84 @@
+{
+  "name": "winapp",
+  "displayName": "WinApp",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.107.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onDebug"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "debuggers": [
+      {
+        "type": "winapp",
+        "label": "WinApp",
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "debuggerType": {
+                "type": "string",
+                "description": "The underlying debugger to use (e.g., 'coreclr', 'cppvsdbg')",
+                "default": "coreclr"
+              },
+              "workingDirectory": {
+                "type": "string",
+                "description": "Working directory for the application"
+              },
+              "manifest": {
+                "type": "string",
+                "description": "Path to the appxmanifest.xml"
+              },
+              "args": {
+                "type": "string",
+                "description": "Command-line arguments to pass to the application"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "winapp",
+            "request": "launch",
+            "name": "WinApp: Launch and Attach"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "WinApp: Launch and Attach",
+            "description": "Launch a WinApp package and attach the debugger",
+            "body": {
+              "type": "winapp",
+              "request": "launch",
+              "name": "WinApp: Launch and Attach",
+              "debuggerType": "coreclr"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.107.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "typescript-eslint": "^8.48.1",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}

@@ -50,7 +50,7 @@ internal static class Program
         }
 
         var services = new ServiceCollection()
-            .ConfigureServices(Console.Out)
+            .ConfigureServices()
             .ConfigureCommands()
             .AddLogging(b =>
             {
