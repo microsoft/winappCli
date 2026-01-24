@@ -226,7 +226,8 @@ internal partial class ManifestService(
         var cleaned = packageName.Trim();
 
         // Remove invalid characters (keep only letters, numbers, hyphens, and periods)
-        // MSIX Identity Name schema pattern="[-.A-Za-z0-9]+"
+        // MSIX Identity Name schema requires: [-.A-Za-z0-9]+
+        // The regex below matches characters NOT in that set for removal
         cleaned = InvalidPackageNameCharRegex().Replace(cleaned, "");
 
         // If empty or whitespace after cleaning, use default
@@ -266,7 +267,7 @@ internal partial class ManifestService(
         return result;
     }
 
-    [GeneratedRegex(@"[^A-Za-z0-9\-.]")]
+    [GeneratedRegex(@"[^A-Za-z0-9.\-]")]
     private static partial Regex InvalidPackageNameCharRegex();
 
     public async Task UpdateManifestAssetsAsync(
