@@ -321,7 +321,13 @@ Help me update to the latest Windows SDK and App SDK versions.
 Use: winapp update --setup-sdks stable
 Reference: https://raw.githubusercontent.com/microsoft/winapp CLI/main/docs/llm-context.md
 ```
-
+**Install SDKs after initial setup:**
+```
+I ran winapp init without SDK installation and now need the SDKs.
+Use: winapp init --use-defaults --setup-sdks stable
+This re-runs init, skips prompts, preserves existing files, and installs the SDKs.
+Reference: https://raw.githubusercontent.com/microsoft/WinAppCli/main/docs/llm-context.md
+```
 ---
 
 ## Tips for Best Results

@@ -16,6 +16,13 @@
 1. `winapp update` - Check for and install newer SDK versions
 2. Rebuild your app
 
+### Install SDKs After Initial Setup
+If you ran `init` with `--setup-sdks none` (or skipped SDK installation) and later need the SDKs:
+1. `winapp init --use-defaults --setup-sdks stable` - Re-run init to install SDKs
+   - `--use-defaults` skips prompts and preserves existing files (manifest, cert, etc.)
+   - Use `--setup-sdks preview` or `--setup-sdks experimental` for preview/experimental SDK versions
+2. Rebuild your app with the new SDK projections in `.winapp/`
+
 ### Debug with Package Identity
 For apps that need Windows APIs requiring identity (push notifications, etc.):
 1. Ensure a appxmanifest.xml is present, either via `winapp init` or `winapp manifest generate`
