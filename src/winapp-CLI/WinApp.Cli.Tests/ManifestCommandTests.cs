@@ -268,12 +268,15 @@ public class ManifestCommandTests : BaseCommandTests
 
     [TestMethod]
     [DataRow("My@App#Name", "MyAppName", DisplayName = "Should remove invalid characters")]
-    [DataRow("_InvalidStart", "AppInvalidStart", DisplayName = "Should replace leading underscore")]
+    [DataRow("_InvalidStart", "InvalidStart", DisplayName = "Should remove underscores")]
     [DataRow("", "DefaultPackage", DisplayName = "Should use default for empty string")]
     [DataRow("  ", "DefaultPackage", DisplayName = "Should use default for whitespace")]
     [DataRow("Ab", "Ab1", DisplayName = "Should pad short names")]
     [DataRow("VeryLongPackageNameThatExceedsFiftyCharacterLimit123456", "VeryLongPackageNameThatExceedsFiftyCharacterLimit1", DisplayName = "Should truncate long names")]
-    [DataRow("Valid-Package_Name.1", "Valid-Package_Name.1", DisplayName = "Should keep valid names unchanged")]
+    [DataRow("Valid-Package.Name.1", "Valid-Package.Name.1", DisplayName = "Should keep valid names unchanged")]
+    [DataRow("Test_With_Underscores", "TestWithUnderscores", DisplayName = "Should remove all underscores")]
+    [DataRow("Name With Spaces", "NameWithSpaces", DisplayName = "Should remove spaces")]
+    [DataRow("Mixed_Under-scores.And.Dashes", "MixedUnder-scores.And.Dashes", DisplayName = "Should remove underscores but keep dashes and periods")]
     public void CleanPackageNameShouldSanitizeInvalidCharacters(string input, string expected)
     {
         // Act
