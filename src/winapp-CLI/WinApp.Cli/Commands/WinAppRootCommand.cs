@@ -49,7 +49,8 @@ internal class WinAppRootCommand : RootCommand
         GetWinappPathCommand getWinappPathCommand,
         CertCommand certCommand,
         SignCommand signCommand,
-        ToolCommand toolCommand) : base("Setup Windows SDK and Windows App SDK for use in your app, create MSIX packages, generate manifests and certificates, and use build tools.")
+        ToolCommand toolCommand,
+        MSStoreCommand msStoreCommand) : base("Setup Windows SDK and Windows App SDK for use in your app, create MSIX packages, generate manifests and certificates, and use build tools.")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(restoreCommand);
@@ -61,6 +62,7 @@ internal class WinAppRootCommand : RootCommand
         Subcommands.Add(certCommand);
         Subcommands.Add(signCommand);
         Subcommands.Add(toolCommand);
+        Subcommands.Add(msStoreCommand);
 
         Options.Add(CliSchemaOption);
     }
