@@ -81,11 +81,8 @@ internal class StatusService(IAnsiConsole ansiConsole, ILogger<StatusService> lo
 
         if (result != null)
         {
-            if (result.Value.ReturnCode != 0)
-            {
-                logger.LogError("Task failed with return code {ReturnCode}, message: {CompletedMessage}", result.Value.ReturnCode, result.Value.CompletedMessage);
-            }
-            else
+            // Only log success at debug level; errors are displayed via the completed message
+            if (result.Value.ReturnCode == 0)
             {
                 logger.LogDebug("Task completed successfully with message: {CompletedMessage}", result.Value.CompletedMessage);
             }
