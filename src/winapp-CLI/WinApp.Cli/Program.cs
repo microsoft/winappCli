@@ -49,6 +49,10 @@ internal static class Program
             return 1;
         }
 
+        // Check if --cli-schema is specified - this outputs machine-readable JSON
+        // and should not display any interactive messages like first-run notices
+        bool isCliSchemaMode = args.Contains(WinAppRootCommand.CliSchemaOption.Name);
+
         var services = new ServiceCollection()
             .ConfigureServices(Console.Out)
             .ConfigureCommands()
@@ -61,8 +65,13 @@ internal static class Program
 
         using var serviceProvider = services.BuildServiceProvider();
 
-        var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
-        var didShowFirstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();
+        // Skip first-run notice for machine-readable output modes
+        var didShowFirstRunNotice = false;
+        if (!isCliSchemaMode)
+        {
+            var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
+            didShowFirstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();
+        }
 
         var rootCommand = serviceProvider.GetRequiredService<WinAppRootCommand>();
 

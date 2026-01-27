@@ -1,6 +1,6 @@
 # winapp CLI Context for LLMs
 
-> Auto-generated from CLI v0.1.11.4 (schema version )
+> Auto-generated from CLI v0.1.11 (schema version )
 > 
 > This file provides structured context about the winapp CLI for AI assistants and LLMs.
 > For the raw JSON schema, see [cli-schema.json](cli-schema.json).

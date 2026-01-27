@@ -101,9 +101,13 @@ internal static class CliSchema
         var options = CreateOptionsDictionary(command.Options);
         var subcommands = CreateSubcommandsDictionary(command.Subcommands);
 
+        // Use only major.minor.patch (3 components) to avoid build number churn in generated docs
+        var fullVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!;
+        var semanticVersion = $"{fullVersion.Major}.{fullVersion.Minor}.{fullVersion.Build}";
+
         return new RootCommandDetails(
             name: command.Name,
-            version: System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!.ToString(),
+            version: semanticVersion,
             description: command.Description?.ReplaceLineEndings("\n"),
             hidden: command.Hidden,
             aliases: DetermineAliases(command.Aliases),
