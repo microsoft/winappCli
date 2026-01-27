@@ -217,7 +217,8 @@ public class ManifestValidateCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "Validate command should fail for manifest with invalid version format");
-        var output = ConsoleStdErr.ToString();
+        // Errors now go through status service rendering to stdout
+        var output = ConsoleStdOut.ToString() + TestAnsiConsole.Output;
         // MakeAppx reports pattern constraint violations for invalid versions
         StringAssert.Contains(output, "invalid-version", "Error message should show the invalid version value");
     }
@@ -288,7 +289,8 @@ public class ManifestValidateCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "Validate command should fail for manifest with invalid publisher format");
-        var output = ConsoleStdErr.ToString();
+        // Errors now go through status service rendering to stdout
+        var output = ConsoleStdOut.ToString() + TestAnsiConsole.Output;
         // MakeAppx reports pattern constraint violations for invalid publisher
         StringAssert.Contains(output, "InvalidPublisher", "Error message should show the invalid publisher value");
     }
@@ -359,10 +361,11 @@ public class ManifestValidateCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "Validate command should fail for manifest with invalid Application Id");
-        var output = ConsoleStdErr.ToString();
-        // Should show friendly error with suggestion (merged from structural validation)
+        // Errors now go through status service rendering to stdout
+        var output = ConsoleStdOut.ToString() + TestAnsiConsole.Output;
+        // Should show friendly error with tip (merged from structural validation)
         StringAssert.Contains(output, "Application Id", "Error message should mention Application Id");
-        StringAssert.Contains(output, "Suggestion", "Error should include a suggestion for how to fix");
+        StringAssert.Contains(output, "Tip", "Error should include a tip for how to fix");
     }
 
     [TestMethod]
@@ -484,8 +487,9 @@ public class ManifestValidateCommandTests : BaseCommandTests
 
         // Assert
         Assert.AreEqual(1, exitCode, "Validate command should fail for invalid manifest");
-        var output = ConsoleStdErr.ToString();
-        // Should contain line number information in error output
-        StringAssert.Contains(output, "Line", "Error should contain line number information");
+        // Errors now go through status service rendering to stdout
+        var output = ConsoleStdOut.ToString() + TestAnsiConsole.Output;
+        // Should contain line number information in error output ("at line X")
+        StringAssert.Contains(output, "line", "Error should contain line number information");
     }
 }

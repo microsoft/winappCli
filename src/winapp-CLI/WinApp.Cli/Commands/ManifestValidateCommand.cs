@@ -109,19 +109,28 @@ internal partial class ManifestValidateCommand : Command
                     // Merge errors: use our friendly message if line numbers match, otherwise use MakeAppx message
                     var mergedErrors = MergeErrors(makeAppxErrors, structuralErrors);
 
-                    // Display errors
+                    // Build error output
+                    var errorLines = new List<string>();
                     foreach (var error in mergedErrors)
                     {
-                        logger.LogError("{Error}", error.Format());
+                        var lineInfo = error.LineNumber > 0 ? $" at line {error.LineNumber}" : "";
+                        errorLines.Add($"{UiSymbols.Error} Error{lineInfo}: {error.Message}");
+                        
+                        if (!string.IsNullOrEmpty(error.Suggestion))
+                        {
+                            errorLines.Add($"  Tip: {error.Suggestion}");
+                        }
                     }
+                    errorLines.Add($"{UiSymbols.Error} Manifest validation failed with {mergedErrors.Count} error(s).");
 
-                    return (1, $"{UiSymbols.Error} Manifest validation failed with {mergedErrors.Count} error(s).");
+                    // Return the error output as the completed message (starts with [ so no prefix added)
+                    return (1, string.Join("\n", errorLines));
                 }
                 catch (XmlException ex)
                 {
                     var errorMessage = FormatXmlError(ex);
-                    logger.LogError("{Error}", errorMessage);
-                    return (1, $"{UiSymbols.Error} Manifest is not valid XML.");
+                    var output = $"{errorMessage}\n{UiSymbols.Error} Manifest is not valid XML.";
+                    return (1, output);
                 }
                 catch (Exception ex)
                 {

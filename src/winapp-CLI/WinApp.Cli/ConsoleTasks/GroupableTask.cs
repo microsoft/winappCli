@@ -80,19 +80,15 @@ internal class GroupableTask<T> : GroupableTask
         int maxDepth = _logger.IsEnabled(LogLevel.Debug) ? int.MaxValue : 1;
         RenderTask(this, sb, 0, string.Empty, maxDepth);
         var allTasksString = sb.ToString().TrimEnd([.. Environment.NewLine]);
+        
+        // Add trailing newline only for single-line content to ensure proper rendering
         if (!allTasksString.Contains(Environment.NewLine))
         {
             allTasksString = $"{allTasksString}{Environment.NewLine}";
         }
 
-        var panel = new Panel(allTasksString)
-        {
-            Border = BoxBorder.None,
-            Padding = new Padding(0, 0),
-            Expand = true
-        };
-
-        return panel;
+        // Use Text widget to avoid Spectre markup parsing issues with content containing brackets
+        return new Text(allTasksString);
     }
 
     private static void RenderSubTasks(GroupableTask task, StringBuilder sb, int indentLevel, int maxForcedDepth)
@@ -116,8 +112,14 @@ internal class GroupableTask<T> : GroupableTask
 
         if (task.IsCompleted)
         {
-            static string FormatCheckMarkMessage(string indentStr, string message)
+            static string FormatCompletedMessage(string indentStr, string message, bool isError)
             {
+                // If message is empty, return empty string (don't show just a checkmark)
+                if (string.IsNullOrEmpty(message))
+                {
+                    return string.Empty;
+                }
+
                 bool firstCharIsEmojiOrOpenBracket = false;
                 if (message.Length > 0)
                 {
@@ -126,20 +128,31 @@ internal class GroupableTask<T> : GroupableTask
                                                  || char.GetUnicodeCategory(firstChar) == System.Globalization.UnicodeCategory.OtherSymbol
                                                  || firstChar == '[';
                 }
-                return firstCharIsEmojiOrOpenBracket ? $"{indentStr}{message}" : $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
+                
+                // Don't add checkmark if it's an error or already has emoji/bracket prefix
+                if (isError || firstCharIsEmojiOrOpenBracket)
+                {
+                    return $"{indentStr}{message}";
+                }
+                
+                return $"{indentStr}[green]{Emoji.Known.CheckMarkButton}[/] {message}";
             }
 
-            msg = task switch
+            // Extract message and check if it's an error (return code != 0)
+            var (message, isError) = task switch
             {
-                StatusMessageTask statusMessageTask => $"{indentStr}{Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty)}",
-                GroupableTask<T> genericTask => FormatCheckMarkMessage(indentStr, (genericTask.CompletedMessage as ITuple) switch
+                StatusMessageTask statusMessageTask => (Markup.Escape(statusMessageTask.CompletedMessage ?? string.Empty), false),
+                GroupableTask<T> genericTask => (genericTask.CompletedMessage as ITuple) switch
                 {
-                    ITuple tuple when tuple.Length > 0 && tuple[0] is string str => str,
-                    ITuple tuple when tuple.Length > 0 && tuple[1] is string str2 => str2,
-                    _ => genericTask.CompletedMessage?.ToString() ?? string.Empty
-                }),
-                GroupableTask _ => FormatCheckMarkMessage(indentStr, Markup.Escape(task.InProgressMessage)),
+                    ITuple tuple when tuple.Length >= 2 && tuple[0] is int returnCode && tuple[1] is string str => (str, returnCode != 0),
+                    ITuple tuple when tuple.Length > 0 && tuple[0] is string str => (str, false),
+                    ITuple tuple when tuple.Length > 0 && tuple[1] is string str2 => (str2, false),
+                    _ => (genericTask.CompletedMessage?.ToString() ?? string.Empty, false)
+                },
+                GroupableTask _ => (Markup.Escape(task.InProgressMessage), false),
             };
+            
+            msg = FormatCompletedMessage(indentStr, message, isError);
         }
         else
         {

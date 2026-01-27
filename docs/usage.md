@@ -320,22 +320,6 @@ winapp manifest validate ./appxmanifest.xml
 winapp manifest validate ./appxmanifest.xml --verbose
 ```
 
-**Example output for valid manifest:**
-
-```
-✓ Manifest is valid: appxmanifest.xml
-```
-
-**Example output for invalid manifest:**
-
-```
-Error at Line 25:
-  Application Id 'My-App' contains invalid characters.
-  Suggestion: Application Id must start with a letter and contain only letters, numbers, and periods.
-
-✗ Manifest validation failed with 1 error(s).
-```
-
 ---
 
 ### cert
