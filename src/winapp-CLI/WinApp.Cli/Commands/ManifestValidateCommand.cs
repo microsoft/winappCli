@@ -104,10 +104,12 @@ internal partial class ManifestValidateCommand : Command
                     }
 
                     // MakeAppx found errors - run structural validation to get friendly messages
-                    var structuralErrors = await ValidateStructuralAsync(manifestPath, cancellationToken);
+                    logger.LogDebug("MakeAppx found {Count} error(s), running structural validation for friendly messages", makeAppxErrors.Count);
+                    var structuralErrors = await ValidateStructuralAsync(manifestPath, logger, cancellationToken);
+                    logger.LogDebug("Structural validation found {Count} error(s)", structuralErrors.Count);
 
                     // Merge errors: use our friendly message if line numbers match, otherwise use MakeAppx message
-                    var mergedErrors = MergeErrors(makeAppxErrors, structuralErrors);
+                    var mergedErrors = MergeErrors(makeAppxErrors, structuralErrors, logger);
 
                     // Build error output
                     var errorLines = new List<string>();
@@ -144,7 +146,7 @@ internal partial class ManifestValidateCommand : Command
         /// If a structural error has the same line number as a MakeAppx error, use the structural error (friendlier message).
         /// Otherwise, use the MakeAppx error.
         /// </summary>
-        private static List<ValidationError> MergeErrors(List<ValidationError> makeAppxErrors, List<ValidationError> structuralErrors)
+        private static List<ValidationError> MergeErrors(List<ValidationError> makeAppxErrors, List<ValidationError> structuralErrors, ILogger logger)
         {
             var result = new List<ValidationError>();
             var structuralByLine = structuralErrors
@@ -152,16 +154,23 @@ internal partial class ManifestValidateCommand : Command
                 .GroupBy(e => e.LineNumber)
                 .ToDictionary(g => g.Key, g => g.First());
 
+            logger.LogDebug("Merging errors - structural errors available at lines: {Lines}", 
+                string.Join(", ", structuralByLine.Keys.OrderBy(k => k)));
+
             foreach (var makeAppxError in makeAppxErrors)
             {
                 if (makeAppxError.LineNumber > 0 && structuralByLine.TryGetValue(makeAppxError.LineNumber, out var structuralError))
                 {
                     // We have a matching structural error - use it for the friendly message
+                    logger.LogDebug("Line {Line}: Using friendly message '{FriendlyMessage}' instead of MakeAppx message '{MakeAppxMessage}'",
+                        makeAppxError.LineNumber, structuralError.Message, makeAppxError.Message);
                     result.Add(structuralError);
                 }
                 else
                 {
                     // No matching structural error - use MakeAppx error as-is
+                    logger.LogDebug("Line {Line}: No friendly message available, using MakeAppx message '{Message}'",
+                        makeAppxError.LineNumber, makeAppxError.Message);
                     result.Add(makeAppxError);
                 }
             }
@@ -182,19 +191,21 @@ internal partial class ManifestValidateCommand : Command
             // Create a temporary directory for validation
             var tempDir = Directory.CreateTempSubdirectory("winapp-manifest-validate-");
             var tempMsix = Path.Combine(tempDir.FullName, "validate.msix");
+            logger.LogDebug("Created temp directory for validation: {TempDir}", tempDir.FullName);
 
             try
             {
                 // Copy the manifest to the temp directory as AppxManifest.xml
                 var destManifest = Path.Combine(tempDir.FullName, "AppxManifest.xml");
                 File.Copy(manifestPath.FullName, destManifest, overwrite: true);
+                logger.LogDebug("Copied manifest to temp location: {DestManifest}", destManifest);
 
                 // Run MakeAppx.exe with /nv to skip file existence validation but keep schema validation
                 // The /nv flag skips: file existence checks, ContentGroupMap validation, Protocol/FileTypeAssociation semantic checks
                 // But it STILL validates the manifest schema!
                 var arguments = $@"pack /nv /o /d ""{tempDir.FullName}"" /p ""{tempMsix}""";
 
-                logger.LogDebug("Running MakeAppx validation: {Arguments}", arguments);
+                logger.LogDebug("Running MakeAppx pack with /nv flag (validates schema, skips file checks): {Arguments}", arguments);
 
                 var (stdout, stderr) = await buildToolsService.RunBuildToolAsync(
                     new MakeAppxTool(),
@@ -206,20 +217,24 @@ internal partial class ManifestValidateCommand : Command
                 // Parse MakeAppx output for validation errors
                 var combinedOutput = stdout + "\n" + stderr;
                 errors.AddRange(ParseMakeAppxErrors(combinedOutput));
+                logger.LogDebug("MakeAppx completed successfully, parsed {Count} error(s) from output", errors.Count);
             }
             catch (InvalidBuildToolException ex)
             {
                 // MakeAppx returned non-zero exit code - parse errors from output
+                logger.LogDebug("MakeAppx returned non-zero exit code, parsing errors from output");
                 var combinedOutput = ex.Stdout + "\n" + ex.Stderr;
                 var parsedErrors = ParseMakeAppxErrors(combinedOutput);
                 
                 if (parsedErrors.Count > 0)
                 {
+                    logger.LogDebug("Parsed {Count} error(s) from MakeAppx output", parsedErrors.Count);
                     errors.AddRange(parsedErrors);
                 }
                 else
                 {
                     // Couldn't parse specific errors, show generic message
+                    logger.LogDebug("Could not parse specific errors, using generic message");
                     errors.Add(new ValidationError(0, $"MakeAppx validation failed: {ex.Message}"));
                     if (!string.IsNullOrWhiteSpace(ex.Stderr))
                     {
@@ -232,6 +247,7 @@ internal partial class ManifestValidateCommand : Command
                 // Clean up temp directory
                 try
                 {
+                    logger.LogDebug("Cleaning up temp directory: {TempDir}", tempDir.FullName);
                     tempDir.Delete(recursive: true);
                 }
                 catch
@@ -306,8 +322,10 @@ internal partial class ManifestValidateCommand : Command
 
         private static async Task<List<ValidationError>> ValidateStructuralAsync(
             FileInfo manifestPath,
+            ILogger logger,
             CancellationToken cancellationToken)
         {
+            logger.LogDebug("Starting structural validation of manifest");
             var errors = new List<ValidationError>();
             
             // Load the XML with line info for better error reporting
