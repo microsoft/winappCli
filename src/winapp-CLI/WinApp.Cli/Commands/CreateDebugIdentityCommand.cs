@@ -34,7 +34,7 @@ internal class CreateDebugIdentityCommand : Command
         };
     }
 
-    public CreateDebugIdentityCommand() : base("create-debug-identity", "Create and install a temporary package for debugging. Must be called every time the appxmanifest.xml is modified for changes to take effect.")
+    public CreateDebugIdentityCommand() : base("create-debug-identity", "Create and install a temporary package to enable package identity during debugging. Requires appxmanifest.xml in current directory or passed via flag. This lets you test Windows APIs and features that require package identity without creating a full MSIX package. Re-run after changing appxmanifest.xml or assets.")
     {
         Arguments.Add(EntryPointArgument);
         Options.Add(ManifestOption);

@@ -8,7 +8,7 @@ namespace WinApp.Cli.Commands;
 internal class CertCommand : Command
 {
     public CertCommand(CertGenerateCommand certGenerateCommand, CertInstallCommand certInstallCommand)
-        : base("cert", "Generate or install development certificates")
+        : base("cert", "Manage development certificates for code signing. Use 'cert generate' to create a self-signed certificate for testing, or 'cert install' (requires elevation) to trust an existing certificate on this machine.")
     {
         Subcommands.Add(certGenerateCommand);
         Subcommands.Add(certInstallCommand);

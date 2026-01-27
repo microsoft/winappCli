@@ -77,7 +77,7 @@ internal class PackageCommand : Command
     }
 
     public PackageCommand()
-        : base("package", "Create an MSIX package from a prepared package directory")
+        : base("package", "Build an MSIX installer package from your app's output directory. Combines makeappx packaging with optional code signing. The input folder should contain your compiled app.")
     {
         Aliases.Add("pack");
         Arguments.Add(InputFolderArgument);

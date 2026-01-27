@@ -187,7 +187,22 @@ try
         exit 1
     }
 
-    # Step 6: Create npm package (optional)
+    # Step 6: Generate LLM documentation
+    Write-Host ""
+    Write-Host "[DOCS] Generating LLM documentation..." -ForegroundColor Blue
+    
+    $GenerateLlmDocsScript = Join-Path $PSScriptRoot "generate-llm-docs.ps1"
+    $CliExePath = Join-Path $ProjectRoot "$ArtifactsPath\cli\win-x64\winapp.exe"
+    
+    & $GenerateLlmDocsScript -CliPath $CliExePath
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "LLM documentation generation failed, but continuing..."
+    } else {
+        Write-Host "[DOCS] LLM documentation generated successfully!" -ForegroundColor Green
+    }
+
+    # Step 7: Create npm package (optional)
     if (-not $SkipNpm) {
         Write-Host ""
         Write-Host "[NPM] Creating npm package..." -ForegroundColor Blue
@@ -206,7 +221,7 @@ try
         Write-Host "[NPM] Skipping npm package creation (use -SkipNpm:`$false to enable)" -ForegroundColor Gray
     }
 
-    # Step 7: Create MSIX packages (optional)
+    # Step 8: Create MSIX packages (optional)
     if (-not $SkipMsix) {
         Write-Host ""
         Write-Host "[MSIX] Creating MSIX packages..." -ForegroundColor Blue

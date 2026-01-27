@@ -10,7 +10,7 @@ namespace WinApp.Cli.Commands;
 
 internal class ToolCommand : Command
 {
-    public ToolCommand() : base("tool", "Run a build tool command with Windows SDK paths")
+    public ToolCommand() : base("tool", "Execute Windows SDK build tools (makeappx.exe, signtool.exe, makepri.exe, etc.). Automatically downloads and caches Build Tools if not present. Pass the tool name followed by its arguments.")
     {
         Aliases.Add("run-buildtool");
         this.TreatUnmatchedTokensAsErrors = false;

@@ -45,6 +45,17 @@ winapp init --setup-sdks experimental
 winapp init ./my-project --use-defaults
 ```
 
+**Tip: Install SDKs after initial setup**
+
+If you ran `init` with `--setup-sdks none` (or skipped SDK installation) and later need the SDKs:
+
+```bash
+# Re-run init to install SDKs - preserves existing files (manifest, cert, etc.)
+winapp init --use-defaults --setup-sdks stable
+```
+
+Use `--setup-sdks preview` or `--setup-sdks experimental` for preview/experimental SDK versions.
+
 ---
 
 ### restore
