@@ -55,12 +55,14 @@ if (-not (Test-Path $ContextPath)) {
 
 # Generate fresh schema and compare
 Write-Host "[VALIDATE] Generating fresh schema from CLI..." -ForegroundColor Blue
-$FreshSchema = & $CliPath --cli-schema 2>&1
+$FreshSchemaLines = & $CliPath --cli-schema
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to extract CLI schema"
-    Write-Error $FreshSchema
     exit 1
 }
+
+# Join array lines into single string (CLI outputs pretty-printed JSON with newlines)
+$FreshSchema = $FreshSchemaLines -join "`n"
 
 $CommittedSchema = Get-Content $SchemaPath -Raw
 
@@ -84,48 +86,41 @@ if ($SchemaDrift) {
     Write-Host "[VALIDATE] docs/cli-schema.json is up-to-date" -ForegroundColor Green
 }
 
-# For llm-context.md, we regenerate and compare
-# Create temp file for comparison
-$TempContextPath = [System.IO.Path]::GetTempFileName()
+# For llm-context.md, regenerate to a temp location and compare
+Write-Host "[VALIDATE] Checking llm-context.md..." -ForegroundColor Blue
+$TempDocsPath = Join-Path ([System.IO.Path]::GetTempPath()) "winapp-llm-docs-validate"
+if (Test-Path $TempDocsPath) {
+    Remove-Item $TempDocsPath -Recurse -Force
+}
+New-Item -ItemType Directory -Path $TempDocsPath -Force | Out-Null
+
 try {
-    # Run the generate script to a temp location
+    # Generate to temp location
     $GenerateScript = Join-Path $PSScriptRoot "generate-llm-docs.ps1"
-    $TempDocsPath = [System.IO.Path]::GetTempPath()
+    & $GenerateScript -CliPath $CliPath -DocsPath $TempDocsPath | Out-Null
     
-    # We need to generate to temp and compare
-    # For simplicity, just check if git shows changes after regeneration
-    Push-Location $ProjectRoot
-    try {
-        # Regenerate docs
-        & $GenerateScript -CliPath $CliPath | Out-Null
+    # Compare llm-context.md with line ending normalization
+    $FreshContext = Get-Content (Join-Path $TempDocsPath "llm-context.md") -Raw
+    $CommittedContext = Get-Content $ContextPath -Raw
+    
+    $FreshContextNormalized = $FreshContext -replace "`r`n", "`n"
+    $CommittedContextNormalized = $CommittedContext -replace "`r`n", "`n"
+    
+    if ($FreshContextNormalized -ne $CommittedContextNormalized) {
+        Write-Host "::error::docs/llm-context.md is out of sync with CLI schema!" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Run 'scripts/generate-llm-docs.ps1' locally and commit the changes." -ForegroundColor Yellow
         
-        # Check git status for the doc files
-        $ChangedFiles = git diff --name-only HEAD -- "docs/cli-schema.json" "docs/llm-context.md" 2>$null
-        
-        if ($ChangedFiles) {
-            Write-Host "::error::LLM documentation is out of sync with CLI schema!" -ForegroundColor Red
-            Write-Host "Changed files:" -ForegroundColor Yellow
-            $ChangedFiles | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
-            Write-Host ""
-            Write-Host "Run 'scripts/generate-llm-docs.ps1' locally and commit the changes." -ForegroundColor Yellow
-            
-            # Restore the original files
-            git checkout -- "docs/cli-schema.json" "docs/llm-context.md" 2>$null
-            
-            if ($FailOnDrift) {
-                exit 1
-            }
-        } else {
-            Write-Host "[VALIDATE] docs/llm-context.md is up-to-date" -ForegroundColor Green
+        if ($FailOnDrift) {
+            exit 1
         }
-    }
-    finally {
-        Pop-Location
+    } else {
+        Write-Host "[VALIDATE] docs/llm-context.md is up-to-date" -ForegroundColor Green
     }
 }
 finally {
-    if (Test-Path $TempContextPath) {
-        Remove-Item $TempContextPath -Force
+    if (Test-Path $TempDocsPath) {
+        Remove-Item $TempDocsPath -Recurse -Force
     }
 }
 

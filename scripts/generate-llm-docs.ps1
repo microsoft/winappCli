@@ -46,15 +46,17 @@ Write-Host "Docs path: $DocsPath" -ForegroundColor Gray
 
 # Step 1: Generate CLI schema JSON
 Write-Host "[DOCS] Extracting CLI schema..." -ForegroundColor Blue
-$SchemaJson = & $CliPath --cli-schema 2>&1
+$SchemaJsonLines = & $CliPath --cli-schema
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to extract CLI schema"
-    Write-Error $SchemaJson
     exit 1
 }
 
-# Save schema JSON
-$SchemaJson | Set-Content $SchemaOutputPath -Encoding UTF8 -NoNewline
+# Join array lines into single string with LF line endings (CLI outputs pretty-printed JSON)
+$SchemaJson = $SchemaJsonLines -join "`n"
+
+# Save schema JSON with consistent LF line endings
+[System.IO.File]::WriteAllText($SchemaOutputPath, $SchemaJson, [System.Text.UTF8Encoding]::new($false))
 Write-Host "[DOCS] Saved: $SchemaOutputPath" -ForegroundColor Green
 
 # Parse schema for markdown generation
