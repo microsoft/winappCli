@@ -210,11 +210,11 @@ internal partial class ManifestService(
     }
 
     /// <summary>
-    /// Cleans and sanitizes a package name to meet MSIX AppxManifest schema requirements.
-    /// Based on ST_PackageName type which restricts ST_AsciiIdentifier.
+    /// Cleans and sanitizes a package name to meet MSIX AppxManifest Identity Name schema requirements.
+    /// The Identity Name must match the pattern [-.A-Za-z0-9]+ (only letters, digits, periods, and hyphens).
     /// </summary>
     /// <param name="packageName">The package name to clean</param>
-    /// <returns>A cleaned package name that meets MSIX schema requirements</returns>
+    /// <returns>A cleaned package name that meets MSIX Identity Name schema requirements</returns>
     internal static string CleanPackageName(string packageName)
     {
         if (string.IsNullOrWhiteSpace(packageName))
@@ -225,26 +225,15 @@ internal partial class ManifestService(
         // Trim whitespace
         var cleaned = packageName.Trim();
 
-        // Remove invalid characters (keep only letters, numbers, hyphens, underscores, periods, and spaces)
-        // ST_AllowedAsciiCharSet pattern="[-_. A-Za-z0-9]+"
+        // Remove invalid characters (keep only letters, numbers, hyphens, and periods)
+        // MSIX Identity Name schema requires: [-.A-Za-z0-9]+
+        // The regex below matches characters NOT in that set for removal
         cleaned = InvalidPackageNameCharRegex().Replace(cleaned, "");
 
-        // Check if it starts with underscore BEFORE removing them
-        bool startsWithUnderscore = cleaned.StartsWith('_');
-
-        // Remove leading underscores (ST_AsciiIdentifier restriction)
-        cleaned = cleaned.TrimStart('_');
-
-        // If still empty or whitespace after cleaning, use default
+        // If empty or whitespace after cleaning, use default
         if (string.IsNullOrWhiteSpace(cleaned))
         {
             cleaned = "DefaultPackage";
-        }
-
-        // If originally started with underscore, prepend "App"
-        if (startsWithUnderscore)
-        {
-            cleaned = "App" + cleaned;
         }
 
         // Ensure minimum length of 3 characters
@@ -278,7 +267,7 @@ internal partial class ManifestService(
         return result;
     }
 
-    [GeneratedRegex(@"[^A-Za-z0-9\-_. ]")]
+    [GeneratedRegex(@"[^A-Za-z0-9.\-]")]
     private static partial Regex InvalidPackageNameCharRegex();
 
     public async Task UpdateManifestAssetsAsync(
