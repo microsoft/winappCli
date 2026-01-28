@@ -1,6 +1,14 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+using NuGet.Common;
+using NuGet.Configuration;
+using NuGet.Packaging;
+using NuGet.Packaging.Core;
+using NuGet.Protocol;
+using NuGet.Protocol.Core.Types;
+using NuGet.Versioning;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using WinApp.Cli.ConsoleTasks;
@@ -203,5 +211,111 @@ internal class NugetService(ICurrentDirectoryProvider currentDirectoryProvider) 
             }
         }
         return 0;
+    }
+
+    private static ISettings ProcessConfigFile(string configFile, string projectOrSolution)
+    {
+        if (string.IsNullOrEmpty(configFile))
+        {
+            return Settings.LoadDefaultSettings(projectOrSolution);
+        }
+
+        var configFileFullPath = Path.GetFullPath(configFile);
+        var directory = Path.GetDirectoryName(configFileFullPath);
+        var configFileName = Path.GetFileName(configFileFullPath);
+        return Settings.LoadDefaultSettings(
+            directory,
+            configFileName,
+            machineWideSettings: new XPlatMachineWideSetting());
+    }
+
+    public static void ValidateSource(string source)
+    {
+        Uri? result;
+        if (!Uri.TryCreate(source, UriKind.Absolute, out result))
+        {
+            throw new Exception($"InvalidSource: {source}");
+        }
+    }
+
+    public static PackageSource ResolveSource(IEnumerable<PackageSource> availableSources, string source)
+    {
+        var resolvedSource = availableSources.FirstOrDefault(
+                f => f.Source.Equals(source, StringComparison.OrdinalIgnoreCase) ||
+                    f.Name.Equals(source, StringComparison.OrdinalIgnoreCase));
+
+        if (resolvedSource == null)
+        {
+            ValidateSource(source);
+            return new PackageSource(source);
+        }
+        else
+        {
+            return resolvedSource;
+        }
+    }
+
+    private static List<PackageSource> GetPackageSources(ISettings settings, IEnumerable<string> sources, string? config)
+    {
+        var availableSources = PackageSourceProvider.LoadPackageSources(settings).Where(source => source.IsEnabled);
+        var uniqueSources = new HashSet<string>();
+
+        var packageSources = new List<PackageSource>();
+        foreach (var source in sources)
+        {
+            if (uniqueSources.Add(source))
+            {
+                packageSources.Add(ResolveSource(availableSources, source));
+            }
+        }
+
+        if (packageSources.Count == 0 || !string.IsNullOrEmpty(config))
+        {
+            packageSources.AddRange(availableSources);
+        }
+
+        return packageSources;
+    }
+
+    public async Task<Dictionary<string, string>> GetPackageDependenciesAsync(string packageId, string version, CancellationToken cancellationToken)
+    {
+        // TODO: Allow passing custom config
+        string config = string.Empty;
+        string project = currentDirectoryProvider.GetCurrentDirectory();
+        var settings = ProcessConfigFile(config, project);
+        List<string> sources = [];
+
+        var packageSources = GetPackageSources(settings, sources, config);
+
+        IEnumerable<Lazy<INuGetResourceProvider>> providers = Repository.Provider.GetCoreV3();
+        using var sourceCacheContext = new SourceCacheContext();
+        try
+        {
+            ConcurrentDictionary<string, string> result = new();
+            await Parallel.ForEachAsync(packageSources, cancellationToken, async (source, ct) =>
+            {
+                SourceRepository sourceRepository = Repository.CreateSource(providers, source, FeedType.Undefined);
+
+                PackageMetadataResource packageMetadataResource = await sourceRepository.GetResourceAsync<PackageMetadataResource>();
+                var packageIdentity = new PackageIdentity(packageId, new NuGetVersion(version));
+                IPackageSearchMetadata package =
+                    await packageMetadataResource.GetMetadataAsync(
+                        packageIdentity,
+                        sourceCacheContext: sourceCacheContext,
+                        log: NullLogger.Instance,
+                        token: cancellationToken);
+
+                if (package != null)
+                {
+                    result.AddRange(package.DependencySets.SelectMany(pdg => pdg.Packages).ToDictionary(pd => pd.Id, pd => pd.VersionRange.MinVersion?.ToNormalizedString() ?? pd.VersionRange.MaxVersion?.ToNormalizedString() ?? pd.VersionRange.ToString(), StringComparer.OrdinalIgnoreCase));
+                }
+            });
+
+            return new Dictionary<string, string>(result, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to get metadata for package {packageId} {version}: {ex.Message}", ex);
+        }
     }
 }

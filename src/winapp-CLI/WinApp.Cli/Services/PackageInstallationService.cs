@@ -11,7 +11,6 @@ namespace WinApp.Cli.Services;
 internal sealed class PackageInstallationService(
     IConfigService configService,
     INugetService nugetService,
-    IPackageCacheService cacheService,
     ILogger<PackageInstallationService> logger) : IPackageInstallationService
 {
     /// <summary>
@@ -132,22 +131,22 @@ internal sealed class PackageInstallationService(
                 // Add the main package to installed versions
                 allInstalledVersions[packageName] = version;
                 
-                // Try to get cached information about what else was installed with this package
+                // Try to get package information about what else is installed with this package
                 try
                 {
-                    var cachedPackages = await cacheService.GetCachedPackageAsync(packageName, version, taskContext, cancellationToken);
-                    foreach (var (cachedPkg, cachedVer) in cachedPackages)
+                    var cachedPackages = await nugetService.GetPackageDependenciesAsync(packageName, version, cancellationToken);
+                    foreach (var (packageId, packageVersion) in cachedPackages)
                     {
-                        if (allInstalledVersions.TryGetValue(cachedPkg, out var existingVersion))
+                        if (allInstalledVersions.TryGetValue(packageId, out var existingVersion))
                         {
-                            if (NugetService.CompareVersions(cachedVer, existingVersion) > 0)
+                            if (NugetService.CompareVersions(packageId, existingVersion) > 0)
                             {
-                                allInstalledVersions[cachedPkg] = cachedVer;
+                                allInstalledVersions[packageId] = packageVersion;
                             }
                         }
                         else
                         {
-                            allInstalledVersions[cachedPkg] = cachedVer;
+                            allInstalledVersions[packageId] = packageVersion;
                         }
                     }
                 }
@@ -177,9 +176,6 @@ internal sealed class PackageInstallationService(
                     allInstalledVersions[pkg] = ver;
                 }
             }
-
-            // Update cache with this package installation
-            await cacheService.UpdatePackageAsync(packageName, version, installedVersions, taskContext, cancellationToken);
         }
 
         return allInstalledVersions;

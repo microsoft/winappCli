@@ -10,7 +10,7 @@ internal interface IDotNetService
                 string arguments,
                 CancellationToken cancellationToken);
 
-    Task<DotNetPackageListJson?> ParseDotnetPackageListJsonAsync(string output, CancellationToken cancellationToken);
+    Task<DotNetPackageListJson?> GetPackageListAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken);
 }
 
 

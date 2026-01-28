@@ -8,6 +8,7 @@ using System.CommandLine.Invocation;
 using System.Diagnostics.CodeAnalysis;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.ProjectInformationProviders;
 
 namespace WinApp.Cli.Helpers;
 
@@ -28,7 +29,6 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IImageAssetService, ImageAssetService>()
             .AddSingleton<IMsixService, MsixService>()
             .AddSingleton<INugetService, NugetService>()
-            .AddSingleton<IPackageCacheService, PackageCacheService>()
             .AddSingleton<IPackageInstallationService, PackageInstallationService>()
             .AddSingleton<IPackageLayoutService, PackageLayoutService>()
             .AddSingleton<IPowerShellService, PowerShellService>()
@@ -38,6 +38,8 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IFirstRunService, FirstRunService>()
             .AddSingleton<IAppLauncherService, AppLauncherService>()
             .AddSingleton<IDotNetService, DotNetService>()
+            .AddSingleton<IProjectInformationProviderResolver, ProjectInformationProviderResolver>()
+            .AddSingleton<IProjectInformationProvider, DotNetProjectInformationProvider>()
             .AddSingleton(AnsiConsole.Console)
             .AddSingleton<IStatusService, StatusService>();
     }

@@ -2,6 +2,7 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.2" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.2" />
+    <PackageVersion Include="NuGet.Protocol" Version="7.0.1" />
     <PackageVersion Include="Spectre.Console" Version="0.54.0" />
     <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
     <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.269" />

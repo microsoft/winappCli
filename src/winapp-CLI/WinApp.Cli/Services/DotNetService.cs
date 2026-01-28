@@ -71,9 +71,15 @@ internal class DotNetService : IDotNetService
         return (process.ExitCode, output, error);
     }
 
-    public async Task<DotNetPackageListJson?> ParseDotnetPackageListJsonAsync(string output, CancellationToken cancellationToken)
+    public async Task<DotNetPackageListJson?> GetPackageListAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
     {
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(output));
+        var (ExitCode, Output, _) = await RunDotnetCommandAsync(workingDirectory, "package list --include-transitive --format json", cancellationToken);
+        if (ExitCode != 0)
+        {
+            return null;
+        }
+
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(Output));
         return await JsonSerializer.DeserializeAsync(stream, DotNetServiceJsonContext.Default.DotNetPackageListJson, cancellationToken);
     }
 }
