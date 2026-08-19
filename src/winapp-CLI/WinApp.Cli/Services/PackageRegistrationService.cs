@@ -302,7 +302,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
     }
 
     /// <summary>
-    /// Maps a winapp architecture string (<c>x64</c> / <c>arm64</c> / <c>x86</c>) to the WinRT
+    /// Maps a winapp architecture string (<c>x64</c> / <c>arm64</c> / <c>x86</c> / <c>neutral</c>) to the WinRT
     /// <see cref="Windows.System.ProcessorArchitecture"/> used by installed package identities.
     /// A <c>null</c> result means "no arch filtering" — which is how folder-mode <c>run</c>
     /// (architecture == null) preserves its pre-project-mode behavior of matching any installed
@@ -320,6 +320,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
             "x64" => Windows.System.ProcessorArchitecture.X64,
             "arm64" => Windows.System.ProcessorArchitecture.Arm64,
             "x86" => Windows.System.ProcessorArchitecture.X86,
+            "neutral" => Windows.System.ProcessorArchitecture.Neutral,
             _ => null,
         };
     }

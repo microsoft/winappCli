@@ -192,6 +192,33 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_UnescapesMsBuildPaths()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("Program Files (x86)");
+        var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        var srcData = new FileInfo(Path.Combine(srcDir.FullName, "runtime.dll"));
+        await File.WriteAllTextAsync(srcData.FullName, "runtime", TestContext.CancellationToken);
+        var escapedManifest = srcManifest.FullName.Replace("(", "%28", StringComparison.Ordinal)
+            .Replace(")", "%29", StringComparison.Ordinal);
+        var escapedData = srcData.FullName.Replace("(", "%28", StringComparison.Ordinal)
+            .Replace(")", "%29", StringComparison.Ordinal);
+        var recipe = new FileInfo(WriteRecipe(
+            new FileInfo(escapedManifest),
+            (escapedData, @"runtime%2Edll")));
+        var outputDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "layout"));
+
+        await InvokeCopyFilesFromRecipeAsync(recipe, outputDir);
+
+        Assert.IsTrue(File.Exists(Path.Combine(outputDir.FullName, "appxmanifest.xml")));
+        Assert.AreEqual(
+            "runtime",
+            await File.ReadAllTextAsync(
+                Path.Combine(outputDir.FullName, "runtime.dll"),
+                TestContext.CancellationToken));
+    }
+
+    [TestMethod]
     public async Task CopyFilesFromRecipeAsync_SkipsUnchangedFiles()
     {
         var srcDir = _tempDirectory.CreateSubdirectory("recipe-src");
@@ -1348,4 +1375,3 @@ internal sealed class ScriptedMtBuildToolsService : IBuildToolsService
         return _inner.RunBuildToolAsync(tool, arguments, taskContext, printErrors, toolPathOverride, environment, workingDirectory, cancellationToken);
     }
 }
-

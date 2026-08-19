@@ -182,7 +182,7 @@ internal partial class RunCommand : Command, IShortDescription
         };
     }
 
-    public RunCommand() : base("run", "Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
+    public RunCommand() : base("run", "Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. Project mode uses dotnet build for modern projects or Visual Studio MSBuild for classic UWP, then launches the app; single-file mode builds the .cs and launches it, generating a manifest from its #:property directives when packaged; folder mode creates a debug-signed layout, registers the package, and launches it.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
@@ -218,6 +218,7 @@ internal partial class RunCommand : Command, IShortDescription
         IAnsiConsole ansiConsole,
         IStatusService statusService,
         IProjectRunService projectRunService,
+        ILegacyUwpRunService legacyUwpRunService,
         IManifestTemplateService manifestTemplateService,
         IManifestService manifestService,
         IProjectContextDetector projectContextDetector,
@@ -629,7 +630,8 @@ internal partial class RunCommand : Command, IShortDescription
             AliasLaunchDecision aliasDecision,
             CancellationToken cancellationToken,
             Action? onRegistered = null,
-            PackageGraphSource? packageGraph = null)
+            PackageGraphSource? packageGraph = null,
+            bool prepareWindowsAppRuntime = true)
         {
             uint processId = 0;
             var resolvedUseAlias = aliasDecision.UseAlias;
@@ -641,11 +643,13 @@ internal partial class RunCommand : Command, IShortDescription
             string? aumid = null;
             string? errorMessage = null;
             DirectoryInfo? resolvedOutputDir = null;
+            var launchStage = "initialization";
             var statusMessage = noLaunch ? "Registering packaged application..." : "Launching packaged application...";
             var success = await statusService.ExecuteWithStatusAsync(statusMessage, async (taskContext, cancellationToken) =>
             {
                 try
                 {
+                    launchStage = "manifest resolution";
                     // Resolve manifest with priority: --manifest → input folder → cwd
                     FileInfo resolvedManifest;
                     if (manifest != null)
@@ -723,6 +727,7 @@ internal partial class RunCommand : Command, IShortDescription
                     }
 
                     // Step 2: Create and register the debug identity
+                    launchStage = "package registration";
                     taskContext.AddDebugMessage($"{UiSymbols.Package} Creating debug identity...");
                     var identityResult = await msixService.AddLooseLayoutIdentityAsync(
                         resolvedManifest,
@@ -738,6 +743,7 @@ internal partial class RunCommand : Command, IShortDescription
                         selfContained,
                         effectiveAlias.UseAlias,
                         packageGraph,
+                        prepareWindowsAppRuntime,
                         cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;
@@ -781,6 +787,7 @@ internal partial class RunCommand : Command, IShortDescription
                     }
 
                     // Step 3: Launch the application using IApplicationActivationManager
+                    launchStage = "AUMID activation";
                     taskContext.AddDebugMessage($"{UiSymbols.Rocket} Launching application...");
                     processId = appLauncherService.LaunchByAumid(aumid, appArgs);
 
@@ -788,8 +795,8 @@ internal partial class RunCommand : Command, IShortDescription
                 }
                 catch (Exception error)
                 {
-                    errorMessage = error.Message;
-                    return (1, $"{UiSymbols.Error} Failed to launch application: {error.Message}");
+                    errorMessage = FormatPackagedRunFailure(launchStage, error, aumid);
+                    return (1, $"{UiSymbols.Error} Failed to launch application: {errorMessage}");
                 }
             }, cancellationToken);
 
@@ -907,6 +914,19 @@ internal partial class RunCommand : Command, IShortDescription
             }
 
             return appExitCode;
+        }
+
+        private static string FormatPackagedRunFailure(string stage, Exception error, string? aumid)
+        {
+            if (stage == "AUMID activation")
+            {
+                var identity = string.IsNullOrWhiteSpace(aumid) ? "the registered application" : $"'{aumid}'";
+                return $"AUMID activation failed for {identity}: {error.Message} (HRESULT 0x{error.HResult:X8}). " +
+                       "The package was registered, but the app did not reach a running process. A startup crash can cause this; " +
+                       "rerun with --debug-output or inspect Windows crash logs.";
+            }
+
+            return error.Message;
         }
 
         void PrintJson(string? aumid, uint? processId, string? errorMessage)

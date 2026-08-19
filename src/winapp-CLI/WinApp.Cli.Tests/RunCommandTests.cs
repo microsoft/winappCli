@@ -423,6 +423,24 @@ public class RunCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task RunCommand_AumidActivationFailure_ReportsStageHResultAndCrashHint()
+    {
+        await CreateTestManifestAsync();
+        _fakeAppLauncherService.LaunchException = new COMException("The app didn't start.", unchecked((int)0x80004005));
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [_tempDirectory.FullName, "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var error = ParseJsonOutput().GetProperty("Error").GetString()!;
+        StringAssert.Contains(error, "AUMID activation failed");
+        StringAssert.Contains(error, "HRESULT 0x80004005");
+        StringAssert.Contains(error, "startup crash");
+    }
+
+    [TestMethod]
     public async Task RunCommand_WithoutJsonFlag_DoesNotOutputJson()
     {
         // Arrange
@@ -516,6 +534,7 @@ public class RunCommandTests : BaseCommandTests
             GetRequiredService<IAnsiConsole>(),
             GetRequiredService<IStatusService>(),
             GetRequiredService<IProjectRunService>(),
+            GetRequiredService<ILegacyUwpRunService>(),
             GetRequiredService<IManifestTemplateService>(),
             GetRequiredService<IManifestService>(),
             GetRequiredService<IProjectContextDetector>(),

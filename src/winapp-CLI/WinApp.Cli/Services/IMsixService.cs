@@ -105,6 +105,7 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        bool prepareWindowsAppRuntime = true,
         CancellationToken cancellationToken = default);
 
     /// <summary>

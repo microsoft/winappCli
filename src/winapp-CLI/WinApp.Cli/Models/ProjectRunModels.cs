@@ -268,3 +268,23 @@ internal sealed record SingleFileIdentityInputs(
     public static SingleFileIdentityInputs Default { get; } =
         new("Debug", RunArchHelper.DefaultArchitecture(), ArchitectureIsExplicit: false, []);
 }
+
+/// <summary>
+/// Build inputs for a classic, non-SDK-style C# UWP project. These projects use Visual Studio
+/// MSBuild and a platform architecture rather than <c>dotnet build</c> and a runtime identifier.
+/// </summary>
+internal sealed record LegacyUwpRunOptions(
+    string Configuration,
+    string Architecture,
+    bool NoBuild,
+    bool NoRestore,
+    IReadOnlyList<string> Properties,
+    bool Json = false);
+
+/// <summary>
+/// Result of building a classic UWP project and preparing its framework dependencies.
+/// </summary>
+internal sealed record LegacyUwpBuildOutcome(
+    DirectoryInfo? LayoutDirectory,
+    int ExitCode,
+    string? TargetPlatformVersion = null);

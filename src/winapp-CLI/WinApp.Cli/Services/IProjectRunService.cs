@@ -7,8 +7,9 @@ namespace WinApp.Cli.Services;
 
 /// <summary>
 /// Drives project-mode <c>winapp run</c>: classifies the input (folder vs project), verifies the
-/// .NET SDK is capable, and builds + resolves the MSBuild output properties needed to launch a
-/// packaged or unpackaged WinUI app.
+/// .NET SDK is capable for modern projects, and builds + resolves the MSBuild output properties
+/// needed to launch a packaged or unpackaged WinUI app. Classic UWP projects are routed to
+/// <see cref="ILegacyUwpRunService"/> before the .NET SDK gate.
 /// </summary>
 internal interface IProjectRunService
 {

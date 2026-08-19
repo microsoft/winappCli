@@ -819,6 +819,7 @@ public class PackageRegistrationServiceTests
     [DataRow("X64", Windows.System.ProcessorArchitecture.X64)]
     [DataRow(" arm64 ", Windows.System.ProcessorArchitecture.Arm64)]
     [DataRow("x86", Windows.System.ProcessorArchitecture.X86)]
+    [DataRow("neutral", Windows.System.ProcessorArchitecture.Neutral)]
     public void MapArchitecture_KnownArch_MapsToWinRtArchitecture(string arch, Windows.System.ProcessorArchitecture expected)
     {
         Assert.AreEqual(expected, PackageRegistrationService.MapArchitecture(arch));

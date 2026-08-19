@@ -216,7 +216,8 @@ internal sealed class ProjectDetectionService(
 
     /// <summary>
     /// Returns the file name of the first executable .csproj in the directory,
-    /// or null if none is found. Only executable (OutputType = Exe or WinExe), non-test projects qualify.
+    /// or null if none is found. Only executable (OutputType = Exe, WinExe, or AppContainerExe),
+    /// non-test projects qualify.
     /// </summary>
     internal static string? FindExecutableCsproj(DirectoryInfo directory)
     {
@@ -281,7 +282,7 @@ internal sealed class ProjectDetectionService(
                 }
             }
 
-            // Only executable projects (Exe or WinExe) are ever runnable.
+            // Only executable projects are ever runnable.
             if (!IsExecutableOutputType(outputType))
             {
                 return ProjectRunnability.NotRunnable;
@@ -481,12 +482,13 @@ internal sealed class ProjectDetectionService(
 
     /// <summary>
     /// The single source of truth for which <c>OutputType</c> values count as a runnable executable
-    /// (<c>Exe</c> or <c>WinExe</c>). Shared by the static parse and the evaluated classification so the
+    /// (<c>Exe</c>, <c>WinExe</c>, or classic UWP <c>AppContainerExe</c>). Shared by the static parse and the evaluated classification so the
     /// rule cannot drift between them.
     /// </summary>
     internal static bool IsExecutableOutputType(string? outputType) =>
         string.Equals(outputType, "Exe", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(outputType, "WinExe", StringComparison.OrdinalIgnoreCase);
+        string.Equals(outputType, "WinExe", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(outputType, "AppContainerExe", StringComparison.OrdinalIgnoreCase);
 
     private void EnqueueSubdirectories(Queue<DirectoryInfo> queue, DirectoryInfo parent, HashSet<string> ignoredNames)
     {

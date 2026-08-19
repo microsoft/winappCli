@@ -110,7 +110,7 @@ internal partial class MsixService
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
     }
 
-    public async Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
+    public async Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, bool prepareWindowsAppRuntime = true, CancellationToken cancellationToken = default)
     {
         // Validate inputs
         if (!appxManifestPath.Exists)
@@ -172,7 +172,7 @@ internal partial class MsixService
             // (which always restores) and packaged project mode (which honors the run's --no-restore), so
             // thread the caller's setting through instead of forcing a restore during discovery.
             // A self-contained app carries its own Windows App SDK, so both steps are skipped.
-            if (!selfContained)
+            if (prepareWindowsAppRuntime && !selfContained)
             {
                 var msbuildPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
@@ -258,7 +258,7 @@ internal partial class MsixService
         // Shared loose-layout pipeline (folder + packaged project mode); honors the caller's --no-restore
         // so a run that opted out of restoring cannot trigger an implicit one during discovery.
         // A self-contained app carries its own Windows App SDK, so skip discovery entirely.
-        var dotNetPackageList = selfContained
+        var dotNetPackageList = selfContained || !prepareWindowsAppRuntime
             ? null
             : await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
 
@@ -341,7 +341,7 @@ internal partial class MsixService
 
             // Install the Windows App Runtime framework packages if not already present. A self-contained
             // app ships its own copy, so provisioning is skipped (dotNetPackageList is null there).
-            if (!selfContained)
+            if (prepareWindowsAppRuntime && !selfContained)
             {
                 await EnsureWindowsAppRuntimeInstalledAsync(dotNetPackageList, runtimeArch, taskContext, cancellationToken);
             }
@@ -388,8 +388,8 @@ internal partial class MsixService
         var manifestEntries = recipeDoc.Descendants(msbuildNs + "AppXManifest");
         foreach (var entry in manifestEntries)
         {
-            var sourcePath = entry.Attribute("Include")?.Value;
-            var packagePath = entry.Element(msbuildNs + "PackagePath")?.Value;
+            var sourcePath = UnescapeMsBuildValue(entry.Attribute("Include")?.Value);
+            var packagePath = UnescapeMsBuildValue(entry.Element(msbuildNs + "PackagePath")?.Value);
             if (sourcePath != null && packagePath != null && File.Exists(sourcePath))
             {
                 var destPath = Path.Combine(outputDir.FullName, packagePath);
@@ -403,8 +403,8 @@ internal partial class MsixService
         var fileEntries = recipeDoc.Descendants(msbuildNs + "AppxPackagedFile");
         foreach (var entry in fileEntries)
         {
-            var sourcePath = entry.Attribute("Include")?.Value;
-            var packagePath = entry.Element(msbuildNs + "PackagePath")?.Value;
+            var sourcePath = UnescapeMsBuildValue(entry.Attribute("Include")?.Value);
+            var packagePath = UnescapeMsBuildValue(entry.Element(msbuildNs + "PackagePath")?.Value);
             if (sourcePath == null || packagePath == null || !File.Exists(sourcePath))
             {
                 continue;
@@ -430,6 +430,36 @@ internal partial class MsixService
         }
 
         taskContext.AddDebugMessage($"{UiSymbols.Check} AppX layout from recipe: {copied} copied, {skipped} unchanged");
+    }
+
+    private static string? UnescapeMsBuildValue(string? value)
+    {
+        if (value is null || !value.Contains('%', StringComparison.Ordinal))
+        {
+            return value;
+        }
+
+        var result = new StringBuilder(value.Length);
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] == '%' &&
+                index + 2 < value.Length &&
+                byte.TryParse(
+                    value.AsSpan(index + 1, 2),
+                    System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var decoded))
+            {
+                result.Append((char)decoded);
+                index += 2;
+            }
+            else
+            {
+                result.Append(value[index]);
+            }
+        }
+
+        return result.ToString();
     }
 
     /// <summary>

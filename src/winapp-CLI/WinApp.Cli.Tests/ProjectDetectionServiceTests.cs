@@ -724,6 +724,23 @@ public class ProjectDetectionServiceTests
     }
 
     [TestMethod]
+    public void ClassifyRunnableStatic_AppContainerExe_IsRunnableApp()
+    {
+        CreateFile("LegacyUwp.csproj", """
+        <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+          <PropertyGroup>
+            <OutputType>AppContainerExe</OutputType>
+            <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
+          </PropertyGroup>
+        </Project>
+        """);
+
+        var csproj = new FileInfo(Path.Combine(_tempDir, "LegacyUwp.csproj"));
+
+        Assert.AreEqual(ProjectRunnability.App, ProjectDetectionService.ClassifyRunnableStatic(csproj));
+    }
+
+    [TestMethod]
     public void ClassifyRunnableStatic_TestPackageUnderInactiveCondition_IsAppNotTest()
     {
         // Static fallback must ignore a test PackageReference gated behind a Condition — it can't evaluate

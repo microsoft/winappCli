@@ -17,6 +17,7 @@ internal class FakeAppLauncherService : IAppLauncherService
     public LaunchStdioMode? LastLaunchStdioMode { get; private set; }
     public List<(string? PackageFullName, uint ProcessId)> TerminateCalls { get; } = [];
     public uint FakeProcessId { get; set; } = 12345;
+    public Exception? LaunchException { get; set; }
 
     /// <summary>Exit code the fake launched process reports from <c>WaitForExitAsync</c>.</summary>
     public int FakeExitCode { get; set; }
@@ -29,6 +30,10 @@ internal class FakeAppLauncherService : IAppLauncherService
     public uint LaunchByAumid(string aumid, string? arguments = null)
     {
         LaunchCalls.Add((aumid, arguments));
+        if (LaunchException is not null)
+        {
+            throw LaunchException;
+        }
         return FakeProcessId;
     }
 

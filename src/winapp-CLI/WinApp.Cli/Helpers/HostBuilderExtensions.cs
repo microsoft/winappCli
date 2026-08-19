@@ -51,6 +51,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IProjectRunService, ProjectRunService>()
             .AddSingleton<ITemplateCacheReader, TemplateCacheReader>()
             .AddSingleton<ITemplateUpdateCheckThrottle, TemplateUpdateCheckThrottle>()
+            .AddSingleton<ILegacyUwpRunService, LegacyUwpRunService>()
             .AddSingleton<IWorkspaceSetupService, WorkspaceSetupService>()
             .AddSingleton<IWindowsAppRuntimeService, WindowsAppRuntimeService>()
             .AddSingleton<IGitignoreService, GitignoreService>()

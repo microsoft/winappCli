@@ -275,7 +275,7 @@ internal sealed partial class ProjectRunService(
                 if (!string.IsNullOrEmpty(evaluatedOutputType) && !ProjectDetectionService.IsExecutableOutputType(evaluatedOutputType))
                 {
                     throw new ProjectRunException(
-                        $"'{csproj.Name}' is not a runnable project (OutputType='{evaluatedOutputType}'). 'winapp run' requires an executable project (OutputType Exe or WinExe).");
+                        $"'{csproj.Name}' is not a runnable project (OutputType='{evaluatedOutputType}'). 'winapp run' requires an executable project (OutputType Exe, WinExe, or AppContainerExe).");
                 }
             }
         }
@@ -383,7 +383,7 @@ internal sealed partial class ProjectRunService(
             !string.Equals(outputType, "WinExe", StringComparison.OrdinalIgnoreCase))
         {
             throw new ProjectRunException(
-                $"'{csproj.Name}' is not a runnable project (OutputType='{outputType}'). 'winapp run' requires an executable project (OutputType Exe or WinExe).");
+                $"'{csproj.Name}' is not a runnable project (OutputType='{outputType}'). 'winapp run' requires an executable project (OutputType Exe, WinExe, or AppContainerExe).");
         }
 
         var targetDir = GetProp(props, "TargetDir");

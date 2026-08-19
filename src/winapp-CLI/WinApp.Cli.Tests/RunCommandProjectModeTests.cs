@@ -20,6 +20,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
     private FakeAppLauncherService _fakeAppLauncherService = null!;
     private FakeDebugOutputService _fakeDebugOutputService = null!;
     private FakeProjectRunService _fakeProjectRunService = null!;
+    private FakeLegacyUwpRunService _fakeLegacyUwpRunService = null!;
 
     private const string TestManifestContent = """
         <?xml version="1.0" encoding="utf-8"?>
@@ -55,11 +56,13 @@ public class RunCommandProjectModeTests : BaseCommandTests
         _fakeAppLauncherService = new FakeAppLauncherService();
         _fakeDebugOutputService = new FakeDebugOutputService();
         _fakeProjectRunService = new FakeProjectRunService();
+        _fakeLegacyUwpRunService = new FakeLegacyUwpRunService();
         return services
             .AddSingleton<IMsixService>(_fakeMsixService)
             .AddSingleton<IAppLauncherService>(_fakeAppLauncherService)
             .AddSingleton<IDebugOutputService>(_fakeDebugOutputService)
             .AddSingleton<IProjectRunService>(_fakeProjectRunService)
+            .AddSingleton<ILegacyUwpRunService>(_fakeLegacyUwpRunService)
             .AddSingleton<INugetService, FakeNugetService>();
     }
 
@@ -117,6 +120,67 @@ public class RunCommandProjectModeTests : BaseCommandTests
         _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
             new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, arch), 0);
     }
+
+    #region Classic UWP
+
+    [TestMethod]
+    public async Task ProjectMode_ClassicUwp_UsesVisualStudioBuildPathAndSkipsDotNetSdkGate()
+    {
+        var csproj = CreateCsproj("LegacyUwp.csproj");
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeLegacyUwpRunService.IsLegacyUwp = true;
+        _fakeLegacyUwpRunService.BuildOutcome = new LegacyUwpBuildOutcome(targetDir, 0, "10.0.26100.0");
+        _fakeProjectRunService.SdkError = "dotnet should not be consulted";
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--arch", "x64", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeLegacyUwpRunService.BuildCalls.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.CheckSdkCallCount);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        Assert.AreEqual("x64", _fakeLegacyUwpRunService.BuildOptions[0].Architecture);
+        Assert.AreEqual(1, _fakeMsixService.AddLooseLayoutCalls.Count);
+        Assert.IsFalse(
+            _fakeMsixService.AddLooseLayoutRuntimeCalls[0].PrepareWindowsAppRuntime,
+            "Classic UWP dependencies are prepared by LegacyUwpRunService, not the Windows App SDK runtime path.");
+        Assert.AreEqual(1, _fakeAppLauncherService.LaunchCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_ClassicUwp_RejectsFrameworkBeforeBuild()
+    {
+        var csproj = CreateCsproj("LegacyUwp.csproj");
+        _fakeLegacyUwpRunService.IsLegacyUwp = true;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--framework", "net8.0-windows10.0.19041.0"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeLegacyUwpRunService.BuildCalls.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.CheckSdkCallCount);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_ClassicUwp_PropagatesBuildFailure()
+    {
+        var csproj = CreateCsproj("LegacyUwp.csproj");
+        _fakeLegacyUwpRunService.IsLegacyUwp = true;
+        _fakeLegacyUwpRunService.BuildOutcome = new LegacyUwpBuildOutcome(null, 7, "10.0.26100.0");
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(7, exitCode);
+        Assert.AreEqual(0, _fakeMsixService.AddLooseLayoutCalls.Count);
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count);
+    }
+
+    #endregion
 
     #region Unpackaged
 

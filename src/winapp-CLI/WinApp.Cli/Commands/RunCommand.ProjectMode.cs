@@ -176,8 +176,58 @@ internal partial class RunCommand
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Search} {context}");
             }
 
-            // A capable SDK (≥ 8.0.100) is required for MSBuild --getProperty.
             var workingDir = csproj.Directory ?? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
+
+            // Classic UWP projects are non-SDK-style UAP projects. They require Visual Studio MSBuild,
+            // use Platform rather than a RID, and produce a loose AppX layout directly. Route them before
+            // the .NET SDK check so a missing/old dotnet SDK cannot block a valid UWP baseline run.
+            if (legacyUwpRunService.IsLegacyUwpProject(csproj))
+            {
+                if (!string.IsNullOrWhiteSpace(framework))
+                {
+                    return Fail("--framework does not apply to classic UWP projects. Remove it and use the project's TargetPlatformVersion.", isJson);
+                }
+
+                LegacyUwpBuildOutcome legacyOutcome;
+                try
+                {
+                    legacyOutcome = await legacyUwpRunService.BuildAndPrepareAsync(
+                        csproj,
+                        new LegacyUwpRunOptions(configuration, architecture, noBuild, noRestore, properties, isJson),
+                        cancellationToken);
+                }
+                catch (ProjectRunException ex)
+                {
+                    return Fail(ex.Message, isJson);
+                }
+
+                if (legacyOutcome.LayoutDirectory is null)
+                {
+                    var code = legacyOutcome.ExitCode == 0 ? 1 : legacyOutcome.ExitCode;
+                    if (isJson)
+                    {
+                        PrintJson(aumid: null, processId: null, $"Build failed (exit code {code}).");
+                    }
+                    return code;
+                }
+
+                var legacyResolution = new ProjectRunResolution(
+                    Csproj: csproj,
+                    TargetDir: legacyOutcome.LayoutDirectory.FullName,
+                    RunCommand: null,
+                    Packaging: ProjectPackaging.Packaged,
+                    SelfContained: false,
+                    Architecture: architecture,
+                    NoRestore: noRestore);
+
+                return await RunPackagedProjectAsync(
+                    legacyResolution, csproj, manifest, outputAppXDirectory, appArgs,
+                    noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
+                    prepareWindowsAppRuntime: false,
+                    cancellationToken);
+            }
+
+            // A capable SDK (≥ 8.0.100) is required for MSBuild --getProperty.
             var sdkError = await projectRunService.CheckSdkAsync(workingDir, cancellationToken);
             if (sdkError != null)
             {
@@ -231,6 +281,7 @@ internal partial class RunCommand
                 ? await RunPackagedProjectAsync(
                     resolution, csproj, manifest, outputAppXDirectory, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
+                    prepareWindowsAppRuntime: true,
                     cancellationToken)
                 : await RunUnpackagedProjectAsync(
                     resolution, csproj, appArgs,
@@ -260,6 +311,7 @@ internal partial class RunCommand
             string? executable,
             bool noBuild,
             bool isJson,
+            bool prepareWindowsAppRuntime,
             CancellationToken cancellationToken)
         {
             var targetDir = new DirectoryInfo(resolution.TargetDir);
@@ -290,7 +342,9 @@ internal partial class RunCommand
                 targetDir, manifest, outputAppXDirectory, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
-                aliasDecision, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier));
+                aliasDecision, cancellationToken,
+                packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                prepareWindowsAppRuntime: prepareWindowsAppRuntime);
         }
 
         /// <summary>
