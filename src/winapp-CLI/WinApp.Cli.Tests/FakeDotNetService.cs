@@ -82,6 +82,11 @@ internal class FakeDotNetService : IDotNetService
     public Task<(int ExitCode, string Output, string Error)> RunDotnetCommandAsync(DirectoryInfo workingDirectory, string arguments, CancellationToken cancellationToken = default)
     {
         StringInvocations.Add(arguments);
+        CommandCalls.Add((workingDirectory.FullName, arguments));
+        if (RunDotnetCommandAsyncHandler is not null)
+        {
+            return RunDotnetCommandAsyncHandler(arguments);
+        }
         if (RunDotnetCommandHandler is not null)
         {
             return Task.FromResult(RunDotnetCommandHandler(arguments));
@@ -203,6 +208,12 @@ internal class FakeDotNetService : IDotNetService
     /// <c>--getProperty</c> JSON for build/resolve scenarios.
     /// </summary>
     public Func<string, (int ExitCode, string Output, string Error)>? RunDotnetCommandHandler { get; set; }
+
+    /// <summary>Asynchronous buffered command handler used to exercise output and cancellation timing.</summary>
+    public Func<string, Task<(int ExitCode, string Output, string Error)>>? RunDotnetCommandAsyncHandler { get; set; }
+
+    /// <summary>Records buffered dotnet CLI calls such as template creation.</summary>
+    public List<(string WorkingDirectory, string Arguments)> CommandCalls { get; } = [];
 
     /// <summary>Records the <c>noRestore</c> flag from the most recent <see cref="GetPackageListAsync"/> call.</summary>
     public bool? LastGetPackageListNoRestore { get; private set; }

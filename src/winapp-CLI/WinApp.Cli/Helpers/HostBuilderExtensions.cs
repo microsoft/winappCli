@@ -149,6 +149,8 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiListWindowsCommand, UiListWindowsCommand.Handler>()
                 .UseCommandHandler<UiGetFocusedCommand, UiGetFocusedCommand.Handler>()
                 .UseCommandHandler<UiYieldCommand, UiYieldCommand.Handler>()
+                // Migration commands
+                .UseCommandHandler<MigrateCommand, MigrateCommand.Handler>()
                 .ConfigureCommand<CompleteCommand>();
     }
 

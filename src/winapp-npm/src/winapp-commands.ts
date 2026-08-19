@@ -716,6 +716,30 @@ export async function manifestUpdateAssets(options: ManifestUpdateAssetsOptions)
 }
 
 // ---------------------------------------------------------------------------
+// migrate
+// ---------------------------------------------------------------------------
+
+export interface MigrateOptions extends CommonOptions {
+  /** UWP project source folder (contains the .csproj and Package.appxmanifest). */
+  source: string;
+  /** Target project name. Defaults to the UWP project name with an 'App' suffix. */
+  name?: string;
+  /** New directory where the mechanically migrated WinUI 3 project will be created. */
+  output?: string;
+}
+
+/**
+ * Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.
+ */
+export async function migrate(options: MigrateOptions): Promise<WinappResult> {
+  const args: string[] = ['migrate'];
+  args.push(options.source);
+  if (options.name) args.push('--name', options.name);
+  if (options.output) args.push('--output', options.output);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // new
 // ---------------------------------------------------------------------------
 

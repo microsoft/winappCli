@@ -2105,6 +2105,87 @@
         }
       }
     },
+    "migrate": {
+      "description": "Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.",
+      "hidden": false,
+      "arguments": {
+        "source": {
+          "description": "UWP project source folder (contains the .csproj and Package.appxmanifest).",
+          "order": 0,
+          "hidden": false,
+          "valueType": "System.IO.DirectoryInfo",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        }
+      },
+      "options": {
+        "--name": {
+          "description": "Target project name. Defaults to the UWP project name with an 'App' suffix.",
+          "hidden": false,
+          "aliases": [
+            "-n"
+          ],
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--output": {
+          "description": "New directory where the mechanically migrated WinUI 3 project will be created.",
+          "hidden": false,
+          "aliases": [
+            "-o"
+          ],
+          "valueType": "System.IO.DirectoryInfo",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": true,
+          "recursive": false
+        },
+        "--quiet": {
+          "description": "Suppress progress messages",
+          "hidden": false,
+          "aliases": [
+            "-q"
+          ],
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--verbose": {
+          "description": "Enable verbose output",
+          "hidden": false,
+          "aliases": [
+            "-v"
+          ],
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        }
+      }
+    },
     "new": {
       "description": "Create a new WinUI app from an official Windows App SDK template. Templates cover both markup-based XAML apps (blank, NavigationView, TabView, MVVM) and the experimental Reactor apps (C#-only, MVU) — pick one interactively, then a name (the output directory defaults to ./<name>). Automatically uses defaults in non-interactive environments (use --use-defaults to skip prompts explicitly). Requires the .NET SDK; installs the WinUI template pack on demand (grabbing the latest, or offering to update a stale one) and delegates scaffolding to 'dotnet new'. Use --list to see the available templates. Scaffolds against the installed SDK's target framework and prints a template-specific next step when done (e.g. 'dotnet run' for app templates).",
       "hidden": false,

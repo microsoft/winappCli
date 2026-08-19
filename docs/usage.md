@@ -1157,6 +1157,26 @@ is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `W
 
 ---
 
+### migrate
+
+Create a new WinUI 3 project from a UWP project and apply only deterministic mechanical transforms. The command copies source-owned files, preserves the original project, manifest, and startup files under `.uwp-source` for reference, rewrites safe namespace/API patterns, and writes `migration-report.json`.
+
+```powershell
+winapp migrate <source> --output <target> [--name <project-name>]
+```
+
+The target must be new or contain only `.git`/`.github` metadata. Source and target cannot overlap. The official WinUI template pack must be available; run `winapp new --list` to install or repair it.
+
+`winapp migrate` deliberately does not choose startup navigation, merge application resources, copy guessed sibling/shared directories, or replace behavior it cannot preserve. These semantic decisions are reported as TODOs. Exit code `0` means the mechanical pass completed; it does not mean the result builds, runs, or has behavioral parity.
+
+Key report fields:
+
+- `transforms` records deterministic operations that ran.
+- `todos` records required semantic migration work and source locations.
+- `validation` declares the state plan and source/target evidence roots; parity starts as `unverified`.
+
+---
+
 ### unregister
 
 Unregister a sideloaded development package. Only removes packages that were registered in development mode (e.g., via `winapp run` or `create-debug-identity`). Store-installed or MSIX-installed packages are never removed.
