@@ -128,6 +128,36 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Migrate_LegacyAssemblyInfoDisablesGeneratedAssemblyAttributes()
+    {
+        var source = await CreateUwpSourceAsync("AssemblyInfoApp");
+        await WriteAsync(
+            source,
+            @"Properties\AssemblyInfo.cs",
+            """[assembly: System.Reflection.AssemblyCompany("Contoso")]""");
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "assembly-info-output"));
+        ArrangeTemplateCreation(target, "AssemblyInfoAppApp", templateOutput =>
+        {
+            var nestedDirectory = templateOutput.CreateSubdirectory("NestedLibrary");
+            File.WriteAllText(Path.Combine(nestedDirectory.FullName, "NestedLibrary.csproj"), CleanCsproj);
+        });
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        Assert.IsTrue(File.Exists(Path.Combine(target.FullName, "Properties", "AssemblyInfo.cs")));
+        var project = await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "AssemblyInfoAppApp.csproj"),
+            TestContext.CancellationToken);
+        StringAssert.Contains(project, "<GenerateAssemblyInfo>false</GenerateAssemblyInfo>");
+        var nestedProject = await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "NestedLibrary", "NestedLibrary.csproj"),
+            TestContext.CancellationToken);
+        Assert.DoesNotContain("<GenerateAssemblyInfo>", nestedProject);
+        StringAssert.Contains(output, "preserved Properties\\AssemblyInfo.cs remains authoritative");
+    }
+
+    [TestMethod]
     public async Task Migrate_RewritesReswResourceKeyNamespaces()
     {
         var source = await CreateUwpSourceAsync("LocalizedApp");

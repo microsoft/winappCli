@@ -338,12 +338,12 @@ internal partial class MigrateCommand : Command, IShortDescription
                 .Except(preservedReferences, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // ── 2b. Patch WinUI 3 csproj RuntimeIdentifier for cross-arch F5 ─────
-            var projectFiles = PatchRuntimeIdentifier(targetRoot);
+            // ── 2b. Patch deterministic WinUI 3 project settings ────────────────
+            var projectFiles = PatchProjectSettings(targetRoot);
             report.Transforms.Add(new MigrationTransform
             {
                 Id = "UWMIG-PROJECT",
-                Summary = "Patched project settings for host architecture",
+                Summary = "Patched deterministic WinUI project settings",
                 ChangedFiles = projectFiles
             });
 
@@ -535,41 +535,73 @@ internal partial class MigrateCommand : Command, IShortDescription
         }
 
         // ───────────────────────────── 2b ──────────────────────────────────────
-        private int PatchRuntimeIdentifier(string targetRoot)
+        private int PatchProjectSettings(string targetRoot)
         {
             var csprojs = EnumerateFiles(targetRoot)
                 .Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            int patched = 0, already = 0;
+            int patched = 0, ridAlreadyPatched = 0;
             foreach (var cp in csprojs)
             {
                 var body = File.ReadAllText(cp);
-                if (body.Contains(RidFixMarker)) { already++; continue; }
-                var m = HostArchRuntimeIdentifier().Match(body);
-                if (!m.Success)
+                var changed = false;
+
+                if (body.Contains(RidFixMarker))
                 {
-                    continue;
+                    ridAlreadyPatched++;
+                }
+                else
+                {
+                    var runtimeIdentifier = HostArchRuntimeIdentifier().Match(body);
+                    if (runtimeIdentifier.Success)
+                    {
+                        var indent = runtimeIdentifier.Groups["indent"].Value;
+                        var injection =
+                            $"{indent}{RidFixMarker}\r\n" +
+                            $"{indent}<RuntimeIdentifier Condition=\"'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x86'\">win-x86</RuntimeIdentifier>\r\n" +
+                            $"{indent}<RuntimeIdentifier Condition=\"'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x64'\">win-x64</RuntimeIdentifier>\r\n" +
+                            $"{indent}<RuntimeIdentifier Condition=\"'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'ARM64'\">win-arm64</RuntimeIdentifier>\r\n" +
+                            runtimeIdentifier.Value;
+                        body = body[..runtimeIdentifier.Index] + injection + body[(runtimeIdentifier.Index + runtimeIdentifier.Length)..];
+                        changed = true;
+                        Console.Out.WriteLine($"    Patched RuntimeIdentifier in {Path.GetFileName(cp)} — F5 now works on x86/x64/ARM64 hosts");
+                    }
                 }
 
-                var indent = m.Groups["indent"].Value;
-                var injection =
-                    $"{indent}{RidFixMarker}\r\n" +
-                    $"{indent}<RuntimeIdentifier Condition=\"'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x86'\">win-x86</RuntimeIdentifier>\r\n" +
-                    $"{indent}<RuntimeIdentifier Condition=\"'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'x64'\">win-x64</RuntimeIdentifier>\r\n" +
-                    $"{indent}<RuntimeIdentifier Condition=\"'$(RuntimeIdentifier)' == '' AND '$(Platform)' == 'ARM64'\">win-arm64</RuntimeIdentifier>\r\n" +
-                    m.Value;
-                body = body[..m.Index] + injection + body[(m.Index + m.Length)..];
-                File.WriteAllText(cp, body);
-                patched++;
-                Console.Out.WriteLine($"    Patched RuntimeIdentifier in {Path.GetFileName(cp)} — F5 now works on x86/x64/ARM64 hosts");
+                var projectDirectory = Path.GetDirectoryName(cp);
+                var hasLegacyAssemblyInfo =
+                    projectDirectory is not null &&
+                    File.Exists(Path.Combine(projectDirectory, "Properties", "AssemblyInfo.cs"));
+                if (hasLegacyAssemblyInfo &&
+                    !body.Contains("<GenerateAssemblyInfo>", StringComparison.OrdinalIgnoreCase))
+                {
+                    var propertyGroup = FirstPropertyGroup().Match(body);
+                    if (propertyGroup.Success)
+                    {
+                        var newline = body.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+                        var propertyIndent = propertyGroup.Groups["indent"].Value + "  ";
+                        var injection =
+                            propertyGroup.Value + newline +
+                            $"{propertyIndent}<GenerateAssemblyInfo>false</GenerateAssemblyInfo>";
+                        body = body[..propertyGroup.Index] + injection + body[(propertyGroup.Index + propertyGroup.Length)..];
+                        changed = true;
+                        Console.Out.WriteLine($"    Disabled generated assembly attributes in {Path.GetFileName(cp)} — preserved Properties\\AssemblyInfo.cs remains authoritative");
+                    }
+                }
+
+                if (changed)
+                {
+                    File.WriteAllText(cp, body);
+                    patched++;
+                }
             }
             if (csprojs.Count == 0)
             {
                 logger.LogWarning("No WinUI 3 .csproj found at target — did you run 'dotnet new winui' first?");
             }
-            else if (patched == 0 && already > 0)
+            else if (patched == 0 && ridAlreadyPatched > 0)
             {
-                Console.Out.WriteLine($"    RuntimeIdentifier already patched in {already} .csproj file(s) — no change");
+                Console.Out.WriteLine($"    RuntimeIdentifier already patched in {ridAlreadyPatched} .csproj file(s) — no change");
             }
             return patched;
         }
@@ -613,6 +645,9 @@ internal partial class MigrateCommand : Command, IShortDescription
 
     [GeneratedRegex(@"(?m)^(?<indent>\s*)<RuntimeIdentifier\s+Condition=""'\$\(RuntimeIdentifier\)'\s*==\s*''"">win-\$\(\[System\.Runtime\.InteropServices\.RuntimeInformation\][^<]+</RuntimeIdentifier>\s*$")]
     private static partial Regex HostArchRuntimeIdentifier();
+
+    [GeneratedRegex(@"(?m)^(?<indent>[ \t]*)<PropertyGroup(?:\s[^>]*)?>[ \t]*(?=\r?$)")]
+    private static partial Regex FirstPropertyGroup();
 
     [GeneratedRegex(@"\bDispatcher\s*\.\s*HasThreadAccess\b")]
     private static partial Regex DispatcherHasThreadAccess();
