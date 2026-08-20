@@ -3,6 +3,7 @@
 
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
@@ -75,6 +76,9 @@ public class MigrateCommandTests : MigrateCommandTestBase
         return await InvokeCapturingConsoleAsync(GetRequiredService<MigrateCommand>(), [.. args]);
     }
 
+    private Task<(int ExitCode, string Output)> InvokeVerifyAsync(DirectoryInfo target) =>
+        InvokeCapturingConsoleAsync(GetRequiredService<MigrateVerifyCommand>(), target.FullName);
+
     [TestMethod]
     public async Task Migrate_CreatesWinuiProjectAndWritesReport()
     {
@@ -121,6 +125,238 @@ public class MigrateCommandTests : MigrateCommandTestBase
             ".migration-evidence/target",
             validation.GetProperty("targetReplay").GetProperty("evidenceRoot").GetString());
         Assert.AreEqual("unverified", validation.GetProperty("parityStatus").GetString());
+    }
+
+    [TestMethod]
+    public async Task Migrate_RewritesReswResourceKeyNamespaces()
+    {
+        var source = await CreateUwpSourceAsync("LocalizedApp");
+        await WriteAsync(source, @"Resources\en-us\Resources.resw", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <root>
+              <data name="AddButton.[using:Windows.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+                <value>Add</value>
+              </data>
+            </root>
+            """);
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "localized-output"));
+        ArrangeTemplateCreation(target, "LocalizedAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        var migrated = await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "Resources", "en-us", "Resources.resw"),
+            TestContext.CancellationToken);
+        StringAssert.Contains(
+            migrated,
+            "[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name");
+        Assert.DoesNotContain("Windows.UI.Xaml", migrated);
+
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var transform = report.RootElement.GetProperty("transforms").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == "UWMIG-RESW-NS");
+        Assert.AreEqual(1, transform.GetProperty("changedFiles").GetInt32());
+        var verification = report.RootElement.GetProperty("mechanicalVerification");
+        Assert.AreEqual("passed", verification.GetProperty("status").GetString());
+        Assert.AreEqual(0, verification.GetProperty("legacyNamespaceResiduals").GetArrayLength());
+    }
+
+    [TestMethod]
+    public async Task Migrate_MigratesLocalContentAndPriResourceProjectItems()
+    {
+        var source = await CreateUwpSourceAsync("ProjectItemsApp");
+        await WriteAsync(source, "ProjectItemsApp.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>uap10.0</TargetFramework>
+              </PropertyGroup>
+              <ItemGroup>
+                <Content Include="Data\Model.json">
+                  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+                </Content>
+                <PRIResource Include="Resources\en-us\Resources.resw" />
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(source, @"Data\Model.json", """{"name":"lamp"}""");
+        await WriteAsync(source, @"Resources\en-us\Resources.resw", "<root />");
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "project-items-output"));
+        ArrangeTemplateCreation(target, "ProjectItemsAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        var targetProject = XDocument.Load(Path.Combine(target.FullName, "ProjectItemsAppApp.csproj"));
+        Assert.IsTrue(targetProject.Descendants().Any(element =>
+            element.Name.LocalName == "Content"
+            && element.Attribute("Include")?.Value == @"Data\Model.json"));
+        Assert.IsTrue(targetProject.Descendants().Any(element =>
+            element.Name.LocalName == "None"
+            && element.Attribute("Remove")?.Value.Contains(@"Data\Model.json", StringComparison.Ordinal) == true));
+        Assert.IsFalse(targetProject.Descendants().Any(element =>
+            element.Name.LocalName == "PRIResource"
+            && element.Attribute("Include")?.Value == @"Resources\en-us\Resources.resw"));
+
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var projectItems = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems");
+        Assert.AreEqual(2, projectItems.GetProperty("sourceItems").GetInt32());
+        Assert.AreEqual(2, projectItems.GetProperty("migratedItems").GetInt32());
+        Assert.AreEqual(0, projectItems.GetProperty("missingTargetItems").GetArrayLength());
+    }
+
+    [TestMethod]
+    public async Task Migrate_ReportsProjectItemsThatRequireMsbuildEvaluation()
+    {
+        var source = await CreateUwpSourceAsync("ConditionalItemsApp");
+        await WriteAsync(source, "ConditionalItemsApp.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <Content Include="Data\**\*.json" Condition="'$(Configuration)' == 'Debug'" />
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(source, @"Data\Model.json", """{"name":"lamp"}""");
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "conditional-items-output"));
+        ArrangeTemplateCreation(target, "ConditionalItemsAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var projectItems = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems");
+        Assert.AreEqual(1, projectItems.GetProperty("sourceItems").GetInt32());
+        Assert.AreEqual(0, projectItems.GetProperty("migratedItems").GetInt32());
+        Assert.AreEqual(1, projectItems.GetProperty("unresolvedItems").GetArrayLength());
+        Assert.IsTrue(report.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+            todo.GetProperty("category").GetString() == "project-items"));
+    }
+
+    [TestMethod]
+    public async Task Migrate_FailsVerificationForLegacyNamespaceInOtherText()
+    {
+        var source = await CreateUwpSourceAsync("ResidualApp");
+        await WriteAsync(source, "Data.json", """{"type":"Windows.UI.Xaml.Controls.Button"}""");
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "residual-output"));
+        ArrangeTemplateCreation(target, "ResidualAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(1, exit, output);
+        StringAssert.Contains(output, "MECHANICAL MIGRATION VERIFICATION FAILED");
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        Assert.AreEqual(
+            "mechanical-verification-failed",
+            report.RootElement.GetProperty("status").GetString());
+        var verification = report.RootElement.GetProperty("mechanicalVerification");
+        Assert.AreEqual("failed", verification.GetProperty("status").GetString());
+        var residual = verification.GetProperty("legacyNamespaceResiduals")[0];
+        Assert.AreEqual("Data.json", residual.GetProperty("path").GetString());
+        Assert.AreEqual(1, residual.GetProperty("line").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task Migrate_AccountsForEveryEligibleSourceFile()
+    {
+        var source = await CreateUwpSourceAsync("InventoryApp");
+        await WriteAsync(source, "MainPage.xaml", "<Page />");
+        await WriteAsync(source, "InventoryApp_TemporaryKey.pfx", "not-a-real-certificate");
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "inventory-output"));
+        ArrangeTemplateCreation(target, "InventoryAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var inventory = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("inventory");
+        Assert.AreEqual(
+            inventory.GetProperty("sourceFiles").GetInt32(),
+            inventory.GetProperty("classifiedFiles").GetInt32());
+        Assert.AreEqual(1, inventory.GetProperty("copiedFiles").GetInt32());
+        Assert.AreEqual(2, inventory.GetProperty("preservedReferenceFiles").GetInt32());
+        Assert.AreEqual(1, inventory.GetProperty("intentionallyExcludedFiles").GetInt32());
+        Assert.AreEqual(0, inventory.GetProperty("unclassifiedFiles").GetArrayLength());
+    }
+
+    [TestMethod]
+    public async Task Verify_RefreshesMechanicalStateWithoutChangingBehavioralValidation()
+    {
+        var source = await CreateUwpSourceAsync("VerifyApp");
+        await WriteAsync(source, "MainPage.xaml", "<Page />");
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "verify-output"));
+        ArrangeTemplateCreation(target, "VerifyAppApp");
+        var (migrateExit, migrateOutput) = await InvokeAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+
+        var reportPath = Path.Combine(target.FullName, "migration-report.json");
+        var reportNode = JsonNode.Parse(await File.ReadAllTextAsync(
+            reportPath,
+            TestContext.CancellationToken))!;
+        reportNode["validation"]!["sourceBaseline"]!["status"] = "captured";
+        await File.WriteAllTextAsync(
+            reportPath,
+            reportNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            TestContext.CancellationToken);
+        await WriteAsync(
+            target,
+            "AgentChange.json",
+            """{"type":"Windows.UI.Xaml.Controls.Button"}""");
+
+        var (failedExit, failedOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, failedExit, failedOutput);
+        StringAssert.Contains(failedOutput, "verification failed");
+        using (var failedReport = JsonDocument.Parse(await File.ReadAllTextAsync(
+            reportPath,
+            TestContext.CancellationToken)))
+        {
+            Assert.AreEqual(
+                "captured",
+                failedReport.RootElement
+                    .GetProperty("validation")
+                    .GetProperty("sourceBaseline")
+                    .GetProperty("status")
+                    .GetString());
+            Assert.IsTrue(failedReport.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+                todo.GetProperty("id").GetString() == "UWMIG011"));
+        }
+
+        await WriteAsync(
+            target,
+            "AgentChange.json",
+            """{"type":"Microsoft.UI.Xaml.Controls.Button"}""");
+        var (passedExit, passedOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(0, passedExit, passedOutput);
+        StringAssert.Contains(passedOutput, "verification passed");
+        using var passedReport = JsonDocument.Parse(await File.ReadAllTextAsync(
+            reportPath,
+            TestContext.CancellationToken));
+        Assert.IsFalse(passedReport.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+            todo.GetProperty("id").GetString() == "UWMIG011"));
+        Assert.AreEqual(
+            "captured",
+            passedReport.RootElement
+                .GetProperty("validation")
+                .GetProperty("sourceBaseline")
+                .GetProperty("status")
+                .GetString());
     }
 
     [TestMethod]

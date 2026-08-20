@@ -28,8 +28,80 @@ internal sealed class MigrationReport
     [JsonPropertyName("todos")]
     public List<MigrationTodo> Todos { get; set; } = [];
 
+    [JsonPropertyName("mechanicalVerification")]
+    public MigrationMechanicalVerification MechanicalVerification { get; set; } = new();
+
     [JsonPropertyName("validation")]
     public MigrationValidation Validation { get; set; } = new();
+}
+
+internal sealed class MigrationMechanicalVerification
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "not-run";
+
+    [JsonPropertyName("inventory")]
+    public MigrationFileInventory Inventory { get; set; } = new();
+
+    [JsonPropertyName("legacyNamespaceResiduals")]
+    public List<MigrationLocation> LegacyNamespaceResiduals { get; set; } = [];
+
+    [JsonPropertyName("uninspectedFiles")]
+    public int UninspectedFiles { get; set; }
+
+    [JsonPropertyName("projectItems")]
+    public MigrationProjectItemVerification ProjectItems { get; set; } = new();
+}
+
+internal sealed class MigrationFileInventory
+{
+    [JsonPropertyName("sourceFiles")]
+    public int SourceFiles { get; set; }
+
+    [JsonPropertyName("classifiedFiles")]
+    public int ClassifiedFiles { get; set; }
+
+    [JsonPropertyName("copiedFiles")]
+    public int CopiedFiles { get; set; }
+
+    [JsonPropertyName("preservedReferenceFiles")]
+    public int PreservedReferenceFiles { get; set; }
+
+    [JsonPropertyName("intentionallyExcludedFiles")]
+    public int IntentionallyExcludedFiles { get; set; }
+
+    [JsonPropertyName("unclassifiedFiles")]
+    public List<string> UnclassifiedFiles { get; set; } = [];
+}
+
+internal sealed class MigrationProjectItemVerification
+{
+    [JsonPropertyName("sourceItems")]
+    public int SourceItems { get; set; }
+
+    [JsonPropertyName("migratedItems")]
+    public int MigratedItems { get; set; }
+
+    [JsonPropertyName("accountedItems")]
+    public List<MigrationProjectItem> AccountedItems { get; set; } = [];
+
+    [JsonPropertyName("unresolvedItems")]
+    public List<MigrationLocation> UnresolvedItems { get; set; } = [];
+
+    [JsonPropertyName("missingTargetItems")]
+    public List<MigrationLocation> MissingTargetItems { get; set; } = [];
+}
+
+internal sealed class MigrationProjectItem
+{
+    [JsonPropertyName("kind")]
+    public required string Kind { get; set; }
+
+    [JsonPropertyName("path")]
+    public required string Path { get; set; }
+
+    [JsonPropertyName("requiresProjectEntry")]
+    public bool RequiresProjectEntry { get; set; }
 }
 
 internal sealed class MigrationValidation

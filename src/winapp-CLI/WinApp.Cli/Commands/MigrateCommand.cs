@@ -127,12 +127,13 @@ internal partial class MigrateCommand : Command, IShortDescription
         };
     }
 
-    public MigrateCommand()
+    public MigrateCommand(MigrateVerifyCommand verifyCommand)
         : base("migrate", "Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.")
     {
         Arguments.Add(SourceArgument);
         Options.Add(OutputOption);
         Options.Add(NameOption);
+        Subcommands.Add(verifyCommand);
     }
 
     public partial class Handler(IDotNetService dotNetService, ILogger<MigrateCommand> logger) : AsynchronousCommandLineAction
@@ -192,6 +193,7 @@ internal partial class MigrateCommand : Command, IShortDescription
             }
 
             var sourceProject = Directory.EnumerateFiles(sourceRoot, "*.csproj", SearchOption.TopDirectoryOnly).FirstOrDefault();
+            var sourceFiles = EnumerateFiles(sourceRoot).ToList();
             var requestedName = parseResult.GetValue(NameOption);
             var projectName = string.IsNullOrWhiteSpace(requestedName)
                 ? GetProjectName(sourceRoot, sourceProject)
@@ -313,6 +315,28 @@ internal partial class MigrateCommand : Command, IShortDescription
 
             // ── 2. Preserve UWP .csproj / .appxmanifest under .uwp-source/ ───────
             PreserveUwpReferences(sourceRoot, targetRoot, preservedStartup, report);
+            var preservedReferences = sourceFiles
+                .Where(file =>
+                    preservedStartup.Contains(
+                        Path.GetRelativePath(sourceRoot, file),
+                        StringComparer.OrdinalIgnoreCase)
+                    || sourceProject is not null
+                        && string.Equals(file, sourceProject, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(
+                            Path.GetDirectoryName(file),
+                            sourceRoot,
+                            StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(
+                            Path.GetExtension(file),
+                            ".appxmanifest",
+                            StringComparison.OrdinalIgnoreCase))
+                .Select(file => Path.GetRelativePath(sourceRoot, file))
+                .ToList();
+            var intentionallyExcluded = sourceFiles
+                .Where(file => !ShouldCopy(file))
+                .Select(file => Path.GetRelativePath(sourceRoot, file))
+                .Except(preservedReferences, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             // ── 2b. Patch WinUI 3 csproj RuntimeIdentifier for cross-arch F5 ─────
             var projectFiles = PatchRuntimeIdentifier(targetRoot);
@@ -330,6 +354,27 @@ internal partial class MigrateCommand : Command, IShortDescription
                 Id = "UWMIG-XAML-NS",
                 Summary = "Rewrote Windows.UI.Xaml namespaces to Microsoft.UI.Xaml",
                 ChangedFiles = namespaceFiles
+            });
+
+            var reswNamespaceFiles = RewriteReswNamespaces(targetRoot);
+            report.Transforms.Add(new MigrationTransform
+            {
+                Id = "UWMIG-RESW-NS",
+                Summary = "Rewrote Windows.UI.Xaml namespaces in WinRT resource keys",
+                ChangedFiles = reswNamespaceFiles
+            });
+
+            var projectItemResult = MigrateSourceProjectItems(
+                sourceRoot,
+                sourceProject,
+                targetRoot,
+                targetProject,
+                applyChanges: true);
+            report.Transforms.Add(new MigrationTransform
+            {
+                Id = "UWMIG-PROJECT-ITEMS",
+                Summary = "Migrated deterministic Content and PRIResource project items",
+                ChangedFiles = projectItemResult.ChangedFiles
             });
 
             var itemsPanelFiles = RewriteVirtualizingStackPanels(targetRoot, report);
@@ -350,6 +395,18 @@ internal partial class MigrateCommand : Command, IShortDescription
             AddDispatcherResidualTodo(targetRoot, report);
             AddWindowingResidualTodo(targetRoot, report);
             AddDisplayInformationResidualTodo(targetRoot, report);
+            report.MechanicalVerification = VerifyMechanicalMigration(
+                sourceRoot,
+                sourceFiles,
+                copied,
+                preservedReferences,
+                intentionallyExcluded,
+                targetRoot,
+                projectItemResult,
+                report);
+            report.Status = report.MechanicalVerification.Status == "passed"
+                ? "mechanical-migration-complete"
+                : "mechanical-verification-failed";
 
             report.Summary.CopiedFiles = copied.Count;
             report.Summary.TransformOperations = report.Transforms.Sum(transform => transform.ChangedFiles);
@@ -361,8 +418,14 @@ internal partial class MigrateCommand : Command, IShortDescription
                 cancellationToken);
 
             Console.Out.WriteLine();
-            Console.Out.WriteLine("=== MECHANICAL MIGRATION COMPLETE ===");
+            Console.Out.WriteLine(
+                report.MechanicalVerification.Status == "passed"
+                    ? "=== MECHANICAL MIGRATION COMPLETE ==="
+                    : "=== MECHANICAL MIGRATION VERIFICATION FAILED ===");
             Console.Out.WriteLine($"Changed: {report.Summary.CopiedFiles} copied files, {report.Summary.TransformOperations} transform operations");
+            Console.Out.WriteLine(
+                $"Coverage: {report.MechanicalVerification.Inventory.ClassifiedFiles}/{report.MechanicalVerification.Inventory.SourceFiles} source files classified; " +
+                $"{report.MechanicalVerification.ProjectItems.MigratedItems}/{report.MechanicalVerification.ProjectItems.SourceItems} Content/PRIResource items migrated");
             Console.Out.WriteLine($"Remaining work: {report.Summary.TodoCategories} known TODO categor{(report.Summary.TodoCategories == 1 ? "y" : "ies")}");
             foreach (var todo in report.Todos)
             {
@@ -372,7 +435,7 @@ internal partial class MigrateCommand : Command, IShortDescription
             Console.Out.WriteLine("This result is not guaranteed to build or run.");
             Console.Out.WriteLine("=====================================");
 
-            return 0;
+            return report.MechanicalVerification.Status == "passed" ? 0 : 1;
         }
 
         // ───────────────────────────── 2 ───────────────────────────────────────
