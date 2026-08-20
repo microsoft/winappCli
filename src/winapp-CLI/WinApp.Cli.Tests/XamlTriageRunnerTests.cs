@@ -391,4 +391,25 @@ public sealed class XamlTriageRunnerTests
         Assert.IsFalse(commands.Contains("!xamlstowed"));
         Assert.IsFalse(commands.Contains("!xamltriage"));
     }
+
+    [TestMethod]
+    public void RunTriageSequence_StowedOnly_SkipsUnstableExtendedCommand()
+    {
+        var commands = new List<string>();
+
+        XamlTriageRunner.RunTriageSequence(
+            @"C:\bin\JsProvider.dll",
+            @"C:\bin\ext.js",
+            useSymbols: false,
+            execute: command =>
+            {
+                commands.Add(command);
+                return 0;
+            },
+            getOutput: () => "OUT",
+            runExtendedTriage: false);
+
+        CollectionAssert.Contains(commands, "!xamlstowed");
+        CollectionAssert.DoesNotContain(commands, "!xamltriage");
+    }
 }

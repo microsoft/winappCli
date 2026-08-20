@@ -27,6 +27,7 @@ internal sealed partial class XamlTriageService(
 
     // Hard ceiling for the isolated triage process (symbol downloads can be slow on first run).
     private static readonly TimeSpan TriageTimeout = TimeSpan.FromMinutes(5);
+    private const int StatusStackBufferOverrun = unchecked((int)0xC0000409);
 
     // For testing only — overrides the child-process timeout so the timeout branch can be exercised
     // deterministically without a 5-minute wait. Null means use the real ceiling.
@@ -189,6 +190,14 @@ internal sealed partial class XamlTriageService(
                 {
                     code = m.Groups[1].Value.Trim();
                 }
+                else
+                {
+                    m = RawHresultRegex().Match(line);
+                    if (m.Success)
+                    {
+                        code = "0x" + m.Groups[1].Value.ToUpperInvariant();
+                    }
+                }
             }
 
             if (message == null)
@@ -211,7 +220,14 @@ internal sealed partial class XamlTriageService(
             return null;
         }
 
-        return string.Join(" — ", new[] { code, message }.Where(p => !string.IsNullOrEmpty(p)));
+        var classification =
+            output.Contains("GetResourcePropertyBag", StringComparison.OrdinalIgnoreCase)
+            && output.Contains("GetXamlProperty", StringComparison.OrdinalIgnoreCase)
+                ? "XAML resource property resolution failed; inspect x:Uid/.resw property keys."
+                : null;
+        return string.Join(
+            " — ",
+            new[] { code, message, classification }.Where(part => !string.IsNullOrEmpty(part)));
     }
 
     [System.Text.RegularExpressions.GeneratedRegex(@"(?:error\s*code|hresult)\s*[:=]\s*(0x[0-9a-fA-F]+)",
@@ -221,6 +237,11 @@ internal sealed partial class XamlTriageService(
     [System.Text.RegularExpressions.GeneratedRegex(@"error\s*(?:message|text)\s*[:=]\s*(.+)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex ErrorMessageRegex();
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"\bhr\s*=\s*(?:0x)?([0-9a-fA-F]{8})\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex RawHresultRegex();
 
     /// <summary>
     /// Detects the "operating-system symbols unavailable" failure shape — the extension identifies the
@@ -284,9 +305,18 @@ internal sealed partial class XamlTriageService(
     /// available (failed to start, timed out, or non-zero exit).
     /// </summary>
     internal async Task<(string? Output, string? SkipNote)> RunTriageProcessAsync(
-        string dumpPath, ResolvedTriageBinaries binaries, string extPath, bool useSymbols, CancellationToken cancellationToken)
+        string dumpPath,
+        ResolvedTriageBinaries binaries,
+        string extPath,
+        bool useSymbols,
+        CancellationToken cancellationToken,
+        bool stowedOnly = false)
     {
         var startInfo = (TriageStartInfoFactory ?? BuildTriageStartInfo)(dumpPath, binaries, extPath, useSymbols);
+        if (stowedOnly)
+        {
+            startInfo.ArgumentList.Add("--stowed-only");
+        }
 
         using var process = new Process { StartInfo = startInfo };
         var stdout = new StringBuilder();
@@ -337,6 +367,31 @@ internal sealed partial class XamlTriageService(
             if (process.ExitCode == unchecked((int)0x80000003))
             {
                 return (null, "the triage child process crashed on startup (STATUS_BREAKPOINT), which usually means the JsProvider.dll build does not match the debugging engine.");
+            }
+
+            if (process.ExitCode == StatusStackBufferOverrun
+                && !stowedOnly)
+            {
+                logger.LogDebug(
+                    "Extended WinUI triage crashed with STATUS_STACK_BUFFER_OVERRUN; retrying the bounded stowed-exception-only pass.");
+                startInfo.ArgumentList.Add("--stowed-only");
+                var (fallbackOutput, fallbackSkipNote) = await RunTriageProcessAsync(
+                    dumpPath,
+                    binaries,
+                    extPath,
+                    useSymbols,
+                    cancellationToken,
+                    stowedOnly: true);
+                if (fallbackSkipNote is null && !string.IsNullOrWhiteSpace(fallbackOutput))
+                {
+                    return (
+                        "Extended !xamltriage crashed with STATUS_STACK_BUFFER_OVERRUN; " +
+                        "recovered the deterministic !xamlstowed output:\n" +
+                        fallbackOutput,
+                        null);
+                }
+                return (null, fallbackSkipNote
+                    ?? "the extended triage pass crashed with STATUS_STACK_BUFFER_OVERRUN and the stowed-exception fallback produced no output.");
             }
 
             return (null, $"the triage child process exited with code {process.ExitCode}.");

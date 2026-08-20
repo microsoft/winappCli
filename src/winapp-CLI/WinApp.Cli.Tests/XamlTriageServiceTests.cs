@@ -179,4 +179,21 @@ public class XamlTriageServiceTests
         Assert.IsNull(XamlTriageService.TryExtractVerdict("just a native stack with no error code"));
         Assert.IsNull(XamlTriageService.TryExtractVerdict(""));
     }
+
+    [TestMethod]
+    public void TryExtractVerdict_ResourcePropertyFailure_ReturnsMigrationHint()
+    {
+        var output = """
+            Callstack for hr=80004005
+            Microsoft_UI_Xaml!XamlSchemaContext::GetXamlProperty
+            Microsoft_UI_Xaml!ObjectWriterRuntime::GetResourcePropertyBagImpl
+            Error message: XAML parsing failed.
+            """;
+
+        var verdict = XamlTriageService.TryExtractVerdict(output);
+
+        Assert.AreEqual(
+            "0x80004005 — XAML parsing failed. — XAML resource property resolution failed; inspect x:Uid/.resw property keys.",
+            verdict);
+    }
 }

@@ -31,6 +31,7 @@ internal static class XamlTriageRunner
     {
         string? dump = null, bin = null, ext = null, jsProvider = null;
         var useSymbols = false;
+        var stowedOnly = false;
         for (var i = 1; i < args.Length; i++)
         {
             switch (args[i])
@@ -40,6 +41,7 @@ internal static class XamlTriageRunner
                 case "--ext" when i + 1 < args.Length: ext = args[++i]; break;
                 case "--jsprovider" when i + 1 < args.Length: jsProvider = args[++i]; break;
                 case "--symbols": useSymbols = true; break;
+                case "--stowed-only": stowedOnly = true; break;
             }
         }
 
@@ -55,7 +57,13 @@ internal static class XamlTriageRunner
 
         try
         {
-            Console.Out.Write(RunDbgEngExtension(dump, bin, jsProvider, ext, useSymbols));
+            Console.Out.Write(RunDbgEngExtension(
+                dump,
+                bin,
+                jsProvider,
+                ext,
+                useSymbols,
+                runExtendedTriage: !stowedOnly));
             return 0;
         }
         catch (Exception ex)
@@ -69,7 +77,13 @@ internal static class XamlTriageRunner
     /// Executes <c>.scriptload</c> + <c>!xamlstowed</c> + <c>!xamltriage</c> against the dump and
     /// returns the captured DbgEng output.
     /// </summary>
-    public static string RunDbgEngExtension(string dumpPath, string binDir, string jsProviderPath, string extPath, bool useSymbols)
+    public static string RunDbgEngExtension(
+        string dumpPath,
+        string binDir,
+        string jsProviderPath,
+        string extPath,
+        bool useSymbols,
+        bool runExtendedTriage = true)
     {
         using IDisposable dbgeng = IDebugClient.Create(binDir);
         IDebugClient client = (IDebugClient)dbgeng;
@@ -97,7 +111,8 @@ internal static class XamlTriageRunner
                 extPath,
                 useSymbols,
                 command => control.Execute(DEBUG_OUTCTL.THIS_CLIENT, command, DEBUG_EXECUTE.DEFAULT),
-                () => output.ToString());
+                () => output.ToString(),
+                runExtendedTriage);
         }
 
         return result;
@@ -118,7 +133,8 @@ internal static class XamlTriageRunner
         string extPath,
         bool useSymbols,
         Func<string, int> execute,
-        Func<string> getOutput)
+        Func<string> getOutput,
+        bool runExtendedTriage = true)
     {
         if (useSymbols)
         {
@@ -150,7 +166,10 @@ internal static class XamlTriageRunner
         var scriptPath = extPath.Replace('\\', '/');
         execute($".scriptload \"{scriptPath}\"");
         execute("!xamlstowed");
-        execute("!xamltriage");
+        if (runExtendedTriage)
+        {
+            execute("!xamltriage");
+        }
 
         return getOutput();
     }

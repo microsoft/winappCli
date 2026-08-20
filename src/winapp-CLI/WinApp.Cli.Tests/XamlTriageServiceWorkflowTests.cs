@@ -431,6 +431,43 @@ public sealed class XamlTriageServiceWorkflowTests
     }
 
     [TestMethod]
+    public async Task RunTriageProcessAsync_ExtendedCrash_RetriesStowedOnlyOnce()
+    {
+        var service = CreateService();
+        var invocations = 0;
+        service.TriageStartInfoFactory = (_, _, _, _) =>
+        {
+            invocations++;
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-NoProfile");
+            psi.ArgumentList.Add("-Command");
+            psi.ArgumentList.Add(invocations == 1
+                ? "[Environment]::Exit(-1073740791)"
+                : "Write-Output 'STOWED-DETAIL'");
+            return psi;
+        };
+
+        var (output, skipNote) = await service.RunTriageProcessAsync(
+            @"C:\crash.dmp",
+            FakeBinaries(hasSymSrv: true),
+            @"C:\ext.js",
+            useSymbols: false,
+            CancellationToken.None);
+
+        Assert.AreEqual(2, invocations);
+        Assert.IsNull(skipNote);
+        StringAssert.Contains(output, "STATUS_STACK_BUFFER_OVERRUN");
+        StringAssert.Contains(output, "STOWED-DETAIL");
+    }
+
+    [TestMethod]
     public async Task RunTriageProcessAsync_GenuineCancellation_Throws()
     {
         using var cts = new CancellationTokenSource();
