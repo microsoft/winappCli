@@ -298,6 +298,33 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Migrate_IgnoresNestedMigrationReportsDuringVerification()
+    {
+        var source = await CreateUwpSourceAsync("NestedReportApp");
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "nested-report-output"));
+        ArrangeTemplateCreation(target, "NestedReportAppApp", templateOutput =>
+        {
+            var nestedDirectory = templateOutput.CreateSubdirectory("NestedLibrary");
+            File.WriteAllText(
+                Path.Combine(nestedDirectory.FullName, "migration-report.json"),
+                """{"legacyExample":"Windows.UI.Xaml.Controls.Button"}""");
+        });
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        Assert.AreEqual(
+            0,
+            report.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("legacyNamespaceResiduals")
+                .GetArrayLength());
+    }
+
+    [TestMethod]
     public async Task Migrate_AccountsForEveryEligibleSourceFile()
     {
         var source = await CreateUwpSourceAsync("InventoryApp");

@@ -430,7 +430,7 @@ internal partial class MigrateCommand
             {
                 var relativePath = Path.GetRelativePath(targetRoot, file);
                 if (string.Equals(
-                        relativePath,
+                        Path.GetFileName(relativePath),
                         "migration-report.json",
                         StringComparison.OrdinalIgnoreCase)
                     || relativePath.Split(
