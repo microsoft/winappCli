@@ -103,7 +103,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
 
         using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
             Path.Combine(target.FullName, "migration-report.json"), TestContext.CancellationToken));
-        Assert.AreEqual("1.1", report.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.AreEqual("1.2", report.RootElement.GetProperty("schemaVersion").GetString());
         Assert.AreEqual("mechanical-migration-complete", report.RootElement.GetProperty("status").GetString());
         Assert.IsTrue(report.RootElement.GetProperty("todos").GetArrayLength() >= 2);
         Assert.IsTrue(report.RootElement.GetProperty("todos").EnumerateArray()
@@ -155,6 +155,122 @@ public class MigrateCommandTests : MigrateCommandTestBase
             TestContext.CancellationToken);
         Assert.DoesNotContain("<GenerateAssemblyInfo>", nestedProject);
         StringAssert.Contains(output, "preserved Properties\\AssemblyInfo.cs remains authoritative");
+    }
+
+    [TestMethod]
+    public async Task Migrate_ReportsDependencyGraphWithoutChoosingReplacementStrategy()
+    {
+        var source = await CreateUwpSourceAsync("DependencyApp");
+        var sibling = _tempDirectory.CreateSubdirectory("SharedDependency");
+        await WriteAsync(source, "DependencyApp.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><TargetFramework>uap10.0</TargetFramework></PropertyGroup>
+              <ItemGroup>
+                <PackageReference Include="Legacy.Editor" Version="1.2.3" />
+                <PackageReference Include="$(ConditionalPackage)" Version="$(ConditionalVersion)" Condition="'$(UseConditionalPackage)' == 'true'" />
+                <PackageReference Include="Conditional.Concrete" Version="7.8.9" Condition="'$(UseConditionalPackage)' == 'true'" />
+                <ProjectReference Include="..\SharedDependency\SharedDependency.csproj" />
+                <ProjectReference Include="$(OptionalProject)" Condition="'$(UseOptionalProject)' == 'true'" />
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(sibling, "SharedDependency.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><TargetFrameworks>uap10.0;netstandard2.0</TargetFrameworks></PropertyGroup>
+              <ItemGroup>
+                <PackageReference Include="Legacy.Helpers"><Version>4.5.6</Version></PackageReference>
+              </ItemGroup>
+            </Project>
+            """);
+        var target = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "dependency-output"));
+        ArrangeTemplateCreation(target, "DependencyAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var dependencies = report.RootElement.GetProperty("dependencyAnalysis");
+        Assert.AreEqual("review-required", dependencies.GetProperty("status").GetString());
+        Assert.AreEqual(2, dependencies.GetProperty("projects").GetArrayLength());
+        var packages = dependencies.GetProperty("packageReferences").EnumerateArray().ToList();
+        Assert.AreEqual(4, packages.Count);
+        Assert.IsTrue(packages.All(package =>
+            package.GetProperty("compatibilityStatus").GetString() == "review-required"));
+        Assert.IsTrue(packages.Any(package =>
+            package.GetProperty("id").GetString() == "Legacy.Editor"
+            && package.GetProperty("version").GetString() == "1.2.3"
+            && package.GetProperty("line").GetInt32() > 0));
+        var conditionalPackage = packages.Single(package =>
+            package.GetProperty("id").GetString() == "$(ConditionalPackage)");
+        Assert.AreEqual(
+            "unresolved-properties",
+            conditionalPackage.GetProperty("resolutionStatus").GetString());
+        StringAssert.Contains(
+            conditionalPackage.GetProperty("condition").GetString(),
+            "UseConditionalPackage");
+        Assert.AreEqual(
+            "unresolved-condition",
+            packages.Single(package =>
+                    package.GetProperty("id").GetString() == "Conditional.Concrete")
+                .GetProperty("resolutionStatus")
+                .GetString());
+        var projectReferences = dependencies.GetProperty("projectReferences").EnumerateArray().ToList();
+        Assert.AreEqual(2, projectReferences.Count);
+        var projectReference = projectReferences.Single(reference =>
+            reference.GetProperty("resolutionStatus").GetString() == "resolved");
+        Assert.AreEqual(
+            @"..\SharedDependency\SharedDependency.csproj",
+            projectReference.GetProperty("include").GetString());
+        Assert.IsTrue(projectReference.GetProperty("line").GetInt32() > 0);
+        Assert.IsTrue(projectReference.GetProperty("outsideSourceRoot").GetBoolean());
+        Assert.AreEqual(
+            "../SharedDependency/SharedDependency.csproj",
+            projectReference.GetProperty("resolvedPath").GetString());
+        Assert.IsTrue(projectReferences.Any(reference =>
+            reference.GetProperty("include").GetString() == "$(OptionalProject)"
+            && reference.GetProperty("resolutionStatus").GetString() == "unresolved"));
+        Assert.AreEqual(0, dependencies.GetProperty("issues").GetArrayLength());
+        Assert.DoesNotContain("replacement", dependencies.ToString().ToLowerInvariant());
+    }
+
+    [TestMethod]
+    public async Task Migrate_ReportsDependencyProjectsThatCannotBeInspected()
+    {
+        var source = await CreateUwpSourceAsync("UnreadableDependencyApp");
+        var sibling = _tempDirectory.CreateSubdirectory("MalformedDependency");
+        await WriteAsync(source, "UnreadableDependencyApp.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><TargetFramework>uap10.0</TargetFramework></PropertyGroup>
+              <ItemGroup>
+                <ProjectReference Include="..\MalformedDependency\MalformedDependency.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(
+            sibling,
+            "MalformedDependency.csproj",
+            "<Project><PropertyGroup>");
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "unreadable-dependency-output"));
+        ArrangeTemplateCreation(target, "UnreadableDependencyAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var dependencies = report.RootElement.GetProperty("dependencyAnalysis");
+        Assert.AreEqual("incomplete", dependencies.GetProperty("status").GetString());
+        var issue = dependencies.GetProperty("issues").EnumerateArray().Single();
+        Assert.AreEqual("project-inspection-failed", issue.GetProperty("kind").GetString());
+        Assert.AreEqual(
+            "../MalformedDependency/MalformedDependency.csproj",
+            issue.GetProperty("sourceProject").GetString());
+        StringAssert.Contains(output, "1 inspection issue(s)");
     }
 
     [TestMethod]
@@ -366,6 +482,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
             reportPath,
             TestContext.CancellationToken))!;
         reportNode["validation"]!["sourceBaseline"]!["status"] = "captured";
+        reportNode["dependencyAnalysis"]!["status"] = "resolved";
         await File.WriteAllTextAsync(
             reportPath,
             reportNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
@@ -390,6 +507,12 @@ public class MigrateCommandTests : MigrateCommandTestBase
                     .GetProperty("sourceBaseline")
                     .GetProperty("status")
                     .GetString());
+            Assert.AreEqual(
+                "resolved",
+                failedReport.RootElement
+                    .GetProperty("dependencyAnalysis")
+                    .GetProperty("status")
+                    .GetString());
             Assert.IsTrue(failedReport.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
                 todo.GetProperty("id").GetString() == "UWMIG011"));
         }
@@ -412,6 +535,12 @@ public class MigrateCommandTests : MigrateCommandTestBase
             passedReport.RootElement
                 .GetProperty("validation")
                 .GetProperty("sourceBaseline")
+                .GetProperty("status")
+                .GetString());
+        Assert.AreEqual(
+            "resolved",
+            passedReport.RootElement
+                .GetProperty("dependencyAnalysis")
                 .GetProperty("status")
                 .GetString());
     }

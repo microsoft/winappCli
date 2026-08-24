@@ -8,7 +8,7 @@ namespace WinApp.Cli.Models;
 internal sealed class MigrationReport
 {
     [JsonPropertyName("schemaVersion")]
-    public string SchemaVersion { get; set; } = "1.1";
+    public string SchemaVersion { get; set; } = "1.2";
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = "mechanical-migration-complete";
@@ -28,11 +28,122 @@ internal sealed class MigrationReport
     [JsonPropertyName("todos")]
     public List<MigrationTodo> Todos { get; set; } = [];
 
+    [JsonPropertyName("dependencyAnalysis")]
+    public MigrationDependencyAnalysis DependencyAnalysis { get; set; } = new();
+
     [JsonPropertyName("mechanicalVerification")]
     public MigrationMechanicalVerification MechanicalVerification { get; set; } = new();
 
     [JsonPropertyName("validation")]
     public MigrationValidation Validation { get; set; } = new();
+}
+
+internal sealed class MigrationDependencyAnalysis
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "not-run";
+
+    [JsonPropertyName("projects")]
+    public List<MigrationDependencyProject> Projects { get; set; } = [];
+
+    [JsonPropertyName("packageReferences")]
+    public List<MigrationPackageReference> PackageReferences { get; set; } = [];
+
+    [JsonPropertyName("projectReferences")]
+    public List<MigrationProjectReference> ProjectReferences { get; set; } = [];
+
+    [JsonPropertyName("issues")]
+    public List<MigrationDependencyIssue> Issues { get; set; } = [];
+}
+
+internal sealed class MigrationDependencyIssue
+{
+    [JsonPropertyName("kind")]
+    public required string Kind { get; set; }
+
+    [JsonPropertyName("sourceProject")]
+    public required string SourceProject { get; set; }
+
+    [JsonPropertyName("reason")]
+    public required string Reason { get; set; }
+}
+
+internal sealed class MigrationDependencyProject
+{
+    [JsonPropertyName("path")]
+    public required string Path { get; set; }
+
+    [JsonPropertyName("targetFrameworks")]
+    public List<string> TargetFrameworks { get; set; } = [];
+
+    [JsonPropertyName("targetPlatformIdentifier")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetPlatformIdentifier { get; set; }
+
+    [JsonPropertyName("targetPlatformVersion")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetPlatformVersion { get; set; }
+
+    [JsonPropertyName("targetPlatformMinVersion")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetPlatformMinVersion { get; set; }
+}
+
+internal sealed class MigrationPackageReference
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("version")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Version { get; set; }
+
+    [JsonPropertyName("sourceProject")]
+    public required string SourceProject { get; set; }
+
+    [JsonPropertyName("line")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Line { get; set; }
+
+    [JsonPropertyName("condition")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Condition { get; set; }
+
+    [JsonPropertyName("resolutionStatus")]
+    public string ResolutionStatus { get; set; } = "declared";
+
+    [JsonPropertyName("compatibilityStatus")]
+    public string CompatibilityStatus { get; set; } = "review-required";
+}
+
+internal sealed class MigrationProjectReference
+{
+    [JsonPropertyName("include")]
+    public required string Include { get; set; }
+
+    [JsonPropertyName("resolvedPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResolvedPath { get; set; }
+
+    [JsonPropertyName("sourceProject")]
+    public required string SourceProject { get; set; }
+
+    [JsonPropertyName("line")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Line { get; set; }
+
+    [JsonPropertyName("condition")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Condition { get; set; }
+
+    [JsonPropertyName("resolutionStatus")]
+    public string ResolutionStatus { get; set; } = "unresolved";
+
+    [JsonPropertyName("outsideSourceRoot")]
+    public bool OutsideSourceRoot { get; set; }
+
+    [JsonPropertyName("compatibilityStatus")]
+    public string CompatibilityStatus { get; set; } = "review-required";
 }
 
 internal sealed class MigrationMechanicalVerification

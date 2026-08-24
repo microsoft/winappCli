@@ -268,6 +268,12 @@ internal partial class MigrateCommand : Command, IShortDescription
                 Summary = "Created the target with the official WinUI project template",
                 ChangedFiles = 1
             });
+            report.DependencyAnalysis = AnalyzeSourceDependencies(sourceRoot, sourceProject);
+            Console.Out.WriteLine(
+                $"    Inventoried {report.DependencyAnalysis.PackageReferences.Count} package reference(s) and " +
+                $"{report.DependencyAnalysis.ProjectReferences.Count} project reference(s) across " +
+                $"{report.DependencyAnalysis.Projects.Count} source project(s); " +
+                $"{report.DependencyAnalysis.Issues.Count} inspection issue(s)");
 
             var copied = new List<string>();
             var preservedStartup = new List<string>();
@@ -467,7 +473,7 @@ internal partial class MigrateCommand : Command, IShortDescription
                     Category = "project-dependencies",
                     Priority = "required",
                     Summary = "Review UWP project references, linked content, and dependencies",
-                    Reason = "Project/package references and files linked from outside the source root cannot be copied safely without deciding whether each item supports the WinUI 3 desktop target.",
+                    Reason = "Use dependencyAnalysis for the source project-reference graph. Project/package references and files linked from outside the source root require an explicit target-compatibility decision before they can be migrated safely.",
                     Locations = csprojs.Select(path => new MigrationLocation
                     {
                         Path = NormalizePath(Path.Combine(".uwp-source", Path.GetFileName(path) + ".reference"))
