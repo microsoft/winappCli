@@ -106,6 +106,81 @@ public sealed class NuGetResolverTests
     }
 
     [TestMethod]
+    public void FindWinMdFromProjectReferences_CustomAssemblyName_IndexesTheBuiltOutput()
+    {
+        // MSBuild names the output from <AssemblyName>, not the project file. Matching on
+        // the project's own name finds nothing, so `find-api members Company.Controls.Widget`
+        // answers "Type not found" for a type the app compiles against today.
+        string libDir = Path.Combine(_dir, "RenamedLib");
+        string libBin = Path.Combine(libDir, "bin", "Debug", "net8.0");
+        Directory.CreateDirectory(libBin);
+        File.WriteAllText(Path.Combine(libDir, "RenamedLib.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <AssemblyName>Company.Controls</AssemblyName>
+              </PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(libBin, "Company.Controls.dll"), "x");
+
+        string appDir = Path.Combine(_dir, "RenamedApp");
+        Directory.CreateDirectory(appDir);
+        string appProject = Path.Combine(appDir, "App.csproj");
+        File.WriteAllText(appProject, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="..\RenamedLib\RenamedLib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(1, packages.Count, "the renamed output is still the referenced library");
+        CollectionAssert.AreEquivalent(
+            RenamedLibraryOutputOnly,
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_SameOutputInSeveralConfigurations_TakesTheNewest()
+    {
+        // bin\ holds one subtree per configuration, all with the same file name. Taking
+        // whichever the directory walk yields first indexes a stale Debug build after the
+        // developer switches to Release, and a type added since then reads as missing.
+        string libDir = Path.Combine(_dir, "MultiCfgLib");
+        string debugBin = Path.Combine(libDir, "bin", "Debug", "net8.0");
+        string releaseBin = Path.Combine(libDir, "bin", "Release", "net8.0");
+        Directory.CreateDirectory(debugBin);
+        Directory.CreateDirectory(releaseBin);
+        File.WriteAllText(Path.Combine(libDir, "MultiCfgLib.csproj"), "<Project />");
+
+        string stale = Path.Combine(debugBin, "MultiCfgLib.dll");
+        string fresh = Path.Combine(releaseBin, "MultiCfgLib.dll");
+        File.WriteAllText(stale, "old");
+        File.WriteAllText(fresh, "new");
+        File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddHours(-2));
+        File.SetLastWriteTimeUtc(fresh, DateTime.UtcNow);
+
+        string appDir = Path.Combine(_dir, "MultiCfgApp");
+        Directory.CreateDirectory(appDir);
+        string appProject = Path.Combine(appDir, "App.csproj");
+        File.WriteAllText(appProject, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="..\MultiCfgLib\MultiCfgLib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(1, packages.Count);
+        Assert.AreEqual(1, packages[0].WinMdFiles.Count, "one output per assembly name, not one per configuration");
+        Assert.AreEqual(fresh, packages[0].WinMdFiles[0], "the most recently built output wins");
+    }
+
+    [TestMethod]
     public void FindProjectAssetsJson_SeveralUnderOneObjTree_PicksTheOneRestoredForThisProject()
     {
         // Colocated projects, or a nested BaseIntermediateOutputPath, put more than one
@@ -125,6 +200,71 @@ public sealed class NuGetResolverTests
 
         Assert.AreEqual(myAssets, NuGetResolver.FindProjectAssetsJson(projectDir, mine));
         Assert.AreEqual(theirAssets, NuGetResolver.FindProjectAssetsJson(projectDir, theirs));
+    }
+
+    [TestMethod]
+    public void FindProjectAssetsJson_ObjIsAJunctionOutOfTheProject_IsNotFollowed()
+    {
+        // `find-api` indexes whatever a cloned repo points it at, without the user opening
+        // a file. A checked-in `obj` junction (or symlink) aimed at \\attacker\share turns
+        // `winapp find-api refresh` into an outbound authenticated SMB connection that
+        // leaks the caller's NTLM credentials — the reason every repo-controlled probe in
+        // this resolver is gated before it touches the disk.
+        string projectDir = Path.Combine(_dir, "Junctioned");
+        string outside = Path.Combine(_dir, "Elsewhere", "obj");
+        Directory.CreateDirectory(projectDir);
+        Directory.CreateDirectory(outside);
+
+        string projectFile = Path.Combine(projectDir, "App.csproj");
+        File.WriteAllText(projectFile, "<Project />");
+        File.WriteAllText(Path.Combine(outside, "project.assets.json"), "{}");
+
+        string link = Path.Combine(projectDir, "obj");
+        if (!TryCreateJunction(link, outside))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsNull(
+                NuGetResolver.FindProjectAssetsJson(projectDir, projectFile),
+                "a redirected obj directory must not be probed or read");
+        }
+        finally
+        {
+            // Removing the reparse point itself; recursive deletion of the fixture would
+            // otherwise fail on it.
+            Directory.Delete(link);
+        }
+    }
+
+    /// <summary>Creates a directory junction (<c>mklink /J</c>), which needs no elevation.</summary>
+    private static bool TryCreateJunction(string link, string target)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c mklink /J \"{link}\" \"{target}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null)
+            {
+                return false;
+            }
+            p.WaitForExit(5000);
+            return p.ExitCode == 0 && Directory.Exists(link);
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
     }
 
     [TestMethod]
@@ -172,6 +312,7 @@ public sealed class NuGetResolverTests
     }
 
     private static readonly string[] ReferencedLibraryOutputOnly = ["ContosoLib.dll"];
+    private static readonly string[] RenamedLibraryOutputOnly = ["Company.Controls.dll"];
 
     /// <summary>
     /// Writes an assets file under <c>obj/&lt;intermediate&gt;/</c> — never directly at

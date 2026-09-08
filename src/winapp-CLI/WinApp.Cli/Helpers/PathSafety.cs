@@ -119,6 +119,36 @@ internal static class PathSafety
     }
 
     /// <summary>
+    /// True when <paramref name="path"/> is <paramref name="root"/> itself or lives beneath
+    /// it. Pure string containment: this answers "does the repository control this location",
+    /// not "is it safe to touch" — pair it with <see cref="CrossesReparsePoint"/> for that.
+    /// </summary>
+    public static bool IsUnder(string path, string root)
+    {
+        string normalizedPath;
+        string normalizedRoot;
+        try
+        {
+            normalizedPath = NormalizeForContainment(Path.GetFullPath(path));
+            normalizedRoot = NormalizeForContainment(Path.GetFullPath(root));
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string rootWithSep = normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? normalizedRoot
+            : normalizedRoot + Path.DirectorySeparatorChar;
+        return normalizedPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The deepest directory both paths share, or <c>null</c> when they do not share a
     /// volume. Both inputs must already be absolute and normalized.
     /// </summary>

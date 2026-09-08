@@ -27,7 +27,7 @@ internal static partial class NuGetResolver
 
         if (assetsPath != null)
         {
-            packages.AddRange(FindPackagesFromAssets(assetsPath, warn));
+            packages.AddRange(FindPackagesFromAssets(assetsPath, warn, projectDir));
             targetPlatformVersion = ReadTargetPlatformVersion(assetsPath);
         }
 
@@ -480,7 +480,10 @@ internal static partial class NuGetResolver
                 string refDir = Path.GetDirectoryName(fullPath)!;
                 string refName = Path.GetFileNameWithoutExtension(fullPath);
                 string binDir = Path.Combine(refDir, "bin");
-                if (!Directory.Exists(binDir))
+                // The referenced project's own directory is the boundary here: its `bin` is
+                // as repo-controlled as the `.csproj` guarded above, and a junction there
+                // would send the recursive scan below onto a share.
+                if (PathSafety.CrossesReparsePoint(binDir, refDir) || !Directory.Exists(binDir))
                 {
                     continue;
                 }
@@ -493,11 +496,20 @@ internal static partial class NuGetResolver
                 // answers "does not exist" — for code in the caller's own solution.
                 // Only the referenced project's own output is taken: bin also holds every
                 // dependency copied next to it, and indexing those would answer from
-                // assemblies the project does not reference directly.
-                winmds.AddRange(Directory.GetFiles(binDir, refName + ".dll", SearchOption.AllDirectories));
+                // assemblies the project does not reference directly. That output is named
+                // by <AssemblyName> when the project sets one, and only defaults to the
+                // file name otherwise.
+                string outputName = ReadAssemblyName(fullPath) ?? refName;
+                winmds.AddRange(Directory.GetFiles(binDir, outputName + ".dll", SearchOption.AllDirectories));
 
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                winmds = winmds.Where(f => seen.Add(Path.GetFileName(f))).ToList();
+                // Newest wins per file name. `bin` accumulates every configuration and
+                // target framework ever built, so first-found means directory enumeration
+                // order decides which surface is indexed and a stale Debug build can hide
+                // types that exist in the Release one built minutes ago.
+                winmds = winmds
+                    .GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.OrderByDescending(LastWriteOrMin).First())
+                    .ToList();
                 if (winmds.Count > 0)
                 {
                     // The referenced project's full path is hashed into the package id
@@ -519,6 +531,47 @@ internal static partial class NuGetResolver
     }
 
     /// <summary>
+    /// The assembly name a referenced project builds to, or <see langword="null"/> to use
+    /// the project file name. Values containing an unexpanded MSBuild property are treated
+    /// as absent: evaluating them needs the whole MSBuild engine, and guessing produces a
+    /// file name that matches nothing.
+    /// </summary>
+    private static string? ReadAssemblyName(string projectFile)
+    {
+        try
+        {
+            // Last one wins, as in MSBuild evaluation. LocalName ignores the namespace so
+            // SDK-style and legacy projects read the same way.
+            string? value = XDocument.Load(projectFile)
+                .Descendants()
+                .Where(e => e.Name.LocalName == "AssemblyName")
+                .Select(e => e.Value.Trim())
+                .LastOrDefault(v => v.Length > 0 && !v.Contains("$("));
+            return string.IsNullOrEmpty(value) ? null : value;
+        }
+        catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Last write time, or <see cref="DateTime.MinValue"/> for a file that cannot be read —
+    /// which just loses the newest-wins comparison rather than failing the resolve.
+    /// </summary>
+    private static DateTime LastWriteOrMin(string path)
+    {
+        try
+        {
+            return File.GetLastWriteTimeUtc(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return DateTime.MinValue;
+        }
+    }
+
+    /// <summary>
     /// The file whose modification time says when a project was last restored, and
     /// therefore when its index went stale: <c>project.assets.json</c> for an MSBuild
     /// project, or <c>.winapp/winmds.lock.json</c> for a project driven by
@@ -533,17 +586,32 @@ internal static partial class NuGetResolver
             return assetsPath;
         }
         string lockfilePath = Path.Combine(projectDir, ".winapp", WinmdsLockfileService.LockfileName);
+        // Same reason the lockfile is guarded where it is read: `.winapp` is a directory
+        // the repository supplies, so a junction there redirects this probe onto whatever
+        // host it names, and File.Exists authenticates before returning.
+        if (PathSafety.CrossesReparsePoint(lockfilePath, projectDir))
+        {
+            return null;
+        }
         return File.Exists(lockfilePath) ? lockfilePath : null;
     }
 
     internal static string? FindProjectAssetsJson(string projectDir, string? projectFile = null)
     {
-        string direct = Path.Combine(projectDir, "obj", "project.assets.json");
+        string objDir = Path.Combine(projectDir, "obj");
+        // `obj` is regenerated by every build, so it reads like machine state — but it is a
+        // path inside a cloned working tree, and a junction committed in its place sends
+        // both the probe below and the recursive scan to wherever it points. Checked before
+        // any probe, because File.Exists on a redirected path has already reached the host.
+        if (PathSafety.CrossesReparsePoint(objDir, projectDir))
+        {
+            return null;
+        }
+        string direct = Path.Combine(objDir, "project.assets.json");
         if (File.Exists(direct))
         {
             return direct;
         }
-        string objDir = Path.Combine(projectDir, "obj");
         if (!Directory.Exists(objDir))
         {
             return null;
@@ -666,9 +734,14 @@ internal static partial class NuGetResolver
         return best ?? first;
     }
 
-    internal static List<PackageWithWinMd> FindPackagesFromAssets(string assetsPath, Action<string>? warn = null)
+    internal static List<PackageWithWinMd> FindPackagesFromAssets(string assetsPath, Action<string>? warn = null, string? projectDir = null)
     {
         var packages = new List<PackageWithWinMd>();
+        // The tree the repository controls. `project.assets.json` normally sits in
+        // `<projectDir>\obj`, so its grandparent is the project when the caller did not
+        // say; a custom BaseIntermediateOutputPath only makes this deeper, which narrows
+        // what counts as repo-controlled rather than trusting more of the disk.
+        string probeRoot = projectDir ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(assetsPath) ?? ".", ".."));
         try
         {
             using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(assetsPath));
@@ -678,7 +751,7 @@ internal static partial class NuGetResolver
             if (root.TryGetProperty("packageFolders", out var packageFoldersEl))
             {
                 packageFolders.AddRange(packageFoldersEl.EnumerateObject()
-                    .Where(folder => IsProbeablePath(folder.Name))
+                    .Where(folder => IsProbeablePath(folder.Name, probeRoot))
                     .Select(folder => folder.Name));
             }
 
@@ -866,7 +939,7 @@ internal static partial class NuGetResolver
 
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var files = package.Winmds
-                    .Where(winmd => IsProbeablePath(winmd) && File.Exists(winmd))
+                    .Where(winmd => IsProbeablePath(winmd, projectDir) && File.Exists(winmd))
                     .Where(winmd => seen.Add(Path.GetFileName(winmd)))
                     .ToList();
                 if (files.Count == 0)
@@ -970,7 +1043,11 @@ internal static partial class NuGetResolver
         for (int i = 0; i < 5; i++)
         {
             string candidate = Path.Combine(current, "packages");
-            if (Directory.Exists(candidate))
+            // Walking up from the project stays inside the clone, so a junction named
+            // `packages` at any level would be followed by the scan in the caller. Guard
+            // before Directory.Exists: `&&` short-circuits, and probing first has already
+            // reached whatever host the junction names.
+            if (!PathSafety.CrossesReparsePoint(candidate, current) && Directory.Exists(candidate))
             {
                 return candidate;
             }
@@ -1138,8 +1215,23 @@ internal static partial class NuGetResolver
     /// read-only query into an outbound SMB authentication attempt against a host the
     /// repository picked, so network paths are skipped rather than probed.
     /// </summary>
-    private static bool IsProbeablePath(string? path) =>
-        !string.IsNullOrWhiteSpace(path) && !PathSafety.IsNetworkPath(path);
+    /// <remarks>
+    /// A value that lands inside <paramref name="root"/> is repo-controlled twice over: the
+    /// repository names it *and* supplies the directories it passes through, so a junction
+    /// committed along the way redirects the probe onto a share without the value ever
+    /// looking network-shaped. Such a value must be reachable without crossing a reparse
+    /// point. A value outside <paramref name="root"/> — most often a NuGet cache on another
+    /// volume — was configured by the user rather than named by the repository, and only the
+    /// network check applies; requiring containment there would reject every normal machine.
+    /// </remarks>
+    private static bool IsProbeablePath(string? path, string root)
+    {
+        if (string.IsNullOrWhiteSpace(path) || PathSafety.IsNetworkPath(path))
+        {
+            return false;
+        }
+        return !PathSafety.IsUnder(path, root) || !PathSafety.CrossesReparsePoint(path, root);
+    }
 
     /// <summary>
     /// Resolves a relative path named by project metadata against <paramref name="root"/>,
