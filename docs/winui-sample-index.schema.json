@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/winappCli/main/docs/winui-sample-index.schema.json",
+  "title": "WinUI sample index",
+  "description": "A machine-readable index of WinUI control samples, published by the repository that owns the samples. One file fully describes a source's controls and their sample code, so consuming tools need a single HTTP request instead of scraping repository layout.\n\nThis schema generalizes the shape already published by microsoft/microsoft-ui-reactor as reactor-search-index.json. Field names from that file are preserved verbatim so an index that validates against the Reactor shape also validates here; the additions ('details', 'xaml', 'xmlnsImports', 'docs') exist to describe XAML-based sources such as microsoft/WinUI-Gallery and CommunityToolkit/Windows.",
+  "type": "object",
+  "required": ["schemaVersion", "controls"],
+  "properties": {
+    "schemaVersion": {
+      "description": "Version of this contract. Consumers reject an index whose major version they do not understand, which lets a source restructure its index without silently feeding a consumer fields it will misread.",
+      "type": "integer",
+      "const": 1
+    },
+    "source": {
+      "description": "Stable short identifier for the publishing repository (e.g. 'gallery', 'toolkit', 'reactor'). Consumers use it to attribute a sample back to its origin.",
+      "type": "string",
+      "minLength": 1
+    },
+    "generatedAtUtc": {
+      "description": "When this index was generated, ISO-8601 UTC. Informational only; consumers must not require it. Omit it if reproducible byte-identical output matters more than provenance, since a timestamp makes every regeneration a diff.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "controls": {
+      "description": "Every control the source documents. A control with no samples is allowed (it still carries useful metadata) but consumers may skip it.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/control" }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "control": {
+      "type": "object",
+      "required": ["id", "samples"],
+      "properties": {
+        "id": {
+          "description": "Stable, unique, URL-safe identifier for the control within this source (e.g. 'appbarbutton'). Consumers key sample ids off this, so it must not change when a display name is reworded.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Display name of the control (e.g. 'AppBarButton').",
+          "type": "string"
+        },
+        "description": {
+          "description": "One-line summary of what the control is for. Kept short — consumers render it inline next to the control name. Named 'description' to match the published Reactor index, where this field already carries the one-line summary.",
+          "type": "string"
+        },
+        "details": {
+          "description": "Longer prose description, where the source has one distinct from the one-line summary. Separate from 'description' because sources such as WinUI-Gallery maintain both a short subtitle and a full description. Acts as the default for samples that do not set their own 'details'.",
+          "type": "string"
+        },
+        "apiNamespace": {
+          "description": "Namespace the control's API lives in (e.g. 'Microsoft.UI.Xaml.Controls'). Lets a consumer emit the correct using/xmlns for long-tail controls.",
+          "type": "string"
+        },
+        "nugetPackage": {
+          "description": "NuGet package that must be referenced to use this control. Omit when the control ships in the platform SDK.",
+          "type": "string"
+        },
+        "relatedControls": {
+          "description": "Display names of related controls — 'see also' alternatives and pairings.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "xmlnsImports": {
+          "description": "Full XAML namespace declarations required by this control's XAML samples (e.g. 'xmlns:controls=\"using:CommunityToolkit.WinUI.Controls\"'). Emitted verbatim by consumers, so include the whole attribute rather than just the URI. Acts as the default for samples that do not set their own 'xmlnsImports'.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "usings": {
+          "description": "Namespaces the control's C# samples assume are imported. Consumers prepend these as 'using X;' lines so a sample compiles standalone; do not repeat them inside each sample's 'code'.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "keywords": {
+          "description": "Supplementary search terms for this control, including multi-word intent phrases (e.g. 'css layout'). Served verbatim by consumers rather than tokenized, so phrase entries survive. Use this for terms derived or gathered to aid discovery; for terms the sample's own author wrote, prefer 'curatedKeywords', which consumers weigh more heavily.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "curatedKeywords": {
+          "description": "Search terms written by the sample's author, typically alongside the sample itself (for example a documentation file's frontmatter). Consumers weigh these above 'keywords' because they state intent first-hand rather than being inferred. Kept separate from 'keywords' so an author's own terms are not diluted by supplementary ones.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "docs": {
+          "description": "Official documentation links for the control.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/docLink" }
+        },
+        "samples": {
+          "description": "The control's samples, in the order the source wants them presented. Consumers assign ids positionally, so appending is safe and reordering is not.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/sample" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "docLink": {
+      "type": "object",
+      "required": ["uri"],
+      "properties": {
+        "title": {
+          "description": "Link text (e.g. 'AppBarButton class').",
+          "type": "string"
+        },
+        "uri": {
+          "description": "Absolute URL of the documentation page.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "sample": {
+      "description": "A single self-contained sample. At least one of 'xaml' or 'code' must be present and non-empty; consumers skip a sample that has neither.",
+      "type": "object",
+      "anyOf": [
+        { "required": ["xaml"], "properties": { "xaml": { "pattern": "\\S" } } },
+        { "required": ["code"], "properties": { "code": { "pattern": "\\S" } } }
+      ],
+      "properties": {
+        "header": {
+          "description": "Short title describing what this sample demonstrates (e.g. 'Button with keyboard accelerator').",
+          "type": "string"
+        },
+        "xaml": {
+          "description": "The sample's XAML, exactly as it should be pasted into a project. Must be a well-formed XML fragment: consumers validate it and drop samples that fail to parse, so malformed markup silently removes the sample rather than shipping something that will not compile. Namespace prefixes used here should be declared in this sample's 'xmlnsImports', or in the control's when every sample shares the same imports.",
+          "type": "string"
+        },
+        "code": {
+          "description": "The sample's C#, exactly as it should be pasted into a project. Consumers validate that braces balance and drop the code otherwise. Omit the control-level 'usings' — consumers add those.",
+          "type": "string"
+        },
+        "language": {
+          "description": "Language of 'code'. Optional, and 'csharp' is the only value schema version 1 accepts: consumers paste 'code' into a C# file, so they ignore code tagged as anything else. A later schema version may widen this.",
+          "type": "string",
+          "enum": ["csharp"]
+        },
+        "details": {
+          "description": "Longer prose describing this specific sample, when it differs from the control's 'details'. Omit it when the control-level value applies — consumers fall back to that. Sources whose samples each carry their own documentation (for example a per-sample markdown file) will normally set it here rather than on the control.",
+          "type": "string"
+        },
+        "xmlnsImports": {
+          "description": "XAML namespace declarations required by this specific sample, when they differ from the control's 'xmlnsImports'. Omit it when the control-level value applies. Needed because sibling samples of one control can pull in different namespaces.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
