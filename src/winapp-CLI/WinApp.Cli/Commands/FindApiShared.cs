@@ -45,6 +45,29 @@ internal static class FindApiShared
         new(parseResult.GetValue(ProjectDirOption), parseResult.GetValue(ProjectOption));
 
     /// <summary>
+    /// Adds the two scope options to a command, together with the validator that keeps
+    /// them from being combined. They name the scope two different ways — a directory to
+    /// look in, and a project (or the machine-wide SDK) to answer from — so passing both
+    /// leaves one silently ignored and the answer coming from a scope the caller did not
+    /// ask for. Registering them through one call keeps a new verb from picking up the
+    /// options without the check.
+    /// </summary>
+    public static void AddScopeOptions(Command command)
+    {
+        command.Options.Add(ProjectDirOption);
+        command.Options.Add(ProjectOption);
+        command.Validators.Add(result =>
+        {
+            if (result.GetResult(ProjectDirOption) is not null && result.GetResult(ProjectOption) is not null)
+            {
+                result.AddError(
+                    "--project-dir and --project cannot be combined: --project-dir picks the directory to read a project from, "
+                    + "and --project picks an already-indexed project by name (or 'sdk'). Pass whichever one names the scope you want.");
+            }
+        });
+    }
+
+    /// <summary>
     /// Rejects a search query typed in front of a verb. <c>find-api</c> on its own takes a
     /// free-form query, so <c>winapp find-api NavigationView members Button</c> binds
     /// <c>NavigationView</c> to the parent's query argument and then drops it when the verb
@@ -634,6 +657,10 @@ internal static class FindApiShared
             string detail = package.Status switch
             {
                 "ok" => $"{package.TotalTypes} types, {package.TotalMembers} members",
+                // A partially-parsed package still has usable types. Falling through to
+                // "(cache missing)" reports indexed data as absent, which sends the
+                // caller off to re-index something that is already there.
+                "incomplete" => $"{package.TotalTypes} types, {package.TotalMembers} members (partial -- some files could not be parsed)",
                 "meta-unreadable" => "(meta unreadable)",
                 _ => "(cache missing)",
             };

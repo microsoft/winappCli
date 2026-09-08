@@ -38,8 +38,7 @@ internal sealed class FindApiMembersCommand : Command, IShortDescription
         Arguments.Add(TypeArgument);
         Options.Add(FilterOption);
         Options.Add(AllOption);
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -110,8 +109,7 @@ internal sealed class FindApiCheckPropertyCommand : Command, IShortDescription
     {
         Arguments.Add(TypeArgument);
         Arguments.Add(PropertyArgument);
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -178,8 +176,7 @@ internal sealed class FindApiTypesCommand : Command, IShortDescription
         // `members`, and `types`. It still works for anyone who knows it exists.
         Hidden = true;
         Arguments.Add(NamespaceArgument);
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -227,8 +224,7 @@ internal sealed class FindApiEnumsCommand : Command, IShortDescription
     {
         Arguments.Add(TypeArgument);
         Options.Add(FilterOption);
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -289,8 +285,7 @@ internal sealed class FindApiNamespacesCommand : Command, IShortDescription
         // Hidden for the same reason as `types`: never invoked in 48 trial-runs.
         Hidden = true;
         Options.Add(FilterOption);
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -320,8 +315,7 @@ internal sealed class FindApiPackagesCommand : Command, IShortDescription
     public FindApiPackagesCommand()
         : base("packages", "List the NuGet/SDK packages whose API metadata is indexed for a project, with per-package type and member counts.")
     {
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -350,8 +344,7 @@ internal sealed class FindApiStatsCommand : Command, IShortDescription
     public FindApiStatsCommand()
         : base("stats", "Show aggregate statistics for a project's API index: package, namespace, type, member, and .winmd file counts.")
     {
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -417,8 +410,7 @@ internal sealed class FindApiRefreshCommand : Command, IShortDescription
         : base("refresh", "Rebuild the API metadata index for a project from its restored packages. Runs automatically when a project is restored; run it manually to force a re-index or to index a project for the first time.")
     {
         Options.Add(ScanOption);
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 

@@ -36,6 +36,38 @@ public sealed class NuGetResolverTests
         }
     }
 
+    [TestMethod]
+    public void FindPackagesFromAssets_MalformedAssetsFile_WarnsInsteadOfSilentlyIndexingNothing()
+    {
+        // The caller only reaches this method when project.assets.json exists, so a parse
+        // failure means restore output is present but unreadable. Staying silent leaves the
+        // caller with a thin index and no way to tell an unavailable API from an unread one.
+        string path = WriteAssets(@"{ ""libraries"": { ""Contoso/1.0.0"": { ""type"": ""pack");
+        var warnings = new List<string>();
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
+
+        Assert.AreEqual(0, packages.Count);
+        Assert.AreEqual(1, warnings.Count, "a truncated assets file must be reported");
+        StringAssert.Contains(warnings[0], "project.assets.json");
+        StringAssert.Contains(warnings[0], "dotnet restore");
+    }
+
+    [TestMethod]
+    public void FindPackagesFromAssets_WellFormedAssetsFile_DoesNotWarn()
+    {
+        // The warning must mark a real failure, not fire on every project.
+        string path = WriteAssets(JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object>(),
+            libraries = new Dictionary<string, object>(),
+        }));
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
+
+        Assert.AreEqual(0, warnings.Count);
+    }
     private string WriteAssets(string json)
     {
         string path = Path.Combine(_dir, "project.assets.json");

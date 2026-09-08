@@ -138,6 +138,17 @@ internal sealed class ApiMetadataService(
         else
         {
             projectDir = ResolveProjectDir(scope);
+
+            // Symmetric with the named-project branch above: a --project-dir that does
+            // not exist is a typo, and indexing the SDK instead reports success for a
+            // scope the caller never asked about — after which every query answers from
+            // the SDK and reports the project's own packages as not found.
+            if (scope.ProjectDir is not null && !Directory.Exists(projectDir))
+            {
+                return ApiQueryResult<ApiRefreshOutput>.InvalidInput(
+                    $"Project directory not found: '{projectDir}'. Check the path passed to '--project-dir', " +
+                    "or use '--project sdk' to refresh the machine-wide Windows SDK scope.");
+            }
         }
 
         ApiRefreshOutput output = ApiCacheBuilder.BuildCache(projectDir, cacheDir, scan, runtimePath, onProgress, force);

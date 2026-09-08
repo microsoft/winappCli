@@ -26,7 +26,7 @@ internal static partial class NuGetResolver
         string? targetPlatformVersion = null;
         if (assetsPath != null)
         {
-            packages.AddRange(FindPackagesFromAssets(assetsPath));
+            packages.AddRange(FindPackagesFromAssets(assetsPath, warn));
             targetPlatformVersion = ReadTargetPlatformVersion(assetsPath);
         }
         if (packages.Count == 0)
@@ -543,7 +543,7 @@ internal static partial class NuGetResolver
         return best ?? first;
     }
 
-    internal static List<PackageWithWinMd> FindPackagesFromAssets(string assetsPath)
+    internal static List<PackageWithWinMd> FindPackagesFromAssets(string assetsPath, Action<string>? warn = null)
     {
         var packages = new List<PackageWithWinMd>();
         try
@@ -672,8 +672,13 @@ internal static partial class NuGetResolver
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
             or JsonException or KeyNotFoundException or InvalidOperationException)
         {
-            // A missing or malformed project.assets.json yields no packages; the caller
-            // then falls back to packages.config / project references.
+            // The caller only gets here when project.assets.json exists, so a failure
+            // means restore output is present but unreadable. Staying silent indexes
+            // whatever was collected before the throw and answers "does not exist" for
+            // every package after it — a false negative with nothing to attribute it to.
+            warn?.Invoke(
+                $"Could not fully read '{assetsPath}' ({ex.Message}). Indexed {packages.Count} package(s) from it; " +
+                "APIs from the rest will report as not found. Re-run 'dotnet restore' and then 'winapp find-api refresh'.");
         }
         return packages;
     }

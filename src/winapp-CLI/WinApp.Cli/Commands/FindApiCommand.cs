@@ -52,8 +52,7 @@ internal sealed class FindApiCommand : Command, IShortDescription
     {
         Arguments.Add(QueryArgument);
         Options.Add(MaxOption);
-        Options.Add(FindApiShared.ProjectDirOption);
-        Options.Add(FindApiShared.ProjectOption);
+        FindApiShared.AddScopeOptions(this);
         Options.Add(WinAppRootCommand.JsonOption);
 
         Subcommands.Add(membersCommand);

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.DependencyInjection;
+using System.CommandLine;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.ApiSearch;
@@ -200,7 +201,11 @@ internal sealed class FakeApiMetadataService : IApiMetadataService
         return ApiQueryResult<ApiPackagesOutput>.Ok(new ApiPackagesOutput
         {
             ProjectName = "TestApp",
-            Packages = new List<ApiPackageSummary> { new() { Id = "Test.Pkg", Version = "1.0.0", Status = "ok", TotalTypes = 1, TotalMembers = 1 } },
+            Packages = new List<ApiPackageSummary>
+            {
+                new() { Id = "Test.Pkg", Version = "1.0.0", Status = "ok", TotalTypes = 1, TotalMembers = 1 },
+                new() { Id = "Partial.Pkg", Version = "2.0.0", Status = "incomplete", TotalTypes = 7, TotalMembers = 42 },
+            },
         });
     }
 
@@ -371,6 +376,41 @@ public sealed class FindApiCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exit);
         Assert.AreEqual("MyApp", _fake.LastScope.Project);
+    }
+
+    [DataRow(new[] { "NavigationView", "--project", "MyApp", "--project-dir", "C:\\other" })]
+    [DataRow(new[] { "members", "Button", "--project", "sdk", "--project-dir", "C:\\other" })]
+    [DataRow(new[] { "refresh", "--project", "MyApp", "--project-dir", "C:\\other" })]
+    [TestMethod]
+    public async Task ScopeOptionsTogether_AreRejected(string[] args)
+    {
+        // The two options name the scope in different ways, so combining them leaves one
+        // silently ignored and the answer coming from a scope the caller did not ask for —
+        // which for find-api means a confident result about the wrong project.
+        ParseResult parsed = Command.Parse(args);
+        Assert.IsTrue(
+            parsed.Errors.Any(e => e.Message.Contains("cannot be combined", StringComparison.Ordinal)),
+            "the conflict must be reported, not resolved silently");
+
+        int exit = await ParseAndInvokeWithCaptureAsync(Command, args);
+
+        Assert.AreNotEqual(0, exit, "combining the scope options must not succeed");
+    }
+
+    [TestMethod]
+    public async Task Packages_PartiallyIndexedPackage_ReportsItsContentsNotCacheMissing()
+    {
+        // A package whose status is 'incomplete' still has usable types. It used to fall
+        // through to the '(cache missing)' arm, which tells the caller to re-index
+        // something that is already there and hides what it does contain.
+        int exit = await ParseAndInvokeWithCaptureAsync(Command, ["packages"]);
+
+        Assert.AreEqual(0, exit);
+        StringAssert.Contains(TestAnsiConsole.Output, "7 types, 42 members");
+        StringAssert.Contains(TestAnsiConsole.Output, "partial");
+        Assert.IsFalse(
+            TestAnsiConsole.Output.Contains("cache missing", StringComparison.Ordinal),
+            "an indexed-but-partial package is not a missing cache");
     }
 
     [TestMethod]

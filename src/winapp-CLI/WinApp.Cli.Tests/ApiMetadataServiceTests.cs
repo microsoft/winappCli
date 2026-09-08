@@ -481,6 +481,21 @@ public sealed class ApiMetadataServiceTests
     }
 
     [TestMethod]
+    public void Refresh_NonexistentProjectDir_FailsInsteadOfIndexingTheSdk()
+    {
+        // Symmetric with the unknown-name case above. A mistyped --project-dir used to
+        // index the machine-wide SDK and exit 0, so the refresh looked successful and
+        // every later query answered from the SDK — reporting the project's own NuGet
+        // APIs as not found, with nothing pointing at the typo.
+        string missing = Path.Combine(_currentDir, "no-such-project-dir");
+
+        var result = CreateService().Refresh(new ApiRequestScope(missing, null), scan: false);
+
+        Assert.AreEqual(ApiQueryOutcome.InvalidInput, result.Outcome);
+        StringAssert.Contains(result.Message, "no-such-project-dir");
+    }
+
+    [TestMethod]
     public void Refresh_AmbiguousProjectName_FailsInsteadOfPickingOne()
     {
         string dirA = Path.Combine(_currentDir, "a", "Dup");
