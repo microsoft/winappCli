@@ -1096,8 +1096,11 @@ internal static class ApiQueryEngine
 
         // Ordinal, like the direct-property match: XAML is case-sensitive, so answering
         // "found" for Grid.row sends a caller off to write markup that will not load.
-        var getter = type.Members.FirstOrDefault(m => m.Kind == MemberKind.Method && m.Name.Equals(getName, StringComparison.Ordinal));
-        var setter = type.Members.FirstOrDefault(m => m.Kind == MemberKind.Method && m.Name.Equals(setName, StringComparison.Ordinal));
+        // XAML resolves attached-property accessors as statics on the owning type; an
+        // instance GetRow/SetRow pair has the right shape but cannot back `Helper.Row="1"`,
+        // so reporting it hands back markup that will not load.
+        var getter = type.Members.FirstOrDefault(m => m.Kind == MemberKind.Method && m.IsStatic && m.Name.Equals(getName, StringComparison.Ordinal));
+        var setter = type.Members.FirstOrDefault(m => m.Kind == MemberKind.Method && m.IsStatic && m.Name.Equals(setName, StringComparison.Ordinal));
 
         if (getter != null && getter.Parameters != null && getter.Parameters.Count >= 1)
         {

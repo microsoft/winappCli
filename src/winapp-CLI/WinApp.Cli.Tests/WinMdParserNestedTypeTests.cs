@@ -41,8 +41,8 @@ public class WinMdParserNestedTypeTests
         }
     }
 
-    /// <summary>A type to emit: its namespace, its name, and the outer type it nests in.</summary>
-    private sealed record TypeSpec(string Namespace, string Name, string? DeclaredIn = null);
+    /// <summary>A type to emit: its namespace, its name, the outer type it nests in, and whether it is publicly visible.</summary>
+    private sealed record TypeSpec(string Namespace, string Name, string? DeclaredIn = null, bool IsPublic = true);
 
     /// <summary>
     /// Writes a minimal but valid .winmd containing the given types. Nested types are
@@ -74,8 +74,11 @@ public class WinMdParserNestedTypeTests
         foreach (TypeSpec spec in specs)
         {
             bool nested = spec.DeclaredIn is not null;
+            TypeAttributes visibility = nested
+                ? (spec.IsPublic ? TypeAttributes.NestedPublic : TypeAttributes.NestedAssembly)
+                : (spec.IsPublic ? TypeAttributes.Public : TypeAttributes.NotPublic);
             TypeDefinitionHandle handle = metadata.AddTypeDefinition(
-                (nested ? TypeAttributes.NestedPublic : TypeAttributes.Public) | TypeAttributes.Class,
+                visibility | TypeAttributes.Class,
                 metadata.GetOrAddString(nested ? string.Empty : spec.Namespace),
                 metadata.GetOrAddString(spec.Name),
                 objectTypeRef,
@@ -149,6 +152,31 @@ public class WinMdParserNestedTypeTests
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
         CollectionAssert.AreEqual(ExpectedAnonymousUnionNames, fullNames);
+    }
+
+    [TestMethod]
+    public void ParseFile_PublicTypeNestedInInternalType_IsNotIndexed()
+    {
+        // NestedPublic means "public *within its declaring type*", so a NestedPublic type
+        // inside an internal class is unreachable from outside the assembly. Judging the
+        // nested type's own flag alone indexes it, and `find-api check-property
+        // Hidden.Visible Foo` then describes an API the caller cannot reference — while
+        // `find-api members Hidden` correctly reports the outer type as not found. The
+        // public sibling pins that the walk does not over-reject.
+        string path = WriteWinmd(
+            "Visibility.winmd",
+            new TypeSpec("My.Space", "Hidden", IsPublic: false),
+            new TypeSpec("", "Visible", DeclaredIn: "Hidden"),
+            new TypeSpec("My.Space", "Shown"),
+            new TypeSpec("", "AlsoVisible", DeclaredIn: "Shown"));
+
+        WinMdParser.WinMdParseResult result = WinMdParser.ParseFile(path);
+
+        Assert.IsNull(result.Error);
+        var names = result.Types.Select(t => t.FullName).ToList();
+        CollectionAssert.DoesNotContain(names, "My.Space.Hidden.Visible", "a type nested in an internal type is not externally visible");
+        CollectionAssert.DoesNotContain(names, "My.Space.Hidden");
+        CollectionAssert.Contains(names, "My.Space.Shown.AlsoVisible", "a public type nested in a public type is still indexed");
     }
 
     [TestMethod]

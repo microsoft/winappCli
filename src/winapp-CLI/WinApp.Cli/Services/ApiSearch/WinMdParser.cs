@@ -42,15 +42,15 @@ internal static class WinMdParser
             {
                 TypeDefinition typeDef = reader.GetTypeDefinition(handle);
                 string name = reader.GetString(typeDef.Name);
-                if (ShouldSkipType(name, typeDef))
+                if (ShouldSkipType(reader, name, typeDef))
                 {
                     continue;
                 }
                 string ns = BuildNamespace(reader, typeDef);
 
-                TypeKind typeKind = DetermineTypeKind(reader, typeDef);
-                string? baseTypeName = GetBaseTypeName(reader, typeDef);
                 ImmutableArray<string> typeParameters = GenericParameterNames(reader, typeDef.GetGenericParameters());
+                TypeKind typeKind = DetermineTypeKind(reader, typeDef);
+                string? baseTypeName = GetBaseTypeName(reader, typeDef, typeParameters);
                 List<WinMdMemberInfo> members = ParseMembers(reader, typeDef, typeProvider, typeKind, typeParameters);
                 List<string>? enumValues = typeKind == TypeKind.Enum ? ParseEnumValues(reader, typeDef) : null;
                 string fullName = ToSourceGenericName(BuildFullTypeName(reader, typeDef), typeParameters);
@@ -149,16 +149,48 @@ internal static class WinMdParser
         return reader.GetString(outermost.Namespace);
     }
 
-    internal static bool ShouldSkipType(string name, TypeDefinition typeDef)
+    internal static bool ShouldSkipType(MetadataReader reader, string name, TypeDefinition typeDef)
     {
         if (string.IsNullOrEmpty(name) || name == "<Module>" || name.StartsWith('<'))
         {
             return true;
         }
-        TypeAttributes visibility = typeDef.Attributes & TypeAttributes.VisibilityMask;
-        if (visibility != TypeAttributes.Public)
+        return !IsExternallyVisible(reader, typeDef);
+    }
+
+    /// <summary>
+    /// Whether a type is reachable from outside its assembly, taking its enclosing types
+    /// into account.
+    /// </summary>
+    /// <remarks>
+    /// A nested type is only as visible as the chain that declares it: <c>public class
+    /// Visible</c> inside <c>internal class Hidden</c> is <c>NestedPublic</c> in metadata,
+    /// yet no other assembly can name it. Judging the nested type alone indexes it as an
+    /// available API while the outer type is correctly reported missing, so the same
+    /// inaccessible code gets two opposite answers.
+    /// </remarks>
+    internal static bool IsExternallyVisible(MetadataReader reader, TypeDefinition typeDef)
+    {
+        TypeDefinition current = typeDef;
+        // Bounded like the namespace walk below it: metadata is untrusted input, and a
+        // cyclic declaring chain must not spin.
+        for (int depth = 0; depth < 32; depth++)
         {
-            return visibility != TypeAttributes.NestedPublic;
+            TypeAttributes visibility = current.Attributes & TypeAttributes.VisibilityMask;
+            if (visibility == TypeAttributes.Public)
+            {
+                return true;
+            }
+            if (visibility != TypeAttributes.NestedPublic)
+            {
+                return false;
+            }
+            TypeDefinitionHandle declaring = current.GetDeclaringType();
+            if (declaring.IsNil)
+            {
+                return false;
+            }
+            current = reader.GetTypeDefinition(declaring);
         }
         return false;
     }
@@ -169,7 +201,7 @@ internal static class WinMdParser
         {
             return TypeKind.Interface;
         }
-        return GetBaseTypeName(reader, typeDef) switch
+        return GetBaseTypeName(reader, typeDef, []) switch
         {
             "System.Enum" => TypeKind.Enum,
             "System.ValueType" => TypeKind.Struct,
@@ -178,7 +210,10 @@ internal static class WinMdParser
         };
     }
 
-    private static string? GetBaseTypeName(MetadataReader reader, TypeDefinition typeDef)
+    private static string? GetBaseTypeName(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        ImmutableArray<string> typeParameters)
     {
         if (typeDef.BaseType.IsNil)
         {
@@ -188,6 +223,13 @@ internal static class WinMdParser
         {
             HandleKind.TypeDefinition => GetTypeDefName(reader, (TypeDefinitionHandle)typeDef.BaseType),
             HandleKind.TypeReference => GetTypeRefName(reader, (TypeReferenceHandle)typeDef.BaseType),
+            // A constructed generic base (`Derived : Base<string>`) is stored as a
+            // TypeSpecification, so treating it as unknown records no base at all and every
+            // member inherited through it disappears from the type. Decoding yields the
+            // instantiated spelling, which ResolveSupertype already reconciles with the
+            // declaration by arity, exactly as it does for generic interfaces.
+            HandleKind.TypeSpecification => DecodeTypeSpecification(
+                reader, (TypeSpecificationHandle)typeDef.BaseType, typeParameters),
             _ => null,
         };
     }

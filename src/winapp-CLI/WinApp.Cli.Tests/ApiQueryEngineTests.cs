@@ -517,6 +517,36 @@ public sealed class ApiQueryEngineTests
             },
             new()
             {
+                // Same shape as Gadget but with *instance* accessors. C# instance methods
+                // named GetX/SetX are ordinary methods; only the static form is the XAML
+                // attached-property pattern, because there is no instance to call it on
+                // when the property is set on someone else's element.
+                Namespace = "My.Ns", Name = "InstanceGadget", FullName = "My.Ns.InstanceGadget", Kind = TypeKind.Class,
+                SourceFile = "test.winmd",
+                Members =
+                [
+                    new WinMdMemberInfo
+                    {
+                        Name = "GetRow", Kind = MemberKind.Method, IsStatic = false,
+                        Signature = "Int32 GetRow(My.Ns.DependencyObject element)",
+                        ReturnType = "Int32",
+                        Parameters = [new WinMdParameterInfo { Name = "element", Type = "My.Ns.DependencyObject" }],
+                    },
+                    new WinMdMemberInfo
+                    {
+                        Name = "SetRow", Kind = MemberKind.Method, IsStatic = false,
+                        Signature = "void SetRow(My.Ns.DependencyObject element, Int32 value)",
+                        ReturnType = "void",
+                        Parameters =
+                        [
+                            new WinMdParameterInfo { Name = "element", Type = "My.Ns.DependencyObject" },
+                            new WinMdParameterInfo { Name = "value", Type = "Int32" },
+                        ],
+                    },
+                ],
+            },
+            new()
+            {
                 // Mirrors a WinUI control: a real property, its dependency-property
                 // identifier static, and XML-doc descriptions — the three things the
                 // unfiltered-listing trim has to distinguish between.
@@ -1384,6 +1414,21 @@ public sealed class ApiQueryEngineTests
 
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         Assert.IsFalse(result.Data!.Found, "a case-only difference is not the same attached property");
+    }
+
+    [TestMethod]
+    public void CheckProperty_InstanceGetSetAccessors_IsNotAttachedProperty()
+    {
+        // An attached property is set on *another* object, so its accessors must be
+        // static: `Grid.SetRow(myButton, 0)`. A type with instance GetRow/SetRow has
+        // ordinary methods and no Row property at all. Reporting "found" for it tells a
+        // caller to emit `InstanceGadget.SetRow(element, 0)`, which does not compile —
+        // the confidently-wrong answer this command exists to prevent.
+        var result = ApiQueryEngine.CheckProperty("My.Ns.InstanceGadget", "Row", _cacheDir, _manifest);
+
+        Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+        Assert.IsFalse(result.Data!.Found, "instance Get/Set accessors are not an attached property");
+        Assert.IsFalse(result.Data.Attached);
     }
 
     private static readonly string[] ThreeCheckedPropertyNames = ["Color", "Bogus", "DoThing"];
