@@ -39,6 +39,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- SampleIndexWriter is internal and lives here rather than in the shipped CLI (winapp
+         reads published indexes, it never writes one), so its contract tests need access. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>WinApp.Cli.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\WinApp.Cli\WinApp.Cli.csproj" />
   </ItemGroup>
 
