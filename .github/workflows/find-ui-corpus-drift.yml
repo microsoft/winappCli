@@ -1,16 +1,27 @@
 name: find-ui corpus drift
 
 # The find-ui corpus is baked into the CLI at release time so the command works offline
-# (issue #704). That snapshot is only as good as the fetchers that produced it, and both
-# can rot silently between releases:
+# (issue #704). That snapshot is only as good as the fetchers that produced it, so this job
+# bakes on a schedule and compares the result against what is committed.
 #
-#   * upstream adds or reworks samples  -> the shipped corpus drifts out of date
-#   * upstream restructures a repo      -> a fetcher returns nothing and the source
-#                                          quietly disappears from the next release
+# What it reports, and what it deliberately does not:
 #
-# The second failure is the dangerous one: nothing in the normal build catches it, because
-# a fetch that returns zero scenarios looks exactly like a network blip. This job bakes on
-# a schedule purely to detect both, and reports by opening an issue.
+#   * a source fetched nothing          -> issue. The bake exits non-zero and says so.
+#   * a source lost most of its         -> issue. This is the case nothing else catches:
+#     scenarios, or vanished entirely      BakeAsync only fails a source at *zero*
+#                                          scenarios, so a fetcher that survives an
+#                                          upstream restructure while matching a fraction
+#                                          of what it used to bakes green and would ship
+#                                          a gutted source.
+#   * upstream added or reworked        -> run summary only, no issue.
+#     samples
+#
+# That last line is the point of the split. Upstream gaining samples is the steady state
+# between releases, not an event: `scripts/build-cli.ps1` re-bakes the corpus on every
+# `-Stable` release, and users with network access already get live data. Filing an issue
+# for it produced one permanently-open no-action issue that collected a weekly "still
+# present" comment, on the same label as the alerts above -- which taught everyone to
+# ignore the label that also carries the real signal.
 #
 # It deliberately does NOT open a pull request. The snapshot only reaches users when they
 # upgrade the CLI, so an auto-PR would add bot churn (dependabot is already the #2
@@ -67,13 +78,31 @@ jobs:
           BAKE_OUTPUT: ${{ steps.bake.outputs.output }}
           BAKE_EXIT_CODE: ${{ steps.bake.outputs.exitCode }}
         run: |
-          $committed = "src/winapp-CLI/WinApp.Cli/Services/Controls/Data"
+          # Absolute, because Read-Snapshot below reads through System.IO, which resolves a
+          # relative path against the *process* working directory rather than PowerShell's
+          # location. The two agree in Actions, but silently reading a different corpus than
+          # Get-ChildItem enumerated is not a failure worth leaving available.
+          $committed = Join-Path $PWD.Path "src/winapp-CLI/WinApp.Cli/Services/Controls/Data"
           $fresh = $env:BAKE_OUTPUT
           $bakeFailed = $env:BAKE_EXIT_CODE -ne "0"
+
+          # A source may legitimately lose a scenario or two when upstream retires a sample.
+          # Losing a quarter of them is not upstream editing samples -- it is a fetcher that
+          # stopped matching most of what it used to. That is the one failure mode the bake
+          # itself cannot see, because BakeAsync only fails a source at *zero* scenarios.
+          $regressionThreshold = 0.25
+
+          function Write-Summary([string]$text) {
+            Write-Host $text
+            if ($env:GITHUB_STEP_SUMMARY) {
+              $text | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+          }
 
           if ($bakeFailed) {
             "status=bake-failed" >> $env:GITHUB_OUTPUT
             "summary=The scheduled bake failed, so at least one source returned no fetched data." >> $env:GITHUB_OUTPUT
+            Write-Summary "## find-ui corpus: bake failed"
             exit 0
           }
 
@@ -87,8 +116,8 @@ jobs:
           # to the encoder: a .NET update that changed compression would report drift on
           # every file at once and mean nothing. The decompressed corpus is the thing we
           # actually care about, and it is byte-deterministic for unchanged upstream input.
-          $drifted = @()
-          $lines = @()
+          $regressions = @()
+          $routine = @()
           $corpusFiles = Get-ChildItem $fresh -Filter "snapshot-*.json.br"
 
           function Read-Snapshot([string]$path) {
@@ -104,42 +133,76 @@ jobs:
           if ($corpusFiles.Count -eq 0) {
             "status=bake-failed" >> $env:GITHUB_OUTPUT
             "summary=The bake reported success but produced no corpus files." >> $env:GITHUB_OUTPUT
+            Write-Summary "## find-ui corpus: bake produced no files"
             exit 0
           }
 
           foreach ($file in $corpusFiles) {
             $old = Join-Path $committed $file.Name
             if (-not (Test-Path $old)) {
-              $drifted += $file.Name
-              $lines += "- ``$($file.Name)`` — **new source**, not yet committed"
+              $routine += "- ``$($file.Name)`` — **new source**, not yet committed"
               continue
             }
 
             $freshJson = Read-Snapshot $file.FullName
             $oldJson = Read-Snapshot $old
 
-            if ($freshJson -ne $oldJson) {
-              $freshCount = ($freshJson | ConvertFrom-Json).scenarios.Count
-              $oldCount = ($oldJson | ConvertFrom-Json).scenarios.Count
-              $delta = $freshCount - $oldCount
-              $drifted += $file.Name
-              $lines += "- ``$($file.Name)`` — $oldCount → $freshCount scenarios ($(if ($delta -ge 0) { "+$delta" } else { "$delta" }))"
+            if ($freshJson -eq $oldJson) {
+              continue
+            }
+
+            $freshCount = ($freshJson | ConvertFrom-Json).scenarios.Count
+            $oldCount = ($oldJson | ConvertFrom-Json).scenarios.Count
+            $delta = $freshCount - $oldCount
+            $line = "- ``$($file.Name)`` — $oldCount → $freshCount scenarios ($(if ($delta -ge 0) { "+$delta" } else { "$delta" }))"
+
+            if ($oldCount -gt 0 -and $freshCount -lt ($oldCount * (1 - $regressionThreshold))) {
+              $lost = [math]::Round((1 - ($freshCount / $oldCount)) * 100)
+              $regressions += "$line — **lost $lost% of its scenarios**"
+            } else {
+              $routine += $line
             }
           }
 
-          if ($drifted.Count -eq 0) {
+          # A committed snapshot with no counterpart in a *successful* bake means the source
+          # stopped being produced at all. The loop above walks the fresh output, so a source
+          # that vanished is simply not there to be compared.
+          foreach ($old in Get-ChildItem $committed -Filter "snapshot-*.json.br") {
+            if (-not (Test-Path (Join-Path $fresh $old.Name))) {
+              $regressions += "- ``$($old.Name)`` — **source vanished**: committed, but the fresh bake produced nothing for it"
+            }
+          }
+
+          if ($regressions.Count -eq 0 -and $routine.Count -eq 0) {
             "status=clean" >> $env:GITHUB_OUTPUT
-            Write-Host "Committed corpus matches upstream."
+            Write-Summary "## find-ui corpus`n`nCommitted corpus matches upstream."
             exit 0
           }
 
-          "status=drift" >> $env:GITHUB_OUTPUT
-          $summary = $lines -join "%0A"
-          "summary=$summary" >> $env:GITHUB_OUTPUT
-          Write-Host "Drift detected in: $($drifted -join ', ')"
+          $regressionText = $regressions -join "`n"
+          $routineText = $routine -join "`n"
+
+          Write-Summary "## find-ui corpus`n"
+          if ($regressions.Count -gt 0) {
+            Write-Summary "### Regressions`n`n$regressionText`n"
+          }
+          if ($routine.Count -gt 0) {
+            Write-Summary "### Routine drift`n`nNo action required — re-baked automatically on the next ``-Stable`` release.`n`n$routineText`n"
+          }
+
+          # Routine drift stops here by design: it is reported above and nowhere else.
+          if ($regressions.Count -eq 0) {
+            "status=routine" >> $env:GITHUB_OUTPUT
+            Write-Host "Routine drift only — reported in the run summary, no issue opened."
+            exit 0
+          }
+
+          "status=regression" >> $env:GITHUB_OUTPUT
+          "summary=$($regressions -join '%0A')" >> $env:GITHUB_OUTPUT
+          Write-Host "Regression detected."
 
       - name: Report
-        if: steps.diff.outputs.status != 'clean'
+        if: steps.diff.outputs.status == 'bake-failed' || steps.diff.outputs.status == 'regression'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           DRIFT_STATUS: ${{ steps.diff.outputs.status }}
@@ -150,6 +213,8 @@ jobs:
             const summary = (process.env.DRIFT_SUMMARY || '').replace(/%0A/g, '\n');
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const LABEL = 'find-ui-corpus';
+            const BAKE_COMMAND =
+              'dotnet run --project src/winapp-CLI/WinApp.Cli.SnapshotBaker -- src/winapp-CLI/WinApp.Cli/Services/Controls/Data';
 
             // Ensure the label exists before it is used to look issues up. Creating it here
             // rather than relying on issue creation to conjure it keeps the dedup query
@@ -161,19 +226,19 @@ jobs:
                 repo: context.repo.repo,
                 name: LABEL,
                 color: 'c5def5',
-                description: 'Automated find-ui corpus drift / bake failure reports',
+                description: 'Automated find-ui corpus regression / bake failure reports',
               });
             } catch (error) {
               if (error.status !== 422) throw error;   // 422 == already exists
             }
 
-            // A broken fetcher and a stale corpus need different titles and different
-            // urgency, but they share one issue slot each so a weekly schedule can't
-            // accumulate duplicates. Existing open issues are updated with a comment.
+            // Both statuses are actionable -- routine drift never reaches this step -- but
+            // they need different titles and different investigation, so they take one issue
+            // slot each and a weekly schedule updates rather than duplicates.
             const isFailure = status === 'bake-failed';
             const title = isFailure
               ? 'find-ui corpus: a source failed to bake'
-              : 'find-ui corpus: committed snapshot has drifted from upstream';
+              : 'find-ui corpus: a source lost most of its scenarios';
 
             const body = isFailure
               ? [
@@ -189,16 +254,23 @@ jobs:
                   `[Workflow run](${runUrl})`,
                 ].join('\n')
               : [
-                  'Upstream samples have changed since the committed find-ui corpus was baked.',
+                  'The scheduled bake succeeded, but a find-ui source came back with far fewer',
+                  'scenarios than the committed corpus holds.',
                   '',
                   summary,
                   '',
-                  '**No action is required.** The corpus is refreshed automatically by',
-                  '`scripts/build-cli.ps1` on the next `-Stable` release, and users with network',
-                  'access already get live data — the baked snapshot is only the offline floor.',
+                  'A drop this size is not upstream retiring samples — it means the fetcher stopped',
+                  'matching most of what it used to, typically after an upstream repository was',
+                  'restructured. The bake cannot catch this on its own: it only fails a source that',
+                  'returns *zero* scenarios, so a partial loss bakes green and would ship a gutted',
+                  'source at the next `-Stable` release.',
                   '',
-                  'This issue exists so a *large* or *unexpected* swing (a source losing most of its',
-                  'scenarios, for example) is visible before it ships.',
+                  'Check the fetcher for that source under `src/winapp-CLI/WinApp.Cli/Services/Controls/`,',
+                  'then re-bake and commit the result:',
+                  '',
+                  '```',
+                  BAKE_COMMAND,
+                  '```',
                   '',
                   `[Workflow run](${runUrl})`,
                 ].join('\n');
