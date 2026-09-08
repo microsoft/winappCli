@@ -86,7 +86,7 @@ public sealed class ApiMetadataServiceTests
         File.WriteAllText(Path.Combine(dir, name + ".csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
     }
 
-    private void WriteManifest(string name, string? projectDir = null, string? fileName = null)
+    private void WriteManifest(string name, string? projectDir = null, string? fileName = null, List<string>? caveats = null)
     {
         Directory.CreateDirectory(_projectsDir);
         var manifest = new ProjectManifest
@@ -96,6 +96,7 @@ public sealed class ApiMetadataServiceTests
             ProjectFile = name + ".csproj",
             Packages = [new ProjectPackageRef { Id = "Some.Pkg", Version = "1.0.0", SourceStamp = "0a1b2c3d", AssetPathKey = "0a1b2c3d" }],
             GeneratedAt = DateTime.UtcNow.ToString("o"),
+            Caveats = caveats,
         };
         File.WriteAllText(Path.Combine(_projectsDir, (fileName ?? name) + ".json"), JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
     }
@@ -291,6 +292,26 @@ public sealed class ApiMetadataServiceTests
         Assert.AreEqual("Alpha", result.Data!.ProjectName);
         Assert.AreEqual(_currentDir, result.Data.ProjectDir);
     }
+
+    [TestMethod]
+    public void Query_IndexWithCaveats_CarriesThemOntoTheAnswer()
+    {
+        // The build that discovers a caveat — "runtime metadata was excluded", "this
+        // project has 4 Windows targets and one was chosen" — usually happens once, long
+        // before the queries it qualifies, and often in a different process. Reporting it
+        // only at refresh time means every cached answer afterwards is presented as
+        // complete, including under --json where nothing else is printed.
+        WriteProjectFile(_currentDir, "Alpha");
+        WriteManifest("Alpha", _currentDir, caveats: SampleCaveats);
+        WriteSdkManifest();
+
+        var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
+
+        Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+        CollectionAssert.AreEqual(SampleCaveats, result.Data!.Caveats, "the answer must carry what the index could not cover");
+    }
+
+    private static readonly List<string> SampleCaveats = ["Runtime metadata was excluded; some APIs may be missing."];
 
     [TestMethod]
     public void Query_SdkScope_ReportsSdkNameAndNoProjectDir()

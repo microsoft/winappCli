@@ -146,6 +146,7 @@ internal static class FindApiShared
         {
             console.MarkupLine("[yellow]Note:[/] no project found here \u2014 showing Windows SDK + Windows App SDK APIs only (project NuGet packages are not included).");
             console.WriteLine();
+            WriteCaveats(console, scoped);
             return;
         }
 
@@ -155,6 +156,30 @@ internal static class FindApiShared
             console.MarkupLineInterpolated($"[grey]Project: {scoped.ProjectName}{where}[/]");
             console.WriteLine();
         }
+
+        WriteCaveats(console, scoped);
+    }
+
+    /// <summary>
+    /// State what the answering index could not cover, above the answer it qualifies.
+    /// </summary>
+    /// <remarks>
+    /// The index records these when it is built; the answer is usually served from the
+    /// cache much later, so without this the caveat is only ever seen by whoever happened
+    /// to run the refresh. Printed before the result rather than after, because a reader
+    /// who has already seen "found" has stopped reading.
+    /// </remarks>
+    private static void WriteCaveats(IAnsiConsole console, IApiScopedOutput scoped)
+    {
+        if (scoped.Caveats is not { Count: > 0 } caveats)
+        {
+            return;
+        }
+        foreach (string caveat in caveats)
+        {
+            console.MarkupLineInterpolated($"[yellow]\u26a0 {caveat}[/]");
+        }
+        console.WriteLine();
     }
 
     /// <summary>

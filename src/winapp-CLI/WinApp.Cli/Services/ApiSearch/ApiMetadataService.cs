@@ -315,6 +315,7 @@ internal sealed class ApiMetadataService(
         scoped.ProjectDir = string.IsNullOrEmpty(resolved.Manifest.ProjectDir)
             ? null
             : resolved.Manifest.ProjectDir;
+        scoped.Caveats = resolved.Manifest.Caveats;
     }
 
     private string ResolveProjectDir(ApiRequestScope scope) =>

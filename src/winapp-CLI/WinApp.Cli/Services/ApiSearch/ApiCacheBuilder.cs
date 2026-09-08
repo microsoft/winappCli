@@ -63,7 +63,17 @@ internal static class ApiCacheBuilder
             string projectName = ProjectNameFor(projectFile);
             report?.Invoke($"Indexing {projectName}…");
 
-            List<PackageWithWinMd> packages = NuGetResolver.FindPackagesWithWinMd(dir, projectFile, winAppSdkRuntimePath, report);
+            // Everything the resolver sends through this callback is a caveat about what
+            // the index can answer for, so it is both reported now and kept for the
+            // queries that will be served from the cache later.
+            var caveats = new List<string>();
+            void collect(string message)
+            {
+                caveats.Add(message);
+                report?.Invoke(message);
+            }
+
+            List<PackageWithWinMd> packages = NuGetResolver.FindPackagesWithWinMd(dir, projectFile, winAppSdkRuntimePath, collect);
             if (packages.Count == 0)
             {
                 continue;
@@ -80,6 +90,7 @@ internal static class ApiCacheBuilder
                 ProjectDir = Path.GetFullPath(dir),
                 ProjectFile = Path.GetFileName(projectFile),
                 Packages = packageRefs,
+                Caveats = caveats.Count > 0 ? caveats : null,
                 GeneratedAt = DateTime.UtcNow.ToString("o"),
             };
             pendingManifests.Add((ManifestName(projectFile), manifest));

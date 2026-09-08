@@ -54,6 +54,18 @@ internal interface IApiScopedOutput
     /// project served a query has to infer it from cache file timestamps.
     /// </summary>
     string? ProjectDir { get; set; }
+
+    /// <summary>
+    /// What the answering index could not cover, carried from the manifest onto every
+    /// payload so a result is never presented as more complete than it is.
+    /// </summary>
+    /// <remarks>
+    /// These are discovered while the index is built, but they qualify answers served
+    /// from it long afterwards — usually in another process, and under <c>--json</c>
+    /// where nothing is logged. A caller validating an API before generating code needs
+    /// them attached to the answer, not to the build that produced the cache.
+    /// </remarks>
+    List<string>? Caveats { get; set; }
 }
 
 /// <summary>Well-known <see cref="IApiScopedOutput.Scope"/> values.</summary>
@@ -192,6 +204,9 @@ internal sealed class ApiSearchOutput : IApiScopedOutput
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
 
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
+
     public required string Query { get; init; }
 
     public List<ApiAmbiguityGroup>? Ambiguous { get; init; }
@@ -279,6 +294,9 @@ internal sealed class ApiMembersOutput : IApiScopedOutput
 
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
+
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
 
     public required string FullName { get; init; }
 
@@ -374,6 +392,9 @@ internal sealed class ApiCheckPropertyOutput : IApiScopedOutput
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
 
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
+
     public required bool Found { get; init; }
 
     public required string Type { get; init; }
@@ -449,6 +470,9 @@ internal sealed class ApiTypesOutput : IApiScopedOutput
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
 
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
+
     public required string Namespace { get; init; }
 
     public required List<ApiTypeSummary> Types { get; init; }
@@ -465,6 +489,9 @@ internal sealed class ApiEnumsOutput : IApiScopedOutput
 
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
+
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
 
     public required string FullName { get; init; }
 
@@ -491,6 +518,9 @@ internal sealed class ApiNamespacesOutput : IApiScopedOutput
 
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
+
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
 
     public required List<string> Namespaces { get; init; }
 }
@@ -524,6 +554,9 @@ internal sealed class ApiPackagesOutput : IApiScopedOutput
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
 
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
+
     public required List<ApiPackageSummary> Packages { get; init; }
 }
 
@@ -538,6 +571,9 @@ internal sealed class ApiStatsOutput : IApiScopedOutput
 
     /// <inheritdoc />
     public string? ProjectDir { get; set; }
+
+    /// <inheritdoc />
+    public List<string>? Caveats { get; set; }
 
     public required int Packages { get; init; }
 

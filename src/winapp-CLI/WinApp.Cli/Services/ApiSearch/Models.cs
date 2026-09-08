@@ -137,6 +137,21 @@ internal sealed class ProjectManifest
 
     public required List<ProjectPackageRef> Packages { get; init; }
 
+    /// <summary>
+    /// What this index could not cover, recorded when it was built: the Windows target that
+    /// was chosen when the project builds several, an SDK version that was substituted for
+    /// the one targeted, runtime metadata that was excluded. Optional so manifests written
+    /// before this existed still deserialize, with no caveats.
+    /// </summary>
+    /// <remarks>
+    /// These are produced once, while resolving packages, but they qualify every later
+    /// answer — and queries are normally served straight from this cache, in a different
+    /// process, with logging off under <c>--json</c>. Left in the progress callback they
+    /// reach nobody, and a caller validating an API before generating code sees an
+    /// unqualified success built from metadata that was knowingly incomplete.
+    /// </remarks>
+    public List<string>? Caveats { get; init; }
+
     public required string GeneratedAt { get; init; }
 }
 
