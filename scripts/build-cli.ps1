@@ -542,8 +542,8 @@ try
         Write-Host ""
         Write-Host "[NUGET] Creating NuGet packages..." -ForegroundColor Blue
 
-        # package-nuget.ps1 builds all three: the CLI tools package plus the two UI Automation
-        # library packages.
+        # package-nuget.ps1 builds all four: the CLI tools package, the two UI Automation
+        # library packages, and the standalone WinUI analyzer package.
         $PackageNuGetScript = Join-Path $PSScriptRoot "package-nuget.ps1"
 
         & $PackageNuGetScript -Version $FullVersion -Stable:$Stable
@@ -560,7 +560,8 @@ try
         $ExpectedPackages = @(
             'Microsoft.Windows.SDK.BuildTools.WinApp',
             'Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation',
-            'Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording'
+            'Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording',
+            'Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer'
         )
         $NuGetOutput = Join-Path $ProjectRoot "artifacts\nuget"
         $BuiltPackages = @(Get-ChildItem $NuGetOutput -Filter '*.nupkg' -ErrorAction SilentlyContinue |
