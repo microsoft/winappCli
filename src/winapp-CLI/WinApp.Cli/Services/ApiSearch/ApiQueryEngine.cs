@@ -250,7 +250,7 @@ internal static class ApiQueryEngine
     private static ApiQueryResult<ApiMembersOutput> MembersAgainst(
         string typeName, string? filter, List<WinMdTypeInfo> allTypes, string cacheDir, ProjectManifest manifest, bool includeAll)
     {
-        var (type, ambiguous) = ResolveType(typeName, allTypes);
+        var (type, ambiguous, alsoMatched) = ResolveType(typeName, allTypes);
         if (ambiguous is not null)
         {
             return ApiQueryResult<ApiMembersOutput>.InvalidInput(AmbiguousTypeMessage(typeName, ambiguous));
@@ -366,6 +366,7 @@ internal static class ApiQueryEngine
             Fields = allFields.Count > 0 ? Filter(allFields) : null,
             Inherited = inheritedGroups,
             GetForCurrentViewWarning = getForCurrentView,
+            AlsoMatched = alsoMatched,
         });
     }
 
@@ -473,7 +474,7 @@ internal static class ApiQueryEngine
     private static ApiQueryResult<ApiEnumsOutput> EnumsAgainst(
         string typeName, string? filter, List<WinMdTypeInfo> allTypes, string cacheDir, ProjectManifest manifest)
     {
-        var (type, ambiguous) = ResolveType(typeName, allTypes);
+        var (type, ambiguous, alsoMatched) = ResolveType(typeName, allTypes);
         if (ambiguous is not null)
         {
             return ApiQueryResult<ApiEnumsOutput>.InvalidInput(AmbiguousTypeMessage(typeName, ambiguous));
@@ -496,6 +497,7 @@ internal static class ApiQueryEngine
             Values = filtered
                 ? allValues.Where(v => MatchesFilter(v, filter)).ToList()
                 : allValues,
+            AlsoMatched = alsoMatched,
         });
     }
 
@@ -675,7 +677,7 @@ internal static class ApiQueryEngine
     private static ApiQueryResult<ApiCheckPropertyOutput> CheckPropertyAgainst(
         string typeName, string propertyName, List<WinMdTypeInfo> allTypes, string cacheDir, ProjectManifest manifest)
     {
-        var (targetType, ambiguous) = ResolveType(typeName, allTypes);
+        var (targetType, ambiguous, alsoMatched) = ResolveType(typeName, allTypes);
         if (ambiguous is not null)
         {
             return ApiQueryResult<ApiCheckPropertyOutput>.InvalidInput(AmbiguousTypeMessage(typeName, ambiguous));
@@ -707,6 +709,7 @@ internal static class ApiQueryEngine
                 Property = exact.Member.Name,
                 Match = match,
                 Writable = match.Writable,
+                AlsoMatched = alsoMatched,
             });
         }
 
@@ -721,6 +724,7 @@ internal static class ApiQueryEngine
                 Property = propertyName,
                 Attached = true,
                 AttachedInfo = attached,
+                AlsoMatched = alsoMatched,
             });
         }
 
@@ -764,6 +768,7 @@ internal static class ApiQueryEngine
             SimilarOnType = NullIfEmpty(similarOnType),
             TypesWithProperty = NullIfEmpty(typesWithProperty),
             TypesWithSimilar = NullIfEmpty(typesWithSimilar),
+            AlsoMatched = alsoMatched,
         });
     }
 
@@ -830,18 +835,23 @@ internal static class ApiQueryEngine
     /// Resolve a type by fully-qualified name, or by short name when that resolves
     /// deterministically. A short name shared by a modern <c>Microsoft.*</c> type and its
     /// legacy <c>Windows.*</c> UWP twin resolves to the <c>Microsoft.*</c> one — that is
-    /// the projection a Windows App SDK caller means, and it is the pair almost every
-    /// duplicated name in the SDK scope forms. Anything still ambiguous after that
-    /// returns its candidates instead of a type: picking one would depend on file
-    /// enumeration order, and validating an API against the wrong type is worse than
-    /// being told to qualify it.
+    /// the projection a Windows App SDK caller means, and 1,361 short names in a stock
+    /// WinUI scope form that pair, so reporting them all as ambiguous would make
+    /// <c>Button</c> and <c>Grid</c> unanswerable. It is a preference, not an identity:
+    /// <c>Microsoft.UI.Dispatching.DispatcherQueue</c> and
+    /// <c>Windows.System.DispatcherQueue</c> are separate types with different members
+    /// and both are usable from the same app. The names not chosen come back in
+    /// <c>AlsoMatched</c> so the caller is told which one it got. Anything still
+    /// ambiguous after that returns its candidates instead of a type: picking one would
+    /// depend on file enumeration order, and validating an API against the wrong type is
+    /// worse than being told to qualify it.
     /// </summary>
-    private static (WinMdTypeInfo? Type, List<WinMdTypeInfo>? Candidates) ResolveType(string typeName, List<WinMdTypeInfo> allTypes)
+    private static (WinMdTypeInfo? Type, List<WinMdTypeInfo>? Candidates, List<string>? AlsoMatched) ResolveType(string typeName, List<WinMdTypeInfo> allTypes)
     {
         var exact = allTypes.FirstOrDefault(t => t.FullName.Equals(typeName, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
         {
-            return (exact, null);
+            return (exact, null, null);
         }
 
         // Metadata stores a generic with the arity suffix it was compiled with
@@ -888,16 +898,24 @@ internal static class ApiQueryEngine
                     .ToList();
                 if (modern.Count == 1)
                 {
-                    return (modern[0], null);
+                    // The preference is a guess about intent, so name what it passed
+                    // over. Without this the caller cannot tell that a second type of
+                    // that name exists, let alone that it has a different surface.
+                    var passedOver = distinct
+                        .Where(t => !ReferenceEquals(t, modern[0]))
+                        .Select(t => t.FullName)
+                        .OrderBy(n => n, StringComparer.Ordinal)
+                        .ToList();
+                    return (modern[0], null, passedOver);
                 }
             }
         }
 
         return distinct.Count switch
         {
-            1 => (distinct[0], null),
-            > 1 => (null, distinct),
-            _ => (null, null),
+            1 => (distinct[0], null, null),
+            > 1 => (null, distinct, null),
+            _ => (null, null, null),
         };
     }
 

@@ -379,6 +379,7 @@ internal static class FindApiShared
         {
             console.WriteLine($"  Extends: {output.BaseType}");
         }
+        WriteAlsoMatched(console, output.AlsoMatched, "  ");
         if (output.Filter is not null)
         {
             int shown = output.Properties.Count + output.Events.Count + output.Methods.Count
@@ -519,6 +520,7 @@ internal static class FindApiShared
 
     public static void RenderCheckProperty(IAnsiConsole console, ApiCheckPropertyOutput output)
     {
+        WriteAlsoMatched(console, output.AlsoMatched, "");
         if (output.Found && output.Match is not null)
         {
             string inherited = output.Match is { Inherited: true, DeclaringType: not null } ? $"  (from {output.Match.DeclaringType})" : "";
@@ -586,6 +588,7 @@ internal static class FindApiShared
     {
         if (output is { Found: true, Match: not null })
         {
+            WriteAlsoMatched(console, output.AlsoMatched, "");
             string inherited = output.Match is { Inherited: true, DeclaringType: not null } ? $"  (from {output.Match.DeclaringType})" : "";
             console.WriteLine($"{FoundMarker(output)} {output.Type}.{output.Match.Name}{inherited}{ReadOnlyNote(output)}");
             return;
@@ -593,11 +596,31 @@ internal static class FindApiShared
 
         if (output is { Attached: true, AttachedInfo: not null })
         {
+            WriteAlsoMatched(console, output.AlsoMatched, "");
             console.WriteLine($"\u2705 {output.Type}.{output.Property} (attached)");
             return;
         }
 
         RenderCheckProperty(console, output);
+    }
+
+    /// <summary>
+    /// Name the same-named types the short-name lookup passed over. The
+    /// <c>Microsoft.*</c> preference in <c>ResolveType</c> is a guess about which type
+    /// the caller meant, and the pair is not always interchangeable — 
+    /// <c>Windows.System.DispatcherQueue</c> has no <c>EnsureSystemDispatcherQueue</c>,
+    /// which the <c>Microsoft.UI.Dispatching</c> one does. Stating the choice is what
+    /// keeps a confident answer from being about the wrong type.
+    /// </summary>
+    private static void WriteAlsoMatched(IAnsiConsole console, List<string>? alsoMatched, string indent)
+    {
+        if (alsoMatched is not { Count: > 0 })
+        {
+            return;
+        }
+        console.WriteLine(
+            $"{indent}\u26a0 That name also matches {string.Join(", ", alsoMatched)}. " +
+            "Answering for the Microsoft.* type; use the full name for the other.");
     }
 
     /// <summary>
@@ -623,6 +646,7 @@ internal static class FindApiShared
     public static void RenderEnums(IAnsiConsole console, ApiEnumsOutput output)
     {
         console.WriteLine($"Enum {output.FullName}");
+        WriteAlsoMatched(console, output.AlsoMatched, "  ");
         if (output.Filter is not null)
         {
             console.WriteLine($"  Filter: '{output.Filter}' \u2014 showing {output.Values.Count} of {output.TotalValues ?? output.Values.Count} values");

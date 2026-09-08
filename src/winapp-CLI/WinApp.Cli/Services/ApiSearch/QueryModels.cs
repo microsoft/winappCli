@@ -347,6 +347,9 @@ internal sealed class ApiMembersOutput : IApiScopedOutput
     public List<ApiInheritedMemberGroup>? Inherited { get; init; }
 
     public bool GetForCurrentViewWarning { get; init; }
+
+    /// <inheritdoc cref="ApiCheckPropertyOutput.AlsoMatched" />
+    public List<string>? AlsoMatched { get; init; }
 }
 
 /// <summary>A property found on a different type, used for check-property suggestions.</summary>
@@ -409,6 +412,17 @@ internal sealed class ApiCheckPropertyOutput : IApiScopedOutput
     /// Tells the caller the "does not have property" answer is not authoritative.
     /// </summary>
     public string? Warning { get; init; }
+
+    /// <summary>
+    /// Other indexed types that share the short name asked for, when a
+    /// <c>Microsoft.*</c>/<c>Windows.*</c> pair was resolved in favour of the
+    /// <c>Microsoft.*</c> one. <c>DispatcherQueue</c> answers for
+    /// <c>Microsoft.UI.Dispatching.DispatcherQueue</c> while
+    /// <c>Windows.System.DispatcherQueue</c> is a different type with different members,
+    /// so the answer is only safe if the caller is told which type it is about.
+    /// <see langword="null"/> when the name resolved to exactly one type.
+    /// </summary>
+    public List<string>? AlsoMatched { get; init; }
 }
 
 // ---- types / enums / namespaces ----
@@ -461,6 +475,9 @@ internal sealed class ApiEnumsOutput : IApiScopedOutput
     public int? TotalValues { get; init; }
 
     public required List<string> Values { get; init; }
+
+    /// <inheritdoc cref="ApiCheckPropertyOutput.AlsoMatched" />
+    public List<string>? AlsoMatched { get; init; }
 }
 
 /// <summary>The result of <c>find-api namespaces</c>.</summary>

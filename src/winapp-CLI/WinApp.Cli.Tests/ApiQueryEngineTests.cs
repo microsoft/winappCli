@@ -19,6 +19,7 @@ public sealed class ApiQueryEngineTests
     private static readonly string[] ColorOnly = ["Color"];
     private static readonly string[] ExpectedAlphaCandidates = ["Dup.Ns.Alpha", "Other.Ns.Alpha"];
     private static readonly string[] DuplicatePackageIds = ["Dup.PkgA", "Dup.PkgB"];
+    private static readonly string[] UwpTwinFullName = ["Windows.UI.Input.Twin"];
 
     private string _cacheDir = null!;
     private ProjectManifest _manifest = null!;
@@ -747,6 +748,73 @@ public sealed class ApiQueryEngineTests
 
             Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
             Assert.AreEqual("Microsoft.UI.Input.Twin", result.Data!.FullName);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Members_WinUiAndUwpTwin_NamesTheTypeItPassedOver()
+    {
+        // The Microsoft.* preference is a guess about intent, and the two types are not
+        // interchangeable: Microsoft.UI.Dispatching.DispatcherQueue has
+        // EnsureSystemDispatcherQueue and RunEventLoop, Windows.System.DispatcherQueue
+        // has neither, and a WinUI 3 app can legitimately use either. Answering without
+        // saying which one it answered for is how a caller validates against the wrong
+        // type and still gets a tick.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildMultiPackageCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Twin", filter: null, cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            CollectionAssert.AreEqual(UwpTwinFullName, result.Data!.AlsoMatched);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Members_FullyQualifiedName_DoesNotClaimAnythingElseMatched()
+    {
+        // The caller already said which type they meant, so the note would be noise on
+        // every qualified query.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildMultiPackageCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Microsoft.UI.Input.Twin", filter: null, cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsNull(result.Data!.AlsoMatched);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void CheckProperty_WinUiAndUwpTwin_NamesTheTypeItPassedOver()
+    {
+        // check-property is the verb whose whole output is one tick, so it is the one
+        // where an unstated type choice is least recoverable.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildMultiPackageCache(cacheDir);
+
+            var result = ApiQueryEngine.CheckProperty("Twin", "Missing", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            CollectionAssert.AreEqual(UwpTwinFullName, result.Data!.AlsoMatched);
         }
         finally
         {
