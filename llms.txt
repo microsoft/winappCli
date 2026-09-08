@@ -27,6 +27,7 @@ A single shared plugin at `plugins/winapp/` serves both GitHub Copilot and Claud
 ## Docs
 
 - [CLI Schema](https://raw.githubusercontent.com/microsoft/WinAppCli/main/docs/cli-schema.json): Machine-readable JSON schema of all commands, options, and types
+- [WinUI Sample Index Schema](https://raw.githubusercontent.com/microsoft/WinAppCli/main/docs/winui-sample-index.schema.json): Machine-readable contract a WinUI sample gallery publishes so `winapp find-ui` can index it without scraping the repository layout
 - [Usage Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md): Full documentation for humans
 - [Debugging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/debugging.md): `winapp run` vs `create-debug-identity`, IDE setup, and debugging workflows
 - [Security Guidance](https://github.com/microsoft/WinAppCli/blob/main/docs/security.md): What development certificates and Developer Mode change on a machine, safe handling of `devcert.pfx`, and production signing options
