@@ -541,34 +541,6 @@ internal partial class RunCommand
         /// more specific); when neither is given, the current process architecture is used.
         /// </summary>
         internal static bool TryResolveArchitecture(string? archOption, string? runtimeOption, out string architecture, out string? error)
-        {
-            error = null;
-            architecture = string.Empty;
-
-            string? fromRuntime = null;
-            if (!string.IsNullOrWhiteSpace(runtimeOption))
-            {
-                fromRuntime = RunArchHelper.ArchitectureFromRid(runtimeOption);
-                if (fromRuntime == null)
-                {
-                    error = $"Could not determine an architecture from --runtime '{runtimeOption}'. Use a RID such as win-x64, win-arm64, or win-x86.";
-                    return false;
-                }
-            }
-
-            string? fromArch = null;
-            if (!string.IsNullOrWhiteSpace(archOption))
-            {
-                fromArch = RunArchHelper.NormalizeArchitecture(archOption);
-                if (fromArch == null)
-                {
-                    error = $"Unsupported --arch '{archOption}'. Supported values: {string.Join(", ", RunArchHelper.SupportedArchitectures)}.";
-                    return false;
-                }
-            }
-
-            architecture = fromRuntime ?? fromArch ?? RunArchHelper.DefaultArchitecture();
-            return true;
-        }
+            => RunArchHelper.TryResolveArchitecture(archOption, runtimeOption, out architecture, out error);
     }
 }

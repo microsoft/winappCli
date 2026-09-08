@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "0.6.3",
+  "version": "1.0.0",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
@@ -1608,7 +1608,7 @@
       }
     },
     "package": {
-      "description": "Create MSIX installer from your built app. Run after building your app. A manifest (Package.appxmanifest or appxmanifest.xml) is required for packaging - it must be in current working directory, passed as --manifest or be in the input folder. Use --cert devcert.pfx to sign for testing. Example: winapp package ./dist --manifest Package.appxmanifest --cert ./devcert.pfx",
+      "description": "Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.",
       "hidden": false,
       "aliases": [
         "pack"
@@ -1626,6 +1626,18 @@
         }
       },
       "options": {
+        "--arch": {
+          "description": "Project mode: target architecture (x64, arm64, or x86). Ignored for folder/bundle/manifest inputs. Default: the current process architecture.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
         "--cert": {
           "description": "Path to signing certificate (will auto-sign if provided)",
           "hidden": false,
@@ -1651,11 +1663,42 @@
           "required": false,
           "recursive": false
         },
+        "--configuration": {
+          "description": "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Debug.",
+          "hidden": false,
+          "aliases": [
+            "-c"
+          ],
+          "valueType": "System.String",
+          "hasDefaultValue": true,
+          "defaultValue": "Debug",
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
         "--executable": {
           "description": "Path to the executable relative to the input folder.",
           "hidden": false,
           "aliases": [
             "--exe"
+          ],
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--framework": {
+          "description": "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored for folder/bundle/manifest inputs.",
+          "hidden": false,
+          "aliases": [
+            "-f"
           ],
           "valueType": "System.String",
           "hasDefaultValue": false,
@@ -1716,6 +1759,32 @@
           "required": false,
           "recursive": false
         },
+        "--no-build": {
+          "description": "Project mode: skip building and package the existing build output (still evaluates output properties). Ignored for folder/bundle/manifest inputs.",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--no-restore": {
+          "description": "Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs.",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
         "--output": {
           "description": "Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles.",
           "hidden": false,
@@ -1724,6 +1793,20 @@
           "arity": {
             "minimum": 1,
             "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--property": {
+          "description": "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p Configuration=Release). Ignored for folder/bundle/manifest inputs.",
+          "hidden": false,
+          "aliases": [
+            "-p"
+          ],
+          "valueType": "System.String[]",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 0
           },
           "required": false,
           "recursive": false
@@ -1751,6 +1834,21 @@
           "defaultValue": false,
           "arity": {
             "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--runtime": {
+          "description": "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Uses only the RID's architecture, rejects non-Windows RIDs, and overrides --arch. Ignored for folder/bundle/manifest inputs.",
+          "hidden": false,
+          "aliases": [
+            "-r"
+          ],
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
             "maximum": 1
           },
           "required": false,

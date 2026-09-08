@@ -271,10 +271,30 @@ internal partial class MsixService(
     /// <summary>
     /// Creates an MSIX package from a prepared package directory
     /// </summary>
+    /// <param name="manifestPath">Path to the manifest file (optional)</param>
+    /// <param name="selfContained">
+    /// Self-contained model: when true, the manifest is <b>not</b> given a Windows App SDK framework
+    /// <c>PackageDependency</c> (and third-party WinRT activation goes in the SxS manifest), and — unless
+    /// <paramref name="runtimeAlreadyBundled"/> is set — the Windows App SDK runtime is copied/embedded
+    /// into the layout.
+    /// </param>
+    /// <param name="projectFile">
+    /// Project mode: the resolved <c>.csproj</c> whose package graph drives dependency/WinRT-extension
+    /// manifest updates and self-contained runtime resolution. When null (folder/bundle mode) the current
+    /// directory is probed instead (unchanged behavior).
+    /// </param>
+    /// <param name="framework">Project mode: the built target framework, used to narrow the package list.</param>
+    /// <param name="noRestore">Project mode: forward <c>--no-restore</c> to package-list discovery.</param>
+    /// <param name="targetArch">
+    /// Project mode: the target architecture (<c>x64</c>/<c>arm64</c>/<c>x86</c>) for self-contained runtime
+    /// staging and activation-manifest embedding. When null the host architecture is used (folder mode).
+    /// </param>
+    /// <param name="runtimeAlreadyBundled">
+    /// Project mode: the build already produced a self-contained layout, so skip re-copying/re-embedding the
+    /// runtime even though <paramref name="selfContained"/> is true (avoids a double-bundle).
+    /// </param>
     /// <param name="installDevCert">Install certificate to machine</param>
     /// <param name="publisher">Publisher name for certificate generation (default: extracted from manifest)</param>
-    /// <param name="manifestPath">Path to the manifest file (optional)</param>
-    /// <param name="selfContained">Enable self-contained deployment</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Result containing the MSIX path and signing status</returns>
     public async Task<CreateMsixPackageResult> CreateMsixPackageAsync(
@@ -292,6 +312,11 @@ internal partial class MsixService(
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        string? targetArch = null,
+        bool runtimeAlreadyBundled = false,
         CancellationToken cancellationToken = default)
     {
         // Validate input folder and manifest
@@ -361,8 +386,9 @@ internal partial class MsixService(
         manifestContent = await ResolveResourceLanguageXGenerateAsync(manifestContent, inputFolder, taskContext, cancellationToken);
 
         // Update manifest content to ensure it's either referencing Windows App SDK or is self-contained
-        // Fetch dotnet package list once for all downstream operations
-        var dotNetPackageList = await FetchDotNetPackageListAsync(cancellationToken);
+        // Fetch dotnet package list once for all downstream operations. In project mode a resolved
+        // projectFile drives this (with framework/no-restore); folder mode falls back to the cwd probe.
+        var dotNetPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, cancellationToken);
 
         // Determine executable path for ProcessorArchitecture auto-detection, and detect whether
         // this is a sparse (AllowExternalContent) manifest so the rewrite applies sparse
@@ -548,17 +574,18 @@ internal partial class MsixService(
                 taskContext.AddDebugMessage("Skipping PRI generation — existing resources.pri found in input folder");
             }
 
-            // Handle self-contained deployment if requested
-            if (selfContained && executablePath != null)
+            // Handle self-contained deployment if requested. Skip re-bundling when the build already
+            // produced a self-contained layout (runtimeAlreadyBundled) to avoid a double-bundle.
+            if (selfContained && !runtimeAlreadyBundled && executablePath != null)
             {
                 taskContext.AddDebugMessage($"{UiSymbols.Package} Preparing self-contained Windows App SDK runtime...");
 
-                var winAppSDKDeploymentDir = await PrepareRuntimeForPackagingAsync(stagingDir, dotNetPackageList, taskContext, cancellationToken);
+                var winAppSDKDeploymentDir = await PrepareRuntimeForPackagingAsync(stagingDir, dotNetPackageList, taskContext, cancellationToken, targetArch);
 
                 // Add WindowsAppSDK.manifest to existing manifest
                 var resolvedDeploymentDir = Path.Combine(winAppSDKDeploymentDir.FullName, "..", "extracted");
                 var windowsAppSDKManifestPath = new FileInfo(Path.Combine(resolvedDeploymentDir, "AppxManifest.xml"));
-                await EmbedActivationManifestToExeAsync(executablePath, winAppSDKDeploymentDir, windowsAppSDKManifestPath, dotNetPackageList, taskContext, cancellationToken);
+                await EmbedActivationManifestToExeAsync(executablePath, winAppSDKDeploymentDir, windowsAppSDKManifestPath, dotNetPackageList, taskContext, cancellationToken, targetArch);
             }
 
             await CreateMsixPackageFromFolderAsync(stagingDir, outputMsixPath, taskContext, cancellationToken);

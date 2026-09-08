@@ -32,6 +32,21 @@ internal class FakeMsixService : IMsixService
     /// <summary>Records the input folder passed to each <see cref="CreateMsixPackageAsync"/> call.</summary>
     public List<DirectoryInfo> CreatePackageCalls { get; } = [];
 
+    /// <summary>Captured arguments of the most recent <see cref="CreateMsixPackageAsync"/> call, so
+    /// project-mode tests can assert the build output + project-context parameters were threaded.</summary>
+    public sealed record CreatePackageArgs(
+        DirectoryInfo InputFolder,
+        FileInfo? ProjectFile,
+        string? Framework,
+        bool NoRestore,
+        string? TargetArch,
+        bool SelfContained,
+        bool RuntimeAlreadyBundled,
+        FileInfo? ManifestPath);
+
+    /// <summary>The most recent <see cref="CreateMsixPackageAsync"/> call's captured arguments, or null.</summary>
+    public CreatePackageArgs? LastCreatePackageArgs { get; private set; }
+
     /// <summary>Controls the <c>Signed</c> flag returned by <see cref="CreateMsixPackageAsync"/>.</summary>
     public bool PackageSigned { get; set; }
 
@@ -155,9 +170,16 @@ internal class FakeMsixService : IMsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        string? targetArch = null,
+        bool runtimeAlreadyBundled = false,
         CancellationToken cancellationToken = default)
     {
         CreatePackageCalls.Add(inputFolder);
+        LastCreatePackageArgs = new CreatePackageArgs(
+            inputFolder, projectFile, framework, noRestore, targetArch, selfContained, runtimeAlreadyBundled, manifestPath);
         if (PackageExceptionToThrow != null)
         {
             throw PackageExceptionToThrow;

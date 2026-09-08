@@ -569,10 +569,10 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
     // ---- EmbedActivationManifestToExeAsync -----------------------------------------
 
-    private Task InvokeEmbedActivationManifestAsync(FileInfo exe, DirectoryInfo deployment, FileInfo appxManifest, DotNetPackageListJson? packageList)
+    private Task InvokeEmbedActivationManifestAsync(FileInfo exe, DirectoryInfo deployment, FileInfo appxManifest, DotNetPackageListJson? packageList, string? targetArch = null)
     {
         return (Task)EmbedActivationManifestMethod.Invoke(
-            _msixService, [exe, deployment, appxManifest, packageList, TestTaskContext, CancellationToken.None])!;
+            _msixService, [exe, deployment, appxManifest, packageList, TestTaskContext, CancellationToken.None, targetArch])!;
     }
 
     [TestMethod]

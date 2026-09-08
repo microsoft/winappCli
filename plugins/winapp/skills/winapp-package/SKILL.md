@@ -19,6 +19,25 @@ Before packaging, you need:
 
 ## Usage
 
+### Package directly from a .csproj (project mode)
+
+```powershell
+# Build the project and create an MSIX in one step (no need to build or locate the output first)
+winapp package ./MyApp.csproj
+
+# Pick configuration/architecture, or sign in the same step
+winapp package ./MyApp.csproj -c Release --arch arm64 --cert ./devcert.pfx
+
+# Package an already-built output without rebuilding
+winapp package ./MyApp.csproj --no-build
+```
+
+Project mode is triggered only by an explicit `.csproj`. It builds with the same options as
+`winapp run` (`-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`,
+`--no-restore`, repeatable `-p`), resolves the build output, and packages it. If the project
+builds as an unpackaged app (`WindowsPackageType=None`) there is no manifest to package and the
+command errors. Folder, bundle, and sparse-manifest inputs are unchanged.
+
 ### Basic packaging (unsigned)
 
 ```powershell

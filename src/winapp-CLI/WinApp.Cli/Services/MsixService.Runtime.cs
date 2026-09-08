@@ -125,7 +125,7 @@ internal partial class MsixService
         }, cancellationToken);
     }
 
-    private async Task EmbedActivationManifestToExeAsync(FileInfo exePath, DirectoryInfo winAppSDKDeploymentDir, FileInfo windowsAppSDKAppXManifestPath, DotNetPackageListJson? dotNetPackageList, TaskContext taskContext, CancellationToken cancellationToken)
+    private async Task EmbedActivationManifestToExeAsync(FileInfo exePath, DirectoryInfo winAppSDKDeploymentDir, FileInfo windowsAppSDKAppXManifestPath, DotNetPackageListJson? dotNetPackageList, TaskContext taskContext, CancellationToken cancellationToken, string? targetArch = null)
     {
         // Use applicationLocation for DLL content (where runtime files were copied by PrepareRuntimeForPackagingAsync)
         var exeDir = exePath.Directory!;
@@ -153,7 +153,7 @@ internal partial class MsixService
                 throw new InvalidOperationException("No Windows SDK packages found. Please install the Windows SDK or Windows App SDK.");
             }
 
-            var architecture = WorkspaceSetupService.GetSystemArchitecture();
+            var architecture = targetArch ?? WorkspaceSetupService.GetSystemArchitecture();
             IEnumerable<FileInfo> appxFragments = GetComponents(packageDependencies);
 
             // Combine all manifests: main AppxManifest.xml (Package root) + fragments (Fragment root)

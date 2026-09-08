@@ -23,6 +23,11 @@ internal interface IMsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        string? targetArch = null,
+        bool runtimeAlreadyBundled = false,
         CancellationToken cancellationToken = default);
 
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(

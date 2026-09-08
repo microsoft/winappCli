@@ -1,14 +1,17 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
+using Spectre.Console;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
-internal class PackageCommand : Command, IShortDescription
+internal partial class PackageCommand : Command, IShortDescription
 {
     public string ShortDescription => "Create MSIX package or bundle";
 
@@ -24,6 +27,15 @@ internal class PackageCommand : Command, IShortDescription
     public static Option<FileInfo> ManifestOption { get; }
     public static Option<bool> SelfContainedOption { get; }
     public static Option<string?> ExecutableOption { get; }
+
+    // Project-mode options (mirrors winapp run; inert unless the input is a .csproj).
+    public static Option<string> ConfigurationOption { get; }
+    public static Option<string?> ArchOption { get; }
+    public static Option<string?> RuntimeOption { get; }
+    public static Option<string?> FrameworkOption { get; }
+    public static Option<bool> NoBuildOption { get; }
+    public static Option<bool> NoRestoreOption { get; }
+    public static Option<string[]> PropertyOption { get; }
 
     static PackageCommand()
     {
@@ -81,10 +93,52 @@ internal class PackageCommand : Command, IShortDescription
             Description = "Path to the executable relative to the input folder."
         };
         ExecutableOption.Aliases.Add("--exe");
+
+        ConfigurationOption = new Option<string>("--configuration")
+        {
+            Description = "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Debug.",
+            DefaultValueFactory = _ => "Debug",
+        };
+        ConfigurationOption.Aliases.Add("-c");
+
+        ArchOption = new Option<string?>("--arch")
+        {
+            Description = "Project mode: target architecture (x64, arm64, or x86). Ignored for folder/bundle/manifest inputs. Default: the current process architecture."
+        };
+
+        RuntimeOption = new Option<string?>("--runtime")
+        {
+            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Uses only the RID's architecture, rejects non-Windows RIDs, and overrides --arch. Ignored for folder/bundle/manifest inputs."
+        };
+        RuntimeOption.Aliases.Add("-r");
+
+        FrameworkOption = new Option<string?>("--framework")
+        {
+            Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored for folder/bundle/manifest inputs."
+        };
+        FrameworkOption.Aliases.Add("-f");
+
+        NoBuildOption = new Option<bool>("--no-build")
+        {
+            Description = "Project mode: skip building and package the existing build output (still evaluates output properties). Ignored for folder/bundle/manifest inputs."
+        };
+
+        NoRestoreOption = new Option<bool>("--no-restore")
+        {
+            Description = "Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs."
+        };
+
+        PropertyOption = new Option<string[]>("--property")
+        {
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p Configuration=Release). Ignored for folder/bundle/manifest inputs.",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = false,
+        };
+        PropertyOption.Aliases.Add("-p");
     }
 
     public PackageCommand()
-        : base("package", "Create MSIX installer from your built app. Run after building your app. A manifest (Package.appxmanifest or appxmanifest.xml) is required for packaging - it must be in current working directory, passed as --manifest or be in the input folder. Use --cert devcert.pfx to sign for testing. Example: winapp package ./dist --manifest Package.appxmanifest --cert ./devcert.pfx")
+        : base("package", "Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.")
     {
         Aliases.Add("pack");
         Arguments.Add(InputFolderArgument);
@@ -99,9 +153,22 @@ internal class PackageCommand : Command, IShortDescription
         Options.Add(ManifestOption);
         Options.Add(SelfContainedOption);
         Options.Add(ExecutableOption);
+        Options.Add(ConfigurationOption);
+        Options.Add(ArchOption);
+        Options.Add(RuntimeOption);
+        Options.Add(FrameworkOption);
+        Options.Add(NoBuildOption);
+        Options.Add(NoRestoreOption);
+        Options.Add(PropertyOption);
     }
 
-    public class Handler(IMsixService msixService, IStatusService statusService) : AsynchronousCommandLineAction
+    public partial class Handler(
+        IMsixService msixService,
+        IStatusService statusService,
+        IProjectRunService projectRunService,
+        ICurrentDirectoryProvider currentDirectoryProvider,
+        IAnsiConsole ansiConsole,
+        ILogger<PackageCommand> logger) : AsynchronousCommandLineAction
     {
         /// <summary>
         /// Heuristic for whether a non-existent input path was intended as a manifest file
@@ -110,6 +177,33 @@ internal class PackageCommand : Command, IShortDescription
         private static bool LooksLikeManifestPath(string name)
             => name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
                 || name.EndsWith(".appxmanifest", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Validates the <c>--output</c> extension against the packaging mode. Returns an actionable
+        /// error message, or null when the extension is acceptable. Shared by folder/bundle packaging
+        /// and project mode so a single <c>.csproj</c> rejects a <c>.msixbundle</c> <c>--output</c>
+        /// before building.
+        /// </summary>
+        internal static string? ValidateOutputExtension(FileInfo? output, bool isBundle)
+        {
+            if (output == null)
+            {
+                return null;
+            }
+
+            var ext = Path.GetExtension(output.Name);
+            if (isBundle && string.Equals(ext, ".msix", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{UiSymbols.Error} Cannot use .msix extension for --output when creating a bundle from multiple folders. Use .msixbundle or omit the extension.";
+            }
+
+            if (!isBundle && string.Equals(ext, ".msixbundle", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{UiSymbols.Error} Cannot use .msixbundle extension for --output when creating a single package. Use .msix or omit the extension.";
+            }
+
+            return null;
+        }
 
         /// <summary>
         /// Classifies a manifest-file input into sparse / non-sparse / unreadable so the caller can
@@ -165,7 +259,17 @@ internal class PackageCommand : Command, IShortDescription
             var selfContained = parseResult.GetValue(SelfContainedOption);
             var executable = parseResult.GetValue(ExecutableOption);
 
-            // Sparse identity packaging: when a single manifest FILE is passed (instead of a
+            // Project mode: a single explicit .csproj input (not an existing directory that merely
+            // happens to be named "*.csproj") builds the project and packages its output. Runs before
+            // the sparse/missing-directory checks below so a non-existent .csproj is reported as a
+            // missing project, not a missing input folder. Everything else keeps its existing routing.
+            if (inputFolders.Length == 1
+                && inputFolders[0].Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                && !Directory.Exists(inputFolders[0].FullName))
+            {
+                return await RunProjectModeAsync(parseResult, new FileInfo(inputFolders[0].FullName), cancellationToken);
+            }
+
             // folder) and it declares AllowExternalContent, build an identity-only .msix from
             // just the manifest — no input folder or app binaries required.
             if (inputFolders.Length == 1 && File.Exists(inputFolders[0].FullName))
@@ -282,30 +386,14 @@ internal class PackageCommand : Command, IShortDescription
                 }, cancellationToken);
             }
 
-            // Validate --output extension for bundle mode
-            if (inputFolders.Length > 1 && output != null)
+            // Validate --output extension against the packaging mode (shared with project mode).
+            var outputExtensionError = ValidateOutputExtension(output, isBundle: inputFolders.Length > 1);
+            if (outputExtensionError != null)
             {
-                var ext = Path.GetExtension(output.Name);
-                if (string.Equals(ext, ".msix", StringComparison.OrdinalIgnoreCase))
+                return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
                 {
-                    return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
-                    {
-                        return Task.FromResult((1, $"{UiSymbols.Error} Cannot use .msix extension for --output when creating a bundle from multiple folders. Use .msixbundle or omit the extension."));
-                    }, cancellationToken);
-                }
-            }
-
-            // Validate --output extension for single-package mode
-            if (inputFolders.Length == 1 && output != null)
-            {
-                var ext = Path.GetExtension(output.Name);
-                if (string.Equals(ext, ".msixbundle", StringComparison.OrdinalIgnoreCase))
-                {
-                    return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
-                    {
-                        return Task.FromResult((1, $"{UiSymbols.Error} Cannot use .msixbundle extension for --output when creating a single package. Use .msix or omit the extension."));
-                    }, cancellationToken);
-                }
+                    return Task.FromResult((1, outputExtensionError));
+                }, cancellationToken);
             }
 
             if (inputFolders.Length == 1)
@@ -318,7 +406,7 @@ internal class PackageCommand : Command, IShortDescription
                     {
                         var autoSign = certPath != null || generateCert;
 
-                        var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken);
+                        var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken: cancellationToken);
 
                         taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
                         if (result.Signed)
