@@ -280,6 +280,49 @@ public sealed class ApiCacheBuilderTests
     }
 
     [TestMethod]
+    public void DiscoverProjectFiles_Scan_DoesNotFollowSymlinkedDirectories()
+    {
+        // A directory symlink committed to a repository can point anywhere, including an
+        // SMB share; reading a project file from there authenticates to whatever host
+        // answers. The scan must not descend through one, even though the redirection is
+        // invisible in the path string.
+        string dir = NewProjectDir("linked");
+        File.WriteAllText(Path.Combine(dir, "App.csproj"), "<Project />");
+        string outside = Path.Combine(Path.GetTempPath(), "winapp-outside-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(outside, "Lib"));
+        File.WriteAllText(Path.Combine(outside, "Lib", "Lib.csproj"), "<Project />");
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(Path.Combine(dir, "vendor"), outside);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                Assert.Inconclusive("Creating a symbolic link requires Developer Mode or elevation.");
+                return;
+            }
+
+            List<string> found = ApiCacheBuilder.DiscoverProjectFiles(dir, scan: true);
+
+            Assert.HasCount(1, found);
+            Assert.AreEqual(Path.Combine(dir, "App.csproj"), found[0]);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(Path.Combine(dir, "vendor"));
+                Directory.Delete(outside, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+            {
+                // Best-effort cleanup.
+            }
+        }
+    }
+
+    [TestMethod]
     public void DiscoverProjectFiles_Scan_RootsResultsAtThePathItWasGiven()
     {
         // Callers compare these against paths they built from their own input, so the

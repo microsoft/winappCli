@@ -51,22 +51,135 @@ internal static class PathSafety
 
         // Check boundary itself first — a reparse-point boundary would make
         // every descendant probe silently follow it.
-        if (IsReparseOrProbeUnknown(normalizedBoundary))
+        return WalkForReparsePoint(normalizedBoundary, normalizedPath);
+    }
+
+    /// <summary>
+    /// True when reaching <paramref name="path"/> from <paramref name="root"/> traverses a
+    /// reparse point (symlink or junction).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Project files, solutions, and lockfiles all live in the repository, so cloning a
+    /// repository is enough to choose the paths this tool resolves. A relative path is
+    /// otherwise harmless, but a directory symlink checked into the repository can turn
+    /// <c>libs\Lib\Lib.csproj</c> into a location on an SMB share, and merely probing it
+    /// authenticates to whoever answers. Reparse points are detected by attribute, before
+    /// any call that would follow them.
+    /// </para>
+    /// <para>
+    /// Unlike <see cref="HasReparsePointOnPath"/> this imposes no containment requirement —
+    /// a solution in <c>src\</c> legitimately lists <c>..\libs\Lib\Lib.csproj</c> — so the
+    /// walk starts at the deepest directory <paramref name="root"/> and
+    /// <paramref name="path"/> share.
+    /// </para>
+    /// <para>
+    /// A network <paramref name="root"/> returns <c>false</c>: the caller selected that
+    /// location deliberately, everything beneath it is already remote, and there is no
+    /// local-to-network transition left to prevent.
+    /// </para>
+    /// </remarks>
+    public static bool CrossesReparsePoint(string path, string root)
+    {
+        string fullPath;
+        string fullRoot;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+            fullRoot = Path.GetFullPath(root);
+        }
+        catch
         {
             return true;
         }
 
-        if (isBoundaryItself)
+        if (IsNetworkPath(fullRoot))
         {
             return false;
         }
 
-        var remainder = normalizedPath.Substring(normalizedBoundary.Length);
+        // A local root can only reach the network by being redirected, and every
+        // redirection below is a reparse point the walk would catch. A path that is
+        // already network-shaped got there some other way; refuse it outright.
+        if (IsNetworkPath(fullPath))
+        {
+            return true;
+        }
+
+        string? start = DeepestCommonAncestor(
+            NormalizeForContainment(fullRoot),
+            NormalizeForContainment(fullPath));
+        if (start is null)
+        {
+            // Different volumes: no ancestor inside the caller's tree to start from.
+            return true;
+        }
+
+        return WalkForReparsePoint(start, NormalizeForContainment(fullPath));
+    }
+
+    /// <summary>
+    /// The deepest directory both paths share, or <c>null</c> when they do not share a
+    /// volume. Both inputs must already be absolute and normalized.
+    /// </summary>
+    private static string? DeepestCommonAncestor(string a, string b)
+    {
+        var separators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+        var aParts = a.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+        var bParts = b.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+
+        int shared = 0;
+        while (shared < aParts.Length
+            && shared < bParts.Length
+            && string.Equals(aParts[shared], bParts[shared], StringComparison.OrdinalIgnoreCase))
+        {
+            shared++;
+        }
+
+        if (shared == 0)
+        {
+            return null;
+        }
+
+        // Rebuild from the original string so the volume keeps its trailing separator
+        // (`C:` alone is drive-relative and would probe the wrong path).
+        int consumed = 0;
+        int index = 0;
+        while (index < a.Length && consumed < shared)
+        {
+            if (separators.Contains(a[index]))
+            {
+                index++;
+                continue;
+            }
+            while (index < a.Length && !separators.Contains(a[index]))
+            {
+                index++;
+            }
+            consumed++;
+        }
+
+        return NormalizeForContainment(a.Substring(0, index));
+    }
+
+    /// <summary>
+    /// Walks each path component from <paramref name="start"/> down to
+    /// <paramref name="target"/>, returning true at the first reparse point.
+    /// <paramref name="target"/> must live under <paramref name="start"/>.
+    /// </summary>
+    private static bool WalkForReparsePoint(string start, string target)
+    {
+        if (IsReparseOrProbeUnknown(start))
+        {
+            return true;
+        }
+
+        var remainder = target.Substring(Math.Min(start.Length, target.Length));
         var segments = remainder.Split(
             new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
             StringSplitOptions.RemoveEmptyEntries);
 
-        var current = normalizedBoundary;
+        var current = start;
         foreach (var seg in segments)
         {
             current = Path.Combine(current, seg);

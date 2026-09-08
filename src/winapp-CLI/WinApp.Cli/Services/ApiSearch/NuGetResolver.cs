@@ -410,8 +410,16 @@ internal static partial class NuGetResolver
             string projectDir = Path.GetDirectoryName(projectFile)!;
             foreach (string reference in references)
             {
+                // A rooted `Include` discards projectDir and could name any location,
+                // including a share; a relative one may still be redirected onto a share
+                // by a checked-in symlink. Both are settled before File.Exists, which
+                // would authenticate to whatever host answers.
+                if (Path.IsPathRooted(reference))
+                {
+                    continue;
+                }
                 string fullPath = Path.GetFullPath(Path.Combine(projectDir, reference));
-                if (!IsProbeablePath(fullPath) || !File.Exists(fullPath))
+                if (PathSafety.CrossesReparsePoint(fullPath, projectDir) || !File.Exists(fullPath))
                 {
                     continue;
                 }
@@ -698,9 +706,10 @@ internal static partial class NuGetResolver
         var packages = new List<PackageWithWinMd>();
         string winappDir = Path.Combine(projectDir, ".winapp");
         string lockfilePath = Path.Combine(winappDir, WinmdsLockfileService.LockfileName);
-        // Network check first: `||` short-circuits, so probing before the guard would
-        // open an SMB connection to a UNC project directory and defeat the guard.
-        if (!IsProbeablePath(lockfilePath) || !File.Exists(lockfilePath))
+        // Reparse check first: `||` short-circuits, so probing before the guard would
+        // follow a `.winapp` symlink onto a share and defeat it. The project directory
+        // itself is the caller's choice and may legitimately be a network location.
+        if (PathSafety.CrossesReparsePoint(lockfilePath, projectDir) || !File.Exists(lockfilePath))
         {
             return packages;
         }

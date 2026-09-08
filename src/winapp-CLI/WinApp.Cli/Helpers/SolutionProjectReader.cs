@@ -57,31 +57,38 @@ internal static partial class SolutionProjectReader
 
     /// <summary>
     /// Normalizes a solution-relative project path (either slash flavor) and resolves it to
-    /// an absolute path under <paramref name="solutionDir"/>. Returns <c>null</c> when the
-    /// path is malformed so callers skip it.
+    /// an absolute path against <paramref name="solutionDir"/>. Returns <c>null</c> when the
+    /// path is malformed or unsafe to touch, so callers skip it.
     /// <para>
-    /// A rooted path in the solution discards <paramref name="solutionDir"/> entirely
-    /// (that is how <see cref="Path.Combine(string, string)"/> is defined), so a crafted
-    /// solution can name any location it likes. Network paths are rejected here, before
-    /// any filesystem call: callers probe the result with <c>File.Exists</c>, and probing
-    /// a UNC path opens an SMB connection that authenticates to whoever answers. Cloning
-    /// an untrusted repository and running <c>find-api</c> must not leak credentials.
+    /// Only relative entries are accepted. A rooted path in the solution discards
+    /// <paramref name="solutionDir"/> entirely (that is how <see cref="Path.Combine(string,
+    /// string)"/> is defined), so a crafted solution could otherwise name any location it
+    /// likes — including a UNC path, which callers would probe with <c>File.Exists</c>,
+    /// opening an SMB connection that authenticates to whoever answers.
+    /// </para>
+    /// <para>
+    /// Relative entries may climb above the solution directory: a solution in <c>src\</c>
+    /// listing <c>..\libs\Lib\Lib.csproj</c> is ordinary. They are rejected only when
+    /// reaching them crosses a reparse point, which is how a checked-in symlink would
+    /// redirect a local path onto a share. A solution the user opened from a network
+    /// location resolves its members on that same share, as it should.
     /// </para>
     /// </summary>
     internal static string? TryResolveRelativePath(string solutionDir, string relative)
     {
-        if (PathSafety.IsNetworkPath(relative))
-        {
-            return null;
-        }
+        string normalized = relative
+            .Replace('/', Path.DirectorySeparatorChar)
+            .Replace('\\', Path.DirectorySeparatorChar);
 
         try
         {
-            string normalized = relative.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+            if (Path.IsPathRooted(normalized))
+            {
+                return null;
+            }
+
             string full = Path.GetFullPath(Path.Combine(solutionDir, normalized));
-            // Re-check after resolution: a relative path can still land on a network
-            // location through a mapped or substituted parent directory.
-            return PathSafety.IsNetworkPath(full) ? null : full;
+            return PathSafety.CrossesReparsePoint(full, solutionDir) ? null : full;
         }
         catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
         {

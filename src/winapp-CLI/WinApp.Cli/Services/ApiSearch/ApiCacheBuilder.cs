@@ -716,10 +716,18 @@ internal static class ApiCacheBuilder
                 (ref FileSystemEntry entry) => entry.ToSpecifiedFullPath(),
                 options)
             {
+                // Reparse points are never followed. A symlink or junction checked into a
+                // repository can redirect an ordinary-looking subdirectory onto an SMB
+                // share, and reading a project file from there authenticates to whatever
+                // host answers. A legitimately linked source tree is still indexable by
+                // pointing --project-dir at its real location.
                 ShouldIncludePredicate = static (ref FileSystemEntry entry) =>
-                    !entry.IsDirectory && IsDiscoverableProjectFile(entry.FileName),
+                    !entry.IsDirectory
+                    && !entry.Attributes.HasFlag(FileAttributes.ReparsePoint)
+                    && IsDiscoverableProjectFile(entry.FileName),
                 ShouldRecursePredicate = static (ref FileSystemEntry entry) =>
-                    !IsExcludedScanDirectory(entry.FileName),
+                    !entry.Attributes.HasFlag(FileAttributes.ReparsePoint)
+                    && !IsExcludedScanDirectory(entry.FileName),
             };
             return enumerable
                 .Where(f => !IsWinappConfigProject(f) || !DirectoryHasMsBuildProject(Path.GetDirectoryName(f)!))
