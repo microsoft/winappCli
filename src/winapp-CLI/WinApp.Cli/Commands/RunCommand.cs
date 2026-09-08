@@ -825,7 +825,7 @@ internal partial class RunCommand : Command, IShortDescription
                 {
                     if (unregisterOnExit && packageName != null)
                     {
-                        await UnregisterDevPackageAsync(packageName);
+                        await UnregisterDevPackageAsync(packageName, packageFullName);
                     }
                     return code;
                 }
@@ -853,7 +853,7 @@ internal partial class RunCommand : Command, IShortDescription
                 }
                 if (unregisterOnExit && packageName != null)
                 {
-                    await UnregisterDevPackageAsync(packageName);
+                    await UnregisterDevPackageAsync(packageName, packageFullName);
                 }
                 return exitCode;
             }
@@ -891,7 +891,7 @@ internal partial class RunCommand : Command, IShortDescription
 
             if (unregisterOnExit && packageName != null)
             {
-                await UnregisterDevPackageAsync(packageName);
+                await UnregisterDevPackageAsync(packageName, packageFullName);
             }
 
             return appExitCode;
@@ -931,7 +931,7 @@ internal partial class RunCommand : Command, IShortDescription
         private static readonly TimeSpan UnregisterOnExitTimeout = TimeSpan.FromSeconds(30);
 
         /// <summary>
-        /// Removes the development registrations this run created, on exit.
+        /// Removes the development registration this run created, on exit.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -942,19 +942,28 @@ internal partial class RunCommand : Command, IShortDescription
         /// leaving the registration and its alias behind to interfere with the next run.
         /// </para>
         /// <para>
-        /// Removal is by package FULL name, one vetted package at a time. The by-name overload
-        /// re-enumerates every user package sharing the identity name and removes all of them — including
-        /// the non-development ones this loop deliberately skips — and it does so with
-        /// <c>preserveAppData: false</c>, so a name collision would uninstall an unrelated app and delete
-        /// its data.
+        /// <paramref name="packageFullName"/> is the package this run actually registered, so it is
+        /// removed directly. Identity NAME is not enough to identify it: two sideloaded development
+        /// packages can share <c>Identity/@Name</c> under different publishers, and removal here passes
+        /// <c>preserveAppData: false</c>, so selecting by name would uninstall the other developer's app
+        /// and delete its data. The by-name sweep is only a fallback for when Windows could not report the
+        /// full name, and even then it removes each vetted package by ITS full name rather than calling the
+        /// by-name overload, which would also take the non-development packages the loop skips.
         /// </para>
         /// </remarks>
-        private async Task UnregisterDevPackageAsync(string packageName)
+        private async Task UnregisterDevPackageAsync(string packageName, string? packageFullName)
         {
             using var cleanupCts = new CancellationTokenSource(UnregisterOnExitTimeout);
 
             try
             {
+                if (!string.IsNullOrEmpty(packageFullName))
+                {
+                    await packageRegistrationService.UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cleanupCts.Token);
+                    logger.LogDebug("Unregistered package {FullName} on exit.", packageFullName);
+                    return;
+                }
+
                 var packages = packageRegistrationService.FindDevPackages(packageName);
                 foreach (var pkg in packages)
                 {

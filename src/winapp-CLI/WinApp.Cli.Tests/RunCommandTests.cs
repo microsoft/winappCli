@@ -1694,14 +1694,15 @@ public class RunCommandTests : BaseCommandTests
     #region --unregister-on-exit tests
 
     [TestMethod]
-    public async Task RunCommand_UnregisterOnExit_DefaultLaunch_UnregistersOnlyDevPackages()
+    public async Task RunCommand_UnregisterOnExit_RemovesExactlyThePackageTheRunRegistered()
     {
-        // After the launched app exits, dev-mode packages matching the identity name are
-        // unregistered. Non-dev packages are skipped.
+        // Cleanup targets the package this run registered, identified by its full name. Identity NAME is
+        // not enough: the full name carries the publisher hash, so two sideloaded development packages can
+        // share Identity/@Name and still be different packages.
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
-            new DevPackageInfo("OtherPackage_1.0.0.0_x64__prod", "OtherPackage", "1.0.0.0", null, IsDevelopmentMode: false),
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
         ];
         await CreateTestManifestAsync();
         var command = GetRequiredService<RunCommand>();
@@ -1709,22 +1710,45 @@ public class RunCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
 
         Assert.AreEqual(0, exitCode);
-        Assert.AreEqual(1, _fakePackageRegistrationService.FindDevPackagesCalls.Count);
-        Assert.AreEqual("TestPackage", _fakePackageRegistrationService.FindDevPackagesCalls[0]);
         Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count,
-            "Removal must be by full name; the by-name overload removes every package sharing the identity name");
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Only the dev-mode package should be unregistered");
-        Assert.AreEqual("TestPackage_1.0.0.0_x64__dev", _fakePackageRegistrationService.UnregisterByFullNameCalls[0].PackageFullName);
+            "The by-name overload removes every package sharing the identity name");
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
+        Assert.AreEqual("TestPackage_1.0.0.0_x64__mine", _fakePackageRegistrationService.UnregisterByFullNameCalls[0].PackageFullName);
         Assert.IsFalse(_fakePackageRegistrationService.UnregisterByFullNameCalls[0].PreserveAppData, "unregister-on-exit should not preserve app data");
     }
 
     [TestMethod]
-    public async Task RunCommand_UnregisterOnExit_SameNameNonDevPackage_IsNotRemoved()
+    public async Task RunCommand_UnregisterOnExit_OtherPackagesSharingTheIdentityName_AreNotRemoved()
     {
-        // Exit cleanup vets each package, then must remove exactly that one. Removing by identity NAME
-        // re-enumerates every user package sharing it — including the normal, non-development package
-        // skipped here — and does so with preserveAppData: false, uninstalling an unrelated app and
-        // deleting its data.
+        // The dangerous case: a normal store package AND another developer's sideloaded package both
+        // share Identity/@Name with this run's app. Selecting by name removes all three with
+        // preserveAppData: false, uninstalling unrelated apps and deleting their data.
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_2.0.0.0_x64__theirs", "TestPackage", "2.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_9.9.9.9_x64__8wekyb3d8bbwe", "TestPackage", "9.9.9.9", null, IsDevelopmentMode: false),
+        ];
+        await CreateTestManifestAsync();
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
+
+        Assert.AreEqual(0, exitCode);
+        var removed = _fakePackageRegistrationService.UnregisterByFullNameCalls.Select(c => c.PackageFullName).ToList();
+        Assert.AreEqual(1, removed.Count, "Only the package this run registered may be removed");
+        Assert.AreEqual("TestPackage_1.0.0.0_x64__mine", removed[0]);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task RunCommand_UnregisterOnExit_FullNameUnavailable_FallsBackToVettedDevPackages()
+    {
+        // Windows could not report the full name. The by-name sweep is the only option left, so it still
+        // has to skip non-development packages and remove each survivor by ITS full name rather than
+        // calling the by-name overload.
+        _fakeAppLauncherService.FakePackageFullName = null;
         _fakePackageRegistrationService.FakeDevPackages =
         [
             new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
@@ -1736,11 +1760,11 @@ public class RunCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
 
         Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("TestPackage", _fakePackageRegistrationService.FindDevPackagesCalls.Single());
         var removed = _fakePackageRegistrationService.UnregisterByFullNameCalls.Select(c => c.PackageFullName).ToList();
-        Assert.AreEqual(1, removed.Count, "Only the exact development package this run created may be removed");
+        Assert.AreEqual(1, removed.Count, "The non-development package must be skipped");
         Assert.AreEqual("TestPackage_1.0.0.0_x64__dev", removed[0]);
-        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count,
-            "The by-name overload would also remove the same-named store package");
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
     }
 
     [TestMethod]
