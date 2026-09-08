@@ -264,6 +264,8 @@ internal sealed class ApiInheritedMemberGroup
     public List<string>? Events { get; init; }
 
     public List<string>? Methods { get; init; }
+
+    public List<string>? Fields { get; init; }
 }
 
 /// <summary>The result of <c>find-api members &lt;Type&gt;</c>.</summary>
@@ -300,6 +302,9 @@ internal sealed class ApiMembersOutput : IApiScopedOutput
     /// <summary>Total method count before filtering; <see langword="null"/> when unfiltered.</summary>
     public int? TotalMethods { get; init; }
 
+    /// <summary>Total field count before filtering; <see langword="null"/> when unfiltered.</summary>
+    public int? TotalFields { get; init; }
+
     /// <summary>
     /// Number of dependency-property identifier statics omitted from an unfiltered
     /// listing. <see langword="null"/> when none were hidden. Reported so a trimmed
@@ -326,6 +331,13 @@ internal sealed class ApiMembersOutput : IApiScopedOutput
     public required List<ApiMemberOutput> Events { get; init; }
 
     public required List<ApiMemberOutput> Methods { get; init; }
+
+    /// <summary>
+    /// Public fields. A struct such as <c>CoreWebView2PhysicalKeyStatus</c> exposes its
+    /// whole surface this way, so omitting fields reports it as having no members at all.
+    /// <see langword="null"/> when the type declares none, which is the common case.
+    /// </summary>
+    public List<ApiMemberOutput>? Fields { get; init; }
 
     /// <summary>
     /// Inherited members, by declaring type, in an unfiltered listing. Names only —

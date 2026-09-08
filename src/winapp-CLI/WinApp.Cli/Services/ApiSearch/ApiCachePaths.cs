@@ -24,7 +24,7 @@ internal static class ApiCachePaths
     /// records the version a cache was written with, and the builder refuses to
     /// reuse a package whose recorded version is not this one.
     /// </summary>
-    internal const int CacheFormatVersion = 6;
+    internal const int CacheFormatVersion = 7;
 
     /// <summary>
     /// File name of the machine-wide "SDK scope" manifest, written as a sibling of

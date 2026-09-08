@@ -307,6 +307,7 @@ internal static class ApiQueryEngine
         var allProperties = Project(MemberKind.Property);
         var allEvents = Project(MemberKind.Event);
         var allMethods = Project(MemberKind.Method);
+        var allFields = Project(MemberKind.Field);
 
         List<ApiInheritedMemberGroup>? inheritedGroups = bulk
             ? members
@@ -320,6 +321,7 @@ internal static class ApiQueryEngine
                     Properties = InheritedNames(g, MemberKind.Property),
                     Events = InheritedNames(g, MemberKind.Event),
                     Methods = InheritedNames(g, MemberKind.Method),
+                    Fields = InheritedNames(g, MemberKind.Field),
                 })
                 .ToList()
             : null;
@@ -350,6 +352,7 @@ internal static class ApiQueryEngine
             TotalProperties = anythingHidden ? allProperties.Count + hiddenDependencyProperties + inheritedCount(MemberKind.Property) : null,
             TotalEvents = anythingHidden ? allEvents.Count + inheritedCount(MemberKind.Event) : null,
             TotalMethods = anythingHidden ? allMethods.Count + inheritedCount(MemberKind.Method) : null,
+            TotalFields = anythingHidden && allFields.Count > 0 ? allFields.Count + inheritedCount(MemberKind.Field) : null,
             HiddenDependencyProperties = hiddenDependencyProperties > 0 ? hiddenDependencyProperties : null,
             DescriptionsOmitted = bulk ? true : null,
             Hint = bulk
@@ -360,6 +363,7 @@ internal static class ApiQueryEngine
             Properties = Filter(allProperties),
             Events = Filter(allEvents),
             Methods = Filter(allMethods),
+            Fields = allFields.Count > 0 ? Filter(allFields) : null,
             Inherited = inheritedGroups,
             GetForCurrentViewWarning = getForCurrentView,
         });
@@ -683,14 +687,15 @@ internal static class ApiQueryEngine
 
         var members = CollectMembersWithInheritance(targetType, allTypes);
 
-        // 1. Direct or inherited member. Only a Property counts as "found" — a
-        // method or event with the same name is not a settable property.
+        // 1. Direct or inherited member. A Property or a public Field counts as "found" —
+        // both are read with `x.Name` and a struct such as PackageVersion exposes its
+        // whole surface as fields — but a method or event with the same name does not.
         // The comparison is case-sensitive because XAML and C# both are: reporting
         // "isEnabled" as found would send a caller off to write code that will not
         // compile. A case-only miss still scores 100 in the suggestion pass below, so
         // the correct spelling comes back as the top near match.
         var exact = members.FirstOrDefault(m =>
-            m.Member.Kind == MemberKind.Property &&
+            IsPropertyLike(m.Member.Kind) &&
             m.Member.Name.Equals(propertyName, StringComparison.Ordinal));
         if (exact.Member != null)
         {
@@ -721,7 +726,7 @@ internal static class ApiQueryEngine
 
         // 3. Not found — build suggestions.
         var similarOnType = members
-            .Where(m => m.Member.Kind == MemberKind.Property)
+            .Where(m => IsPropertyLike(m.Member.Kind))
             .Select(m => (Member: m.Member, Score: Scoring.GetMatchScore(m.Member.Name, m.Member.Name, propertyName)))
             .Where(x => x.Score >= 40)
             .OrderByDescending(x => x.Score)
@@ -732,7 +737,7 @@ internal static class ApiQueryEngine
         var typesWithProperty = allTypes
             .Where(t => t.FullName != targetType.FullName)
             .SelectMany(t => t.Members
-                .Where(m => m.Kind == MemberKind.Property && m.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
+                .Where(m => IsPropertyLike(m.Kind) && m.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
                 .Select(m => new ApiCrossTypeMember { TypeName = t.Name, Signature = m.Signature, Description = m.Description }))
             .Take(5)
             .ToList();
@@ -740,7 +745,7 @@ internal static class ApiQueryEngine
         var typesWithSimilar = allTypes
             .Where(t => t.FullName != targetType.FullName)
             .SelectMany(t => t.Members
-                .Where(m => m.Kind == MemberKind.Property)
+                .Where(m => IsPropertyLike(m.Kind))
                 .Select(m => (Type: t, Member: m, Score: Scoring.GetMatchScore(m.Name, m.Name, propertyName)))
                 .Where(x => x.Score >= 60 && !x.Member.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase)))
             .OrderByDescending(x => x.Score)
@@ -785,14 +790,30 @@ internal static class ApiQueryEngine
     }
 
     /// <summary>
+    /// Whether a member answers "can I read <c>x.Name</c> on this type" — a property or
+    /// a public field. Both are accessed with the same syntax, and a struct such as
+    /// <c>PackageVersion</c> exposes its whole surface as fields, so restricting
+    /// <c>check-property</c> to properties reports those types as having nothing.
+    /// A method or event of the same name still does not count.
+    /// </summary>
+    private static bool IsPropertyLike(MemberKind kind) =>
+        kind is MemberKind.Property or MemberKind.Field;
+
+    /// <summary>
     /// Whether a property can be assigned, read from the accessor block the parser
     /// bakes into the signature (<c>{ get; }</c>, <c>{ get; set; }</c>, <c>{ set; }</c>).
-    /// Returns <c>null</c> for non-properties, and for a property whose type blob could
+    /// A field is writable unless the parser marked it <c>const</c> or <c>readonly</c>.
+    /// Returns <c>null</c> for other kinds, and for a property whose type blob could
     /// not be decoded and therefore carries no accessor block — so "unknown" is never
     /// reported as read-only.
     /// </summary>
     private static bool? PropertyWritable(WinMdMemberInfo member)
     {
+        if (member.Kind == MemberKind.Field)
+        {
+            return !member.Signature.StartsWith("const ", StringComparison.Ordinal)
+                && !member.Signature.Contains("readonly ", StringComparison.Ordinal);
+        }
         if (member.Kind != MemberKind.Property)
         {
             return null;
@@ -962,26 +983,82 @@ internal static class ApiQueryEngine
             seenSignatures.Add(MemberDedupKey(m));
         }
 
-        string? baseTypeName = type.BaseType;
+        // Breadth-first over base types *and* declared interfaces. WinRT puts almost
+        // everything on interfaces — IObservableVector<T> declares only its change event
+        // and inherits Size, GetAt, and Append from IVector<T> and IIterable<T> — so a
+        // base-type-only walk reports those members as nonexistent.
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { type.FullName };
-        while (!string.IsNullOrEmpty(baseTypeName) && visited.Add(baseTypeName))
+        var queue = new Queue<WinMdTypeInfo>();
+        EnqueueSupertypes(type, allTypes, visited, queue);
+
+        while (queue.Count > 0)
         {
-            var baseType = allTypes.FirstOrDefault(t => t.FullName.Equals(baseTypeName, StringComparison.OrdinalIgnoreCase));
-            if (baseType == null)
+            WinMdTypeInfo super = queue.Dequeue();
+            foreach (var m in super.Members)
             {
-                break;
-            }
-            foreach (var m in baseType.Members)
-            {
-                string dedupKey = MemberDedupKey(m);
-                if (seenSignatures.Add(dedupKey))
+                if (seenSignatures.Add(MemberDedupKey(m)))
                 {
-                    result.Add((m, baseType.FullName));
+                    result.Add((m, super.FullName));
                 }
             }
-            baseTypeName = baseType.BaseType;
+            EnqueueSupertypes(super, allTypes, visited, queue);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Queues the indexed types a type derives from or implements, skipping any already
+    /// visited so a cyclic or diamond hierarchy terminates.
+    /// </summary>
+    private static void EnqueueSupertypes(
+        WinMdTypeInfo type,
+        List<WinMdTypeInfo> allTypes,
+        HashSet<string> visited,
+        Queue<WinMdTypeInfo> queue)
+    {
+        IEnumerable<string> supertypeNames = type.Interfaces is null
+            ? (type.BaseType is null ? [] : new[] { type.BaseType })
+            : (type.BaseType is null ? type.Interfaces : type.Interfaces.Prepend(type.BaseType));
+
+        foreach (string name in supertypeNames)
+        {
+            WinMdTypeInfo? resolved = ResolveSupertype(name, allTypes);
+            // Dedupe on the resolved identity so the same supertype reached under two
+            // spellings (IVector<String> from one type, IVector<T> from another) does not
+            // contribute its members twice. An unresolvable reference dedupes on its own
+            // text, which is all that is known about it.
+            if (!visited.Add(resolved?.FullName ?? name))
+            {
+                continue;
+            }
+            if (resolved is not null)
+            {
+                queue.Enqueue(resolved);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Finds the indexed type a base or interface reference names.
+    /// </summary>
+    /// <remarks>
+    /// The reference carries the arguments it was instantiated with
+    /// (<c>IVector&lt;String&gt;</c>) while the definition carries its declared parameters
+    /// (<c>IVector&lt;T&gt;</c>), so the two spellings rarely match verbatim. Matching on
+    /// base name plus arity is what connects them; find-api reports which members exist,
+    /// not what each one's type argument resolves to.
+    /// </remarks>
+    private static WinMdTypeInfo? ResolveSupertype(string name, List<WinMdTypeInfo> allTypes)
+    {
+        WinMdTypeInfo? exact = allTypes.FirstOrDefault(
+            t => t.FullName.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+        {
+            return exact;
+        }
+
+        (string baseName, int? arity) = SplitGenericName(name);
+        return allTypes.FirstOrDefault(t => GenericNameMatches(t.FullName, baseName, arity));
     }
 
     private static string MemberDedupKey(WinMdMemberInfo member) =>

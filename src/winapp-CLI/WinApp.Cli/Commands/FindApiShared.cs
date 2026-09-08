@@ -358,13 +358,17 @@ internal static class FindApiShared
         }
         if (output.Filter is not null)
         {
-            int shown = output.Properties.Count + output.Events.Count + output.Methods.Count;
-            int total = (output.TotalProperties ?? 0) + (output.TotalEvents ?? 0) + (output.TotalMethods ?? 0);
+            int shown = output.Properties.Count + output.Events.Count + output.Methods.Count
+                + (output.Fields?.Count ?? 0);
+            int total = (output.TotalProperties ?? 0) + (output.TotalEvents ?? 0) + (output.TotalMethods ?? 0)
+                + (output.TotalFields ?? 0);
+
             console.WriteLine($"  Filter: '{output.Filter}' \u2014 showing {shown} of {total} members");
         }
         console.WriteLine();
 
         WriteMemberGroup(console, "Properties:", output.Properties, MemberKind.Property);
+        WriteMemberGroup(console, "Fields:", output.Fields ?? [], MemberKind.Field);
         WriteMemberGroup(console, "Events:", output.Events, MemberKind.Event);
         WriteMemberGroup(console, "Methods:", output.Methods, MemberKind.Method);
 
@@ -372,7 +376,9 @@ internal static class FindApiShared
 
         WriteTrimNote(console, output);
 
-        if (output.Properties.Count == 0 && output.Events.Count == 0 && output.Methods.Count == 0)
+        if (output.Properties.Count == 0 && output.Events.Count == 0 && output.Methods.Count == 0
+            && output.Fields is not { Count: > 0 })
+
         {
             // Distinguish a filter miss from a type with no members. Rendering nothing at
             // all reads as "this type does not exist", which is the wrong conclusion to
@@ -402,12 +408,13 @@ internal static class FindApiShared
         }
 
         int total = output.Inherited.Sum(g =>
-            (g.Properties?.Count ?? 0) + (g.Events?.Count ?? 0) + (g.Methods?.Count ?? 0));
+            (g.Properties?.Count ?? 0) + (g.Events?.Count ?? 0) + (g.Methods?.Count ?? 0) + (g.Fields?.Count ?? 0));
         console.WriteLine($"  Inherited ({total} member(s) from {output.Inherited.Count} base type(s), names only):");
         foreach (ApiInheritedMemberGroup group in output.Inherited)
         {
             console.WriteLine($"    {group.DeclaringType}");
             WriteNames(console, "Properties", group.Properties);
+            WriteNames(console, "Fields", group.Fields);
             WriteNames(console, "Events", group.Events);
             WriteNames(console, "Methods", group.Methods);
         }

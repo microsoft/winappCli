@@ -1010,6 +1010,274 @@ public sealed class ApiQueryEngineTests
         }
     }
 
+    #region Interface inheritance
+
+    /// <summary>
+    /// The shape WinRT actually ships: an interface that declares almost nothing and
+    /// inherits its surface from the interfaces it requires. IObservableVector&lt;T&gt;
+    /// declares only its change event; Size, GetAt, and Append come from IVector&lt;T&gt;
+    /// and IIterable&lt;T&gt;.
+    /// <para>
+    /// The required interfaces are spelled with a concrete argument
+    /// (<c>IVector&lt;String&gt;</c>) while the definitions carry their declared parameter
+    /// (<c>IVector&lt;T&gt;</c>), which is what metadata records — so resolving them cannot
+    /// rely on the two strings being identical.
+    /// </para>
+    /// </summary>
+    private static ProjectManifest BuildInterfaceInheritanceCache(string cacheDir)
+    {
+        WinMdTypeInfo Iface(string name, List<string>? interfaces, params WinMdMemberInfo[] members) => new()
+        {
+            Namespace = "Ifc.Ns",
+            Name = name,
+            FullName = "Ifc.Ns." + name,
+            Kind = TypeKind.Interface,
+            Interfaces = interfaces,
+            SourceFile = "ifc.winmd",
+            Members = members.ToList(),
+        };
+
+        WinMdMemberInfo Prop(string name) => new()
+        {
+            Name = name,
+            Kind = MemberKind.Property,
+            Signature = $"UInt32 {name} {{ get; }}",
+            ReturnType = "UInt32",
+        };
+
+        WinMdMemberInfo Evt(string name) => new()
+        {
+            Name = name,
+            Kind = MemberKind.Event,
+            Signature = $"event Handler {name}",
+            ReturnType = "Handler",
+        };
+
+        var namespaces = new Dictionary<string, List<WinMdTypeInfo>>(StringComparer.Ordinal)
+        {
+            ["Ifc.Ns"] =
+            [
+                Iface("IObservableVector<T>", ["Ifc.Ns.IVector<String>"], Evt("VectorChanged")),
+                Iface("IVector<T>", ["Ifc.Ns.IIterable<T>"], Prop("Size")),
+                Iface("IIterable<T>", null, Prop("First")),
+            ],
+        };
+        WriteSyntheticPackage(cacheDir, "Ifc.Pkg", namespaces);
+
+        var manifest = new ProjectManifest
+        {
+            ProjectName = "IfcApp",
+            ProjectDir = Path.Combine(cacheDir, "src"),
+            ProjectFile = "IfcApp.csproj",
+            Packages = [new ProjectPackageRef { Id = "Ifc.Pkg", Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
+            GeneratedAt = DateTime.UtcNow.ToString("o"),
+        };
+        string projectsDir = Path.Combine(cacheDir, "projects");
+        Directory.CreateDirectory(projectsDir);
+        File.WriteAllText(
+            Path.Combine(projectsDir, "IfcApp.json"),
+            JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
+        return manifest;
+    }
+
+    [TestMethod]
+    public void CheckProperty_MemberOfARequiredInterface_IsFound()
+    {
+        // Walking base types alone answers "does not exist" for a member the caller can
+        // write today. On an interface-heavy surface that is a false negative on the exact
+        // question this command exists to answer.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildInterfaceInheritanceCache(cacheDir);
+
+            var result = ApiQueryEngine.CheckProperty("Ifc.Ns.IObservableVector<T>", "Size", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsTrue(result.Data!.Found, "Size is inherited from Ifc.Ns.IVector<T>");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void CheckProperty_MemberOfATransitivelyRequiredInterface_IsFound()
+    {
+        // IIterable<T> is reached only through IVector<T>, so a one-level interface lookup
+        // would still miss it.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildInterfaceInheritanceCache(cacheDir);
+
+            var result = ApiQueryEngine.CheckProperty("Ifc.Ns.IObservableVector<T>", "First", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsTrue(result.Data!.Found, "First is inherited transitively from Ifc.Ns.IIterable<T>");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Members_InheritedFromAnInterface_IsAttributedToThatInterface()
+    {
+        // The caller needs to know where a member comes from to look it up; attributing an
+        // interface member to the leaf type would misreport it.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildInterfaceInheritanceCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Ifc.Ns.IObservableVector<T>", "size", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            var match = result.Data!.Properties.Single();
+            Assert.AreEqual("Size", match.Name);
+            Assert.AreEqual("Ifc.Ns.IVector<T>", match.DeclaringType);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    #endregion
+
+    #region Public fields
+
+    private static readonly string[] ExpectedPackageVersionFields = ["Major", "Minor", "Frozen", "Limit"];
+
+    /// <summary>
+    /// The shape a WinRT/interop struct actually ships: no properties or methods at all,
+    /// only public fields. <c>CoreWebView2PhysicalKeyStatus</c> and <c>PackageVersion</c>
+    /// are both this.
+    /// </summary>
+    private static ProjectManifest BuildFieldCache(string cacheDir)
+    {
+        WinMdMemberInfo Field(string name, string signature) => new()
+        {
+            Name = name,
+            Kind = MemberKind.Field,
+            Signature = signature,
+            ReturnType = "UInt16",
+        };
+
+        var namespaces = new Dictionary<string, List<WinMdTypeInfo>>(StringComparer.Ordinal)
+        {
+            ["Fld.Ns"] =
+            [
+                new WinMdTypeInfo
+                {
+                    Namespace = "Fld.Ns",
+                    Name = "PackageVersion",
+                    FullName = "Fld.Ns.PackageVersion",
+                    Kind = TypeKind.Struct,
+                    SourceFile = "fld.winmd",
+                    Members =
+                    [
+                        Field("Major", "UInt16 Major"),
+                        Field("Minor", "UInt16 Minor"),
+                        Field("Frozen", "readonly UInt16 Frozen"),
+                        Field("Limit", "const UInt16 Limit"),
+                    ],
+                },
+            ],
+        };
+        WriteSyntheticPackage(cacheDir, "Fld.Pkg", namespaces);
+
+        var manifest = new ProjectManifest
+        {
+            ProjectName = "FldApp",
+            ProjectDir = Path.Combine(cacheDir, "src"),
+            ProjectFile = "FldApp.csproj",
+            Packages = [new ProjectPackageRef { Id = "Fld.Pkg", Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
+            GeneratedAt = DateTime.UtcNow.ToString("o"),
+        };
+        string projectsDir = Path.Combine(cacheDir, "projects");
+        Directory.CreateDirectory(projectsDir);
+        File.WriteAllText(
+            Path.Combine(projectsDir, "FldApp.json"),
+            JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
+        return manifest;
+    }
+
+    [TestMethod]
+    public void Members_OfAStructWithOnlyFields_ListsThem()
+    {
+        // Omitting fields renders such a type as "(no declared members)", which reads as
+        // "this API is unusable" for a struct whose entire surface is fields.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildFieldCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Fld.Ns.PackageVersion", filter: null, cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsNotNull(result.Data!.Fields, "a field-only struct must report its fields");
+            CollectionAssert.AreEquivalent(
+                ExpectedPackageVersionFields,
+                result.Data.Fields!.ConvertAll(f => f.Name));
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void CheckProperty_APublicField_IsFoundAndWritable()
+    {
+        // `version.Major` is what the caller writes; answering "does not have property
+        // 'Major'" is a false negative on the exact question the command answers.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildFieldCache(cacheDir);
+
+            var result = ApiQueryEngine.CheckProperty("Fld.Ns.PackageVersion", "Major", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsTrue(result.Data!.Found);
+            Assert.AreEqual(true, result.Data.Writable, "a plain field is assignable");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [DataRow("Frozen")]
+    [DataRow("Limit")]
+    [TestMethod]
+    public void CheckProperty_AReadOnlyOrConstField_IsFoundButNotWritable(string fieldName)
+    {
+        // Existence alone is not a green light to assign: telling a caller a const field
+        // is writable produces code that will not compile.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildFieldCache(cacheDir);
+
+            var result = ApiQueryEngine.CheckProperty("Fld.Ns.PackageVersion", fieldName, cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsTrue(result.Data!.Found);
+            Assert.AreEqual(false, result.Data.Writable);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    #endregion
+
     [TestMethod]
     public void CheckProperty_WrongCase_IsNotFoundButSuggestsTheRealSpelling()
     {

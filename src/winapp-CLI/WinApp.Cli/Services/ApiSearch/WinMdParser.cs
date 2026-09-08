@@ -50,17 +50,20 @@ internal static class WinMdParser
 
                 TypeKind typeKind = DetermineTypeKind(reader, typeDef);
                 string? baseTypeName = GetBaseTypeName(reader, typeDef);
-                List<WinMdMemberInfo> members = ParseMembers(reader, typeDef, typeProvider);
+                ImmutableArray<string> typeParameters = GenericParameterNames(reader, typeDef.GetGenericParameters());
+                List<WinMdMemberInfo> members = ParseMembers(reader, typeDef, typeProvider, typeKind, typeParameters);
                 List<string>? enumValues = typeKind == TypeKind.Enum ? ParseEnumValues(reader, typeDef) : null;
-                string fullName = BuildFullTypeName(reader, typeDef);
+                string fullName = ToSourceGenericName(BuildFullTypeName(reader, typeDef), typeParameters);
+                List<string>? interfaces = ParseInterfaces(reader, typeDef, typeProvider, typeParameters);
                 string? deprecatedMessage = GetDeprecatedMessage(reader, typeDef.GetCustomAttributes());
                 results.Add(new WinMdTypeInfo
                 {
                     Namespace = ns,
-                    Name = name,
+                    Name = ToSourceGenericName(name, typeParameters),
                     FullName = fullName,
                     Kind = typeKind,
-                    BaseType = baseTypeName,
+                    BaseType = baseTypeName is null ? null : ToSourceGenericName(baseTypeName, typeParameters),
+                    Interfaces = interfaces,
                     Members = members,
                     EnumValues = enumValues,
                     SourceFile = Path.GetFileName(filePath),
@@ -189,6 +192,112 @@ internal static class WinMdParser
         };
     }
 
+    /// <summary>
+    /// Rewrites a metadata type name into the form a caller writes in source:
+    /// <c>IObservableVector`1</c> becomes <c>IObservableVector&lt;T&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// The arity suffix is how the CLR encodes generics, and it appears nowhere in C# or
+    /// C++/WinRT. Emitting it means <c>find-api</c> hands back a name that does not
+    /// compile — the one thing the command exists to prevent. The declared parameter
+    /// names are used rather than invented placeholders so the rendering matches the
+    /// documentation for the type.
+    /// <para>
+    /// <see cref="TypeDefinition.GetGenericParameters"/> includes parameters inherited
+    /// from enclosing types, so removing every suffix and appending the full list also
+    /// names a generic nested inside a generic correctly.
+    /// </para>
+    /// </remarks>
+    internal static string ToSourceGenericName(string metadataName, ImmutableArray<string> genericParameterNames)
+    {
+        if (string.IsNullOrEmpty(metadataName) || !metadataName.Contains('`'))
+        {
+            return metadataName;
+        }
+
+        var builder = new System.Text.StringBuilder(metadataName.Length);
+        for (int i = 0; i < metadataName.Length; i++)
+        {
+            if (metadataName[i] != '`')
+            {
+                builder.Append(metadataName[i]);
+                continue;
+            }
+            // Skip the suffix digits; the arity they encode is restated by the
+            // parameter list appended below.
+            i++;
+            while (i < metadataName.Length && char.IsAsciiDigit(metadataName[i]))
+            {
+                i++;
+            }
+            i--;
+        }
+
+        if (genericParameterNames.Length == 0)
+        {
+            return builder.ToString();
+        }
+        return builder.Append('<').AppendJoin(", ", genericParameterNames).Append('>').ToString();
+    }
+
+    /// <summary>
+    /// The interfaces a type declares, named as a caller writes them. Returns
+    /// <see langword="null"/> when there are none so the field is omitted from the cache.
+    /// </summary>
+    /// <remarks>
+    /// WinRT is interface-heavy: <c>IObservableVector&lt;T&gt;</c> declares almost nothing
+    /// itself and inherits <c>Size</c>, <c>GetAt</c>, and the rest from <c>IVector&lt;T&gt;</c>
+    /// and <c>IIterable&lt;T&gt;</c>. Walking base types alone therefore reports those
+    /// members as nonexistent, which is a false negative on the exact question
+    /// <c>check-property</c> answers.
+    /// </remarks>
+    private static List<string>? ParseInterfaces(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        SimpleTypeProvider typeProvider,
+        ImmutableArray<string> typeParameters)
+    {
+        List<string>? interfaces = null;
+        foreach (InterfaceImplementationHandle handle in typeDef.GetInterfaceImplementations())
+        {
+            string? name;
+            try
+            {
+                EntityHandle iface = reader.GetInterfaceImplementation(handle).Interface;
+                name = iface.Kind switch
+                {
+                    // A generic interface is referenced through a TypeSpecification, so a
+                    // definition or reference handle names a non-generic one; no declared
+                    // parameters apply to it.
+                    HandleKind.TypeDefinition => ToSourceGenericName(
+                        GetTypeDefName(reader, (TypeDefinitionHandle)iface), []),
+                    HandleKind.TypeReference => ToSourceGenericName(
+                        GetTypeRefName(reader, (TypeReferenceHandle)iface), []),
+                    // A generic interface is referenced through a TypeSpecification whose
+                    // blob carries the arguments; decoding it yields the instantiated form
+                    // (IVector<T>) directly.
+                    HandleKind.TypeSpecification => reader
+                        .GetTypeSpecification((TypeSpecificationHandle)iface)
+                        .DecodeSignature(typeProvider, new GenericNameContext(typeParameters, [])),
+                    _ => null,
+                };
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or NotSupportedException
+                or InvalidOperationException or ArgumentException)
+            {
+                // An undecodable interface reference drops that one interface rather than
+                // the type it is declared on.
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(name))
+            {
+                (interfaces ??= []).Add(name);
+            }
+        }
+        return interfaces;
+    }
+
     private static string GetTypeDefName(MetadataReader reader, TypeDefinitionHandle handle)
     {
         TypeDefinition typeDef = reader.GetTypeDefinition(handle);
@@ -205,7 +314,12 @@ internal static class WinMdParser
         return string.IsNullOrEmpty(ns) ? name : ns + "." + name;
     }
 
-    private static List<WinMdMemberInfo> ParseMembers(MetadataReader reader, TypeDefinition typeDef, SimpleTypeProvider typeProvider)
+    private static List<WinMdMemberInfo> ParseMembers(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        SimpleTypeProvider typeProvider,
+        TypeKind typeKind,
+        ImmutableArray<string> typeParameters)
     {
         var members = new List<WinMdMemberInfo>();
         var accessorMethods = new HashSet<MethodDefinitionHandle>();
@@ -317,12 +431,18 @@ internal static class WinMdParser
                     string accessorText = hasPublicGetter
                         ? (hasPublicSetter ? "{ get; set; }" : "{ get; }")
                         : "{ set; }";
+                    // A property is static when its accessors are. Application.Current is
+                    // read off the type, so a signature without `static` tells a caller to
+                    // construct an Application first — code that does not compile.
+                    bool isStatic = IsStaticAccessor(reader, accessors.Getter)
+                        || IsStaticAccessor(reader, accessors.Setter);
                     members.Add(new WinMdMemberInfo
                     {
                         Name = name,
                         Kind = MemberKind.Property,
-                        Signature = $"{returnType} {name} {accessorText}",
+                        Signature = $"{(isStatic ? "static " : string.Empty)}{returnType} {name} {accessorText}",
                         ReturnType = returnType,
+                        IsStatic = isStatic,
                         DeprecatedMessage = deprecated
                     });
                 }
@@ -353,20 +473,78 @@ internal static class WinMdParser
             }
             if (isPublic)
             {
-                string handlerType = GetHandleTypeName(reader, @event.Type);
+                string handlerType = GetHandleTypeName(reader, @event.Type, typeParameters);
+                // CompositionTarget.Rendering and its siblings are subscribed on the type.
+                bool isStatic = IsStaticAccessor(reader, accessors.Adder)
+                    || IsStaticAccessor(reader, accessors.Remover);
                 members.Add(new WinMdMemberInfo
                 {
                     Name = name,
                     Kind = MemberKind.Event,
-                    Signature = "event " + handlerType + " " + name,
+                    Signature = $"{(isStatic ? "static " : string.Empty)}event {handlerType} {name}",
                     ReturnType = handlerType,
+                    IsStatic = isStatic,
                     DeprecatedMessage = GetDeprecatedMessage(reader, @event.GetCustomAttributes())
+                });
+            }
+        }
+
+        // Enum members are the enum's values, reported separately; every other type's
+        // public fields are ordinary API. Matrix.M11 and the rest of the struct fields
+        // were absent from the index entirely, so an agent asking what a struct offers
+        // was told it offers nothing.
+        if (typeKind != TypeKind.Enum)
+        {
+            var fieldContext = new GenericNameContext(typeParameters, []);
+            foreach (FieldDefinitionHandle fieldHandle in typeDef.GetFields())
+            {
+                FieldDefinition field = reader.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public)
+                {
+                    continue;
+                }
+                string name = reader.GetString(field.Name);
+                if (string.IsNullOrEmpty(name) || name.StartsWith('<'))
+                {
+                    continue;
+                }
+                bool isLiteral = (field.Attributes & FieldAttributes.Literal) != 0;
+                bool isStatic = (field.Attributes & FieldAttributes.Static) != 0;
+                bool isInitOnly = (field.Attributes & FieldAttributes.InitOnly) != 0;
+                // 'const'/'readonly' are load-bearing here, not cosmetic: check-property
+                // reports a field's writability from this prefix.
+                string prefix = isLiteral
+                    ? "const "
+                    : (isStatic ? "static " : string.Empty) + (isInitOnly ? "readonly " : string.Empty);
+                string? deprecated = GetDeprecatedMessage(reader, field.GetCustomAttributes());
+                string fieldType;
+                try
+                {
+                    fieldType = field.DecodeSignature(typeProvider, fieldContext);
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or NotSupportedException
+                    or InvalidOperationException or ArgumentException)
+                {
+                    fieldType = "/* type not decodable */";
+                }
+                members.Add(new WinMdMemberInfo
+                {
+                    Name = name,
+                    Kind = MemberKind.Field,
+                    Signature = $"{prefix}{fieldType} {name}",
+                    ReturnType = fieldType,
+                    IsStatic = isStatic || isLiteral,
+                    DeprecatedMessage = deprecated
                 });
             }
         }
 
         return members;
     }
+
+    /// <summary>Whether a property or event accessor exists and is static.</summary>
+    private static bool IsStaticAccessor(MetadataReader reader, MethodDefinitionHandle handle) =>
+        !handle.IsNil && (reader.GetMethodDefinition(handle).Attributes & MethodAttributes.Static) != 0;
 
     /// <summary>
     /// Pairs each signature parameter type with its metadata Parameter row.
@@ -458,22 +636,32 @@ internal static class WinMdParser
             .ToList();
     }
 
-    private static string GetHandleTypeName(MetadataReader reader, EntityHandle handle)
+    private static string GetHandleTypeName(
+        MetadataReader reader,
+        EntityHandle handle,
+        ImmutableArray<string> typeParameters)
     {
         return handle.Kind switch
         {
             HandleKind.TypeDefinition => GetTypeDefName(reader, (TypeDefinitionHandle)handle),
             HandleKind.TypeReference => GetTypeRefName(reader, (TypeReferenceHandle)handle),
-            HandleKind.TypeSpecification => DecodeTypeSpecification(reader, (TypeSpecificationHandle)handle),
+            HandleKind.TypeSpecification => DecodeTypeSpecification(reader, (TypeSpecificationHandle)handle, typeParameters),
             _ => "unknown",
         };
     }
 
-    private static string DecodeTypeSpecification(MetadataReader reader, TypeSpecificationHandle handle)
+    private static string DecodeTypeSpecification(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        ImmutableArray<string> typeParameters)
     {
         try
         {
-            return reader.GetTypeSpecification(handle).DecodeSignature(new SimpleTypeProvider(), null);
+            // Decode with the declaring type's parameter names in scope. Without them a
+            // handler on a generic type renders as VectorChangedEventHandler<T0>, an
+            // invented placeholder that appears nowhere in the source the caller writes.
+            return reader.GetTypeSpecification(handle)
+                .DecodeSignature(new SimpleTypeProvider(), new GenericNameContext(typeParameters, []));
         }
         catch (Exception ex) when (ex is BadImageFormatException or NotSupportedException
             or InvalidOperationException or ArgumentException)

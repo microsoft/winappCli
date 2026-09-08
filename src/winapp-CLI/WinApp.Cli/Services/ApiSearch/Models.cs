@@ -82,6 +82,13 @@ internal sealed class WinMdTypeInfo
 
     public string? BaseType { get; init; }
 
+    /// <summary>
+    /// The interfaces this type declares, named as a caller writes them
+    /// (<c>Windows.Foundation.Collections.IVector&lt;T&gt;</c>). <see langword="null"/>
+    /// when the type declares none, so the field is omitted from the cache.
+    /// </summary>
+    public List<string>? Interfaces { get; init; }
+
     public required List<WinMdMemberInfo> Members { get; init; }
 
     public List<string>? EnumValues { get; init; }
