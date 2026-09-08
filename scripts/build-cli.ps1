@@ -229,6 +229,22 @@ try
         $PreviousSnapshots = @(Get-ChildItem -Path $SnapshotDataPath -Filter "snapshot-*" -ErrorAction SilentlyContinue)
         $PreviousSnapshots | Copy-Item -Destination $BakeBackup -Force
 
+        # Read the counts the committed corpus carries before the bake overwrites them, so a
+        # successful refresh can report what actually moved. The drift workflow reports the
+        # same deltas weekly, but a scheduled run summary is not read at the moment it
+        # matters. Cutting a release is that moment: it is the last point where a swing in a
+        # source can still change someone's mind about shipping.
+        $PreviousCounts = @{}
+        $PreviousManifestPath = Join-Path $SnapshotDataPath "snapshot-manifest.json"
+        if (Test-Path $PreviousManifestPath) {
+            try {
+                (Get-Content $PreviousManifestPath -Raw | ConvertFrom-Json).scenarioCounts.PSObject.Properties |
+                    ForEach-Object { $PreviousCounts[$_.Name] = [int]$_.Value }
+            } catch {
+                Write-Warning "[BAKE] Could not read the committed snapshot-manifest.json ($($_.Exception.Message)); the before/after comparison will be skipped."
+            }
+        }
+
         dotnet run --project $SnapshotBakerProjectPath -c Debug -- $SnapshotDataPath
         $BakeExitCode = $LASTEXITCODE
 
@@ -248,6 +264,50 @@ try
         } else {
             Write-Host "[BAKE] Corpus refreshed." -ForegroundColor Green
             Remove-Item $BakeBackup -Recurse -Force -ErrorAction SilentlyContinue
+
+            # Same 25% threshold the drift workflow uses, for the same reason: the baker only
+            # fails a source that returns *zero* scenarios, so a fetcher that still matches a
+            # fraction of what it used to completes successfully and would ship a gutted
+            # source. Warn rather than fail; a legitimate upstream purge should not block a
+            # release, it should make someone look.
+            $BakeDropThreshold = 0.25
+            $NewCounts = @{}
+            try {
+                (Get-Content (Join-Path $SnapshotDataPath "snapshot-manifest.json") -Raw | ConvertFrom-Json).scenarioCounts.PSObject.Properties |
+                    ForEach-Object { $NewCounts[$_.Name] = [int]$_.Value }
+            } catch {
+                Write-Warning "[BAKE] Could not read the refreshed snapshot-manifest.json ($($_.Exception.Message)); skipping the before/after comparison."
+            }
+
+            if ($NewCounts.Count -gt 0) {
+                Write-Host "[BAKE] Scenario counts vs the previously committed corpus:" -ForegroundColor Blue
+                foreach ($Provider in ($NewCounts.Keys | Sort-Object)) {
+                    $New = $NewCounts[$Provider]
+                    if (-not $PreviousCounts.ContainsKey($Provider)) {
+                        Write-Host ("[BAKE]   {0,-10} {1,5} scenarios (new source)" -f $Provider, $New) -ForegroundColor Green
+                        continue
+                    }
+
+                    $Old = $PreviousCounts[$Provider]
+                    $Delta = $New - $Old
+                    $Change = if ($Delta -eq 0) { "no change" } elseif ($Delta -gt 0) { "+$Delta" } else { "$Delta" }
+                    $Line = "[BAKE]   {0,-10} {1,5} -> {2,5}  ({3})" -f $Provider, $Old, $New, $Change
+
+                    if ($Old -gt 0 -and $New -lt ($Old * (1 - $BakeDropThreshold))) {
+                        $Lost = [math]::Round((1 - ($New / $Old)) * 100)
+                        Write-Warning "$Line -- lost $Lost% of its scenarios. Check the fetcher for '$Provider' before shipping this corpus."
+                    } else {
+                        Write-Host $Line -ForegroundColor Gray
+                    }
+                }
+
+                # A source that was committed and is now absent never reaches the loop above.
+                foreach ($Provider in ($PreviousCounts.Keys | Sort-Object)) {
+                    if (-not $NewCounts.ContainsKey($Provider)) {
+                        Write-Warning "[BAKE]   $Provider was in the committed corpus ($($PreviousCounts[$Provider]) scenarios) but the refreshed one has no entry for it."
+                    }
+                }
+            }
         }
     } elseif ($Stable) {
         Write-Warning "[BAKE] Skipped (-SkipBake); shipping the committed find-ui corpus as-is. It may be several releases behind upstream."
