@@ -20,6 +20,178 @@ public sealed class NuGetResolverTests
 
     private string _dir = null!;
 
+    #region Compile-surface resolution
+
+    [TestMethod]
+    public void ReadTargetPlatformVersionFromProjectFile_CppProject_ReadsWindowsTargetPlatformVersion()
+    {
+        // A C++ project has no project.assets.json, so this is the only place its target
+        // is written down. Reading it as "no target declared" falls back to the newest
+        // installed Windows Kit, which confirms APIs the project cannot compile against.
+        string projectFile = Path.Combine(_dir, "App.vcxproj");
+        File.WriteAllText(projectFile, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup Label="Globals">
+                <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        Assert.AreEqual("10.0.19041.0", NuGetResolver.ReadTargetPlatformVersionFromProjectFile(projectFile));
+    }
+
+    [TestMethod]
+    public void ReadTargetPlatformVersionFromProjectFile_MultiTargetedNetProject_TakesTheHighest()
+    {
+        // Matches the target whose compile assets are read, so SDK metadata and package
+        // assets describe the same framework.
+        string projectFile = Path.Combine(_dir, "App.csproj");
+        File.WriteAllText(projectFile, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFrameworks>net8.0-windows10.0.19041.0;net8.0-windows10.0.26100.0</TargetFrameworks>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        Assert.AreEqual("10.0.26100.0", NuGetResolver.ReadTargetPlatformVersionFromProjectFile(projectFile));
+    }
+
+    [TestMethod]
+    public void ReadTargetPlatformVersionFromProjectFile_NoWindowsTarget_ReturnsNull()
+    {
+        string projectFile = Path.Combine(_dir, "Plain.csproj");
+        File.WriteAllText(projectFile, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+            </Project>
+            """);
+
+        Assert.IsNull(NuGetResolver.ReadTargetPlatformVersionFromProjectFile(projectFile));
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_ManagedLibrary_IndexesItsDll()
+    {
+        // A referenced C# class library builds to a .dll. A winmd-only scan indexes
+        // nothing for it, so every query about a type in the caller's own solution
+        // answers "does not exist".
+        string libDir = Path.Combine(_dir, "ContosoLib");
+        string libBin = Path.Combine(libDir, "bin", "Debug", "net8.0");
+        Directory.CreateDirectory(libBin);
+        File.WriteAllText(Path.Combine(libDir, "ContosoLib.csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(libBin, "ContosoLib.dll"), "x");
+        // A dependency copied next to it must not be indexed: the project does not
+        // reference it directly, and its types are not on the compile surface.
+        File.WriteAllText(Path.Combine(libBin, "Newtonsoft.Json.dll"), "x");
+
+        string appDir = Path.Combine(_dir, "App");
+        Directory.CreateDirectory(appDir);
+        string appProject = Path.Combine(appDir, "App.csproj");
+        File.WriteAllText(appProject, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="..\ContosoLib\ContosoLib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(1, packages.Count, "the referenced library must be indexed");
+        CollectionAssert.AreEquivalent(
+            ReferencedLibraryOutputOnly,
+            packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+    }
+
+    [TestMethod]
+    public void FindProjectAssetsJson_SeveralUnderOneObjTree_PicksTheOneRestoredForThisProject()
+    {
+        // Colocated projects, or a nested BaseIntermediateOutputPath, put more than one
+        // assets file under a single obj tree. Picking by write time makes the whole
+        // index depend on which project was built last, so a query about this project
+        // answers from its neighbour's package set.
+        string projectDir = Path.Combine(_dir, "Solution");
+        string mine = Path.Combine(projectDir, "App.csproj");
+        string theirs = Path.Combine(projectDir, "Other.csproj");
+        Directory.CreateDirectory(projectDir);
+
+        string myAssets = WriteNestedAssets(projectDir, "app-intermediate", mine);
+        string theirAssets = WriteNestedAssets(projectDir, "other-intermediate", theirs);
+        // The neighbour was restored more recently, so write time alone would pick it.
+        File.SetLastWriteTimeUtc(myAssets, DateTime.UtcNow.AddHours(-2));
+        File.SetLastWriteTimeUtc(theirAssets, DateTime.UtcNow);
+
+        Assert.AreEqual(myAssets, NuGetResolver.FindProjectAssetsJson(projectDir, mine));
+        Assert.AreEqual(theirAssets, NuGetResolver.FindProjectAssetsJson(projectDir, theirs));
+    }
+
+    [TestMethod]
+    public void FindPackagesFromAssets_SeveralWindowsTargets_SaysWhichOneAnsweredAndThatOthersMayDiffer()
+    {
+        // The answer is only true of the target chosen. Multi-targeting is legitimate, so
+        // this reports the ambiguity rather than refusing to index the project.
+        string path = WriteAssets(JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object>(),
+            targets = new Dictionary<string, object>
+            {
+                ["net8.0-windows10.0.19041.0"] = new Dictionary<string, object>(),
+                ["net8.0-windows10.0.26100.0"] = new Dictionary<string, object>(),
+            },
+            libraries = new Dictionary<string, object>(),
+        }));
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
+
+        Assert.AreEqual(1, warnings.Count);
+        StringAssert.Contains(warnings[0], "net8.0-windows10.0.26100.0");
+        StringAssert.Contains(warnings[0], "may not exist for the others");
+    }
+
+    [TestMethod]
+    public void FindPackagesFromAssets_SingleWindowsTarget_DoesNotWarn()
+    {
+        // The warning must mark real ambiguity, not fire on every ordinary project.
+        string path = WriteAssets(JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object>(),
+            targets = new Dictionary<string, object>
+            {
+                ["net8.0-windows10.0.26100.0"] = new Dictionary<string, object>(),
+            },
+            libraries = new Dictionary<string, object>(),
+        }));
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
+
+        Assert.AreEqual(0, warnings.Count);
+    }
+
+    private static readonly string[] ReferencedLibraryOutputOnly = ["ContosoLib.dll"];
+
+    /// <summary>
+    /// Writes an assets file under <c>obj/&lt;intermediate&gt;/</c> — never directly at
+    /// <c>obj/project.assets.json</c> — so the recursive fallback is the path under test.
+    /// </summary>
+    private static string WriteNestedAssets(string projectDir, string intermediate, string projectPath)
+    {
+        string dir = Path.Combine(projectDir, "obj", intermediate);
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "project.assets.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            libraries = new Dictionary<string, object>(),
+            project = new { restore = new { projectPath } },
+        }));
+        return path;
+    }
+
+    #endregion
+
     [TestInitialize]
     public void Setup()
     {

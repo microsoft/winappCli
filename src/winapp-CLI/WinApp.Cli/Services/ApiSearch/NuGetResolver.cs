@@ -22,13 +22,20 @@ internal static partial class NuGetResolver
     {
         var packages = new List<PackageWithWinMd>();
 
-        string? assetsPath = FindProjectAssetsJson(projectDir);
+        string? assetsPath = FindProjectAssetsJson(projectDir, projectFile);
         string? targetPlatformVersion = null;
+
         if (assetsPath != null)
         {
             packages.AddRange(FindPackagesFromAssets(assetsPath, warn));
             targetPlatformVersion = ReadTargetPlatformVersion(assetsPath);
         }
+
+        // A C++ project has no project.assets.json, so its target comes from the project
+        // file itself. Without this it reads as "no target declared" and SDK selection
+        // falls back to the newest installed Windows Kit — which confirms APIs that do
+        // not exist at the version the project actually compiles against.
+        targetPlatformVersion ??= ReadTargetPlatformVersionFromProjectFile(projectFile);
         if (packages.Count == 0)
         {
             string configPath = Path.Combine(projectDir, "packages.config");
@@ -105,6 +112,53 @@ internal static partial class NuGetResolver
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             // An unreadable assets file just means the target version is unknown, and
+            // SDK selection falls back to the newest installed.
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The Windows platform version an MSBuild project declares directly, from
+    /// <c>&lt;WindowsTargetPlatformVersion&gt;</c> (a C++ project) or
+    /// <c>&lt;TargetFramework(s)&gt;</c> (a .NET project whose restore output is absent).
+    /// Read from the project file because a C++ project has no
+    /// <c>project.assets.json</c> to carry it.
+    /// </summary>
+    /// <remarks>
+    /// The highest declared version wins, matching <see cref="ReadTargetPlatformVersion"/>.
+    /// A property with a <c>Condition</c> is read like any other: this needs the version
+    /// the project targets, not a full MSBuild evaluation, and every configuration of a
+    /// real project targets the same Windows SDK.
+    /// </remarks>
+    internal static string? ReadTargetPlatformVersionFromProjectFile(string projectFile)
+    {
+        try
+        {
+            XDocument doc = XDocument.Load(projectFile);
+            XNamespace ns = doc.Root?.Name.Namespace ?? XNamespace.None;
+
+            var declared = doc.Descendants(ns + "WindowsTargetPlatformVersion")
+                .Select(e => e.Value.Trim())
+                .Where(v => v.Length > 0)
+                .ToList();
+
+            // A .NET project reached here only when restore has not run yet, but the
+            // moniker it declares is still the right answer.
+            declared.AddRange(doc.Descendants()
+                .Where(e => e.Name.LocalName is "TargetFramework" or "TargetFrameworks")
+                .SelectMany(e => e.Value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Select(moniker => WindowsPlatformMoniker.Match(moniker))
+                .Where(match => match.Success)
+                .Select(match => match.Groups[1].Value));
+
+            return declared
+                .Where(v => Version.TryParse(v, out _))
+                .OrderByDescending(Version.Parse)
+                .FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
+        {
+            // An unreadable project file just means the target version is unknown, and
             // SDK selection falls back to the newest installed.
         }
         return null;
@@ -433,6 +487,15 @@ internal static partial class NuGetResolver
                 var winmds = Directory.GetFiles(binDir, "*.winmd", SearchOption.AllDirectories)
                     .Where(f => !Path.GetFileName(f).Equals("Windows.winmd", StringComparison.OrdinalIgnoreCase))
                     .ToList();
+
+                // A referenced C# class library builds to a .dll, not a .winmd, so a
+                // winmd-only scan indexes nothing for it and every query about its types
+                // answers "does not exist" — for code in the caller's own solution.
+                // Only the referenced project's own output is taken: bin also holds every
+                // dependency copied next to it, and indexing those would answer from
+                // assemblies the project does not reference directly.
+                winmds.AddRange(Directory.GetFiles(binDir, refName + ".dll", SearchOption.AllDirectories));
+
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 winmds = winmds.Where(f => seen.Add(Path.GetFileName(f))).ToList();
                 if (winmds.Count > 0)
@@ -473,7 +536,7 @@ internal static partial class NuGetResolver
         return File.Exists(lockfilePath) ? lockfilePath : null;
     }
 
-    internal static string? FindProjectAssetsJson(string projectDir)
+    internal static string? FindProjectAssetsJson(string projectDir, string? projectFile = null)
     {
         string direct = Path.Combine(projectDir, "obj", "project.assets.json");
         if (File.Exists(direct))
@@ -490,6 +553,23 @@ internal static partial class NuGetResolver
         {
             return null;
         }
+
+        // Every assets file records the project it was restored for. When several turn up
+        // under one obj tree — colocated projects, or a nested BaseIntermediateOutputPath —
+        // the one that names this project is the right answer, and picking by write time
+        // instead makes the whole index depend on which project was built last.
+        if (projectFile is not null && files.Length > 1)
+        {
+            string wanted = Path.GetFullPath(projectFile);
+            string[] owned = files
+                .Where(file => string.Equals(ReadRestoreProjectPath(file), wanted, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (owned.Length > 0)
+            {
+                files = owned;
+            }
+        }
+
         string? newest = null;
         DateTime newestTime = DateTime.MinValue;
         foreach (string file in files)
@@ -512,6 +592,32 @@ internal static partial class NuGetResolver
     }
 
     /// <summary>
+    /// The full path of the project an assets file was restored for, from
+    /// <c>project.restore.projectPath</c>. Null when it cannot be read, which just means
+    /// the file cannot be attributed and is judged by write time like any other.
+    /// </summary>
+    private static string? ReadRestoreProjectPath(string assetsPath)
+    {
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(assetsPath));
+            if (doc.RootElement.TryGetProperty("project", out var projectEl)
+                && projectEl.TryGetProperty("restore", out var restoreEl)
+                && restoreEl.TryGetProperty("projectPath", out var pathEl)
+                && pathEl.GetString() is { Length: > 0 } path)
+            {
+                return Path.GetFullPath(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or JsonException or ArgumentException or NotSupportedException)
+        {
+            // Unreadable or malformed: fall back to the write-time contest.
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Picks the restore target whose compile assets a Windows build actually uses.
     /// A multi-targeted project lists several targets in <c>project.assets.json</c>, and
     /// the first one is whichever the project file happened to name first — taking it
@@ -519,11 +625,19 @@ internal static partial class NuGetResolver
     /// reports Windows-only types as missing. Prefers the highest Windows platform version,
     /// then falls back to the first target so non-Windows projects behave as before.
     /// </summary>
-    private static JsonElement? SelectWindowsTarget(JsonElement targetsEl)
+    /// <remarks>
+    /// When a project declares more than one Windows target the answer is only true of the
+    /// one chosen, so the caller is told which that was. It is a warning rather than a
+    /// failure because multi-targeting is a legitimate configuration, and refusing to
+    /// index it would leave those projects with no answers at all.
+    /// </remarks>
+    private static JsonElement? SelectWindowsTarget(JsonElement targetsEl, Action<string>? warn = null)
     {
         JsonElement? first = null;
         JsonElement? best = null;
         Version? bestVersion = null;
+        string? bestName = null;
+        var windowsTargets = new List<string>();
 
         foreach (JsonProperty target in targetsEl.EnumerateObject())
         {
@@ -533,11 +647,20 @@ internal static partial class NuGetResolver
             {
                 continue;
             }
+            windowsTargets.Add(target.Name);
             if (bestVersion == null || platform > bestVersion)
             {
                 bestVersion = platform;
+                bestName = target.Name;
                 best = target.Value;
             }
+        }
+
+        if (windowsTargets.Count > 1)
+        {
+            warn?.Invoke(
+                $"This project targets {windowsTargets.Count} Windows frameworks ({string.Join(", ", windowsTargets)}). "
+                + $"Answers come from '{bestName}'; an API reported as available may not exist for the others.");
         }
 
         return best ?? first;
@@ -572,7 +695,7 @@ internal static partial class NuGetResolver
             // be judged out-of-target and every library stays eligible for the scan below.
             HashSet<string>? librariesInSelectedTarget = null;
             if (root.TryGetProperty("targets", out var targetsEl) && targetsEl.ValueKind == JsonValueKind.Object
-                && SelectWindowsTarget(targetsEl) is JsonElement selectedTarget)
+                && SelectWindowsTarget(targetsEl, warn) is JsonElement selectedTarget)
             {
                 librariesInSelectedTarget = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (JsonProperty library in selectedTarget.EnumerateObject())
