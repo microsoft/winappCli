@@ -39,9 +39,12 @@ Does the project already have an appxmanifest.xml?
    │  └─ winapp manifest generate
    ├─ Only need a development certificate?
    │  └─ winapp cert generate
-   ├─ Ready to create an MSIX installer from built app output?
-   │  └─ winapp package <build-output-dir>
-   │     (add --cert ./devcert.pfx to sign in one step)
+   ├─ Ready to create an MSIX installer?
+   │  ├─ Have a .NET/WinUI .csproj? (build + package in one step)
+   │  │  └─ winapp package <project.csproj>   (add -c Release, --arch, --cert ./devcert.pfx)
+   │  └─ Have a built app-output folder?
+   │     └─ winapp package <build-output-dir>
+   │        (add --cert ./devcert.pfx to sign in one step)
    ├─ Need package identity for debugging Windows APIs?
    │  ├─ Have a .NET/WinUI .csproj or .sln/.slnx (or a folder with one)? (build + run in one step)
    │  │  └─ winapp run <project-or-solution>  (dotnet build + provision runtime + launch)
@@ -141,8 +144,8 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 **Requires:** `winapp.yaml`
 
 ### `winapp package <input-folder...>` (alias: `winapp pack`)
-**Purpose:** Create an MSIX package (single folder) or MSIX bundle (multiple folders).
-**When to use:** After building your app, when you want to create a distributable MSIX package or a multi-architecture bundle.
+**Purpose:** Create an MSIX package from a `.csproj` (project mode), a built app folder, or an MSIX bundle (multiple folders).
+**When to use:** To build a `.csproj` and package it in one step, or after building your app to package a folder, or to create a multi-architecture bundle.
 **Key options:**
 - `--cert <path>` — sign the package/bundle in one step
 - `--cert-password <pwd>` — certificate password (default: `password`)
@@ -152,10 +155,13 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `--generate-cert` — auto-generate a certificate
 - `--install-cert` — also install the certificate on the machine
 - `--skip-pri` — skip PRI resource file generation
+**Project mode (a single `.csproj` input):** builds the project, then packages its output.
+  `winapp package ./MyApp.csproj -c Release --cert ./devcert.pfx`
+  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged.
 **Bundle usage:** Pass multiple folders to create a bundle:
   `winapp pack ./publish/x64 ./publish/arm64`
   Each folder's architecture is auto-detected from the executable PE header.
-**Requires:** Built app output directory + `appxmanifest.xml`
+**Requires:** A packaged-app `.csproj`, or a built app-output directory + `appxmanifest.xml`
 
 ### `winapp create-debug-identity [entrypoint]`
 **Purpose:** Register a *sparse package* with Windows so an existing exe gets package identity without creating a full MSIX. The exe stays in its original location — Windows uses `Add-AppxPackage -ExternalLocation` to associate identity with it.

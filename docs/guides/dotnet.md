@@ -346,7 +346,7 @@ winapp pack .\bin\Release\net10.0-windows10.0.26100.0 --manifest .\Package.appxm
 
 > Note: The `pack` command automatically uses the Package.appxmanifest from your current directory and copies it to the target folder before packaging. The generated .msix file will be in the current directory.
 
-> Tip: You can also skip locating the build-output folder and pack straight from the project — `winapp package .\dotnet-app.csproj -c Release --cert .\devcert.pfx` builds the project and packages its output in one step. Project mode accepts the same build options as `winapp run` (`-c`, `--arch`, `-f`, `--no-build`, `--no-restore`, `-p`); add `--no-build` to package an existing build without rebuilding.
+> Tip: You can also skip locating the build-output folder and pack straight from the project — `winapp package .\dotnet-app.csproj -c Release --cert .\devcert.pfx` builds the project and packages its output in one step. Project mode accepts the same build options as `winapp run` (`-c`, `--arch`, `-r`/`--runtime`, `-f`, `--no-build`, `--no-restore`, `-p`); add `--no-build` to package an existing build without rebuilding.
 
 ### Install the Certificate
 

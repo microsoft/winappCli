@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "1.0.0",
+  "version": "0.6.3",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
@@ -1615,7 +1615,7 @@
       ],
       "arguments": {
         "input-folder": {
-          "description": "One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64).",
+          "description": "A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64).",
           "order": 0,
           "hidden": false,
           "valueType": "System.IO.DirectoryInfo[]",

@@ -4,6 +4,7 @@
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -78,6 +79,16 @@ internal partial class PackageCommand
             // Resolve the explicit effective framework once (--framework > bare -p:TargetFramework) so the
             // build and evaluation share the same TFM.
             var framework = ProjectRunService.ResolveExplicitFramework(parseResult.GetValue(FrameworkOption), properties);
+
+            // Reject a valueless -p/--property. The option uses ZeroOrMore arity so a bare '-p' (no
+            // Name=Value) parses without a value instead of raising a System.CommandLine arity error;
+            // detect it from the raw result (more identifier tokens than captured values means at least
+            // one '-p' had no argument) and reject it the same way `winapp run` does.
+            if (parseResult.GetResult(PropertyOption) is OptionResult propertyResult &&
+                propertyResult.IdentifierTokenCount > propertyResult.Tokens.Count)
+            {
+                return Fail("A --property/-p option was provided without a value. Expected Name=Value (for example: -p Configuration=Release).");
+            }
 
             // Reject malformed -p values early so they never become a nonsensical MSBuild argument.
             foreach (var property in properties)

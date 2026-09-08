@@ -12,10 +12,10 @@ Use this skill when:
 
 ## Prerequisites
 
-Before packaging, you need:
-1. **Built app output** in a folder (e.g., `bin/Release/`, `dist/`, `build/`)
-2. **`Package.appxmanifest`** — from `winapp init` or `winapp manifest generate`
-3. **Certificate** (optional) — `devcert.pfx` from `winapp cert generate` for signing
+What you need depends on the input:
+- **Project mode** (`winapp package MyApp.csproj`): an explicit `.csproj` for a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`). winapp builds it and packages the output.
+- **Folder mode** (`winapp package ./bin/Release`): **built app output** in a folder (e.g., `bin/Release/`, `dist/`, `build/`) plus a **`Package.appxmanifest`** in the current directory, passed via `--manifest`, or in the folder.
+- **Certificate** (optional, both modes) — `devcert.pfx` from `winapp cert generate` for signing.
 
 ## Usage
 
