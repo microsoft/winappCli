@@ -31,11 +31,11 @@ public class NewCommandHandlerTests : BaseCommandTests
             .AddSingleton<ITemplateCacheReader>(_templateCache);
 
     /// <summary>
-    /// A realistic <c>dotnet new list winui --columns-all</c> table used to script the enumeration
-    /// step. Built with <see cref="BuildListTable"/> so column widths (and therefore the fixed-width
-    /// parse boundaries) stay self-consistent as rows change.
+    /// The templates the scripted Microsoft pack contains. Both the <c>dotnet new list</c> table and
+    /// the <c>dotnet new uninstall</c> ownership block are rendered from this one list so they always
+    /// agree, exactly as the two real commands do.
     /// </summary>
-    private static readonly string SampleListOutput = BuildListTable(
+    private static readonly (string Name, string Short, string Lang, string Type, string Author, string Tags)[] SampleTemplates =
     [
         ("WinUI Blank App", "winui,winui3,wasdk-single", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
         ("WinUI Class Library", "winui-lib,winui3-lib,wasdk-classlib", "[C#]", "project", "Microsoft", "Windows/WinUI/Library"),
@@ -43,7 +43,46 @@ public class NewCommandHandlerTests : BaseCommandTests
         ("WinUI NavigationView App", "winui-navview,winui3-navview", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
         ("WinUI TabView App", "winui-tabview,winui3-tabview", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
         ("WinUI Unit Test App", "winui-unittest,winui3-unittest,wasdk-unittest", "[C#]", "project", "Microsoft", "Windows/WinUI/Test"),
-    ]);
+    ];
+
+    /// <summary>
+    /// A realistic <c>dotnet new list winui --columns-all</c> table used to script the enumeration
+    /// step. Built with <see cref="BuildListTable"/> so column widths (and therefore the fixed-width
+    /// parse boundaries) stay self-consistent as rows change.
+    /// </summary>
+    private static readonly string SampleListOutput = BuildListTable(SampleTemplates);
+
+    /// <summary>
+    /// A realistic <c>dotnet new uninstall</c> block for the installed pack: the package header, its
+    /// version, and the <c>Templates:</c> section. The command reads that section to establish which
+    /// templates the Microsoft pack owns, so a script that omits it means "ownership unverifiable"
+    /// and the enumeration is expected to fail closed.
+    /// </summary>
+    private static string BuildUninstallOutput(string version)
+        => BuildUninstallOutput(version, SampleTemplates);
+
+    /// <summary>Same, for a caller that scripts its own template set.</summary>
+    private static string BuildUninstallOutput(string version, (string Name, string Short, string Lang, string Type, string Author, string Tags)[] templates)
+        => "Currently installed items:\n"
+            + "   " + NewCommand.TemplatePackageId + "\n"
+            + $"      Version: {version}\n"
+            + "      Templates:\n"
+            + string.Concat(templates.Select(t => $"         {t.Name} ({t.Short}) C#\n"))
+            + "      Uninstall Command:\n"
+            + "         dotnet new uninstall " + NewCommand.TemplatePackageId + "\n";
+
+    /// <summary>
+    /// A <c>dotnet new uninstall</c> responder for a pack that is absent and then installed during the
+    /// run: the first call is the installed-version probe (nothing yet), later calls are the ownership
+    /// check that runs after the install, which must see the pack and the templates it owns.
+    /// </summary>
+    private static Func<(int, string, string)> AbsentThenInstalledUninstall(string version = "0.0.6-alpha")
+    {
+        var calls = 0;
+        return () => calls++ == 0
+            ? (0, string.Empty, string.Empty)
+            : (0, BuildUninstallOutput(version), string.Empty);
+    }
 
     /// <summary>Renders a fixed-width dotnet-new-list table (header + dashes row + data) with aligned columns.</summary>
     private static string BuildListTable((string Name, string Short, string Lang, string Type, string Author, string Tags)[] rows)
@@ -76,6 +115,10 @@ public class NewCommandHandlerTests : BaseCommandTests
     /// <summary>Default happy-path responder: SDK present, pack absent-then-installed, scaffold ok.</summary>
     private void ScriptHappyPath(string sdkVersion = "9.0.100")
     {
+        // `dotnet new uninstall` is called twice: first to probe the installed version (nothing yet),
+        // then after the install to establish which templates the pack owns. Model that transition so
+        // the ownership step sees the same pack the install produced.
+        var uninstall = AbsentThenInstalledUninstall();
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
             if (args.Count >= 1 && args[0] == "--version")
@@ -84,7 +127,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, string.Empty, string.Empty); // nothing installed yet
+                return uninstall();
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {
@@ -393,7 +436,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 1.7.0\n", string.Empty); // already installed
+                return (0, BuildUninstallOutput("1.7.0"), string.Empty); // already installed
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
             {
@@ -447,6 +490,7 @@ public class NewCommandHandlerTests : BaseCommandTests
     [TestMethod]
     public async Task Handler_ScaffoldFails_ReturnsScaffoldFailed()
     {
+        var uninstall = AbsentThenInstalledUninstall();
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
             if (args.Count >= 1 && args[0] == "--version")
@@ -455,7 +499,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, string.Empty, string.Empty);
+                return uninstall();
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {
@@ -475,6 +519,62 @@ public class NewCommandHandlerTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Handler_OwnershipUnverifiable_FailsClosedInsteadOfOfferingUnknownTemplates()
+    {
+        // `dotnet new list winui` matches short-name prefixes across every installed pack and has no
+        // column identifying the owning pack, so `dotnet new uninstall` is the only way to tell an
+        // official template from a third-party one that borrowed an official alias. Here that output
+        // carries no Templates block, so ownership cannot be established for anything. Offering the
+        // listed rows anyway would present a foreign `evil,winui` template as official.
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "9.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, "Currently installed items:\n   " + NewCommand.TemplatePackageId + "\n      Version: 0.0.6-alpha\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (0, "All template packages are up-to-date.", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, SampleListOutput, string.Empty);
+            }
+            return (0, "created", string.Empty);
+        };
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json"]);
+
+        Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode);
+        Assert.IsNull(ScaffoldInvocation(), "Nothing may be scaffolded when template ownership is unverifiable.");
+        var json = ParseJson(TestAnsiConsole.Output);
+        StringAssert.Contains(json.GetProperty("Error").GetString()!, "Could not verify which templates",
+            "The failure must name the unverifiable ownership so the user can diagnose it.");
+    }
+
+    [TestMethod]
+    public async Task Handler_FailsBeforeTemplateResolved_OmitsExperimentalFromJson()
+    {
+        // `Template` is only the raw requested value until it is matched against the catalog, so
+        // reporting Experimental=false here would tell an agent a Reactor template is stable. The
+        // field is omitted until a catalog entry exists.
+        ScriptHappyPath();
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--json", "--template", "winui", "--name", "bad/name"]);
+
+        Assert.AreEqual(NewCommand.ExitInvalidArgs, exitCode);
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.IsFalse(json.TryGetProperty("Experimental", out _),
+            $"Experimental must be absent until a template is resolved. Output:\n{TestAnsiConsole.Output}");
+    }
+
+    [TestMethod]
     public async Task Handler_PackAlreadyInstalledAtRequestedVersion_SkipsInstall()
     {
         _dotnet.RunDotnetArgumentListHandler = args =>
@@ -485,7 +585,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.6-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.6-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
             {
@@ -542,6 +642,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             "The template \"WinUI 3 App\" was created successfully.\n" +
             "Processing post-creation actions...\n" +
             "Restoring packages for C:\\proj\\VerboseApp.csproj...";
+        var uninstall = AbsentThenInstalledUninstall();
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
             if (args.Count >= 1 && args[0] == "--version")
@@ -550,7 +651,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, string.Empty, string.Empty);
+                return uninstall();
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {
@@ -583,6 +684,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         const string failedPostAction =
             "Processing post-creation actions...\n" +
             "Restore failed: unable to resolve Microsoft.WindowsAppSDK.";
+        var uninstall = AbsentThenInstalledUninstall();
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
             if (args.Count >= 1 && args[0] == "--version")
@@ -591,7 +693,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, string.Empty, string.Empty);
+                return uninstall();
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {
@@ -746,11 +848,12 @@ public class NewCommandHandlerTests : BaseCommandTests
         // A catalog that includes an item template (surfaced when inside a WinUI project). The item
         // default should be derived from the display name ("WinUI Blank Page (Item)" -> "MyPage"),
         // never the project-oriented "WinUIApp".
-        var listWithItem = BuildListTable(
+        (string Name, string Short, string Lang, string Type, string Author, string Tags)[] withItem =
         [
             ("WinUI Blank App", "winui,winui3", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
             ("WinUI Blank Page", "winui-page,winui3-page", "[C#]", "item", "Microsoft", "Windows/WinUI/Item"),
-        ]);
+        ];
+        var listWithItem = BuildListTable(withItem);
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
             if (args.Count >= 1 && args[0] == "--version")
@@ -761,7 +864,11 @@ public class NewCommandHandlerTests : BaseCommandTests
             {
                 return (0, listWithItem, string.Empty);
             }
-            if (args.Count >= 2 && args[0] == "new" && (args[1] == "install" || args[1] == "update" || args[1] == "uninstall"))
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, BuildUninstallOutput("0.0.6-alpha", withItem), string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && (args[1] == "install" || args[1] == "update"))
             {
                 return (0, "ok", string.Empty);
             }
@@ -784,11 +891,12 @@ public class NewCommandHandlerTests : BaseCommandTests
         // For item templates --output is the destination folder, not the item name. The item must still
         // take its derived default name (MyPage), never the --output leaf ("DemoApp"), while --output is
         // honoured as the -o target directory the item is added into.
-        var listWithItem = BuildListTable(
+        (string Name, string Short, string Lang, string Type, string Author, string Tags)[] withItem =
         [
             ("WinUI Blank App", "winui,winui3", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
             ("WinUI Blank Page", "winui-page,winui3-page", "[C#]", "item", "Microsoft", "Windows/WinUI/Item"),
-        ]);
+        ];
+        var listWithItem = BuildListTable(withItem);
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
             if (args.Count >= 1 && args[0] == "--version")
@@ -799,7 +907,11 @@ public class NewCommandHandlerTests : BaseCommandTests
             {
                 return (0, listWithItem, string.Empty);
             }
-            if (args.Count >= 2 && args[0] == "new" && (args[1] == "install" || args[1] == "update" || args[1] == "uninstall"))
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, BuildUninstallOutput("0.0.6-alpha", withItem), string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && (args[1] == "install" || args[1] == "update"))
             {
                 return (0, "ok", string.Empty);
             }
@@ -1063,7 +1175,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
                 // An OLDER version is installed than the one requested below.
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.5-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.5-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {
@@ -1100,7 +1212,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
                 // A NEWER version is installed than the one requested below.
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.6-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.6-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {
@@ -1145,7 +1257,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
                 // The EXACT requested version is already installed.
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.5-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.5-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
             {
@@ -1314,7 +1426,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.5-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.5-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
             {
@@ -1363,7 +1475,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.5-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.5-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
             {
@@ -1408,7 +1520,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.5-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.5-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
             {
@@ -1460,7 +1572,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.5-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.5-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {
@@ -1501,7 +1613,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.6-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.6-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
             {
@@ -1535,7 +1647,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n   Version: 0.0.5-alpha\n", string.Empty);
+                return (0, BuildUninstallOutput("0.0.5-alpha"), string.Empty);
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
             {
@@ -1627,6 +1739,7 @@ public class NewCommandHandlerTests : BaseCommandTests
     [DoNotParallelize] // Swaps the process-wide TelemetryFactory override.
     public async Task Handler_TemplatePackInstallFails_EmitsPackFailedOutcome()
     {
+        var uninstall = AbsentThenInstalledUninstall();
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
             if (args.Count >= 1 && args[0] == "--version")
@@ -1635,7 +1748,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
             {
-                return (0, string.Empty, string.Empty);
+                return uninstall();
             }
             if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
             {

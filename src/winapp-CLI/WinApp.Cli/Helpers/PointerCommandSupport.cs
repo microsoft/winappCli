@@ -12,9 +12,9 @@ internal static class PointerCommandSupport
     public readonly record struct ResolvedPoint(bool Ok, PointerPoint Point, long TargetHwnd, string? TargetLabel);
 
     public static async Task<ResolvedPoint> ResolvePointAsync(
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
-        UiSessionInfo session,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
+        UiTarget uiTarget,
         string? selectorStr,
         PointerPoint? explicitPoint,
         string? explicitLabel,
@@ -26,11 +26,11 @@ internal static class PointerCommandSupport
     {
         if (explicitPoint is not null)
         {
-            return new ResolvedPoint(true, explicitPoint.Value, session.WindowHandle, explicitLabel);
+            return new ResolvedPoint(true, explicitPoint.Value, uiTarget.WindowHandle, explicitLabel);
         }
 
-        var selector = selectorService.Parse(selectorStr!);
-        var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+        var selector = selectorParser.Parse(selectorStr!);
+        var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
         if (element is null)
         {
             UiErrors.ElementNotFound(logger, selectorStr!, json);
@@ -46,7 +46,7 @@ internal static class PointerCommandSupport
             return default;
         }
 
-        long targetHwnd = element.WindowHandle ?? session.WindowHandle;
+        long targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
 
         if (targetHwnd != 0)
         {
@@ -55,9 +55,9 @@ internal static class PointerCommandSupport
         }
 
         var stable = await GestureTargeting.ResolveStableAsync(
-            uiAutomation, session, selector, element,
+            uiAutomation, uiTarget, selector, element,
             GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
-        if (!GestureTargeting.TryReport(stable, logger, json, selectorStr!, action))
+        if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr!, action))
         {
             return default;
         }
@@ -85,7 +85,7 @@ internal static class PointerCommandSupport
     public readonly record struct InjectionPreparation(bool Ok, string? OutOfWindowWarning);
 
     public static InjectionPreparation TryPrepareInjection(
-        IUiAutomationService uiAutomation,
+        IUiAutomation uiAutomation,
         IForegroundGuard foregroundGuard,
         long targetHwnd,
         IEnumerable<PointerPoint> points,

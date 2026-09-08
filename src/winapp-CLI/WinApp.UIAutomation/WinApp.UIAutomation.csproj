@@ -1,0 +1,88 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Two targets so consumers pick their cost. The 10.0.19041.0 target adds Windows Graphics
+         Capture (occluded-window screenshots and continuous frame capture) but pulls in the ~24 MB
+         Windows SDK WinRT projection; the plain windows target is GDI-only and adds ~1.5 MB. -->
+    <TargetFrameworks>net10.0-windows;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <AssemblyName>Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation</AssemblyName>
+    <RootNamespace>Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation</RootNamespace>
+
+    <!-- Enable Code Analysis -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <NoWarn>CA1852</NoWarn>
+    <!-- NU5123 measures "<id>/<version>/lib/<tfm>/<file>" against NuGet's 200-character advisory
+         limit. Released versions are nowhere near it: 1.0.0 gives 145 characters here. Only a
+         branch-named prerelease label makes it long, and those builds are never published. Suppress
+         it just for those, so a release pack still fails loudly if the id or file names ever grow. -->
+    <NoWarn Condition="$(Version.Contains('-')) AND $(Version.Length) &gt; 20">$(NoWarn);NU5123</NoWarn>
+
+    <!-- Ship IntelliSense with the package, and let CS1591 hold the public surface to account. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- Consumed by the NativeAOT single-file CLI, so the library must stay AOT/trim clean. -->
+    <IsAotCompatible>true</IsAotCompatible>
+
+    <!-- Matches WinApp.Cli: CsWin32 emits source-generated COM wrappers (no built-in marshalling). -->
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CsWin32RunAsBuildTask>true</CsWin32RunAsBuildTask>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Microsoft</Authors>
+    <Company>Microsoft Corporation</Company>
+    <Product>WinApp UI Automation</Product>
+    <Title>WinApp UI Automation</Title>
+    <Description>Windows UI Automation (UIA) engine for inspecting and driving desktop applications: element tree inspection, semantic selectors, UIA pattern interaction, input injection (keyboard, mouse, touch, pen), and window capture. This is the library that powers the 'winapp ui' commands, packaged for use from test and automation code.</Description>
+    <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
+    <PackageTags>uiautomation;uia;windows;ui-testing;automation;desktop;winui;wpf;winforms;win32</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/microsoft/WinAppCli</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/microsoft/WinAppCli.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageOutputPath>..\..\..\artifacts\nuget</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="" />
+    <None Include="icon.png" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <!-- Windows Graphics Capture needs the Windows 10 SDK projection; the lean target ships the
+       GDI-only capture implementation instead. Both expose the same IWindowCapture surface. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <Compile Remove="Capture\WgcCapture.cs" />
+    <Compile Remove="Capture\WgcCapture.FrameGrabber.cs" />
+    <Compile Remove="Capture\WgcWindowCapture.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-windows'">
+    <Compile Remove="Capture\GdiWindowCapture.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Windows.CsWin32">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>WinApp.UIAutomation.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)..\PackageDocumentation.targets" />
+
+</Project>

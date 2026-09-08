@@ -1,0 +1,94 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Windows Graphics Capture (via the UI Automation package's frame grabber) and Media
+         Foundation both need the Windows 10 SDK projection, so recording is 19041-only. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <AssemblyName>Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording</AssemblyName>
+    <RootNamespace>Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording</RootNamespace>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <NoWarn>CA1852</NoWarn>
+    <!-- NU5123 measures "<id>/<version>/lib/<tfm>/<file>" against NuGet's 200-character advisory
+         limit. Released versions are nowhere near it: 1.0.0 gives 165 characters and 1.0.0-preview.1
+         gives 175. Only a branch-named prerelease label pushes it over - the CI version
+         0.6.3-<branch>.19 reaches 204 - and those builds are never published. Suppress it just for
+         those, so a release pack still fails loudly if the id or file names ever grow. -->
+    <NoWarn Condition="$(Version.Contains('-')) AND $(Version.Length) &gt; 20">$(NoWarn);NU5123</NoWarn>
+
+    <!-- Ship IntelliSense with the package, and let CS1591 hold the public surface to account. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <IsAotCompatible>true</IsAotCompatible>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CsWin32RunAsBuildTask>true</CsWin32RunAsBuildTask>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Microsoft</Authors>
+    <Company>Microsoft Corporation</Company>
+    <Product>WinApp UI Automation Recording</Product>
+    <Title>WinApp UI Automation Recording</Title>
+    <Description>Screen and window video recording for Windows UI automation: captures a window or element region at a fixed cadence and encodes it to H.264 MP4 via Media Foundation, with optional timestamped JPEG frame bundles. Split from Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation so that projects which only inspect and drive UI do not take a dependency on SkiaSharp.</Description>
+    <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
+    <PackageTags>uiautomation;uia;windows;ui-testing;recording;video;mp4;screen-capture;desktop</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/microsoft/WinAppCli</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/microsoft/WinAppCli.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageOutputPath>..\..\..\artifacts\nuget</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="" />
+    <None Include="icon.png" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinApp.UIAutomation\WinApp.UIAutomation.csproj" />
+  </ItemGroup>
+
+  <!--
+    The two packages ship together from this repo at the same version, and this one calls the base
+    package's public API directly. A bare dependency version means "[x,)", so a consumer could pair
+    this package with a newer base package that no longer matches and only find out at runtime. Pin
+    it to that exact version instead.
+  -->
+  <Target Name="PinBasePackageDependencyToExactVersion" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'WinApp.UIAutomation'">
+        <ProjectVersion>[%(_ProjectReferencesWithVersions.ProjectVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="Microsoft.Windows.CsWin32">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>WinApp.UIAutomation.Recording.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>WinApp.Cli.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)..\PackageDocumentation.targets" />
+
+</Project>

@@ -13,6 +13,7 @@ using System.Text.Json.Serialization;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
@@ -219,6 +220,7 @@ internal partial class RunCommand : Command, IShortDescription
         IProjectRunService projectRunService,
         IManifestTemplateService manifestTemplateService,
         IManifestService manifestService,
+        IProjectContextDetector projectContextDetector,
         ILogger<RunCommand> logger) : AsynchronousCommandLineAction
     {
         // Test seams for the execution-alias launch path. They isolate the two operating-system
@@ -237,6 +239,24 @@ internal partial class RunCommand : Command, IShortDescription
         /// </summary>
         internal Func<string, string?> ReadAliasOwner { get; set; } =
             path => ExecutionAliasResolver.TryGetAliasPackageFamilyName(path, out var owner) ? owner : null;
+
+        /// <summary>
+        /// Telemetry classification for a .NET file-based app, which is known exactly from the input.
+        /// </summary>
+        /// <remarks>
+        /// Fixed rather than detected: a <c>.cs</c> file-based app is by definition a .NET source project,
+        /// and probing its directory would let an unrelated <c>.csproj</c> sitting beside it supply the
+        /// classification instead. Packaging is left <c>Unknown</c> because it comes from the app's
+        /// evaluated <c>WindowsPackageType</c>, which has not been read at this point in the run.
+        /// </remarks>
+        private static readonly ProjectContext SingleFileProjectContext = new(
+            ProjectFamily.Dotnet,
+            ProjectAppFramework.Unknown,
+            ProjectTargetKind.SourceProject,
+            ProjectContextSource.ResolvedProject,
+            ProjectContextConfidence.High,
+            ProjectContextPackaging.Unknown,
+            ProjectExecutionMode.SingleFile);
 
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -454,6 +474,32 @@ internal partial class RunCommand : Command, IShortDescription
             {
                 return Fail(ex.Message, isJson);
             }
+
+            ProjectContextEvent.Log("run", () =>
+                string.Equals(
+                    parseResult.GetValue(WinAppRootCommand.CallerOption),
+                    "nuget-package",
+                    StringComparison.Ordinal)
+                    ? projectContextDetector.CreateNuGetContext(
+                        parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption))
+                    : inputResolution.Mode switch
+                    {
+                        // A file-based app is classified from the input itself rather than by probing its
+                        // directory. Several .cs files can share a folder with an unrelated .csproj, so a
+                        // directory scan would report that project's classification for this app.
+                        WinAppRunMode.SingleFile => SingleFileProjectContext,
+                        WinAppRunMode.Project => projectContextDetector.DetectProject(inputResolution.Csproj!) with
+                        {
+                            ExecutionMode = ProjectExecutionMode.Project,
+                        },
+                        _ => projectContextDetector.DetectDirectory(
+                            inputResolution.ProjectDirectory,
+                            ProjectTargetKind.BuildOutput) with
+                        {
+                            Packaging = ProjectContextPackaging.Packaged,
+                            ExecutionMode = ProjectExecutionMode.Folder,
+                        },
+                    });
 
             if (inputResolution.Mode == WinAppRunMode.SingleFile)
             {
@@ -779,7 +825,7 @@ internal partial class RunCommand : Command, IShortDescription
                 {
                     if (unregisterOnExit && packageName != null)
                     {
-                        await UnregisterDevPackageAsync(packageName, cancellationToken);
+                        await UnregisterDevPackageAsync(packageName);
                     }
                     return code;
                 }
@@ -807,7 +853,7 @@ internal partial class RunCommand : Command, IShortDescription
                 }
                 if (unregisterOnExit && packageName != null)
                 {
-                    await UnregisterDevPackageAsync(packageName, cancellationToken);
+                    await UnregisterDevPackageAsync(packageName);
                 }
                 return exitCode;
             }
@@ -845,7 +891,7 @@ internal partial class RunCommand : Command, IShortDescription
 
             if (unregisterOnExit && packageName != null)
             {
-                await UnregisterDevPackageAsync(packageName, cancellationToken);
+                await UnregisterDevPackageAsync(packageName);
             }
 
             return appExitCode;
@@ -876,8 +922,37 @@ internal partial class RunCommand : Command, IShortDescription
         /// Unregisters dev-mode packages matching the given name.
         /// Only removes packages where <c>IsDevelopmentMode == true</c>.
         /// </summary>
-        private async Task UnregisterDevPackageAsync(string packageName, CancellationToken cancellationToken)
+        /// <summary>
+        /// How long exit cleanup may spend removing registrations before giving up.
+        /// </summary>
+        /// <remarks>
+        /// Bounded so a stalled removal cannot hang the shell after the app has already exited.
+        /// </remarks>
+        private static readonly TimeSpan UnregisterOnExitTimeout = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// Removes the development registrations this run created, on exit.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Runs on its own bounded token rather than the run's. <c>--unregister-on-exit</c> is a promise
+        /// made before the app started, and Ctrl+C — the normal way to stop an inline console app, which
+        /// this command now launches through an alias by default — cancels the run's token. Passing that
+        /// cancelled token to the removal makes it fail instantly and get swallowed by the catch below,
+        /// leaving the registration and its alias behind to interfere with the next run.
+        /// </para>
+        /// <para>
+        /// Removal is by package FULL name, one vetted package at a time. The by-name overload
+        /// re-enumerates every user package sharing the identity name and removes all of them — including
+        /// the non-development ones this loop deliberately skips — and it does so with
+        /// <c>preserveAppData: false</c>, so a name collision would uninstall an unrelated app and delete
+        /// its data.
+        /// </para>
+        /// </remarks>
+        private async Task UnregisterDevPackageAsync(string packageName)
         {
+            using var cleanupCts = new CancellationTokenSource(UnregisterOnExitTimeout);
+
             try
             {
                 var packages = packageRegistrationService.FindDevPackages(packageName);
@@ -888,7 +963,7 @@ internal partial class RunCommand : Command, IShortDescription
                         continue;
                     }
 
-                    await packageRegistrationService.UnregisterAsync(pkg.Name, preserveAppData: false, cancellationToken);
+                    await packageRegistrationService.UnregisterByFullNameAsync(pkg.FullName, preserveAppData: false, cleanupCts.Token);
                     logger.LogDebug("Unregistered package {FullName} on exit.", pkg.FullName);
                 }
             }

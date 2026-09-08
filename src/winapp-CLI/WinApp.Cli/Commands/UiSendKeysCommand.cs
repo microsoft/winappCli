@@ -82,9 +82,9 @@ internal class UiSendKeysCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IKeyboardInput keyboardInput,
         IForegroundGuard foregroundGuard,
         ISystemUiQuery systemQuery,
@@ -159,13 +159,13 @@ internal class UiSendKeysCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
-                var targetHwnd = session.WindowHandle;
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                var targetHwnd = uiTarget.WindowHandle;
 
                 if (!string.IsNullOrWhiteSpace(target))
                 {
-                    var selector = selectorService.Parse(target);
-                    var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+                    var selector = selectorParser.Parse(target);
+                    var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                     if (element is null)
                     {
@@ -173,8 +173,8 @@ internal class UiSendKeysCommand : Command, IShortDescription
                         return 1;
                     }
 
-                    await uiAutomation.FocusAsync(session, element, cancellationToken);
-                    targetHwnd = element.WindowHandle ?? session.WindowHandle;
+                    await uiAutomation.FocusAsync(uiTarget, element, cancellationToken);
+                    targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
                 }
 
                 // Bring the target window to the foreground so input is routed to it.

@@ -28,9 +28,9 @@ internal class UiFocusCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IAnsiConsole ansiConsole,
         ILogger<UiFocusCommand> logger) : AsynchronousCommandLineAction
     {
@@ -55,9 +55,9 @@ internal class UiFocusCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
-                var selector = selectorService.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                var selector = selectorParser.Parse(selectorStr);
+                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -65,10 +65,10 @@ internal class UiFocusCommand : Command, IShortDescription
                     return 1;
                 }
 
-                await uiAutomation.FocusAsync(session, element, cancellationToken);
+                await uiAutomation.FocusAsync(uiTarget, element, cancellationToken);
                 if (json)
                 {
-                    var result = new UiFocusResult { ElementId = (element.Selector ?? element.Id ?? ""), Hwnd = session.WindowHandle };
+                    var result = new UiFocusResult { ElementId = (element.Selector ?? element.Id ?? ""), Hwnd = uiTarget.WindowHandle };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiFocusResult));
                 }

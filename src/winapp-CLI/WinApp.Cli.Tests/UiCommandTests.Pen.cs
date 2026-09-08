@@ -44,7 +44,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Pen_Path_MultiPoint_InjectsStroke()
     {
-        _fakeSession.SessionResult.WindowHandle = 3300;
+        _fakeTargetResolver.TargetResult.WindowHandle = 3300;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -66,7 +66,7 @@ public partial class UiCommandTests
     public async Task Pen_DurationMs_PassedThrough()
     {
         // Verify --duration-ms is forwarded to the pointer input as-is.
-        _fakeSession.SessionResult.WindowHandle = 3301;
+        _fakeTargetResolver.TargetResult.WindowHandle = 3301;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -84,7 +84,7 @@ public partial class UiCommandTests
     public async Task Pen_DurationMs_DefaultIsZero()
     {
         // Default --duration-ms (0) means ~10 ms per segment; verify 0 is passed through.
-        _fakeSession.SessionResult.WindowHandle = 3302;
+        _fakeTargetResolver.TargetResult.WindowHandle = 3302;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -213,7 +213,7 @@ public partial class UiCommandTests
         // or InjectSyntheticPointerInput fails), the command must catch it at the injection call site
         // and return non-zero with a structured JSON error (injection_unsupported), not crash or
         // report success.
-        _fakeSession.SessionResult.WindowHandle = 4401;
+        _fakeTargetResolver.TargetResult.WindowHandle = 4401;
         _fakePointer.ThrowException = new InvalidOperationException("CreateSyntheticPointerDevice(PT_PEN) failed — locked desktop");
 
         var command = GetRequiredService<UiPenCommand>();
@@ -241,7 +241,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Pen_Eraser_SetsFlag()
     {
-        _fakeSession.SessionResult.WindowHandle = 4400;
+        _fakeTargetResolver.TargetResult.WindowHandle = 4400;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -262,7 +262,7 @@ public partial class UiCommandTests
         // #661: an out-of-window ink point is a non-fatal advisory, not a hard failure. Pen injects
         // anyway (consistent with the mouse verbs) and surfaces a warning, rather than rejecting with
         // invalid_arguments.
-        _fakeSession.SessionResult.WindowHandle = 6600;
+        _fakeTargetResolver.TargetResult.WindowHandle = 6600;
         _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
 
         var command = GetRequiredService<UiPenCommand>();
@@ -288,7 +288,7 @@ public partial class UiCommandTests
         // The out-of-window advisory (#661) and the remote-session delivery advisory (id27/id28) are
         // independent. Pen's warning-aggregation block is byte-identical to touch's, so the combined case
         // must likewise surface both entries in warnings[] (mirrors Touch_OutsideWindowAndRemoteSession).
-        _fakeSession.SessionResult.WindowHandle = 6650;
+        _fakeTargetResolver.TargetResult.WindowHandle = 6650;
         _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
         _fakeForeground.IsRemoteSessionResult = true;
 
@@ -317,7 +317,7 @@ public partial class UiCommandTests
         // through the static ambient AnsiConsole (TextWriterLogger), so we swap it to a capturing console
         // for the invoke; [DoNotParallelize] keeps that global swap isolated. The advisory must land on
         // that (stdout) console and NOT on stderr, proving it is a non-fatal warning.
-        _fakeSession.SessionResult.WindowHandle = 6700;
+        _fakeTargetResolver.TargetResult.WindowHandle = 6700;
         _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
 
         var command = GetRequiredService<UiPenCommand>();
@@ -345,7 +345,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Pen_ZeroTargetHwnd_Rejected_NoInjection()
     {
-        _fakeSession.SessionResult.WindowHandle = 0;
+        _fakeTargetResolver.TargetResult.WindowHandle = 0;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -360,7 +360,7 @@ public partial class UiCommandTests
     public async Task Pen_WindowRectUnreadable_Rejected_NoInjection()
     {
         // Nonzero handle resolves but its rect can't be read → no verifiable target (no_target).
-        _fakeSession.SessionResult.WindowHandle = 6700;
+        _fakeTargetResolver.TargetResult.WindowHandle = 6700;
         _fakeUia.WindowRectAllow = false;
 
         var command = GetRequiredService<UiPenCommand>();
@@ -379,7 +379,7 @@ public partial class UiCommandTests
         // reach the injector unchanged and appear in the success JSON envelope. Safe to run
         // without a live injection target because FakePointerInput records the call rather than
         // issuing real synthetic-pointer input.
-        _fakeSession.SessionResult.WindowHandle = 5500;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5500;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -416,7 +416,7 @@ public partial class UiCommandTests
     {
         // When the session service throws AppNotFoundException (app not running), the outer
         // catch must map it to missing_app, not internal_error.
-        _fakeSession.ThrowException = new WinApp.Cli.Services.AppNotFoundException(
+        _fakeTargetResolver.ThrowException = new AppNotFoundException(
             "No running app found matching '__test_nonexistent__'.");
 
         var command = GetRequiredService<UiPenCommand>();
@@ -431,7 +431,7 @@ public partial class UiCommandTests
             stderr.AsSpan(jsonStart).TrimEnd());
         Assert.AreEqual(UiJsonError.CodeMissingApp,
             error.GetProperty("error").GetProperty("code").GetString(),
-            "AppNotFoundException from session service must map to missing_app");
+            "AppNotFoundException from the target resolver must map to missing_app");
         Assert.IsFalse(stderr.Contains(UiJsonError.CodeInternalError),
             $"AppNotFoundException must NOT produce internal_error; got stderr: {stderr}");
     }
@@ -441,7 +441,7 @@ public partial class UiCommandTests
     {
         // When FindSingleElementAsync throws plain InvalidOperationException (selector matched
         // multiple elements), the outer catch must map it to invalid_arguments, NOT missing_app.
-        _fakeSession.SessionResult = new WinApp.Cli.Models.UiSessionInfo
+        _fakeTargetResolver.TargetResult = new UiTarget
         {
             ProcessId = 1, ProcessName = "TestApp", WindowHandle = 1234
         };
@@ -477,7 +477,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Pen_RemoteSession_EmitsDeliveryWarning()
     {
-        _fakeSession.SessionResult.WindowHandle = 8300;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8300;
         _fakeForeground.IsRemoteSessionResult = true;
 
         var command = GetRequiredService<UiPenCommand>();
@@ -498,7 +498,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Pen_LocalSession_NoDeliveryWarning()
     {
-        _fakeSession.SessionResult.WindowHandle = 8301;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8301;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -607,7 +607,7 @@ public partial class UiCommandTests
         // A bare selector that resolves to no element: ResolvePointAsync reports element_not_found and
         // returns not-Ok, so the command aborts before injection (covers the !target.Ok guard in the
         // selector branch). FindSingleResult stays null by default.
-        _fakeSession.SessionResult.WindowHandle = 6100;
+        _fakeTargetResolver.TargetResult.WindowHandle = 6100;
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["ghost-element", "-a", "TestApp", "--json"]);
@@ -623,7 +623,7 @@ public partial class UiCommandTests
     {
         // The non-JSON render path logs a human success line and, for a local session, no delivery
         // warning. Info/Warning route through the static ambient console, so we swap it to capture.
-        _fakeSession.SessionResult.WindowHandle = 8400;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8400;
         _fakeForeground.IsRemoteSessionResult = false;
 
         var command = GetRequiredService<UiPenCommand>();
@@ -641,7 +641,7 @@ public partial class UiCommandTests
     [DoNotParallelize] // swaps the process-wide ambient AnsiConsole to capture non-error logger output
     public async Task Pen_NonJson_RemoteSession_LogsSuccessAndDeliveryWarning()
     {
-        _fakeSession.SessionResult.WindowHandle = 8401;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8401;
         _fakeForeground.IsRemoteSessionResult = true;
 
         var command = GetRequiredService<UiPenCommand>();
@@ -673,7 +673,7 @@ public partial class UiCommandTests
     {
         // A non-COM, non-app-not-found, non-IOE exception during session resolution falls through to
         // the catch-all generic handler and is reported (not swallowed or crashed).
-        _fakeSession.ResolveThrow = new TimeoutException("boom (test)");
+        _fakeTargetResolver.ResolveThrow = new TimeoutException("boom (test)");
 
         var command = GetRequiredService<UiPenCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["canvas-1", "-a", "TestApp", "--json"]);

@@ -275,6 +275,7 @@ public partial class UiCommandTests
         // desktop or the wrong window in front) aborts without injecting anything (M5).
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Image", Selector = "img-canvas-1234", X = 0, Y = 0, Width = 100, Height = 100, WindowHandle = 7777 };
         _fakeForeground.Allow = false;
+_fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
 
         var command = GetRequiredService<UiDragCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["img-canvas-1234", "200,200", "-a", "TestApp", "--json"]);
@@ -283,7 +284,8 @@ public partial class UiCommandTests
         Assert.AreEqual(0, _fakeMouse.DragCalls.Count, "no drag should be injected when the foreground guard refuses");
         Assert.AreEqual(0, _fakeMouse.MoveCursorCalls.Count, "the gate denies before the cursor is positioned");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        Assert.AreEqual("drag", _fakeForeground.Calls[0].Action);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to drag",
+            "the refusal must name the action the command was attempting");
     }
 
     [TestMethod]
@@ -404,6 +406,7 @@ public partial class UiCommandTests
         // The wheel inject must consult the foreground guard first; a denial aborts without injecting (M5).
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 50, Y = 60, Width = 120, Height = 40, WindowHandle = 7777 };
         _fakeForeground.Allow = false;
+_fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
 
         var command = GetRequiredService<UiScrollCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel", "-1", "--json"]);
@@ -411,7 +414,8 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMouse.ScrollWheelCalls.Count, "no wheel should be injected when the foreground guard refuses");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        Assert.AreEqual("scroll --wheel", _fakeForeground.Calls[0].Action);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to scroll --wheel",
+            "the refusal must name the action the command was attempting");
     }
 
 }

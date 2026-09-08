@@ -10,7 +10,7 @@ namespace WinApp.Cli.Tests;
 /// Covers <c>winapp ui list-windows</c> beyond the existing JSON/ShouldIncludeWindow tests: the
 /// non-JSON render path, the app-resolution branches (PID, exact process name, partial process
 /// name, title fallback), safe process-name resolution, and the generic error branch. Window
-/// handles are synthetic; <c>UiSessionService.GetWindowInfo</c> returns safe defaults for them.
+/// handles are synthetic; <c>UiTargetResolver.GetWindowInfo</c> returns safe defaults for them.
 /// </summary>
 public partial class UiCommandTests
 {

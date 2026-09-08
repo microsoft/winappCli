@@ -351,7 +351,7 @@ function manifestUpdateAssets(options: ManifestUpdateAssetsOptions): Promise<Win
 
 ### `newCommand()`
 
-Create a new WinUI app from an official Windows App SDK template. Interactive by default: pick a template, then a name (the output directory defaults to ./<name>). Automatically uses defaults in non-interactive environments (use --use-defaults to skip prompts explicitly). Requires the .NET SDK; installs the WinUI template pack on demand (grabbing the latest, or offering to update a stale one) and delegates scaffolding to 'dotnet new'. Use --list to see the available templates. Scaffolds against the installed SDK's target framework and prints a template-specific next step when done (e.g. 'dotnet run' for app templates).
+Create a new WinUI app from an official Windows App SDK template. Templates cover both markup-based XAML apps (blank, NavigationView, TabView, MVVM) and the experimental Reactor apps (C#-only, MVU) — pick one interactively, then a name (the output directory defaults to ./<name>). Automatically uses defaults in non-interactive environments (use --use-defaults to skip prompts explicitly). Requires the .NET SDK; installs the WinUI template pack on demand (grabbing the latest, or offering to update a stale one) and delegates scaffolding to 'dotnet new'. Use --list to see the available templates. Scaffolds against the installed SDK's target framework and prints a template-specific next step when done (e.g. 'dotnet run' for app templates).
 
 ```typescript
 function newCommand(options?: NewOptions): Promise<WinappResult>
@@ -366,7 +366,7 @@ function newCommand(options?: NewOptions): Promise<WinappResult>
 | `list` | `boolean \| undefined` | No | List the available WinUI templates and exit (installs the latest template pack if none is installed). |
 | `name` | `string \| undefined` | No | Name for the new app/project (default: derived from --output, else 'WinUIApp'). |
 | `output` | `string \| undefined` | No | Directory to create the app in (default: ./<name>). Created if it doesn't exist. |
-| `template` | `string \| undefined` | No | Template short name (e.g. winui, winui-navview, winui-mvvm, winui-lib, winui-unittest). Run 'winapp new --list' to see all. |
+| `template` | `string \| undefined` | No | Template short name. XAML templates: winui, winui-navview, winui-tabview, winui-mvvm, winui-lib, winui-unittest. Experimental Reactor (C#-only, MVU) templates: reactor, reactor-mvu, reactor-navview, reactor-tabview. Run 'winapp new --list' to see all. |
 | `templateVersion` | `string \| undefined` | No | WinUI template pack version: 'latest' (install newest), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. |
 | `useDefaults` | `boolean \| undefined` | No | Do not prompt; use defaults (blank template, name from --output/--name, keep installed templates). |
 
@@ -1544,7 +1544,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `list` | `boolean \| undefined` | No | List the available WinUI templates and exit (installs the latest template pack if none is installed). |
 | `name` | `string \| undefined` | No | Name for the new app/project (default: derived from --output, else 'WinUIApp'). |
 | `output` | `string \| undefined` | No | Directory to create the app in (default: ./<name>). Created if it doesn't exist. |
-| `template` | `string \| undefined` | No | Template short name (e.g. winui, winui-navview, winui-mvvm, winui-lib, winui-unittest). Run 'winapp new --list' to see all. |
+| `template` | `string \| undefined` | No | Template short name. XAML templates: winui, winui-navview, winui-tabview, winui-mvvm, winui-lib, winui-unittest. Experimental Reactor (C#-only, MVU) templates: reactor, reactor-mvu, reactor-navview, reactor-tabview. Run 'winapp new --list' to see all. |
 | `templateVersion` | `string \| undefined` | No | WinUI template pack version: 'latest' (install newest), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. |
 | `useDefaults` | `boolean \| undefined` | No | Do not prompt; use defaults (blank template, name from --output/--name, keep installed templates). |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |

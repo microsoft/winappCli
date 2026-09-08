@@ -51,7 +51,27 @@ internal sealed record WinUiTemplateEntry(
     /// <summary>True when <paramref name="candidate"/> matches any of this template's short names (case-insensitive).</summary>
     public bool MatchesShortName(string candidate)
         => ShortNames.Any(s => string.Equals(s, candidate, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True when any '/'-separated segment of <see cref="Tags"/> equals <paramref name="segment"/>.</summary>
+    public bool HasTag(string segment)
+        => Tags.Split('/').Any(s => s.Trim().Equals(segment, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// True when the pack flags this template as prerelease/experimental — the Reactor templates carry
+    /// an <c>Experimental</c> tag segment (<c>Windows/WinUI/Desktop/Reactor/Experimental</c>) and an
+    /// "(Experimental)" suffix in their display name. Both signals are checked because
+    /// <c>dotnet new list</c> truncates over-wide columns, so either one alone can be cut off.
+    /// </summary>
+    public bool IsExperimental
+        => HasTag("Experimental") || DisplayName.Contains("(Experimental)", StringComparison.OrdinalIgnoreCase);
 }
+
+/// <summary>
+/// A template row parsed from a pack's "Templates:" block in <c>dotnet new uninstall</c> output.
+/// Unlike <c>dotnet new list</c>, that listing is not column-formatted, so <see cref="DisplayName"/>
+/// is never truncated and <see cref="Aliases"/> is authoritative for what the pack actually owns.
+/// </summary>
+internal sealed record PackTemplateRow(string DisplayName, IReadOnlyList<string> Aliases);
 
 /// <summary>
 /// Pure parsing of <c>dotnet</c> template subcommand output. Enumerating a pack's templates and
@@ -229,22 +249,22 @@ internal static class WinUiTemplateCatalog
     }
 
     /// <summary>
-    /// Extracts the set of template short names that belong to <paramref name="packageId"/> from a
+    /// Extracts the templates that belong to <paramref name="packageId"/> from a
     /// <c>dotnet new uninstall</c> listing. Each pack nests a "Templates:" block under its package-id
     /// header, one line per template ending in its aliases: e.g.
     /// <c>WinUI Blank Page (Item) (winui-page,winui3-page) C#</c>. The aliases are the last
-    /// parenthesised group on the line (the display name may itself contain "(Item)"). This is the
-    /// authoritative list of templates the exact package owns, used to filter <c>dotnet new list</c>
-    /// results down to the Microsoft pack so third-party <c>winui*</c> templates (which
-    /// <c>dotnet new list</c> also matches) are never offered or scaffolded. Returns an empty set when
-    /// the package or its Templates block isn't present, so callers can fall back to the unfiltered list.
+    /// parenthesised group on the line (the display name may itself contain "(Item)" or
+    /// "(Experimental)"), and everything before that group is the template's untruncated display name.
+    /// This is the authoritative record of what the exact package owns and how its templates are really
+    /// named. Returns an empty list when the package or its Templates block isn't present, so callers
+    /// can fall back to the unfiltered <c>dotnet new list</c> results.
     /// </summary>
-    internal static HashSet<string> ParsePackTemplateShortNames(string uninstallListOutput, string packageId)
+    internal static IReadOnlyList<PackTemplateRow> ParsePackTemplates(string uninstallListOutput, string packageId)
     {
-        var shortNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var rows = new List<PackTemplateRow>();
         if (string.IsNullOrEmpty(uninstallListOutput) || string.IsNullOrEmpty(packageId))
         {
-            return shortNames;
+            return rows;
         }
 
         var lines = uninstallListOutput.Replace("\r\n", "\n").Split('\n');
@@ -289,16 +309,70 @@ internal static class WinUiTemplateCatalog
                     break; // left the Templates block (e.g. "Uninstall Command:")
                 }
 
-                foreach (var alias in ExtractAliases(raw))
+                var aliases = ExtractAliases(raw);
+                if (aliases.Length > 0)
                 {
-                    shortNames.Add(alias);
+                    rows.Add(new PackTemplateRow(ExtractDisplayName(raw), aliases));
                 }
             }
 
             break;
         }
 
-        return shortNames;
+        return rows;
+    }
+
+    /// <summary>
+    /// Restricts <paramref name="listed"/> (parsed from <c>dotnet new list</c>) to the templates
+    /// <paramref name="packRows"/> says the resolved Microsoft pack owns, and replaces each survivor's
+    /// display name and aliases with the pack row's authoritative ones.
+    /// <para>
+    /// All of this is needed because <c>dotnet new list</c> formats into fixed-width columns — it
+    /// truncates long names (<c>Reactor NavigationView App (Experim...</c>) and can clip a long alias
+    /// list — and because it matches <c>winui</c> by prefix across <em>every</em> installed pack, with
+    /// no column saying which pack a row came from. A listed row belongs to the pack only when the
+    /// <em>canonical</em> short name we would hand to <c>dotnet new</c> is one the pack owns
+    /// <em>and</em> the row's (possibly truncated) name is a prefix of that pack row's real name.
+    /// Matching on any alias is not enough: an unrelated pack whose template is
+    /// <c>evil,winui</c> shares <c>winui</c>, so it would be offered as an official template and
+    /// scaffolded as <c>dotnet new evil</c>.
+    /// </para>
+    /// This fails closed. Empty <paramref name="packRows"/> means no template's ownership could be
+    /// established, so nothing is returned; the caller reports that as an enumeration failure rather
+    /// than offering rows of unknown provenance.
+    /// </summary>
+    internal static IReadOnlyList<WinUiTemplateEntry> RestrictToPack(
+        IReadOnlyList<WinUiTemplateEntry> listed, IReadOnlyList<PackTemplateRow> packRows)
+    {
+        var kept = new List<WinUiTemplateEntry>();
+        foreach (var entry in listed)
+        {
+            var owner = packRows.FirstOrDefault(row =>
+                row.Aliases.Contains(entry.ShortName, StringComparer.OrdinalIgnoreCase)
+                && NameMatches(entry.DisplayName, row.DisplayName));
+            if (owner is not null)
+            {
+                kept.Add(entry with { DisplayName = owner.DisplayName, ShortNames = owner.Aliases });
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// True when <paramref name="listedName"/> — which <c>dotnet new list</c> may have cut short with a
+    /// trailing ellipsis to fit its column — is the start of <paramref name="packName"/>. An empty
+    /// listed name matches anything, since the short-name check already established ownership.
+    /// </summary>
+    private static bool NameMatches(string listedName, string packName)
+    {
+        var prefix = listedName.Trim();
+        if (prefix.EndsWith("...", StringComparison.Ordinal))
+        {
+            prefix = prefix[..^3].TrimEnd();
+        }
+
+        return prefix.Length == 0 || packName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -322,6 +396,18 @@ internal static class WinUiTemplateCatalog
 
         return templateRow[(open + 1)..close]
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    /// <summary>
+    /// Pulls the display name from a <c>dotnet new uninstall</c> template row: everything before the
+    /// trailing alias group, so <c>Reactor Blank App (Experimental) (reactor,reactor-blank) C#</c>
+    /// yields <c>Reactor Blank App (Experimental)</c>. Returns an empty string when no alias group is
+    /// present.
+    /// </summary>
+    private static string ExtractDisplayName(string templateRow)
+    {
+        var open = templateRow.LastIndexOf('(');
+        return open < 0 ? string.Empty : templateRow[..open].Trim();
     }
 
     /// <summary>Number of leading whitespace characters on <paramref name="line"/>.</summary>
@@ -349,15 +435,17 @@ internal static class WinUiTemplateCatalog
     /// must not be hard-coded) and <c>Tfm</c> is the chosen framework: <c>net{sdkMajor}.0</c> when the
     /// template offers it, otherwise the highest offered framework not newer than the SDK. Both are
     /// <c>null</c> when the template declares no TFM choice (nothing to pin) or every choice is newer
-    /// than the SDK.
+    /// than the SDK. <c>Choices</c> carries every framework the template offers, so a caller that gets
+    /// no <c>Tfm</c> can tell "this template has no framework knob" (empty) apart from "the installed
+    /// SDK is too old for every framework it supports" (non-empty).
     /// </para>
     /// </summary>
-    internal static (bool Found, string? OptionName, string? Tfm) DeriveTfmOption(
+    internal static (bool Found, string? OptionName, string? Tfm, IReadOnlyList<string> Choices) DeriveTfmOption(
         string cacheJson, string packageId, string shortName, int sdkMajor)
     {
         if (string.IsNullOrEmpty(cacheJson) || string.IsNullOrEmpty(shortName))
         {
-            return (false, null, null);
+            return (false, null, null, []);
         }
 
         JsonDocument doc;
@@ -367,7 +455,7 @@ internal static class WinUiTemplateCatalog
         }
         catch (JsonException)
         {
-            return (false, null, null);
+            return (false, null, null, []);
         }
 
         using (doc)
@@ -375,7 +463,7 @@ internal static class WinUiTemplateCatalog
             if (!doc.RootElement.TryGetProperty("TemplateInfo", out var templates)
                 || templates.ValueKind != JsonValueKind.Array)
             {
-                return (false, null, null);
+                return (false, null, null, []);
             }
 
             foreach (var template in templates.EnumerateArray())
@@ -389,16 +477,35 @@ internal static class WinUiTemplateCatalog
                 // (never fall through to another cache file) even when there's no TFM knob to pin.
                 if (!TryGetTfmParameter(template, out var symbolName, out var choices))
                 {
-                    return (true, null, null);
+                    return (true, null, null, []);
                 }
 
                 var optionName = ResolveOptionName(template, symbolName);
                 var tfm = PickTfm(choices, sdkMajor);
-                return (true, optionName, tfm);
+                return (true, optionName, tfm, choices);
             }
         }
 
-        return (false, null, null);
+        return (false, null, null, []);
+    }
+
+    /// <summary>
+    /// Lowest .NET major version among <paramref name="choices"/> — the oldest SDK that can build any
+    /// framework a template offers. Returns <c>null</c> when no choice parses as a
+    /// <c>net&lt;major&gt;.0</c> moniker.
+    /// </summary>
+    internal static int? MinimumSdkMajor(IReadOnlyList<string> choices)
+    {
+        int? lowest = null;
+        foreach (var choice in choices)
+        {
+            if (TryGetNetMajor(choice, out var major) && (lowest is null || major < lowest))
+            {
+                lowest = major;
+            }
+        }
+
+        return lowest;
     }
 
     /// <summary>True when the template's mount point is the nupkg of <paramref name="packageId"/>.</summary>

@@ -1,0 +1,27 @@
+// Media Foundation H.264 sink writer
+MFStartup
+MFShutdown
+MFCreateSinkWriterFromURL
+IMFSinkWriter
+MFCreateMediaType
+IMFMediaType
+MFCreateSample
+MFCreateMemoryBuffer
+MFVideoFormat_H264
+MFVideoFormat_RGB32
+MFMediaType_Video
+MF_MT_MAJOR_TYPE
+MF_MT_SUBTYPE
+MF_MT_AVG_BITRATE
+MF_MT_INTERLACE_MODE
+MF_MT_FRAME_SIZE
+MF_MT_FRAME_RATE
+MF_MT_PIXEL_ASPECT_RATIO
+MF_MT_DEFAULT_STRIDE
+
+// Window state and geometry for capture retargeting
+GetWindowRect
+GetAncestor
+SetForegroundWindow
+IsIconic
+ShowWindow

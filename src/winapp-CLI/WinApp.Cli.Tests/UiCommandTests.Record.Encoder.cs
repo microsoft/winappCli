@@ -92,7 +92,7 @@ public partial class UiCommandTests
         var inner = new System.Runtime.InteropServices.COMException(
             "Simulated missing H.264 encoder", unchecked((int)0xC00D5212));
         Assert.IsTrue(Mp4SinkWriterEncoder.TryDescribeEncoderInitFailure(inner, out var message));
-        _fakeUia.RecordException = new Mp4EncoderInitializationException(message, inner);
+        _fakeRecording.RecordException = new Mp4EncoderInitializationException(message, inner);
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "encoder-init-fail.mp4");
         var command = GetRequiredService<UiRecordCommand>();

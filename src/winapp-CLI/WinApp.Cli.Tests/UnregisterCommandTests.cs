@@ -259,7 +259,6 @@ public class UnregisterCommandTests : BaseCommandTests
     {
         // No manifest in the current directory + --json should emit a structured JSON error
         // (rather than a plain log line) and still fail.
-        TestAnsiConsole.Profile.Width = 1000; // avoid line-wrapping that would corrupt the JSON
         var command = GetRequiredService<UnregisterCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--json"]);
@@ -269,6 +268,34 @@ public class UnregisterCommandTests : BaseCommandTests
         var root = System.Text.Json.JsonDocument.Parse(output).RootElement;
         Assert.IsTrue(root.TryGetProperty("Error", out var error), "JSON output should carry an Error property");
         StringAssert.Contains(error.GetString(), "No manifest found");
+    }
+
+    [TestMethod]
+    public async Task UnregisterCommand_LongErrorAtDefaultWidth_StillEmitsParseableJson()
+    {
+        // The payload has to survive the default ~80-column console. Rendering it through
+        // ansiConsole.WriteLine word-wraps it and injects raw CR/LF INSIDE the string values, which strict
+        // parsers reject with "0x0D is invalid within a JSON string" — so scripts and the npm wrapper
+        // cannot read a documented machine-readable error. This message is well over 80 characters, so it
+        // reproduces without any artificial setup. (The document itself is pretty-printed, so the check is
+        // that no wrapping lands inside a VALUE, not that the output is one line.)
+        var command = GetRequiredService<UnregisterCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--prune", "--property", "A=1", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var output = TestAnsiConsole.Output.Trim();
+
+        // Strict parsing, the way a caller would. This is what fails on a wrapped payload.
+        var error = System.Text.Json.JsonDocument.Parse(output).RootElement.GetProperty("Error").GetString();
+
+        Assert.IsNotNull(error);
+        Assert.IsGreaterThan(80, error.Length, "The message must exceed the console width for this to be meaningful");
+        Assert.IsFalse(
+            error.Contains('\n', StringComparison.Ordinal) || error.Contains('\r', StringComparison.Ordinal),
+            "The error value must not carry wrapping newlines");
+        StringAssert.Contains(error, "--prune sweeps by registration state");
+        StringAssert.Contains(error, "--output-appx-directory.", "The tail of the message must survive intact");
     }
 
     #region Single-file apps
@@ -496,7 +523,6 @@ public class UnregisterCommandTests : BaseCommandTests
     [TestMethod]
     public async Task UnregisterCommand_WindowsRefusesRemoval_ReportsSkippedNotUnregistered()
     {
-        TestAnsiConsole.Profile.Width = 1000;
         var manifest = await CreateTestManifestAsync();
         var command = GetRequiredService<UnregisterCommand>();
 
@@ -843,7 +869,6 @@ public class UnregisterCommandTests : BaseCommandTests
     {
         // System.CommandLine's own arity error prints plain-text help, which would corrupt the
         // machine-readable contract a --json caller depends on.
-        TestAnsiConsole.Profile.Width = 1000;
         var command = GetRequiredService<UnregisterCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--json", "-p"]);
@@ -900,7 +925,6 @@ public class UnregisterCommandTests : BaseCommandTests
     public async Task UnregisterCommand_Prune_NonInteractiveWithoutForce_RefusesInsteadOfAssumingConsent()
     {
         // Removing packages without being able to ask is exactly the case that needs an explicit opt-in.
-        TestAnsiConsole.Profile.Width = 1000;
         var command = GetRequiredService<UnregisterCommand>();
         _fakePackageRegistrationService.FakeOrphanedDevPackages =
         [
@@ -939,7 +963,6 @@ public class UnregisterCommandTests : BaseCommandTests
     {
         // Windows reports a refused removal as error text rather than an exception, so ignoring the
         // result would hand cleanup automation a false confirmation.
-        TestAnsiConsole.Profile.Width = 1000;
         var command = GetRequiredService<UnregisterCommand>();
         _fakePackageRegistrationService.FakeOrphanedDevPackages =
         [

@@ -108,10 +108,31 @@ test('resolveYamlPath honours --config-dir (space and = forms)', () => {
   assert.equal(resolveYamlPath(['--config-dir=cfg']), path.join(path.resolve('cfg'), 'winapp.yaml'));
 });
 
-test('resolveYamlPath defaults to <cwd>/winapp.yaml without --config-dir', () => {
-  // restore / generate-bindings default the config dir to cwd; a positional
-  // base-dir must NOT change where the yaml is read from for those commands.
+test('resolveYamlPath defaults to <cwd>/winapp.yaml when no defaultConfigDir is supplied', () => {
+  // The bare default only. Every caller in cli-hooks passes an explicit base (see the restore test
+  // below) — relying on this default is what made `winapp restore <dir>` read the wrong file.
   assert.equal(resolveYamlPath(['init', 'someBaseDir']), path.join(process.cwd(), 'winapp.yaml'));
+});
+
+test('restore resolves the yaml from the positional target, not the cwd', () => {
+  // `winapp restore .\my-project` restores that directory's winapp.yaml, so the JS-bindings hook has to
+  // read the same file. While it defaulted to cwd, a restore run from a parent directory succeeded
+  // natively and then reported "winapp.yaml has no packages", silently skipping binding generation.
+  // Handlers receive the args AFTER the command name (cli.ts: args.slice(1)).
+  const args = ['my-project'];
+  const workspaceDir = resolveWorkspaceDir(args);
+
+  assert.equal(workspaceDir, path.resolve('my-project'));
+  assert.equal(resolveYamlPath(args, workspaceDir), path.join(path.resolve('my-project'), 'winapp.yaml'));
+  assert.notEqual(resolveYamlPath(args, workspaceDir), path.join(process.cwd(), 'winapp.yaml'));
+});
+
+test('restore still honours an explicit --config-dir over the positional target', () => {
+  const args = ['my-project', '--config-dir', 'cfg'];
+  assert.equal(
+    resolveYamlPath(args, resolveWorkspaceDir(args)),
+    path.join(path.resolve('cfg'), 'winapp.yaml')
+  );
 });
 
 test('resolveYamlPath uses the supplied defaultConfigDir when no --config-dir', () => {

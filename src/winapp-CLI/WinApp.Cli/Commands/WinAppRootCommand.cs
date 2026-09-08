@@ -43,6 +43,13 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Hidden = true
     };
 
+    internal static readonly Option<string?> ProjectFrameworkOption = new("--project-framework")
+    {
+        Description = "Allow-listed project framework supplied by an integrated caller. Used for telemetry.",
+        Recursive = true,
+        Hidden = true
+    };
+
     private class PrintCliSchemaAction : SynchronousCommandLineAction
     {
         public override bool Terminating => true;
@@ -100,6 +107,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
 
         Options.Add(CliSchemaOption);
         Options.Add(CallerOption);
+        Options.Add(ProjectFrameworkOption);
 
         // Reject unknown options/arguments so typos and removed flags fail loudly
         TreatUnmatchedTokensAsErrors = true;

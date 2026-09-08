@@ -89,7 +89,7 @@ internal class NewCommand : Command, IShortDescription
         {
             // Dynamic: the accepted values come from the installed pack, not a fixed enum, so the CLI
             // picks up new templates automatically. Validated against the live list at run time.
-            Description = "Template short name (e.g. winui, winui-navview, winui-mvvm, winui-lib, winui-unittest). Run 'winapp new --list' to see all.",
+            Description = "Template short name. XAML templates: winui, winui-navview, winui-tabview, winui-mvvm, winui-lib, winui-unittest. Experimental Reactor (C#-only, MVU) templates: reactor, reactor-mvu, reactor-navview, reactor-tabview. Run 'winapp new --list' to see all.",
             HelpName = "short-name"
         };
         NameOption = new Option<string?>("--name", "-n")
@@ -118,7 +118,7 @@ internal class NewCommand : Command, IShortDescription
         };
     }
 
-    public NewCommand() : base("new", "Create a new WinUI app from an official Windows App SDK template. Interactive by default: pick a template, then a name (the output directory defaults to ./<name>). Automatically uses defaults in non-interactive environments (use --use-defaults to skip prompts explicitly). Requires the .NET SDK; installs the WinUI template pack on demand (grabbing the latest, or offering to update a stale one) and delegates scaffolding to 'dotnet new'. Use --list to see the available templates. Scaffolds against the installed SDK's target framework and prints a template-specific next step when done (e.g. 'dotnet run' for app templates).")
+    public NewCommand() : base("new", "Create a new WinUI app from an official Windows App SDK template. Templates cover both markup-based XAML apps (blank, NavigationView, TabView, MVVM) and the experimental Reactor apps (C#-only, MVU) — pick one interactively, then a name (the output directory defaults to ./<name>). Automatically uses defaults in non-interactive environments (use --use-defaults to skip prompts explicitly). Requires the .NET SDK; installs the WinUI template pack on demand (grabbing the latest, or offering to update a stale one) and delegates scaffolding to 'dotnet new'. Use --list to see the available templates. Scaffolds against the installed SDK's target framework and prints a template-specific next step when done (e.g. 'dotnet run' for app templates).")
     {
         Options.Add(TemplateOption);
         Options.Add(NameOption);
@@ -547,7 +547,12 @@ internal class NewCommand : Command, IShortDescription
             }
             else if (useDefaults)
             {
+                // Never let an experimental template become the silent default: the blank app is
+                // resolved by short name, and the fallbacks (for a pack that renamed it) prefer a
+                // stable project template over a prerelease one such as the Reactor templates, which
+                // sort ahead of the WinUI ones alphabetically.
                 entry = templates.FirstOrDefault(t => t.MatchesShortName(DefaultTemplateShortName))
+                    ?? templates.FirstOrDefault(t => t.IsProject && !t.IsExperimental)
                     ?? templates.FirstOrDefault(t => t.IsProject)
                     ?? templates[0];
             }
@@ -558,6 +563,27 @@ internal class NewCommand : Command, IShortDescription
 
             tel.Template = entry.ShortName;
             tel.TemplateIsItem = entry.IsItem;
+
+            // 1a. Resolve the target-framework pin now, before any name prompt, so a template the
+            // installed SDK is too old for (the Reactor templates require .NET 10) fails immediately
+            // with an actionable message instead of scaffolding a project that cannot be built.
+            var frameworkArgs = new List<string>();
+            if (entry.IsProject)
+            {
+                var frameworkError = ResolveTargetFrameworkArgs(frameworkArgs, entry, sdkVersion);
+                if (frameworkError is not null)
+                {
+                    if (isJson)
+                    {
+                        PrintJson(false, entry.ShortName, name ?? string.Empty, (output ?? currentDir).FullName, frameworkError, entry.IsExperimental);
+                    }
+                    else
+                    {
+                        logger.LogError("{Error} {Detail}", UiSymbols.Error, frameworkError);
+                    }
+                    return ExitSdkMissing;
+                }
+            }
 
             // 2. Resolve name. Only a genuinely absent --name enters the defaulting path; an explicitly
             // supplied but blank value (e.g. --name "   ") is kept so the validation below rejects it
@@ -591,7 +617,7 @@ internal class NewCommand : Command, IShortDescription
                 var nameError = $"Invalid name '{name}'. Use a simple name without path separators or invalid filename characters.";
                 if (isJson)
                 {
-                    PrintJson(false, entry.ShortName, name ?? string.Empty, (output ?? currentDir).FullName, nameError);
+                    PrintJson(false, entry.ShortName, name ?? string.Empty, (output ?? currentDir).FullName, nameError, entry.IsExperimental);
                 }
                 else
                 {
@@ -626,7 +652,7 @@ internal class NewCommand : Command, IShortDescription
                     var accessError = $"Could not inspect output directory '{outputDir.FullName}': {ex.Message}";
                     if (isJson)
                     {
-                        PrintJson(false, entry.ShortName, name!, outputDir.FullName, accessError);
+                        PrintJson(false, entry.ShortName, name!, outputDir.FullName, accessError, entry.IsExperimental);
                     }
                     else
                     {
@@ -640,7 +666,7 @@ internal class NewCommand : Command, IShortDescription
                     var dirError = $"Output directory '{outputDir.FullName}' is not empty. Use --force to scaffold into it anyway.";
                     if (isJson)
                     {
-                        PrintJson(false, entry.ShortName, name!, outputDir.FullName, dirError);
+                        PrintJson(false, entry.ShortName, name!, outputDir.FullName, dirError, entry.IsExperimental);
                     }
                     else
                     {
@@ -657,20 +683,9 @@ internal class NewCommand : Command, IShortDescription
             // inject additional dotnet new options.
             var args = new List<string> { "new", entry.ShortName, "-n", name!, "-o", outputDir.FullName };
 
-            // Pin the target framework to the resolved SDK for project templates. The WinUI project
-            // templates default to net10.0, so without this an accepted .NET 8/9 SDK would scaffold a
-            // project it cannot build. Item templates don't accept --dotnet-version. For a newer SDK,
-            // omit the flag and let the template auto-detect the framework from the running dotnet CLI.
-            // Pin the target framework for project templates so an accepted-but-older SDK doesn't
-            // scaffold a project it can't build (the WinUI templates historically default to the newest
-            // TFM). Both the option name and the supported frameworks are read from the installed pack's
-            // template metadata rather than hard-coded: older packs surfaced this as --dotnetVersion (not
-            // --dotnet-version), and the supported TFM set changes as packs add newer frameworks. Item
-            // templates don't take a framework, so they're skipped.
-            if (entry.IsProject)
-            {
-                AppendTargetFrameworkArgs(args, entry.ShortName, sdkVersion);
-            }
+            // Target framework, resolved and validated in step 1a (empty for item templates, which take
+            // no framework, and for project templates whose metadata declares nothing to pin).
+            args.AddRange(frameworkArgs);
 
             if (force)
             {
@@ -717,7 +732,7 @@ internal class NewCommand : Command, IShortDescription
                 if (isJson)
                 {
                     PrintJson(false, entry.ShortName, name!, outputDir.FullName,
-                        $"dotnet new failed (exit code {exitCode}): {detail}");
+                        $"dotnet new failed (exit code {exitCode}): {detail}", entry.IsExperimental);
                 }
                 else
                 {
@@ -728,7 +743,7 @@ internal class NewCommand : Command, IShortDescription
 
             if (isJson)
             {
-                PrintJson(true, entry.ShortName, name!, outputDir.FullName, null, packVersion);
+                PrintJson(true, entry.ShortName, name!, outputDir.FullName, null, entry.IsExperimental, packVersion);
             }
             else if (!quiet)
             {
@@ -1075,24 +1090,36 @@ internal class NewCommand : Command, IShortDescription
 
             var parsed = WinUiTemplateCatalog.ParseList(output);
 
-            // `dotnet new list winui` matches by short-name prefix across *every* installed pack, so a
-            // third-party pack shipping its own `winui*` templates would leak into the catalog and its
-            // aliases into telemetry. Restrict to the templates the resolved Microsoft pack actually owns,
-            // taken from `dotnet new uninstall` (the authoritative per-package Templates block). If that
-            // set can't be determined (unexpected output), fall back to the unfiltered list rather than
-            // hiding every template.
+            // `dotnet new list winui` matches by short-name prefix across *every* installed pack and
+            // formats its output into fixed-width columns, so the parsed rows can both include
+            // templates we don't own and carry names truncated mid-word ("Reactor NavigationView App
+            // (Experim..."). Reconcile them against `dotnet new uninstall` — the authoritative,
+            // unformatted per-package Templates block — to drop foreign templates and restore real
+            // names. Ownership must be *established*, never assumed: if that command fails or its
+            // output can't be parsed we cannot tell an official template from a third-party one that
+            // borrowed an official alias, so fail the enumeration instead of offering rows of unknown
+            // provenance under the "official Windows App SDK template" banner.
             var (packExit, packOutput, packStderr) = await dotNetService.RunDotnetCommandAsync(contextDir, ListTemplatePacksArgs, EnglishUiEnvironment, cancellationToken: cancellationToken);
             LogDotnetOutput(ListTemplatePacksArgs, packExit, packOutput, packStderr);
-            if (packExit == 0)
+            if (packExit != 0)
             {
-                var owned = WinUiTemplateCatalog.ParsePackTemplateShortNames(packOutput, TemplatePackageId);
-                if (owned.Count > 0)
+                var packDetail = !string.IsNullOrWhiteSpace(packStderr) ? packStderr.Trim() : packOutput.Trim();
+                var packFailure = $"Could not verify which templates '{TemplatePackageId}' owns: dotnet new uninstall failed (exit code {packExit})";
+                if (!string.IsNullOrWhiteSpace(packDetail))
                 {
-                    parsed = parsed.Where(t => t.ShortNames.Any(owned.Contains)).ToList();
+                    packFailure += $": {packDetail}";
                 }
+
+                return ([], packFailure);
             }
 
-            return (parsed, null);
+            var packRows = WinUiTemplateCatalog.ParsePackTemplates(packOutput, TemplatePackageId);
+            if (packRows.Count == 0)
+            {
+                return ([], $"Could not verify which templates '{TemplatePackageId}' owns: no template list for it in 'dotnet new uninstall' output. Re-run with --verbose to see that output.");
+            }
+
+            return (WinUiTemplateCatalog.RestrictToPack(parsed, packRows), null);
         }
 
         private async Task<WinUiTemplateEntry> PromptTemplateAsync(IReadOnlyList<WinUiTemplateEntry> templates, CancellationToken cancellationToken)
@@ -1112,8 +1139,22 @@ internal class NewCommand : Command, IShortDescription
         /// <summary>Human-friendly choice label combining the display name and canonical short name.</summary>
         private static string FormatChoice(WinUiTemplateEntry entry)
         {
-            var name = string.IsNullOrEmpty(entry.DisplayName) ? entry.ShortName : entry.DisplayName;
+            var name = DisplayLabel(entry);
             return entry.IsItem ? $"{name} (item — {entry.ShortName})" : $"{name} ({entry.ShortName})";
+        }
+
+        /// <summary>
+        /// The name to show for a template, always carrying an "(Experimental)" marker for a prerelease
+        /// template. The pack's own names already include it, so it is only appended when missing — that
+        /// way an experimental template is never presented as stable even if a future pack drops the
+        /// suffix and only the tag identifies it.
+        /// </summary>
+        private static string DisplayLabel(WinUiTemplateEntry entry)
+        {
+            var name = string.IsNullOrEmpty(entry.DisplayName) ? entry.ShortName : entry.DisplayName;
+            return entry.IsExperimental && !name.Contains("Experimental", StringComparison.OrdinalIgnoreCase)
+                ? $"{name} (Experimental)"
+                : name;
         }
 
         private async Task<string> PromptNameAsync(string defaultName, CancellationToken cancellationToken)
@@ -1156,11 +1197,16 @@ internal class NewCommand : Command, IShortDescription
             var relative = Path.GetRelativePath(currentDir.FullName, outputDir.FullName);
             ansiConsole.MarkupLineInterpolated($"{UiSymbols.Check} Created WinUI {ProjectKind(entry)} [green]{name}[/] at [blue]{outputDir.FullName}[/].");
 
-            if (TagsContain(entry.Tags, "Library"))
+            if (entry.IsExperimental)
+            {
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Warning}  [yellow]{entry.ShortName}[/] is an experimental template. It depends on prerelease packages whose APIs can change or be removed in a future release.");
+            }
+
+            if (entry.HasTag("Library"))
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: from your app project, run [blue]dotnet add reference \"{Path.Join(outputDir.FullName, name + ".csproj")}\"[/].");
             }
-            else if (TagsContain(entry.Tags, "Test"))
+            else if (entry.HasTag("Test"))
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run[/] — this packaged MSTest app runs its tests when launched.");
             }
@@ -1184,12 +1230,17 @@ internal class NewCommand : Command, IShortDescription
             foreach (var entry in templates)
             {
                 table.AddRow(
-                    Markup.Escape(string.IsNullOrEmpty(entry.DisplayName) ? entry.ShortName : entry.DisplayName),
+                    Markup.Escape(DisplayLabel(entry)),
                     Markup.Escape(entry.ShortName),
                     Markup.Escape(entry.Type));
             }
 
             ansiConsole.Write(table);
+
+            if (templates.Any(t => t.IsExperimental))
+            {
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Warning}  Templates marked (Experimental) depend on prerelease packages whose APIs can change or be removed in a future release.");
+            }
         }
 
         /// <summary>
@@ -1211,38 +1262,50 @@ internal class NewCommand : Command, IShortDescription
             return null;
         }
 
-        /// <summary>True when any '/'-separated segment of <paramref name="tags"/> equals <paramref name="segment"/>.</summary>
-        private static bool TagsContain(string tags, string segment)
-            => tags.Split('/').Any(s => s.Trim().Equals(segment, StringComparison.OrdinalIgnoreCase));
-
         /// <summary>
-        /// Appends the target-framework option to <paramref name="args"/> for a project template, using
+        /// Fills <paramref name="args"/> with the target-framework option for a project template, using
         /// the template's own metadata (<c>templatecache.json</c>) to choose both the option name and a
-        /// framework the installed SDK can build. Falls back to the historical heuristic
-        /// (<c>--dotnet-version net{major}.0</c> for SDK 8–10) only when no cache describes the template,
-        /// so a missing/unreadable cache still pins a buildable TFM for the common case.
+        /// framework the installed SDK can build, and returns an error string when the template supports
+        /// no framework this SDK can build.
+        /// <para>
+        /// Nothing is hard-coded: older packs named the option <c>--dotnetVersion</c> rather than
+        /// <c>--dotnet-version</c>, and the offered frameworks change as packs add newer ones. Pinning
+        /// matters because the templates default to the newest TFM, so an accepted-but-older SDK would
+        /// otherwise scaffold a project it cannot build. When the template offers frameworks but all of
+        /// them are newer than the SDK (the Reactor templates offer only <c>net10.0</c>), there is
+        /// nothing safe to pin and the scaffold would produce an unbuildable project — so that is
+        /// reported as a failure rather than silently allowed. Falls back to the historical heuristic
+        /// (<c>--dotnet-version net{major}.0</c> for SDK 8-10) only when no cache describes the template.
+        /// </para>
         /// </summary>
-        private void AppendTargetFrameworkArgs(List<string> args, string shortName, Version sdkVersion)
+        private string? ResolveTargetFrameworkArgs(List<string> args, WinUiTemplateEntry entry, Version sdkVersion)
         {
             foreach (var cacheJson in templateCacheReader.ReadTemplateCacheDocuments())
             {
-                var (found, optionName, tfm) = WinUiTemplateCatalog.DeriveTfmOption(
-                    cacheJson, TemplatePackageId, shortName, sdkVersion.Major);
+                var (found, optionName, tfm, choices) = WinUiTemplateCatalog.DeriveTfmOption(
+                    cacheJson, TemplatePackageId, entry.ShortName, sdkVersion.Major);
                 if (!found)
                 {
                     continue;
                 }
 
                 // The template was located: its metadata is authoritative. Pin only when it declares a
-                // framework choice the SDK can satisfy; otherwise leave the option off and let the
-                // template pick its own default (there is nothing safe to force).
+                // framework choice the SDK can satisfy.
                 if (!string.IsNullOrEmpty(optionName) && !string.IsNullOrEmpty(tfm))
                 {
                     args.Add("--" + optionName);
                     args.Add(tfm);
+                    return null;
                 }
 
-                return;
+                if (tfm is null && WinUiTemplateCatalog.MinimumSdkMajor(choices) is { } minimumMajor)
+                {
+                    return $"Template '{entry.ShortName}' requires the .NET {minimumMajor} SDK or newer, but .NET SDK {sdkVersion} is installed. "
+                        + $"Install .NET {minimumMajor} from https://dotnet.microsoft.com/download, then re-run 'winapp new'.";
+                }
+
+                // The template declares no framework choice — there is nothing to pin.
+                return null;
             }
 
             // No cache described the template — fall back to the previous heuristic.
@@ -1251,6 +1314,8 @@ internal class NewCommand : Command, IShortDescription
                 args.Add("--dotnet-version");
                 args.Add($"net{sdkVersion.Major}.0");
             }
+
+            return null;
         }
 
         /// <summary>Human-facing noun for the created artifact, derived from the template's tags.</summary>
@@ -1261,12 +1326,12 @@ internal class NewCommand : Command, IShortDescription
                 return "item";
             }
 
-            if (TagsContain(entry.Tags, "Library"))
+            if (entry.HasTag("Library"))
             {
                 return "class library";
             }
 
-            if (TagsContain(entry.Tags, "Test"))
+            if (entry.HasTag("Test"))
             {
                 return "unit test project";
             }
@@ -1418,12 +1483,13 @@ internal class NewCommand : Command, IShortDescription
             return (null, unparseable);
         }
 
-        private void PrintJson(bool created, string? templateShortName, string name, string path, string? error, string? templateVersion = null)
+        private void PrintJson(bool created, string? templateShortName, string name, string path, string? error, bool? experimental = null, string? templateVersion = null)
         {
             var result = new NewCommandResult
             {
                 Created = created,
                 Template = templateShortName,
+                Experimental = experimental,
                 Name = name,
                 Path = path,
                 TemplateVersion = templateVersion,
@@ -1449,6 +1515,7 @@ internal class NewCommand : Command, IShortDescription
                     DisplayName = t.DisplayName,
                     Type = t.Type,
                     Tags = t.Tags,
+                    Experimental = t.IsExperimental,
                 }).ToList(),
                 Error = error,
             };
@@ -1463,6 +1530,13 @@ internal sealed class NewCommandResult
 {
     public bool Created { get; set; }
     public string? Template { get; set; }
+
+    /// <summary>
+    /// True when the template is prerelease (e.g. the Reactor templates). Omitted entirely when the
+    /// run failed before a template was resolved against the catalog, since <see cref="Template"/> is
+    /// then only the raw requested value and reporting <c>false</c> would claim it is stable.
+    /// </summary>
+    public bool? Experimental { get; set; }
     public string? Name { get; set; }
     public string? Path { get; set; }
     public string? TemplateVersion { get; set; }
@@ -1476,6 +1550,9 @@ internal sealed class NewTemplateInfo
     public string? DisplayName { get; set; }
     public string? Type { get; set; }
     public string? Tags { get; set; }
+
+    /// <summary>True when the template is prerelease (e.g. the Reactor templates).</summary>
+    public bool Experimental { get; set; }
 }
 
 internal sealed class NewListResult

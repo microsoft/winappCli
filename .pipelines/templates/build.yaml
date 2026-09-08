@@ -14,9 +14,11 @@ steps:
   displayName: Build CLI
   env:
     NPM_CONFIG_USERCONFIG: $(System.DefaultWorkingDirectory)\.npmrc
-    WINAPP_NUGET_FLAT_CONTAINER: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/flat2
-    WINAPP_NUGET_REGISTRATION: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/registrations2-semver2
-    WINAPP_NUGET_AUTH_PREFIX: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/
+    # The CLI's own package downloads (and the live-feed NuGet tests) resolve their sources from the
+    # nuget.config hierarchy, which the "Add release package source" step has already pointed at
+    # pde-oss_Internal at both the repo and user scope, with NuGetAuthenticate providing credentials.
+    # The live-feed tests write their own isolated config, so name the internal feed for them here.
+    WINAPP_TEST_NUGET_SOURCE: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/index.json
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
@@ -60,6 +62,57 @@ steps:
                 "ToolVersion": "1.0"
             }
         ]
+  - task: EsrpCodeSigning@6
+    displayName: Code Sign ESRP - UI Automation libraries
+    inputs:
+      ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+      AppRegistrationClientId: ${{ parameters.signingIdentity.appId }}
+      AppRegistrationTenantId: ${{ parameters.signingIdentity.tenantId }}
+      AuthAKVName: ${{ parameters.signingIdentity.akvName }}
+      AuthCertName: ${{ parameters.signingIdentity.authCertName }}
+      AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
+      FolderPath: '$(System.DefaultWorkingDirectory)/src/winapp-CLI/'
+      # Both target frameworks of the base package, plus the recording assembly. Only the assembly
+      # each project actually packs is listed; the ProjectReference copy of the base library sitting
+      # in the recording project's output is not shipped, it comes in as a package dependency.
+      Pattern: |
+        WinApp.UIAutomation/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.dll
+        WinApp.UIAutomation.Recording/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording.dll
+      UseMinimatch: true
+      signConfigType: inlineSignParams
+      inlineOperation: |
+        [
+            {
+                "KeyCode": "CP-230012",
+                "OperationCode": "SigntoolSign",
+                "Parameters": {
+                    "OpusName": "Microsoft Windows Developer SDK CLI",
+                    "OpusInfo": "https://github.com/Microsoft/WinAppCli",
+                    "FileDigest": "/fd \"SHA256\"",
+                    "PageHash": "/PH",
+                    "TimeStamp": "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+                },
+                "ToolName": "sign",
+                "ToolVersion": "1.0"
+            },
+            {
+                "KeyCode": "CP-230012",
+                "OperationCode": "SigntoolVerify",
+                "Parameters": {},
+                "ToolName": "sign",
+                "ToolVersion": "1.0"
+            }
+        ]
+  # build-cli.ps1 packed the .nupkg files before any signing ran, so those copies embed unsigned
+  # binaries. Re-pack now that winapp.exe and the library assemblies are signed; -SkipBuild keeps
+  # dotnet from recompiling and discarding the signatures. The NuGet signing task below then signs
+  # the resulting packages themselves.
+  - task: PowerShell@2
+    displayName: Repack NuGet packages with signed binaries
+    inputs:
+      pwsh: true
+      filePath: $(System.DefaultWorkingDirectory)\scripts\package-nuget.ps1
+      arguments: "-Stable:$${{ parameters.stable }} -SkipBuild"
 - task: PowerShell@2
   displayName: Package NPM
   env:
@@ -70,10 +123,6 @@ steps:
     arguments: "-Stable:$${{ parameters.stable }}"
 - task: PowerShell@2
   displayName: Bundle MSIX Packages
-  env:
-    WINAPP_NUGET_FLAT_CONTAINER: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/flat2
-    WINAPP_NUGET_REGISTRATION: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/registrations2-semver2
-    WINAPP_NUGET_AUTH_PREFIX: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\package-msix.ps1
@@ -183,6 +232,9 @@ steps:
     path: '$(Build.ArtifactStagingDirectory)/msix-packages'
     artifactName: msix-packages
 - task: CopyFiles@2
+  # Picks up all three packages: the CLI tools package plus the two UI Automation library
+  # packages (...WinApp.UIAutomation and ...WinApp.UIAutomation.Recording). build-cli.ps1
+  # verifies the full set exists, and the ESRP NuGet signing step above globs the same folder.
   displayName: Copy Artifacts - NuGet packages
   inputs:
     sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/nuget/'

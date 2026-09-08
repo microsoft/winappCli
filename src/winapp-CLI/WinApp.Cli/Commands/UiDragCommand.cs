@@ -70,9 +70,9 @@ internal class UiDragCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IMouseInput mouseInput,
         IForegroundGuard foregroundGuard,
         IAnsiConsole ansiConsole,
@@ -108,7 +108,7 @@ internal class UiDragCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
 
                 if (string.IsNullOrWhiteSpace(arg0) || string.IsNullOrWhiteSpace(arg1))
                 {
@@ -118,13 +118,13 @@ internal class UiDragCommand : Command, IShortDescription
                     return 1;
                 }
 
-                var from = await ResolveEndpointAsync(arg0, "from", session, json, cancellationToken);
+                var from = await ResolveEndpointAsync(arg0, "from", uiTarget, json, cancellationToken);
                 if (!from.Ok)
                 {
                     return 1;
                 }
 
-                var to = await ResolveEndpointAsync(arg1, "to", session, json, cancellationToken);
+                var to = await ResolveEndpointAsync(arg1, "to", uiTarget, json, cancellationToken);
                 if (!to.Ok)
                 {
                     return 1;
@@ -136,7 +136,7 @@ internal class UiDragCommand : Command, IShortDescription
                 int toY = to.Y;
                 // Prefer the HWND of whichever endpoint resolved from a real element; fall back to the
                 // session window when both endpoints are bare coordinates.
-                long targetHwnd = from.Hwnd != 0 ? from.Hwnd : (to.Hwnd != 0 ? to.Hwnd : session.WindowHandle);
+                long targetHwnd = from.Hwnd != 0 ? from.Hwnd : (to.Hwnd != 0 ? to.Hwnd : uiTarget.WindowHandle);
 
                 if (targetHwnd != 0)
                 {
@@ -148,13 +148,13 @@ internal class UiDragCommand : Command, IShortDescription
                 // Foregrounding can shift/animate the window (restore, snap, layout settle); re-resolve any
                 // element endpoint so we drag where it is *now*, and refuse rather than hit empty space if
                 // it's still moving. Raw-coordinate endpoints can't be verified, so they pass through.
-                var fromStable = await StabilizeAsync(from, session, "from", json, cancellationToken);
+                var fromStable = await StabilizeAsync(from, uiTarget, "from", json, cancellationToken);
                 if (!fromStable.Ok)
                 {
                     return 1;
                 }
 
-                var toStable = await StabilizeAsync(to, session, "to", json, cancellationToken);
+                var toStable = await StabilizeAsync(to, uiTarget, "to", json, cancellationToken);
                 if (!toStable.Ok)
                 {
                     return 1;
@@ -189,8 +189,8 @@ internal class UiDragCommand : Command, IShortDescription
                     await Task.Delay(CursorSettleMs, cancellationToken);
 
                     var confirmed = await GestureTargeting.ConfirmStillAsync(
-                        uiAutomation, session, from.Selector, fromStable.StableElement, cancellationToken);
-                    if (!GestureTargeting.TryReport(confirmed, logger, json, from.Token ?? "from", "drag"))
+                        uiAutomation, uiTarget, from.Selector, fromStable.StableElement, cancellationToken);
+                    if (!UiInjectionReporting.TryReport(confirmed, logger, json, from.Token ?? "from", "drag"))
                     {
                         return 1;
                     }
@@ -250,7 +250,7 @@ internal class UiDragCommand : Command, IShortDescription
             }
         }
 
-        private readonly record struct Endpoint(bool Ok, int X, int Y, long Hwnd, SelectorExpression? Selector, UiElement? Element, string? Token);
+        private readonly record struct Endpoint(bool Ok, int X, int Y, long Hwnd, UiSelector? Selector, UiElement? Element, string? Token);
 
         /// <summary>
         /// Re-resolves an element endpoint's bounds immediately before injection (N5) so the drag uses the
@@ -259,7 +259,7 @@ internal class UiDragCommand : Command, IShortDescription
         /// never-settling target it emits <c>target_moved</c> and returns Ok = <see langword="false"/>.
         /// </summary>
         private async Task<(bool Ok, int X, int Y, UiElement? StableElement)> StabilizeAsync(
-            Endpoint endpoint, UiSessionInfo session, string label, bool json, CancellationToken cancellationToken)
+            Endpoint endpoint, UiTarget uiTarget, string label, bool json, CancellationToken cancellationToken)
         {
             if (endpoint.Selector is null || endpoint.Element is null)
             {
@@ -267,12 +267,12 @@ internal class UiDragCommand : Command, IShortDescription
             }
 
             var stable = await GestureTargeting.ResolveStableAsync(
-                uiAutomation, session, endpoint.Selector, endpoint.Element,
+                uiAutomation, uiTarget, endpoint.Selector, endpoint.Element,
                 GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
 
             // Report the actual selector token the caller passed (e.g. "row-1") rather than the internal
             // "from"/"to" endpoint label, so a target_moved error's selector field is actionable.
-            if (!GestureTargeting.TryReport(stable, logger, json, endpoint.Token ?? label, "drag"))
+            if (!UiInjectionReporting.TryReport(stable, logger, json, endpoint.Token ?? label, "drag"))
             {
                 return (false, 0, 0, null);
             }
@@ -287,7 +287,7 @@ internal class UiDragCommand : Command, IShortDescription
         /// <see cref="Endpoint.Ok"/> = <see langword="false"/> on failure.
         /// </summary>
         private async Task<Endpoint> ResolveEndpointAsync(
-            string token, string label, UiSessionInfo session, bool json, CancellationToken cancellationToken)
+            string token, string label, UiTarget uiTarget, bool json, CancellationToken cancellationToken)
         {
             if (CoordinateParser.TryParsePoint(token, out int px, out int py))
             {
@@ -307,8 +307,8 @@ internal class UiDragCommand : Command, IShortDescription
                 return new Endpoint(false, 0, 0, 0, null, null, null);
             }
 
-            var selector = selectorService.Parse(token);
-            var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+            var selector = selectorParser.Parse(token);
+            var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
             if (element is null)
             {
                 UiErrors.ElementNotFound(logger, token, json);

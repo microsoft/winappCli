@@ -55,7 +55,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Status_NonJson_PrintsProcessAndHwnd()
     {
-        _fakeSession.SessionResult = new UiSessionInfo
+        _fakeTargetResolver.TargetResult = new UiTarget
         {
             ProcessId = 4321,
             ProcessName = "Notepad",
@@ -75,7 +75,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Status_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
 
         var command = GetRequiredService<UiStatusCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
@@ -186,7 +186,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task GetFocused_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
         var command = GetRequiredService<UiGetFocusedCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);

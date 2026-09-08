@@ -1,10 +1,15 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+extern alias winappcli;
+
 using Microsoft.Extensions.Logging;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
-using Windows.Win32;
+
+// CsWin32 generates a PInvoke class into every assembly that uses it, so the name is ambiguous
+// between winapp and the recording package. These CRYPTCAT_* constants come from winapp.
+using PInvoke = winappcli::Windows.Win32.PInvoke;
 
 namespace WinApp.Cli.Tests;
 

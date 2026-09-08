@@ -554,6 +554,35 @@ winapp ui list-windows --show-hidden                        # include invisible 
 
 ¹ `set-value` works on any control exposing ValuePattern/RangeValuePattern, plus TextPattern-only edit controls whose accessibility implements `IAccessible::put_accValue` (LegacyIAccessible fallback). **WinUI 3 `RichEditBox` and WPF `RichTextBox` are exceptions** — they expose only the read-only Text pattern (no settable Value pattern), so they can't be set programmatically by design; use `send-keys` (interactive desktop required) to type into them.
 
+## Using the engine from your own code
+
+Everything `winapp ui` does is available as a library, so you can drive the same automation from a
+test or tool without shelling out to the CLI:
+
+| Package | What it adds |
+|---|---|
+| `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation` | Inspection, selectors, UIA pattern interaction, input injection, screenshots |
+| `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording` | Video recording to MP4, plus frame bundles |
+
+```csharp
+var services = new ServiceCollection().AddLogging().AddWinAppUiAutomation().BuildServiceProvider();
+var ui = services.GetRequiredService<IUiAutomation>();
+
+var target = UiTarget.FromWindowHandle(myWindowHandle);
+var save = await ui.FindSingleElementAsync(target, new UiSelector { Query = "Save" }, default);
+await ui.InvokeAsync(target, save!, default);
+```
+
+Recording is a separate package so that projects which only inspect and drive UI don't pull in
+SkiaSharp. The automation package targets both `net10.0-windows` and
+`net10.0-windows10.0.19041.0`; the latter adds Windows Graphics Capture, which is what lets
+`screenshot` capture occluded or GPU-composited windows. See each package's README on NuGet for the
+full API and the target-framework trade-off.
+
+`UiTarget.FromWindowHandle` is the entry point for test frameworks that already hand you a window —
+for example `MSTest.Windows.UIAutomation`, whose `WindowTest.MainWindow` is a UIA2
+`AutomationElement` you bridge across with `MainWindow.Current.NativeWindowHandle`.
+
 ## Troubleshooting
 
 | Error | Cause | Solution |

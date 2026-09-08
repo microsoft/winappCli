@@ -175,9 +175,6 @@ Before you can use the Phi Silica API, you need to declare the `systemAIModels` 
 
 It also needs `TargetDeviceFamily/@MaxVersionTested` to be at least `10.0.26226.0`.
 
-> [!IMPORTANT]
-> Declaring it as `<rescap:Capability Name="systemAIModels" />` is the common mistake, and the worst kind: the package still registers successfully, and the API then fails at runtime as though the capability were never declared.
-
 > [!TIP]
 > Different Windows APIs require different capabilities, and they do not all live in the same namespace. Always check the API documentation for both the capability name and the element it belongs in. Common ones include `microphone`, `webcam`, `location`, and `bluetooth`.
 

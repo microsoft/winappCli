@@ -112,7 +112,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task WaitFor_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
         var command = GetRequiredService<UiWaitForCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["#el", "-a", "TestApp", "--timeout", "1000"]);
         Assert.AreEqual(1, exitCode);

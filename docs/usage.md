@@ -29,7 +29,7 @@ winapp init [base-directory] [options]
 
 **Options:**
 
-- `--config-dir <path>` - Directory to read/store configuration (default: current directory)
+- `--config-dir <path>` - Directory to read/store configuration (default: the selected project directory, or current directory if no project is detected)
 - `--setup-sdks` - SDK installation mode: 'stable' (default), 'preview', 'experimental', or 'none' (skip SDK installation)
 - `--ignore-config`, `--no-config` - Don't use configuration file for version management
 - `--no-gitignore` - Don't update .gitignore file
@@ -142,7 +142,7 @@ winapp new [options]
 
 **Options:**
 
-- `-t, --template <short-name>` - Template short name (e.g. `winui`, `winui-navview`, `winui-mvvm`, `winui-lib`, `winui-unittest`). Validated against the installed pack at run time; run `winapp new --list` to see all. Default: `winui` (blank app).
+- `-t, --template <short-name>` - Template short name (e.g. `winui`, `winui-navview`, `winui-mvvm`, `winui-lib`, `winui-unittest`, or an experimental Reactor template such as `reactor` or `reactor-mvu`). Validated against the installed pack at run time; run `winapp new --list` to see all. Default: `winui` (blank XAML app).
 - `-n, --name <name>` - Name for the new app/project (default: derived from `--output`, else `WinUIApp`)
 - `-o, --output <path>` - Directory to create the app in (default: `./<name>`)
 - `--use-defaults`, `--no-prompt` - Do not prompt; use defaults (blank template, name from `--output`/`--name`, and keep the installed template pack rather than updating it)
@@ -153,18 +153,24 @@ winapp new [options]
 
 **Templates:**
 
-The template list is read live from the installed pack, so it always reflects the version you have — run `winapp new --list` to see the current set. Common templates:
+The pack ships two styles of WinUI app. **XAML** templates define the UI in markup with a C# code-behind. **Reactor** templates are pure C# with no XAML, using an MVU (Model-View-Update) pattern. The template list is read live from the installed pack, so it always reflects the version you have — run `winapp new --list` to see the current set. Common templates:
 
 | Short name | Description |
 |------------|-------------|
-| `winui` | Minimal blank WinUI 3 app (MSIX packaging) |
-| `winui-navview` | NavigationView starter app |
-| `winui-tabview` | TabView starter app |
-| `winui-mvvm` | MVVM app (CommunityToolkit.Mvvm) |
+| `winui` | Minimal blank XAML app (MSIX packaging) |
+| `winui-navview` | XAML NavigationView starter app |
+| `winui-tabview` | XAML TabView starter app |
+| `winui-mvvm` | XAML MVVM app (CommunityToolkit.Mvvm) |
 | `winui-lib` | WinUI 3 class library |
 | `winui-unittest` | Packaged MSTest app; tests run when it's launched |
+| `reactor` | **Experimental.** Blank Reactor app — pure C#, no XAML |
+| `reactor-mvu` | **Experimental.** Reactor app demonstrating the MVU pattern |
+| `reactor-navview` | **Experimental.** Reactor NavigationView starter app |
+| `reactor-tabview` | **Experimental.** Reactor TabView starter app |
 
-Each template's canonical short name is the first alias `dotnet new` lists for it; any listed alias (e.g. `winui3`, `wasdk-single`) is also accepted. When run inside an existing WinUI project, `dotnet new` also surfaces **item** templates (e.g. a blank page), which `winapp new` adds into the current project rather than creating a new one.
+> **Reactor templates are experimental.** They reference the prerelease `Microsoft.UI.Reactor` packages, whose APIs can change or be removed in a future release. `winapp new` marks them **(Experimental)** in `--list` and in the interactive picker, sets `"Experimental": true` in `--json`, and prints a warning after scaffolding one. They are never chosen as the default template. Reactor also requires the **.NET 10 SDK or newer**; on an older SDK `winapp new` fails up front with the version it needs rather than scaffolding a project you can't build.
+
+Each template's canonical short name is the first alias `dotnet new` lists for it; any listed alias (e.g. `winui3`, `wasdk-single`, `winui-reactor`) is also accepted. When run inside an existing WinUI project, `dotnet new` also surfaces **item** templates (e.g. a blank page), which `winapp new` adds into the current project rather than creating a new one.
 
 **Template pack versioning:**
 
@@ -194,6 +200,9 @@ winapp new --list
 # One-shot with a specific template
 winapp new --name MyApp --template winui-navview
 
+# Experimental Reactor app (pure C#, no XAML) — requires the .NET 10 SDK
+winapp new --name MyApp --template reactor-mvu
+
 # Always use the newest template pack, no prompts
 winapp new --name MyApp --template-version latest --use-defaults
 
@@ -211,12 +220,16 @@ winapp new --use-defaults --name MyApp --json
 Restore packages and regenerate files based on existing `winapp.yaml` configuration.
 
 ```bash
-winapp restore [options]
+winapp restore [base-directory] [options]
 ```
+
+**Arguments:**
+
+- `base-directory` - Directory to restore (default: current directory). Also selects where `winapp.yaml` and `nuget.config` are read from unless `--config-dir` overrides it.
 
 **Options:**
 
-- `--config-dir <path>` - Directory containing winapp.yaml (default: current directory)
+- `--config-dir <path>` - Directory containing winapp.yaml (default: base-directory)
 
 **What it does:**
 
@@ -226,14 +239,34 @@ winapp restore [options]
 - Stores shareable files in the global cache directory
 
 > [!NOTE]
-> For .NET projects initialized with `winapp init`, there is no `winapp.yaml`. Use `dotnet restore` to restore NuGet packages instead.
+> For .NET projects there is no `winapp.yaml` — the SDK versions live as `PackageReference` entries in the `.csproj` — so `winapp restore` runs `dotnet restore` for you.
 
 **Examples:**
 
 ```bash
 # Restore from winapp.yaml in current directory
 winapp restore
+
+# Restore a specific project directory (reads ./my-project/winapp.yaml)
+winapp restore ./my-project
 ```
+
+**Custom and private NuGet feeds:**
+
+`winapp init`, `restore`, and `update` download the Windows SDK and Windows App SDK packages through NuGet, honoring your standard [`nuget.config`](https://learn.microsoft.com/nuget/reference/nuget-config-file) hierarchy. Private feeds and mirrors, feed credentials (including credential providers), and a custom `globalPackagesFolder` all work as they do for `dotnet restore`. To restore exclusively from your own mirror, `<clear />` the inherited sources and add just yours:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="contoso" value="https://pkgs.dev.azure.com/contoso/_packaging/winsdk-mirror/nuget/v3/index.json" />
+  </packageSources>
+</configuration>
+```
+
+> [!NOTE]
+> For native projects winapp resolves `nuget.config` from the directory it operates on: the `init`/`restore` directory argument, `--config-dir` when given, otherwise the current directory. For **.NET projects** the sources come from the project's own `nuget.config` hierarchy instead, because that is what `dotnet add package` and `dotnet restore` use, so put a private feed's config in the project directory or an ancestor. A `--config-dir` outside that hierarchy is reported and ignored rather than silently selecting versions the project cannot restore. Run these commands only against directories you trust, the same caution that applies to `dotnet restore`. When several sources are configured, use [Package Source Mapping](https://learn.microsoft.com/nuget/consume-packages/package-source-mapping) to pin each package to a feed.
 
 ---
 

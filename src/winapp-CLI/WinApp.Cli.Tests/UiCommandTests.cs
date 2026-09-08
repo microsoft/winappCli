@@ -13,7 +13,8 @@ namespace WinApp.Cli.Tests;
 public partial class UiCommandTests : BaseCommandTests
 {
     private FakeUiAutomationService _fakeUia = null!;
-    private FakeUiSessionService _fakeSession = null!;
+    private FakeUiRecordingService _fakeRecording = null!;
+    private FakeUiTargetResolver _fakeTargetResolver = null!;
     private FakeMouseInput _fakeMouse = null!;
     private FakeKeyboardInput _fakeKeyboard = null!;
     private FakeForegroundGuard _fakeForeground = null!;
@@ -37,7 +38,8 @@ public partial class UiCommandTests : BaseCommandTests
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
     {
         _fakeUia = new FakeUiAutomationService();
-        _fakeSession = new FakeUiSessionService();
+        _fakeRecording = new FakeUiRecordingService();
+        _fakeTargetResolver = new FakeUiTargetResolver();
         _fakeMouse = new FakeMouseInput();
         _fakeKeyboard = new FakeKeyboardInput();
         _fakeForeground = new FakeForegroundGuard();
@@ -46,15 +48,16 @@ public partial class UiCommandTests : BaseCommandTests
         _fakeSystemQuery = new FakeSystemUiQuery();
         _fakePollDelay = new FakePollDelay();
         return services
-            .AddSingleton<IUiAutomationService>(_fakeUia)
-            .AddSingleton<IUiSessionService>(_fakeSession)
-            .AddSingleton<WinApp.Cli.Helpers.IMouseInput>(_fakeMouse)
-            .AddSingleton<WinApp.Cli.Helpers.IKeyboardInput>(_fakeKeyboard)
-            .AddSingleton<WinApp.Cli.Helpers.IForegroundGuard>(_fakeForeground)
-            .AddSingleton<WinApp.Cli.Helpers.IPointerInput>(_fakePointer)
-            .AddSingleton<WinApp.Cli.Helpers.IOwnedWindowFinder>(_fakeWindowFinder)
+            .AddSingleton<IUiAutomation>(_fakeUia)
+            .AddSingleton<IUiRecordingService>(_fakeRecording)
+            .AddSingleton<IUiTargetResolver>(_fakeTargetResolver)
+            .AddSingleton<IMouseInput>(_fakeMouse)
+            .AddSingleton<IKeyboardInput>(_fakeKeyboard)
+            .AddSingleton<IForegroundGuard>(_fakeForeground)
+            .AddSingleton<IPointerInput>(_fakePointer)
+            .AddSingleton<IOwnedWindowFinder>(_fakeWindowFinder)
             .AddSingleton<ISystemUiQuery>(_fakeSystemQuery)
-            .AddSingleton<WinApp.Cli.Helpers.IPollDelay>(_fakePollDelay);
+            .AddSingleton<IPollDelay>(_fakePollDelay);
     }
 
     [TestMethod]
@@ -802,6 +805,7 @@ public partial class UiCommandTests : BaseCommandTests
     {
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Button", Selector = "btn-go-1234", X = 10, Y = 20, Width = 100, Height = 30 };
         _fakeForeground.Allow = false;
+        _fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
 
         var command = GetRequiredService<UiClickCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn-go-1234", "-a", "TestApp", "--json"]);
@@ -809,7 +813,8 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMouse.ClickCalls.Count, "no click should be injected when the foreground guard refuses");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        Assert.AreEqual("click", _fakeForeground.Calls[0].Action);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to click",
+            "the refusal must name the action the command was attempting");
     }
 
     [TestMethod]
@@ -817,6 +822,7 @@ public partial class UiCommandTests : BaseCommandTests
     {
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Button", Selector = "btn-info-5678", X = 50, Y = 60, Width = 120, Height = 40 };
         _fakeForeground.Allow = false;
+        _fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
 
         var command = GetRequiredService<UiHoverCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn-info-5678", "-a", "TestApp", "--json", "--dwell-time", "0"]);
@@ -824,7 +830,8 @@ public partial class UiCommandTests : BaseCommandTests
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeMouse.HoverCalls.Count, "no hover should be injected when the foreground guard refuses");
         Assert.AreEqual(1, _fakeForeground.Calls.Count);
-        Assert.AreEqual("hover", _fakeForeground.Calls[0].Action);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to hover",
+            "the refusal must name the action the command was attempting");
     }
 
     [TestMethod]

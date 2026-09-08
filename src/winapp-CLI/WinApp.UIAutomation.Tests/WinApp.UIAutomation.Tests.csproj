@@ -1,0 +1,28 @@
+<Project Sdk="MSTest.Sdk/4.1.0">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- The real-UIA suite drives a live in-process WinForms window (UiaTestFixture). -->
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <NoWarn>CA1852;CA1707;IDE1006;SYSLIB1045</NoWarn>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- SlugGeneratorTests builds a real SAFEARRAY (via oleaut32) to exercise the COM-interop
+         hashing overloads. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinApp.UIAutomation\WinApp.UIAutomation.csproj" />
+    <ProjectReference Include="..\WinApp.UIAutomation.TestSupport\WinApp.UIAutomation.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -152,7 +152,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Inspect_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
         var command = GetRequiredService<UiInspectCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);

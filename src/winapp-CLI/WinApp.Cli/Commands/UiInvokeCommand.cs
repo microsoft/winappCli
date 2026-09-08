@@ -29,9 +29,9 @@ internal class UiInvokeCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IAnsiConsole ansiConsole,
         ILogger<UiInvokeCommand> logger) : AsynchronousCommandLineAction
     {
@@ -56,9 +56,9 @@ internal class UiInvokeCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
-                var selector = selectorService.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                var selector = selectorParser.Parse(selectorStr);
+                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -69,15 +69,15 @@ internal class UiInvokeCommand : Command, IShortDescription
                 string pattern;
                 try
                 {
-                    pattern = await uiAutomation.InvokeAsync(session, element, cancellationToken);
+                    pattern = await uiAutomation.InvokeAsync(uiTarget, element, cancellationToken);
                 }
                 catch (InvalidOperationException) when (element.InvokableAncestor is { } ancestor)
                 {
                     // Element isn't invokable but has an invokable ancestor — invoke that instead
-                    pattern = await uiAutomation.InvokeAsync(session, ancestor, cancellationToken);
+                    pattern = await uiAutomation.InvokeAsync(uiTarget, ancestor, cancellationToken);
                     if (json)
                     {
-                        var result = new UiInvokeResult { ElementId = ancestor.Selector ?? ancestor.Id ?? "", Pattern = pattern, Hwnd = session.WindowHandle };
+                        var result = new UiInvokeResult { ElementId = ancestor.Selector ?? ancestor.Id ?? "", Pattern = pattern, Hwnd = uiTarget.WindowHandle };
                         ansiConsole.Profile.Out.Writer.WriteLine(
                             JsonSerializer.Serialize(result, UiJsonContext.Default.UiInvokeResult));
                     }
@@ -91,7 +91,7 @@ internal class UiInvokeCommand : Command, IShortDescription
 
                 if (json)
                 {
-                    var result = new UiInvokeResult { ElementId = (element.Selector ?? element.Id ?? ""), Pattern = pattern, Hwnd = session.WindowHandle };
+                    var result = new UiInvokeResult { ElementId = (element.Selector ?? element.Id ?? ""), Pattern = pattern, Hwnd = uiTarget.WindowHandle };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiInvokeResult));
                 }

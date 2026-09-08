@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Keeps the generated interop documentation out of the shipped packages. See
+    TrimInteropDocumentation.xslt for why the entries exist and why neither the generator nor the
+    compiler can be asked to leave them out.
+  -->
+
+  <Target Name="TrimGeneratedInteropDocumentation"
+          AfterTargets="CoreCompile"
+          Condition="'$(GenerateDocumentationFile)' == 'true' AND '$(DocumentationFile)' != '' AND Exists('$(DocumentationFile)')">
+
+    <PropertyGroup>
+      <_TrimmedDocumentationFile>$(DocumentationFile).trimmed</_TrimmedDocumentationFile>
+    </PropertyGroup>
+
+    <!-- Transform to a sibling file first: reading and writing the same path is not safe. -->
+    <XslTransformation XmlInputPaths="$(DocumentationFile)"
+                       XslInputPath="$(MSBuildThisFileDirectory)TrimInteropDocumentation.xslt"
+                       OutputPaths="$(_TrimmedDocumentationFile)" />
+
+    <Move SourceFiles="$(_TrimmedDocumentationFile)" DestinationFiles="$(DocumentationFile)" />
+  </Target>
+
+</Project>

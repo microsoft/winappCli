@@ -229,8 +229,8 @@ public partial class UiCommandTests
         UiRecordCommand.Handler.s_stdinOverride = stdin;
         try
         {
-            _fakeUia.RecordResult = new RecordCaptureResult { Frames = 1, Width = 64, Height = 64, Mode = "wgc" };
-            _fakeUia.RecordShouldWaitForCancellation = true;
+            _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 1, Width = 64, Height = 64, Mode = "wgc" };
+            _fakeRecording.RecordShouldWaitForCancellation = true;
             var exitCode = await ParseAndInvokeWithCaptureAsync(
                 command, ["-a", "TestApp", "--duration-sec", "0", "-o", outputPath]);
 
@@ -243,7 +243,7 @@ public partial class UiCommandTests
         {
             UiRecordCommand.Handler.s_isInputRedirectedOverride = null;
             UiRecordCommand.Handler.s_stdinOverride = null;
-            _fakeUia.RecordShouldWaitForCancellation = false;
+            _fakeRecording.RecordShouldWaitForCancellation = false;
         }
     }
 
@@ -258,7 +258,7 @@ public partial class UiCommandTests
         UiRecordCommand.Handler.s_stdinOverride = stdin;
         try
         {
-            _fakeUia.RecordResult = new RecordCaptureResult
+            _fakeRecording.RecordResult = new RecordCaptureResult
             {
                 Frames = 1,
                 Width = 64,
@@ -266,7 +266,7 @@ public partial class UiCommandTests
                 Mode = "wgc",
                 StopReason = "cancelled",
             };
-            _fakeUia.RecordShouldWaitForCancellation = true;
+            _fakeRecording.RecordShouldWaitForCancellation = true;
 
             var exitCode = await ParseAndInvokeWithCaptureAsync(
                 command,
@@ -283,15 +283,15 @@ public partial class UiCommandTests
         {
             UiRecordCommand.Handler.s_isInputRedirectedOverride = null;
             UiRecordCommand.Handler.s_stdinOverride = null;
-            _fakeUia.RecordShouldWaitForCancellation = false;
+            _fakeRecording.RecordShouldWaitForCancellation = false;
         }
     }
 
     [TestMethod]
     public async Task Record_NonZeroDuration_WithRedirectedStdin_NeverReadsStdinAndExitsZero()
     {
-        _fakeUia.RecordResult = new RecordCaptureResult { Frames = 20, Width = 640, Height = 480, Mode = "wgc" };
-        _fakeUia.RecordShouldWaitForCancellation = false;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 20, Width = 640, Height = 480, Mode = "wgc" };
+        _fakeRecording.RecordShouldWaitForCancellation = false;
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "h1-timed-ignores-stdin.mp4");
         var command = GetRequiredService<UiRecordCommand>();
@@ -320,7 +320,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Record_NonZeroDuration_NoRedirectedStdin_DurationDeadlineWins()
     {
-        _fakeUia.RecordResult = new RecordCaptureResult { Frames = 5, Width = 640, Height = 480, Mode = "wgc" };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 640, Height = 480, Mode = "wgc" };
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "h1-duration-wins.mp4");
         var command = GetRequiredService<UiRecordCommand>();

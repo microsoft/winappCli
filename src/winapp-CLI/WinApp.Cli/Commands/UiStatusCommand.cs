@@ -27,7 +27,7 @@ internal class UiStatusCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
+        IUiTargetResolver targetResolver,
         IAnsiConsole ansiConsole,
         ILogger<UiStatusCommand> logger) : AsynchronousCommandLineAction
     {
@@ -45,34 +45,34 @@ internal class UiStatusCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
 
                 if (json)
                 {
                     var result = new UiStatusResult
                     {
-                        ProcessId = session.ProcessId,
-                        ProcessName = session.ProcessName,
-                        WindowTitle = session.WindowTitle,
-                        Hwnd = session.WindowHandle,
+                        ProcessId = uiTarget.ProcessId,
+                        ProcessName = uiTarget.ProcessName,
+                        WindowTitle = uiTarget.WindowTitle,
+                        Hwnd = uiTarget.WindowHandle,
                     };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiStatusResult));
                 }
                 else
                 {
-                    ansiConsole.WriteLine($"Process: {session.ProcessName}");
-                    ansiConsole.WriteLine($"PID: {session.ProcessId}");
-                    ansiConsole.WriteLine($"Window: {session.WindowTitle ?? "(none)"}");
-                    if (session.WindowHandle != 0)
+                    ansiConsole.WriteLine($"Process: {uiTarget.ProcessName}");
+                    ansiConsole.WriteLine($"PID: {uiTarget.ProcessId}");
+                    ansiConsole.WriteLine($"Window: {uiTarget.WindowTitle ?? "(none)"}");
+                    if (uiTarget.WindowHandle != 0)
                     {
-                        ansiConsole.WriteLine($"HWND: {session.WindowHandle}");
+                        ansiConsole.WriteLine($"HWND: {uiTarget.WindowHandle}");
                     }
                 }
 
                 if (!json)
                 {
-                    logger.LogInformation("Connected to {ProcessName} (PID {ProcessId})", session.ProcessName, session.ProcessId);
+                    logger.LogInformation("Connected to {ProcessName} (PID {ProcessId})", uiTarget.ProcessName, uiTarget.ProcessId);
                 }
                 return 0;
             }

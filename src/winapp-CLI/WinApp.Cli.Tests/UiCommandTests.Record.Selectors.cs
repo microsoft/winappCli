@@ -16,7 +16,7 @@ public partial class UiCommandTests
     {
         // FindSingleElementAsync now throws UiAmbiguousSelectorException (not InvalidOperationException)
         // when a plain-text selector matches multiple elements. Record must surface this as exit code 1.
-        _fakeUia.RecordException = new UiAmbiguousSelectorException(
+        _fakeRecording.RecordException = new UiAmbiguousSelectorException(
             "Selector matched 3 elements:\n  [0] Button \"OK\" -> btn-ok-a1b2\n  [1] Button \"Cancel\" -> btn-cancel-c3d4\nUse a slug from 'inspect' to target a specific element.");
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "ambiguous.mp4");
@@ -32,7 +32,7 @@ public partial class UiCommandTests
     public async Task Record_AmbiguousSelector_EmitsAmbiguousSelectorCode()
     {
         // M3: the JSON error code for an ambiguous selector must be "ambiguous_selector", not "internal_error".
-        _fakeUia.RecordException = new UiAmbiguousSelectorException(
+        _fakeRecording.RecordException = new UiAmbiguousSelectorException(
             "Selector matched 2 elements:\n  [0] Button \"Submit\" -> btn-submit-a1b2\n  [1] Button \"Submit\" -> btn-submit-c3d4\nUse a slug from 'inspect' to target a specific element.");
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "ambiguous-code.mp4");
@@ -62,7 +62,7 @@ public partial class UiCommandTests
     public async Task Record_NoSelector_RecordsWholeWindow()
     {
         // Without a selector, record must capture the whole window (by design, unchanged by H3).
-        _fakeUia.RecordResult = new RecordCaptureResult { Frames = 5, Width = 1280, Height = 720, Mode = "wgc" };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 1280, Height = 720, Mode = "wgc" };
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "whole-window.mp4");
         var command = GetRequiredService<UiRecordCommand>();
@@ -78,16 +78,16 @@ public partial class UiCommandTests
     {
         // When the element's WindowHandle matches the session HWND, the method must return
         // the session HWND unchanged and leave all capture params untouched.
-        var sessionHwnd = (nint)0x1000;
+        var targetWindowHwnd = (nint)0x1000;
         int originLeft = 100, originTop = 200, srcW = 500, srcH = 375;
 
-        var result = UiAutomationService.ResolvePopupCaptureHwnd(
-            elementWindowHandle: (long)sessionHwnd,
-            sessionHwnd: sessionHwnd,
+        var result = UiRecordingService.ResolvePopupCaptureHwnd(
+            elementWindowHandle: (long)targetWindowHwnd,
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH);
 
-        Assert.AreEqual(sessionHwnd, result, "same-window element must return session HWND");
+        Assert.AreEqual(targetWindowHwnd, result, "same-window element must return the target window HWND");
         Assert.AreEqual(100, originLeft, "captureOriginLeft must be unchanged");
         Assert.AreEqual(200, originTop, "captureOriginTop must be unchanged");
         Assert.AreEqual(500, srcW, "srcWidth must be unchanged");
@@ -98,16 +98,16 @@ public partial class UiCommandTests
     public void ResolvePopupCaptureHwnd_NullWindowHandle_NoRetarget()
     {
         // A null WindowHandle must leave all params unchanged and return the session HWND.
-        var sessionHwnd = (nint)0x1000;
+        var targetWindowHwnd = (nint)0x1000;
         int originLeft = 100, originTop = 200, srcW = 500, srcH = 375;
 
-        var result = UiAutomationService.ResolvePopupCaptureHwnd(
+        var result = UiRecordingService.ResolvePopupCaptureHwnd(
             elementWindowHandle: null,
-            sessionHwnd: sessionHwnd,
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH);
 
-        Assert.AreEqual(sessionHwnd, result, "null WindowHandle must return session HWND");
+        Assert.AreEqual(targetWindowHwnd, result, "null WindowHandle must return the target window HWND");
         Assert.AreEqual(100, originLeft, "captureOriginLeft must be unchanged");
         Assert.AreEqual(200, originTop, "captureOriginTop must be unchanged");
         Assert.AreEqual(500, srcW, "srcWidth must be unchanged");
@@ -124,16 +124,16 @@ public partial class UiCommandTests
         //   3. Update srcWidth/srcHeight to the popup window's pixel dimensions.
         // Before the fix, the crop would be clamped against the main window's frame, producing
         // a truncated sliver (e.g. "width":64,"height":100 instead of 200×100).
-        var sessionHwnd = (nint)0x1000;
+        var targetWindowHwnd = (nint)0x1000;
         var popupHwnd = (nint)0x2000;
 
         // Main window at (100,100), size 500×375.
         int originLeft = 100, originTop = 100, srcW = 500, srcH = 375;
 
         // Popup window at (550,30), size 220×130 (partly outside main window).
-        var result = UiAutomationService.ResolvePopupCaptureHwnd(
+        var result = UiRecordingService.ResolvePopupCaptureHwnd(
             elementWindowHandle: (long)popupHwnd,
-            sessionHwnd: sessionHwnd,
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH,
             getAncestorRoot: h => h,                             // popup IS already the root
@@ -154,14 +154,14 @@ public partial class UiCommandTests
         // cropW=200, cropH=100 — not the clamped sliver from using the main window origin.
         // Without the fix, using the main window's origin (100,100) with srcW=500 would
         // give cropX=499 (clamped), cropW=1 — a 1-pixel sliver.
-        var sessionHwnd = (nint)0x1000;
+        var targetWindowHwnd = (nint)0x1000;
         var popupHwnd = (nint)0x2000;
         int originLeft = 100, originTop = 100, srcW = 500, srcH = 375;
 
         // Popup window at (550,30), size 260×120 — large enough to fully contain the element.
-        UiAutomationService.ResolvePopupCaptureHwnd(
+        UiRecordingService.ResolvePopupCaptureHwnd(
             elementWindowHandle: (long)popupHwnd,
-            sessionHwnd: sessionHwnd,
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH,
             getAncestorRoot: h => h,
@@ -185,22 +185,22 @@ public partial class UiCommandTests
     {
         // If GetAncestor(GA_ROOT) of the element's HWND returns the session HWND, the element's
         // HWND is a child control inside the session window — no retarget is needed.
-        var sessionHwnd = (nint)0x1000;
+        var targetWindowHwnd = (nint)0x1000;
         var childHwnd = (nint)0x2000; // a child HWND inside the session window
 
         int originLeft = 100, originTop = 100, srcW = 500, srcH = 375;
 
-        var result = UiAutomationService.ResolvePopupCaptureHwnd(
+        var result = UiRecordingService.ResolvePopupCaptureHwnd(
             elementWindowHandle: (long)childHwnd,
-            sessionHwnd: sessionHwnd,
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH,
-            getAncestorRoot: _ => sessionHwnd,            // GA_ROOT resolves to the session window
+            getAncestorRoot: _ => targetWindowHwnd,            // GA_ROOT resolves to the session window
             getWindowRect: _ => throw new InvalidOperationException("must not be called"));
 
-        Assert.AreEqual(sessionHwnd, result, "when GA_ROOT = session HWND, no retarget should occur");
-        Assert.AreEqual(100, originLeft, "params must be unchanged when GA_ROOT = session HWND");
-        Assert.AreEqual(500, srcW, "params must be unchanged when GA_ROOT = session HWND");
+        Assert.AreEqual(targetWindowHwnd, result, "when GA_ROOT = the target window HWND, no retarget should occur");
+        Assert.AreEqual(100, originLeft, "params must be unchanged when GA_ROOT = the target window HWND");
+        Assert.AreEqual(500, srcW, "params must be unchanged when GA_ROOT = the target window HWND");
     }
 
     [TestMethod]
@@ -209,13 +209,13 @@ public partial class UiCommandTests
         // H2 regression test: the element's UIA native-window ancestor resolves to a top-level
         // popup/dialog window distinct from the session window. Expected: retarget to that HWND
         // and update the capture origin/size to the popup window's rect.
-        var sessionHwnd   = (nint)0x1000;
+        var targetWindowHwnd   = (nint)0x1000;
         var popupRootHwnd = (nint)0x2000;
 
         int originLeft = 100, originTop = 100, srcW = 500, srcH = 375;
 
-        var result = UiAutomationService.DeriveElementCaptureHwnd(
-            sessionHwnd: sessionHwnd,
+        var result = UiRecordingService.DeriveElementCaptureHwnd(
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH,
             getElementTopLevelHwnd: () => popupRootHwnd,
@@ -236,18 +236,18 @@ public partial class UiCommandTests
         // This is also the overlap-safety case — an unrelated window overlapping the element
         // center is never a UIA ancestor, so the ancestor walk still returns the session window
         // and no retarget occurs (the round-11 geometry/z-order bug is structurally impossible).
-        var sessionHwnd = (nint)0x1000;
+        var targetWindowHwnd = (nint)0x1000;
         int originLeft = 100, originTop = 100, srcW = 500, srcH = 375;
 
-        var result = UiAutomationService.DeriveElementCaptureHwnd(
-            sessionHwnd: sessionHwnd,
+        var result = UiRecordingService.DeriveElementCaptureHwnd(
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH,
-            getElementTopLevelHwnd: () => sessionHwnd,
+            getElementTopLevelHwnd: () => targetWindowHwnd,
             getWindowRect:          _ => throw new InvalidOperationException("must not be called"));
 
-        Assert.AreEqual(sessionHwnd, result,
-            "element whose top-level is the session window must not retarget");
+        Assert.AreEqual(targetWindowHwnd, result,
+            "element whose top-level is the target window must not retarget");
         Assert.AreEqual(100, originLeft, "params must be unchanged for in-window element");
         Assert.AreEqual(500, srcW,       "params must be unchanged for in-window element");
     }
@@ -257,17 +257,17 @@ public partial class UiCommandTests
     {
         // The element could not be re-resolved or has no native-window ancestor (getter returns 0).
         // Expected: leave capture on the session window; do not read a window rect.
-        var sessionHwnd = (nint)0x1000;
+        var targetWindowHwnd = (nint)0x1000;
         int originLeft = 100, originTop = 100, srcW = 500, srcH = 375;
 
-        var result = UiAutomationService.DeriveElementCaptureHwnd(
-            sessionHwnd: sessionHwnd,
+        var result = UiRecordingService.DeriveElementCaptureHwnd(
+            targetWindowHwnd: targetWindowHwnd,
             captureOriginLeft: ref originLeft, captureOriginTop: ref originTop,
             srcWidth: ref srcW, srcHeight: ref srcH,
             getElementTopLevelHwnd: () => 0,
             getWindowRect:          _ => throw new InvalidOperationException("must not be called"));
 
-        Assert.AreEqual(sessionHwnd, result, "no derivable top-level window must not retarget");
+        Assert.AreEqual(targetWindowHwnd, result, "no derivable top-level window must not retarget");
         Assert.AreEqual(100, originLeft, "params must be unchanged when no ancestor is derived");
         Assert.AreEqual(500, srcW,       "params must be unchanged when no ancestor is derived");
     }
@@ -276,14 +276,14 @@ public partial class UiCommandTests
     public void IsElementOffscreen_ElementFullyInside_ReturnsFalse()
     {
         // Element entirely within the capture surface — must NOT be flagged offscreen.
-        Assert.IsFalse(UiAutomationService.IsElementOffscreen(10, 20, 100, 80, 0, 0, 400, 300));
+        Assert.IsFalse(UiRecordingService.IsElementOffscreen(10, 20, 100, 80, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_ElementPartiallyClipped_ReturnsFalse()
     {
         // Element overlaps the right edge of the surface — intersection > 0, NOT offscreen.
-        Assert.IsFalse(UiAutomationService.IsElementOffscreen(350, 0, 100, 50, 0, 0, 400, 300));
+        Assert.IsFalse(UiRecordingService.IsElementOffscreen(350, 0, 100, 50, 0, 0, 400, 300));
     }
 
     [TestMethod]
@@ -291,56 +291,56 @@ public partial class UiCommandTests
     {
         // Tiny element (10×10) that IS on the capture surface must NOT be flagged offscreen.
         // The encoder-min padding path must still apply for legitimately small elements.
-        Assert.IsFalse(UiAutomationService.IsElementOffscreen(5, 5, 10, 10, 0, 0, 400, 300));
+        Assert.IsFalse(UiRecordingService.IsElementOffscreen(5, 5, 10, 10, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_ElementEntirelyRight_ReturnsTrue()
     {
         // Element starts at x=400 in a 400-wide surface → no intersection → offscreen.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(400, 0, 100, 100, 0, 0, 400, 300));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(400, 0, 100, 100, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_ElementEntirelyLeft_ReturnsTrue()
     {
         // Element right edge is at x=-100 → entirely left of surface → offscreen.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(-200, 0, 100, 100, 0, 0, 400, 300));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(-200, 0, 100, 100, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_ElementEntirelyBelow_ReturnsTrue()
     {
         // Element top is at y=300 in a 300-tall surface → no intersection → offscreen.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(0, 300, 100, 100, 0, 0, 400, 300));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(0, 300, 100, 100, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_ElementEntirelyAbove_ReturnsTrue()
     {
         // Element bottom is above the surface top → entirely above → offscreen.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(0, -100, 100, 50, 0, 0, 400, 300));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(0, -100, 100, 50, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_ZeroWidth_ReturnsTrue()
     {
         // Degenerate element: zero width → nothing to capture → offscreen.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(100, 100, 0, 80, 0, 0, 400, 300));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(100, 100, 0, 80, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_ZeroHeight_ReturnsTrue()
     {
         // Degenerate element: zero height → nothing to capture → offscreen.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(100, 100, 200, 0, 0, 0, 400, 300));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(100, 100, 200, 0, 0, 0, 400, 300));
     }
 
     [TestMethod]
     public void IsElementOffscreen_NegativeDimensions_ReturnsTrue()
     {
         // Negative dimensions are degenerate → offscreen.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(100, 100, -10, -10, 0, 0, 400, 300));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(100, 100, -10, -10, 0, 0, 400, 300));
     }
 
     [TestMethod]
@@ -349,7 +349,7 @@ public partial class UiCommandTests
         // Reviewer repro: 200×80 button entirely outside its 280×180 owned popup.
         // captureOrigin=(0,0) srcW=280 srcH=180; element at screen (300,10) size 200×80.
         // Before the fix this clamped to a 1-px sliver and recorded garbage at exit 0.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(300, 10, 200, 80, 0, 0, 280, 180));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(300, 10, 200, 80, 0, 0, 280, 180));
     }
 
     [TestMethod]
@@ -357,7 +357,7 @@ public partial class UiCommandTests
     {
         // Capture surface origin is not (0,0) — element is entirely to the left of the surface.
         // surface: origin(500,400), 280×180; element at screen (100,100) size 200×80 → no intersection.
-        Assert.IsTrue(UiAutomationService.IsElementOffscreen(100, 100, 200, 80, 500, 400, 280, 180));
+        Assert.IsTrue(UiRecordingService.IsElementOffscreen(100, 100, 200, 80, 500, 400, 280, 180));
     }
 
     [TestMethod]
@@ -365,7 +365,7 @@ public partial class UiCommandTests
     {
         // Capture surface origin is not (0,0) — element is inside the surface.
         // surface: origin(500,400), 280×180; element at screen (550,450) size 50×60 → inside.
-        Assert.IsFalse(UiAutomationService.IsElementOffscreen(550, 450, 50, 60, 500, 400, 280, 180));
+        Assert.IsFalse(UiRecordingService.IsElementOffscreen(550, 450, 50, 60, 500, 400, 280, 180));
     }
 
     [TestMethod]
@@ -374,7 +374,7 @@ public partial class UiCommandTests
         // When the service throws UiElementOffscreenException (element resolved but entirely
         // outside the capture surface), the command must exit 1 with element_not_found code
         // and an actionable "offscreen" message — NOT record garbage pixels at exit 0.
-        _fakeUia.RecordException = new UiElementOffscreenException("btn-offscreen-a1b2");
+        _fakeRecording.RecordException = new UiElementOffscreenException("btn-offscreen-a1b2");
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "offscreen.mp4");
         var command = GetRequiredService<UiRecordCommand>();

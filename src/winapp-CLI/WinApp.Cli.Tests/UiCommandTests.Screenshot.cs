@@ -110,7 +110,7 @@ public partial class UiCommandTests
     public async Task Screenshot_SingleWindow_NoSelector_NoDialog_WritesFile()
     {
         // No selector and no owned dialog: DiscoverAllWindows finds nothing to composite (returns null),
-        // ResolveSessionAsync yields the single session, and the plain single-window capture runs
+        // ResolveAsync yields the single session, and the plain single-window capture runs
         // (non-JSON → LogInformation, writes the PNG). This is the common "screenshot an app by name"
         // path that the two invalid-handle tests below no longer reach.
         _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
@@ -128,11 +128,11 @@ public partial class UiCommandTests
     {
         // --window 0 with no --app: the missing-app guard passes (window is not null) and
         // DiscoverAllWindows returns null (0 is not > 0, no app). Production then rejects it at
-        // ResolveSessionAsync — hwnd is not > 0 and --app is blank, so UiSessionService throws
+        // ResolveAsync — hwnd is not > 0 and --app is blank, so UiTargetResolver throws
         // "Specify --app..." (proven directly by UiSessionServiceTests.ResolveSession_WhitespaceApp_
         // ZeroHwnd_Throws). The command maps that to exit 1 and writes NO screenshot. The fake models
         // the same throw so the assertion reflects real behavior instead of the fake accepting hwnd 0.
-        _fakeSession.ResolveThrow = new InvalidOperationException(
+        _fakeTargetResolver.ResolveThrow = new InvalidOperationException(
             "Specify --app (process name, title, or PID) or --window (HWND).");
         var path = ShotPath();
 
@@ -152,7 +152,7 @@ public partial class UiCommandTests
         // not accessible" (proven by UiSessionServiceTests.ResolveByHwnd_WindowNotFound_Throws). The
         // command maps that to exit 1 and writes NO screenshot. The fake models the same throw so the
         // test asserts real rejection rather than the fake accepting any handle.
-        _fakeSession.ResolveThrow = new InvalidOperationException(
+        _fakeTargetResolver.ResolveThrow = new InvalidOperationException(
             "Window HWND 999999 not found or not accessible.");
         var path = ShotPath();
 

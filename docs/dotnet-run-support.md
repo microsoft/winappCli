@@ -163,12 +163,18 @@ This gating ensures the package is safe to consume transitively (e.g. when re-ex
 
 ### package-nuget.ps1
 
-Creates both NuGet packages:
+Creates all three NuGet packages — the `Microsoft.Windows.SDK.BuildTools.WinApp` tools package
+described above, plus the two UI Automation library packages:
 
 ```powershell
 .\scripts\package-nuget.ps1                    # Prerelease version
 .\scripts\package-nuget.ps1 -Version 1.0.0 -Stable  # Stable version
+.\scripts\package-nuget.ps1 -SkipCliPackage    # Only the UI Automation libraries
 ```
+
+The tools package wraps the published CLI, so it needs `artifacts/cli` to hold an x64 and an arm64
+build. The library packages build from source, so `-SkipCliPackage` produces them in seconds
+without a full publish.
 
 ### Integration with build-cli.ps1
 
@@ -274,26 +280,14 @@ Capture OutputDebugString messages and first-chance exceptions:
 
 ## Production Blockers
 
-### 1. CLI AOT Build Issues (BLOCKING)
-
-The CLI currently has NativeAOT compilation errors related to Newtonsoft.Json and NuGet.Protocol. These must be resolved before the NuGet package can include the CLI binaries.
-
-**Error summary:**
-- 146 trim/AOT analysis errors
-- Related to reflection-heavy code in Newtonsoft.Json
-- Related to dynamic code generation in NuGet.Protocol
-
-**Resolution:**
-- Wait until https://github.com/NuGet/Home/issues/14408
-
-### 2. Developer Mode Requirement
+### 1. Developer Mode Requirement
 
 Running packaged apps requires Developer Mode enabled on Windows. The solution should:
 - Detect when Developer Mode is disabled
 - Provide clear error messages
 - Consider documenting this requirement prominently
 
-### 3. First-run Experience
+### 2. First-run Experience
 
 On first `dotnet run`, the CLI needs to:
 - Download Windows SDK Build Tools (if not cached)
@@ -301,7 +295,7 @@ On first `dotnet run`, the CLI needs to:
 
 Consider pre-caching or documenting this.
 
-### 4. Platform Detection
+### 3. Platform Detection
 
 The current implementation defaults to x64. For ARM64 machines, the targets correctly detect architecture, but the default Platform may need adjustment.
 

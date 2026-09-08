@@ -557,7 +557,12 @@ internal class UnregisterCommand : Command, IShortDescription
             };
 
             var json = JsonSerializer.Serialize(result, UnregisterJsonContext.Default.UnregisterResult);
-            ansiConsole.WriteLine(json);
+
+            // Straight to the underlying stdout writer, not ansiConsole.WriteLine: Spectre's word-wrapping
+            // layer injects raw CR/LF *inside* the JSON string values once a message exceeds the
+            // (redirected) console width of ~80 columns, so strict parsers reject the payload. Several
+            // validation errors here are long enough to trigger it every time. Mirrors RunCommand.PrintJson.
+            ansiConsole.Profile.Out.Writer.WriteLine(json);
         }
     }
 }

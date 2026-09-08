@@ -82,21 +82,93 @@ runs:
     - name: Parse coverage results
       shell: pwsh
       run: |
-        $coverageFile = Get-ChildItem "${{ inputs.artifacts-path }}/TestResults/*.cobertura.xml" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $coverageFile) {
+        $coverageFiles = @(Get-ChildItem "${{ inputs.artifacts-path }}/TestResults/*.cobertura.xml" -ErrorAction SilentlyContinue)
+        if ($coverageFiles.Count -eq 0) {
           Write-Warning "No coverage.cobertura.xml found, skipping coverage metrics"
           @{ lineCoverage = $null; branchCoverage = $null } | ConvertTo-Json | Set-Content "${{ inputs.artifacts-path }}/coverage-summary.json"
           exit 0
         }
 
-        [xml]$xml = Get-Content $coverageFile.FullName
-        $coverage = $xml.coverage
+        # Each test project emits its own report, and a report covers every assembly that run loaded --
+        # so shared assemblies appear in more than one report. Union the reports (a line counts as
+        # covered when any run hit it) rather than reading just the first, which would report an
+        # assembly's coverage from a run that barely touches it, or summing, which would double-count
+        # shared code in the denominator.
+        $lineHits = @{}
+        $branchTotals = @{}
+        $branchCovered = @{}
+        $branchReports = @{}
+        $lineConditions = @{}
+        foreach ($file in $coverageFiles) {
+          [xml]$xml = Get-Content $file.FullName
+          foreach ($package in $xml.coverage.packages.package) {
+            foreach ($class in @($package.classes.class)) {
+              if (-not $class) { continue }
+              foreach ($line in @($class.lines.line)) {
+                if (-not $line) { continue }
+                # Keyed by source line, so a line listed under several classes (partials, generics)
+                # counts once. That makes the totals slightly smaller than any single report's own
+                # counters, which tally per class.
+                $key = "$($class.filename)|$($line.number)"
+                $hits = [int]$line.hits
+                if (-not $lineHits.ContainsKey($key) -or $lineHits[$key] -lt $hits) { $lineHits[$key] = $hits }
 
-        # Cobertura stores rates as 0.0-1.0 floats; convert to percentage
-        $lineRate = if ($coverage.'line-rate') { [double]$coverage.'line-rate' } else { 0 }
-        $branchRate = if ($coverage.'branch-rate') { [double]$coverage.'branch-rate' } else { 0 }
-        $linePct = [math]::Round($lineRate * 100, 1)
-        $branchPct = [math]::Round($branchRate * 100, 1)
+                # "75% (3/4)" -- the denominator is the line's branch count, and the numerator is that
+                # report's exact covered count. A switch can put many branches behind a single
+                # condition, so never assume two per condition.
+                if ($line.'condition-coverage' -notmatch '\((\d+)/(\d+)\)') { continue }
+                $branchTotals[$key] = [int]$Matches[2]
+                $reportCovered = [int]$Matches[1]
+                if (-not $branchCovered.ContainsKey($key) -or $branchCovered[$key] -lt $reportCovered) {
+                  $branchCovered[$key] = $reportCovered
+                }
+                $branchReports[$key] = 1 + ($(if ($branchReports.ContainsKey($key)) { $branchReports[$key] } else { 0 }))
+
+                # Union per condition as well, because two runs often cover different conditions on
+                # the same line and the per-report numerator alone would keep only the better run.
+                # Cobertura gives a percentage per condition rather than which arms ran, so this is an
+                # estimate; it is only ever used to raise a line above its best single-run count, and
+                # is capped by the line's own branch total.
+                if (-not $lineConditions.ContainsKey($key)) { $lineConditions[$key] = @{} }
+                foreach ($condition in @($line.conditions.condition)) {
+                  if (-not $condition) { continue }
+                  $percent = [double]($condition.coverage -replace '%', '')
+                  $existing = $lineConditions[$key][$condition.number]
+                  if ($null -eq $existing -or $existing -lt $percent) {
+                    $lineConditions[$key][$condition.number] = $percent
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        $linesValid = $lineHits.Count
+        $linesCovered = @($lineHits.Values | Where-Object { $_ -gt 0 }).Count
+
+        $branchesValid = 0
+        $branchesCovered = 0
+        foreach ($key in $branchTotals.Keys) {
+          $total = $branchTotals[$key]
+          $branchesValid += $total
+
+          # Start from the best single run's exact count. Only when more than one run observed the
+          # line is the per-condition union worth consulting -- and only then is an estimate involved.
+          $covered = $branchCovered[$key]
+          $conditions = $lineConditions[$key]
+          if ($branchReports[$key] -gt 1 -and $conditions.Count -gt 0) {
+            # Each condition accounts for an equal share of the line's branches.
+            $perCondition = $total / $conditions.Count
+            $unioned = 0.0
+            foreach ($percent in $conditions.Values) { $unioned += ($percent / 100) * $perCondition }
+            $unioned = [int][math]::Floor($unioned)
+            if ($unioned -gt $covered) { $covered = $unioned }
+          }
+          $branchesCovered += [math]::Min($covered, $total)
+        }
+
+        $linePct = if ($linesValid -gt 0) { [math]::Round(100 * $linesCovered / $linesValid, 1) } else { 0 }
+        $branchPct = if ($branchesValid -gt 0) { [math]::Round(100 * $branchesCovered / $branchesValid, 1) } else { 0 }
 
         $coverageSummary = @{
           lineCoverage = $linePct
@@ -104,7 +176,7 @@ runs:
         }
 
         $coverageSummary | ConvertTo-Json | Set-Content "${{ inputs.artifacts-path }}/coverage-summary.json"
-        Write-Host "Coverage: ${linePct}% lines, ${branchPct}% branches"
+        Write-Host "Coverage across $($coverageFiles.Count) report(s): ${linePct}% lines ($linesCovered/$linesValid), ${branchPct}% branches ($branchesCovered/$branchesValid)"
 
     - name: Measure CLI startup time
       shell: pwsh

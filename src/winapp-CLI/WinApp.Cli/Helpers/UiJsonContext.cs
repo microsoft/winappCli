@@ -13,7 +13,7 @@ namespace WinApp.Cli.Helpers;
 /// </summary>
 [JsonSerializable(typeof(UiElement))]
 [JsonSerializable(typeof(UiElement[]))]
-[JsonSerializable(typeof(UiSessionInfo))]
+[JsonSerializable(typeof(UiTarget))]
 [JsonSerializable(typeof(UiStatusResult))]
 [JsonSerializable(typeof(UiInspectResult))]
 [JsonSerializable(typeof(UiInspectWindowInfo))]

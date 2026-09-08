@@ -29,9 +29,6 @@ Phi Silica requires the `systemAIModels` capability. It lives in its **own** `sy
 
 It also needs `TargetDeviceFamily/@MaxVersionTested` to be at least `10.0.26226.0`.
 
-> [!IMPORTANT]
-> Declaring it as `<rescap:Capability Name="systemAIModels" />` is the common mistake, and the worst kind: the package still registers successfully, and the API then fails at runtime as though the capability were never declared.
-
 After changing the manifest, refresh debug identity:
 
 ```bash

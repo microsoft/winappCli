@@ -98,6 +98,43 @@ public class RestoreCommandTests : BaseCommandTests
         Assert.AreEqual(baseDir.FullName, options.BaseDirectory.FullName);
     }
 
+    /// <summary>
+    /// `winapp restore ./my-project` must read ./my-project/winapp.yaml. `--config-dir` used to default to the
+    /// process working directory even when a base directory was given, so restore looked in the wrong place and
+    /// reported "nothing to restore" while exiting 0 — a silent no-op on the documented example. `init` already
+    /// co-locates winapp.yaml with the selected directory, so the two commands disagreed.
+    /// </summary>
+    [TestMethod]
+    public async Task Restore_WithBaseDirectoryArgument_DefaultsConfigDirToIt()
+    {
+        var command = GetRequiredService<RestoreCommand>();
+        var baseDir = Directory.CreateDirectory(Path.Join(_tempDirectory.FullName, "my-project"));
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [baseDir.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeWorkspaceSetupService.SetupWorkspaceCalls[0];
+        Assert.AreEqual(baseDir.FullName, options.ConfigDir.FullName, "ConfigDir should follow the base directory when --config-dir is omitted");
+    }
+
+    /// <summary>
+    /// An explicit `--config-dir` still wins over the base directory.
+    /// </summary>
+    [TestMethod]
+    public async Task Restore_WithBaseDirectoryAndConfigDir_ConfigDirWins()
+    {
+        var command = GetRequiredService<RestoreCommand>();
+        var baseDir = Directory.CreateDirectory(Path.Join(_tempDirectory.FullName, "my-project"));
+        var configDir = Directory.CreateDirectory(Path.Join(_tempDirectory.FullName, "cfg"));
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [baseDir.FullName, "--config-dir", configDir.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeWorkspaceSetupService.SetupWorkspaceCalls[0];
+        Assert.AreEqual(baseDir.FullName, options.BaseDirectory.FullName);
+        Assert.AreEqual(configDir.FullName, options.ConfigDir.FullName);
+    }
+
     [TestMethod]
     public async Task Restore_WithConfigDirOption_PassesItThrough()
     {

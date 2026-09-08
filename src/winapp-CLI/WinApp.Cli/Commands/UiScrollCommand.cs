@@ -56,9 +56,9 @@ internal class UiScrollCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IMouseInput mouseInput,
         IForegroundGuard foregroundGuard,
         IAnsiConsole ansiConsole,
@@ -109,9 +109,9 @@ internal class UiScrollCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
-                var selector = selectorService.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                var selector = selectorParser.Parse(selectorStr);
+                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -119,7 +119,7 @@ internal class UiScrollCommand : Command, IShortDescription
                     return 1;
                 }
 
-                var targetHwnd = element.WindowHandle ?? session.WindowHandle;
+                var targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
 
                 if (wheel is int notches)
                 {
@@ -144,9 +144,9 @@ internal class UiScrollCommand : Command, IShortDescription
                     // so the captured rect may be stale. Refuse rather than scroll empty space if it's
                     // still moving.
                     var stable = await GestureTargeting.ResolveStableAsync(
-                        uiAutomation, session, selector, element,
+                        uiAutomation, uiTarget, selector, element,
                         GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
-                    if (!GestureTargeting.TryReport(stable, logger, json, selectorStr, "scroll --wheel"))
+                    if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "scroll --wheel"))
                     {
                         return 1;
                     }
@@ -172,8 +172,8 @@ internal class UiScrollCommand : Command, IShortDescription
                     await Task.Delay(CursorSettleMs, cancellationToken);
 
                     var confirmed = await GestureTargeting.ConfirmStillAsync(
-                        uiAutomation, session, selector, stable.Element, cancellationToken);
-                    if (!GestureTargeting.TryReport(confirmed, logger, json, selectorStr, "scroll --wheel"))
+                        uiAutomation, uiTarget, selector, stable.Element, cancellationToken);
+                    if (!UiInjectionReporting.TryReport(confirmed, logger, json, selectorStr, "scroll --wheel"))
                     {
                         return 1;
                     }
@@ -193,7 +193,7 @@ internal class UiScrollCommand : Command, IShortDescription
                 }
                 else
                 {
-                    await uiAutomation.ScrollContainerAsync(session, element, direction, to, cancellationToken);
+                    await uiAutomation.ScrollContainerAsync(uiTarget, element, direction, to, cancellationToken);
                 }
 
                 if (json)

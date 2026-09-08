@@ -35,9 +35,9 @@ internal class UiHoverCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IMouseInput mouseInput,
         IForegroundGuard foregroundGuard,
         IAnsiConsole ansiConsole,
@@ -72,9 +72,9 @@ internal class UiHoverCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
-                var selector = selectorService.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                var selector = selectorParser.Parse(selectorStr);
+                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -93,7 +93,7 @@ internal class UiHoverCommand : Command, IShortDescription
                 }
 
                 // Use the element's own window handle if available, otherwise fall back to session
-                var targetHwnd = element.WindowHandle ?? session.WindowHandle;
+                var targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
 
                 // Bring target window to foreground
                 if (targetHwnd != 0)
@@ -106,9 +106,9 @@ internal class UiHoverCommand : Command, IShortDescription
                 // Re-resolve just before hovering (N5): foregrounding can restore/animate the window, so
                 // the captured rect may be stale. Refuse rather than hover empty space if it's still moving.
                 var stable = await GestureTargeting.ResolveStableAsync(
-                    uiAutomation, session, selector, element,
+                    uiAutomation, uiTarget, selector, element,
                     GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
-                if (!GestureTargeting.TryReport(stable, logger, json, selectorStr, "hover"))
+                if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "hover"))
                 {
                     return 1;
                 }

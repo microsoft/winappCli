@@ -108,7 +108,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Record_Success_EmitsRecordResultJson()
     {
-        _fakeUia.RecordResult = new RecordCaptureResult { Frames = 42, Width = 640, Height = 480, Mode = "wgc" };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 42, Width = 640, Height = 480, Mode = "wgc" };
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "capture.mp4");
         var command = GetRequiredService<UiRecordCommand>();
@@ -163,7 +163,7 @@ public partial class UiCommandTests
     {
         // The mode field must reflect the capture path actually used (accuracy fix): a printwindow
         // capture must not be mislabeled. Here the fake reports "printwindow"; assert it round-trips.
-        _fakeUia.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = "printwindow" };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = "printwindow" };
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "pw.mp4");
         var command = GetRequiredService<UiRecordCommand>();
@@ -179,7 +179,7 @@ public partial class UiCommandTests
     {
         // Verify that when the fake service reports "screen" (consented --capture-screen path),
         // the command passes the mode through unchanged so consumers can detect the capture path.
-        _fakeUia.RecordResult = new RecordCaptureResult { Frames = 2, Width = 100, Height = 100, Mode = "screen" };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 2, Width = 100, Height = 100, Mode = "screen" };
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "screen.mp4");
         var command = GetRequiredService<UiRecordCommand>();
@@ -195,7 +195,7 @@ public partial class UiCommandTests
     {
         // When a selector is given but the element is not found, the command must return
         // exit code 1 with an element_not_found error — not silently record the whole window.
-        _fakeUia.RecordException = new UiElementNotFoundException("btn-missing-a1b2");
+        _fakeRecording.RecordException = new UiElementNotFoundException("btn-missing-a1b2");
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "element-not-found.mp4");
         var command = GetRequiredService<UiRecordCommand>();
@@ -236,7 +236,7 @@ public partial class UiCommandTests
         var outputPath = Path.Combine(_tempDirectory.FullName, "preexisting.mp4");
         File.WriteAllText(outputPath, "sentinel content");
 
-        _fakeUia.RecordException = new InvalidOperationException("simulated capture failure");
+        _fakeRecording.RecordException = new InvalidOperationException("simulated capture failure");
 
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(
@@ -250,7 +250,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Record_ComFailure_ReturnsStructuredError()
     {
-        _fakeUia.RecordException = new System.Runtime.InteropServices.COMException(
+        _fakeRecording.RecordException = new System.Runtime.InteropServices.COMException(
             "simulated UIA COM failure", unchecked((int)0x80004005));
 
         var outputPath = Path.Combine(_tempDirectory.FullName, "com-fail.mp4");

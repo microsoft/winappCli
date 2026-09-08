@@ -92,7 +92,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Click_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
         var command = GetRequiredService<UiClickCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn-1234", "-a", "TestApp", "--json"]);
         Assert.AreEqual(1, exitCode);
@@ -140,7 +140,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Hover_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
         var command = GetRequiredService<UiHoverCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn-hover-1234", "-a", "TestApp", "--json"]);
         Assert.AreEqual(1, exitCode);
@@ -226,7 +226,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Scroll_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
         var command = GetRequiredService<UiScrollCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-1234", "-a", "TestApp", "--direction", "down", "--json"]);
         Assert.AreEqual(1, exitCode);
@@ -309,7 +309,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Drag_Generic_ReturnsError()
     {
-        _fakeSession.ResolveThrow = FakeGenericException;
+        _fakeTargetResolver.ResolveThrow = FakeGenericException;
         var command = GetRequiredService<UiDragCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["100,100", "200,200", "-a", "TestApp", "--json"]);
         Assert.AreEqual(1, exitCode);

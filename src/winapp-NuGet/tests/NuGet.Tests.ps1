@@ -109,7 +109,11 @@ $extraProps  </PropertyGroup>
                 [switch]$WinAppRunSymbols,
                 [string]$WinAppRunExecutable = "",
                 [string]$WinAppRunUseExecutionAlias = "",
-                [string]$OutputType = "WinExe"
+                [string]$OutputType = "WinExe",
+                [switch]$UseWinUI,
+                [switch]$UseWPF,
+                [switch]$UseWindowsForms,
+                [switch]$UseMaui
             )
             $dir = Join-Path $script:tempRoot $CaseName
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -132,6 +136,10 @@ $extraProps  </PropertyGroup>
             if ($WinAppRunSymbols) { $extraProps += "    <WinAppRunSymbols>true</WinAppRunSymbols>`n" }
             if ($WinAppRunExecutable) { $extraProps += "    <WinAppRunExecutable>$WinAppRunExecutable</WinAppRunExecutable>`n" }
             if ($WinAppRunUseExecutionAlias) { $extraProps += "    <WinAppRunUseExecutionAlias>$WinAppRunUseExecutionAlias</WinAppRunUseExecutionAlias>`n" }
+            if ($UseWinUI) { $extraProps += "    <UseWinUI>true</UseWinUI>`n" }
+            if ($UseWPF) { $extraProps += "    <UseWPF>true</UseWPF>`n" }
+            if ($UseWindowsForms) { $extraProps += "    <UseWindowsForms>true</UseWindowsForms>`n" }
+            if ($UseMaui) { $extraProps += "    <UseMaui>true</UseMaui>`n" }
 
             $csproj = @"
 <Project Sdk="Microsoft.NET.Sdk">
@@ -261,6 +269,7 @@ $extraProps  </PropertyGroup>
         It "Emits no optional switches when every property is left at its default" {
             $args = Get-ComputedRunArgs -CaseName 'run-defaults'
 
+            $args | Should -Match ' --project-framework other-dotnet '
             $args | Should -Match ' --caller nuget-package$'
             $args | Should -Not -Match ' --detach'
             $args | Should -Not -Match ' --unregister-on-exit'
@@ -273,6 +282,26 @@ $extraProps  </PropertyGroup>
             $args = Get-ComputedRunArgs -CaseName 'run-launch-args' -WinAppLaunchArgs '--from-property value'
 
             $args | Should -Match ' --args "--from-property value"'
+        }
+
+        It "Passes the evaluated WinUI framework category" {
+            Get-ComputedRunArgs -CaseName 'run-winui' -UseWinUI |
+                Should -Match ' --project-framework winui '
+        }
+
+        It "Passes the evaluated WPF framework category" {
+            Get-ComputedRunArgs -CaseName 'run-wpf' -UseWPF |
+                Should -Match ' --project-framework wpf '
+        }
+
+        It "Passes the evaluated WinForms framework category" {
+            Get-ComputedRunArgs -CaseName 'run-winforms' -UseWindowsForms |
+                Should -Match ' --project-framework winforms '
+        }
+
+        It "Prefers MAUI when multiple framework properties are present" {
+            Get-ComputedRunArgs -CaseName 'run-maui' -UseMaui -UseWinUI |
+                Should -Match ' --project-framework maui '
         }
 
         It "Maps each boolean run property to its CLI switch" {
@@ -423,7 +452,11 @@ Describe "Microsoft.Windows.SDK.BuildTools.WinApp package layout" -Skip:$script:
         if (-not $NupkgPath) {
             $artifactsDir = Join-Path $script:repoRoot "artifacts\nuget"
             if (Test-Path $artifactsDir) {
+                # The UI Automation package ids are prefixed by this one, so the glob alone also
+                # matches them. Require a digit straight after the id so only the tools package
+                # (id followed by its version) is picked up.
                 $NupkgPath = Get-ChildItem -Path $artifactsDir -Filter "Microsoft.Windows.SDK.BuildTools.WinApp.*.nupkg" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '^Microsoft\.Windows\.SDK\.BuildTools\.WinApp\.\d' } |
                     Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
             }
         }
@@ -449,5 +482,188 @@ Describe "Microsoft.Windows.SDK.BuildTools.WinApp package layout" -Skip:$script:
         $build.Count | Should -BeGreaterThan 0
         $buildTransitive.Count | Should -BeGreaterThan 0
         Compare-Object $build $buildTransitive | Should -BeNullOrEmpty -Because "Files in build\ and buildTransitive\ must match exactly so direct and transitive consumers see the same MSBuild logic."
+    }
+}
+
+Describe "UI Automation library packages" -Skip:$script:skip {
+    BeforeAll {
+        $script:repoRoot = (Resolve-Path "$PSScriptRoot\..\..\..").Path
+        $script:nugetDir = Join-Path $script:repoRoot "artifacts\nuget"
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+        function Get-LibraryPackage([string]$Id) {
+            if (-not (Test-Path $script:nugetDir)) { return $null }
+            # Ids share a prefix, so require the version digit straight after the id.
+            Get-ChildItem -Path $script:nugetDir -Filter "$Id.*.nupkg" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match ('^' + [regex]::Escape($Id) + '\.\d') } |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        }
+
+        function Read-Nuspec([string]$NupkgPath) {
+            $zip = [IO.Compression.ZipFile]::OpenRead($NupkgPath)
+            try {
+                $entry = $zip.Entries | Where-Object { $_.FullName -like '*.nuspec' } | Select-Object -First 1
+                $reader = New-Object IO.StreamReader($entry.Open())
+                try { return [xml]$reader.ReadToEnd() } finally { $reader.Dispose() }
+            } finally { $zip.Dispose() }
+        }
+
+        function Get-NupkgEntries([string]$NupkgPath) {
+            $zip = [IO.Compression.ZipFile]::OpenRead($NupkgPath)
+            try { return @($zip.Entries | ForEach-Object { $_.FullName }) } finally { $zip.Dispose() }
+        }
+
+        $script:baseId = "Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation"
+        $script:recordingId = "Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording"
+        $script:basePkg = Get-LibraryPackage $script:baseId
+        $script:recordingPkg = Get-LibraryPackage $script:recordingId
+    }
+
+    Context "Package contents" {
+        It "Both library packages have been built" {
+            $script:basePkg | Should -Not -BeNullOrEmpty -Because "Run scripts\build-cli.ps1 (or scripts\package-nuget.ps1 -SkipCliPackage) first."
+            $script:recordingPkg | Should -Not -BeNullOrEmpty
+        }
+
+        It "Ships an assembly for both target frameworks the base package advertises" {
+            $entries = Get-NupkgEntries $script:basePkg.FullName
+            $libs = @($entries | Where-Object { $_ -like 'lib/*/*.dll' } | ForEach-Object { ($_ -split '/')[1] } | Sort-Object -Unique)
+            # PACKAGE.md tells consumers they can target either; a missing folder silently downgrades
+            # them to the other one's capabilities instead of failing.
+            $libs | Should -Contain 'net10.0-windows7.0' -Because "the lean net10.0-windows target must ship."
+            $libs | Should -Contain 'net10.0-windows10.0.19041' -Because "the Graphics Capture target must ship."
+        }
+
+        It "Keeps SkiaSharp out of the base package (the reason recording ships separately)" {
+            $nuspec = Read-Nuspec $script:basePkg.FullName
+            $ids = @($nuspec.package.metadata.dependencies.group.dependency | ForEach-Object { $_.id })
+            $ids | Should -Not -Contain 'SkiaSharp'
+            @($nuspec.package.metadata.dependencies.group).Count | Should -Be 2 -Because "each advertised target framework needs its own dependency group."
+        }
+
+        It "Declares the recording package's dependency on the base package at exactly the same version" {
+            $nuspec = Read-Nuspec $script:recordingPkg.FullName
+            $deps = @($nuspec.package.metadata.dependencies.group.dependency)
+            $baseDep = $deps | Where-Object { $_.id -eq $script:baseId }
+            $baseDep | Should -Not -BeNullOrEmpty
+            # Bracketed, not bare: a bare version means "[x,)", which would let a consumer pair this
+            # package with a newer base package it was never built against.
+            $baseDep.version | Should -BeExactly "[$($nuspec.package.metadata.version)]"
+            @($deps | ForEach-Object { $_.id }) | Should -Contain 'SkiaSharp'
+        }
+
+        It "Embeds the readme that nuget.org renders" {
+            foreach ($pkg in @($script:basePkg, $script:recordingPkg)) {
+                $nuspec = Read-Nuspec $pkg.FullName
+                $nuspec.package.metadata.readme | Should -Not -BeNullOrEmpty
+                Get-NupkgEntries $pkg.FullName | Should -Contain $nuspec.package.metadata.readme
+            }
+        }
+    }
+
+    Context "Consuming the packages as a real project" {
+        BeforeAll {
+            $script:consumerRoot = Join-Path ([IO.Path]::GetTempPath()) "winapp-uia-consumer-$([Guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory -Path $script:consumerRoot -Force | Out-Null
+
+            # Add the freshly built packages as a source. No <clear/>: the host's existing sources
+            # still supply Microsoft.Extensions.* and SkiaSharp.
+            @"
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="winapp-local" value="$($script:nugetDir)" />
+  </packageSources>
+</configuration>
+"@ | Set-Content (Join-Path $script:consumerRoot "NuGet.config") -Encoding UTF8
+
+            $script:packageVersion = (Read-Nuspec $script:basePkg.FullName).package.metadata.version
+
+            # Builds a consumer that resolves exactly the services PACKAGE.md documents, so broken
+            # dependency metadata or target-framework asset selection fails here rather than for a
+            # consumer after publish. Returns the dotnet output plus its exit code.
+            function Invoke-Consumer([string]$Name, [string]$TargetFramework, [bool]$WithRecording) {
+                $dir = Join-Path $script:consumerRoot $Name
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+
+                $recordingRef = if ($WithRecording) {
+                    "<PackageReference Include=`"$($script:recordingId)`" Version=`"$($script:packageVersion)`" />"
+                } else { "" }
+
+                @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$TargetFramework</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="$($script:baseId)" Version="$($script:packageVersion)" />
+    $recordingRef
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+  </ItemGroup>
+</Project>
+"@ | Set-Content (Join-Path $dir "$Name.csproj") -Encoding UTF8
+
+                $recordingUsing = if ($WithRecording) { "using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;" } else { "" }
+                $recordingRegister = if ($WithRecording) { ".AddWinAppUiRecording()" } else { "" }
+                $recordingResolve = if ($WithRecording) { "_ = services.GetRequiredService<IUiRecordingService>();" } else { "" }
+
+                @"
+using System;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
+$recordingUsing
+
+var services = new ServiceCollection()
+    .AddLogging()
+    .AddWinAppUiAutomation()
+    $recordingRegister
+    .BuildServiceProvider();
+
+_ = services.GetRequiredService<IUiAutomation>();
+_ = services.GetRequiredService<IUiTargetResolver>();
+_ = services.GetRequiredService<IWindowCapture>();
+$recordingResolve
+
+Console.WriteLine("CONSUMER_OK");
+"@ | Set-Content (Join-Path $dir "Program.cs") -Encoding UTF8
+
+                Push-Location $dir
+                try {
+                    $output = & dotnet run --nologo 2>&1 | Out-String
+                    return @{ Output = $output; ExitCode = $LASTEXITCODE }
+                } finally { Pop-Location }
+            }
+        }
+
+        AfterAll {
+            if ($script:consumerRoot -and (Test-Path $script:consumerRoot)) {
+                Remove-Item $script:consumerRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "Resolves the documented services on <_>" -ForEach @('net10.0-windows', 'net10.0-windows10.0.19041.0') {
+            $name = "consumer" + ($_ -replace '[^A-Za-z0-9]', '')
+            $result = Invoke-Consumer -Name $name -TargetFramework $_ -WithRecording:$false
+            if ($result.Output -match 'Unable to load the service index|NU1301|No such host is known|SSL connection') {
+                Set-ItResult -Skipped -Because "restoring the consumer could not reach a NuGet feed for the framework dependencies."
+                return
+            }
+            $result.Output | Should -Match 'CONSUMER_OK' -Because "a consumer must be able to install the package and resolve its documented services.`n$($result.Output)"
+            $result.ExitCode | Should -Be 0
+        }
+
+        It "Resolves recording services when the recording package is added" {
+            $result = Invoke-Consumer -Name "consumerrecording" -TargetFramework 'net10.0-windows10.0.19041.0' -WithRecording:$true
+            if ($result.Output -match 'Unable to load the service index|NU1301|No such host is known|SSL connection') {
+                Set-ItResult -Skipped -Because "restoring the consumer could not reach a NuGet feed for the framework dependencies."
+                return
+            }
+            $result.Output | Should -Match 'CONSUMER_OK' -Because "the recording package must compose with the base package.`n$($result.Output)"
+            $result.ExitCode | Should -Be 0
+        }
     }
 }

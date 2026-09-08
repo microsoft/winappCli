@@ -104,8 +104,21 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
             throw UnregisterByFullNameThrows;
         }
         UnregisterByFullNameCalls.Add((packageFullName, preserveAppData));
+        UnregisterByFullNameTokenCancelled.Add(cancellationToken.IsCancellationRequested);
         return Task.FromResult(FakeUnregisterByFullNameResult);
     }
+
+    /// <summary>
+    /// Whether the token handed to each <see cref="UnregisterByFullNameAsync"/> call was already
+    /// cancelled.
+    /// </summary>
+    /// <remarks>
+    /// The real service passes this token to <c>PackageManager.RemovePackageAsync(...).AsTask(token)</c>,
+    /// where an already-cancelled token fails the removal immediately. Recording it is what lets a test
+    /// tell "cleanup ran" from "cleanup ran and could actually succeed" — the difference between honoring
+    /// <c>--unregister-on-exit</c> after Ctrl+C and silently skipping it.
+    /// </remarks>
+    public List<bool> UnregisterByFullNameTokenCancelled { get; } = [];
 
     /// <summary>
     /// When set to a non-null exception, <see cref="InstallPackageAsync"/> throws it

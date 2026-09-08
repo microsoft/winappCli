@@ -1,4 +1,4 @@
-﻿<Project Sdk="MSTest.Sdk/4.1.0">
+<Project Sdk="MSTest.Sdk/4.1.0">
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
@@ -40,8 +40,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\WinApp.Cli\WinApp.Cli.csproj" />
+    <!-- Aliased so a test can disambiguate CsWin32's PInvoke, which both winapp and the
+         recording package generate into their own assembly. -->
+    <ProjectReference Include="..\WinApp.Cli\WinApp.Cli.csproj" Aliases="global,winappcli" />
+    <ProjectReference Include="..\WinApp.UIAutomation.TestSupport\WinApp.UIAutomation.TestSupport.csproj" />
     <ProjectReference Include="..\WinApp.Cli.Fuzz\WinApp.Cli.Fuzz.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exercise the same System.Text.Json NuGet deserialization path the published CLI uses (see the matching
+         option in WinApp.Cli.csproj), so the NuGet integration tests cover the AOT/STJ code path this migration
+         depends on instead of the default Newtonsoft.Json reflection path the test host would otherwise use. -->
+    <RuntimeHostConfigurationOption Include="NuGet.UseSystemTextJsonDeserialization"
+                                    Value="true"
+                                    Trim="true" />
   </ItemGroup>
 
   <ItemGroup>

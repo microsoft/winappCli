@@ -129,6 +129,7 @@ public class WinUiTemplateCatalogTests
         "      Templates:\n" +
         "         WinUI Blank App (winui,winui3,wasdk-single) C#\n" +
         "         WinUI Blank Page (Item) (winui-page,winui3-page) C#\n" +
+        "         Reactor NavigationView App (Experimental) (reactor-navview,winui-reactor-navview) C#\n" +
         "      Uninstall Command:\n" +
         "         dotnet new uninstall Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
         "   Contoso.WinUI.Extras\n" +
@@ -139,25 +140,33 @@ public class WinUiTemplateCatalogTests
         "         dotnet new uninstall Contoso.WinUI.Extras\n";
 
     private static readonly string[] ExpectedMicrosoftAliases =
-        ["winui", "winui3", "wasdk-single", "winui-page", "winui3-page"];
+        ["winui", "winui3", "wasdk-single", "winui-page", "winui3-page", "reactor-navview", "winui-reactor-navview"];
 
     [TestMethod]
-    public void ParsePackTemplateShortNames_ReturnsOnlyTheRequestedPackAliases()
+    public void ParsePackTemplates_ReturnsOnlyTheRequestedPackTemplates()
     {
-        var owned = WinUiTemplateCatalog.ParsePackTemplateShortNames(
+        var rows = WinUiTemplateCatalog.ParsePackTemplates(
             UninstallOutput, "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates");
 
-        // Every alias of the Microsoft pack's templates, including the "(Item)" row whose display name
-        // itself contains parentheses (only the last group is the alias list).
-        CollectionAssert.AreEquivalent(ExpectedMicrosoftAliases, owned.ToArray());
-        Assert.IsFalse(owned.Contains("winui-widget"), "A different pack's template must not be included.");
+        // Every alias of the Microsoft pack's templates, including the "(Item)"/"(Experimental)" rows
+        // whose display names themselves contain parentheses (only the last group is the alias list).
+        CollectionAssert.AreEquivalent(ExpectedMicrosoftAliases, rows.SelectMany(r => r.Aliases).ToArray());
+        Assert.IsFalse(rows.Any(r => r.Aliases.Contains("winui-widget")), "A different pack's template must not be included.");
+
+        // The display name is everything before the alias group, so the parenthesised suffixes survive.
+        CollectionAssert.AreEquivalent(
+            ExpectedMicrosoftDisplayNames,
+            rows.Select(r => r.DisplayName).ToArray());
     }
 
+    private static readonly string[] ExpectedMicrosoftDisplayNames =
+        ["WinUI Blank App", "WinUI Blank Page (Item)", "Reactor NavigationView App (Experimental)"];
+
     [TestMethod]
-    public void ParsePackTemplateShortNames_MissingPackage_ReturnsEmpty()
+    public void ParsePackTemplates_MissingPackage_ReturnsEmpty()
     {
-        Assert.AreEqual(0, WinUiTemplateCatalog.ParsePackTemplateShortNames(UninstallOutput, "Not.Installed").Count);
-        Assert.AreEqual(0, WinUiTemplateCatalog.ParsePackTemplateShortNames(string.Empty, "Anything").Count);
+        Assert.AreEqual(0, WinUiTemplateCatalog.ParsePackTemplates(UninstallOutput, "Not.Installed").Count);
+        Assert.AreEqual(0, WinUiTemplateCatalog.ParsePackTemplates(string.Empty, "Anything").Count);
     }
 
     private const string PackageId = "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates";
@@ -183,7 +192,7 @@ public class WinUiTemplateCatalogTests
     [TestMethod]
     public void DeriveTfmOption_ExactSdkTfmOffered_PinsThatFramework()
     {
-        var (found, option, tfm) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 8);
+        var (found, option, tfm, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 8);
 
         Assert.IsTrue(found, "The template belongs to the pack and is present in the cache.");
         Assert.AreEqual("dotnet-version", option, "The CLI option must come from the host longName, not a hard-coded name.");
@@ -195,7 +204,7 @@ public class WinUiTemplateCatalogTests
     {
         // SDK 11 with a pack that only offers up to net10.0: pin the highest supported TFM (net10.0)
         // instead of silently omitting the option and inheriting whatever the template defaults to.
-        var (found, option, tfm) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 11);
+        var (found, option, tfm, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 11);
 
         Assert.IsTrue(found);
         Assert.AreEqual("dotnet-version", option);
@@ -214,7 +223,7 @@ public class WinUiTemplateCatalogTests
             "\"Parameters\":[{\"Name\":\"dotnetVersion\",\"DataType\":\"choice\",\"Choices\":{\"net8.0\":{},\"net9.0\":{},\"net10.0\":{}}}]," +
             "\"HostData\":\"{\\\"symbolInfo\\\":{}}\"}]}";
 
-        var (found, option, tfm) = WinUiTemplateCatalog.DeriveTfmOption(noHostMapping, PackageId, "winui-mvvm", 9);
+        var (found, option, tfm, _) = WinUiTemplateCatalog.DeriveTfmOption(noHostMapping, PackageId, "winui-mvvm", 9);
 
         Assert.IsTrue(found);
         Assert.AreEqual("dotnetVersion", option, "With no host mapping the raw symbol name is the option dotnet exposes.");
@@ -224,18 +233,21 @@ public class WinUiTemplateCatalogTests
     [TestMethod]
     public void DeriveTfmOption_TemplateWithoutFrameworkChoice_FoundButNothingToPin()
     {
-        var (found, option, tfm) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui-page", 8);
+        var (found, option, tfm, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui-page", 8);
 
         Assert.IsTrue(found, "The item template is present in the cache.");
         Assert.IsNull(option, "An item template declares no framework, so there is no option to pass.");
         Assert.IsNull(tfm);
     }
 
+    private static readonly string[] MinNineChoices = ["net9.0", "net10.0"];
+
     [TestMethod]
     public void DeriveTfmOption_SdkOlderThanEveryChoice_FoundButNoTfm()
     {
         // Pack offers only net9/net10 but SDK is 8: no offered framework is buildable by this SDK, so
-        // there is nothing safe to pin (the option is left off and the template picks its own default).
+        // there is nothing safe to pin. Choices come back so the caller can tell this apart from a
+        // template that simply has no framework knob, and report the minimum SDK the template needs.
         const string minNine =
             "{\"TemplateInfo\":[{" +
             "\"MountPointUri\":\"x\\\\Microsoft.WindowsAppSDK.WinUI.CSharp.Templates.9.9.9.nupkg\"," +
@@ -243,11 +255,113 @@ public class WinUiTemplateCatalogTests
             "\"Parameters\":[{\"Name\":\"dotnetVersion\",\"DataType\":\"choice\",\"Choices\":{\"net9.0\":{},\"net10.0\":{}}}]," +
             "\"HostData\":\"{\\\"symbolInfo\\\":{\\\"dotnetVersion\\\":{\\\"longName\\\":\\\"dotnet-version\\\"}}}\"}]}";
 
-        var (found, option, tfm) = WinUiTemplateCatalog.DeriveTfmOption(minNine, PackageId, "winui", 8);
+        var (found, option, tfm, choices) = WinUiTemplateCatalog.DeriveTfmOption(minNine, PackageId, "winui", 8);
 
         Assert.IsTrue(found);
         Assert.AreEqual("dotnet-version", option);
         Assert.IsNull(tfm, "No offered framework is <= the SDK major, so nothing is pinned.");
+        CollectionAssert.AreEquivalent(MinNineChoices, choices.ToArray());
+        Assert.AreEqual(9, WinUiTemplateCatalog.MinimumSdkMajor(choices));
+    }
+
+    [TestMethod]
+    public void DeriveTfmOption_TemplateWithoutFrameworkChoice_ReportsNoChoices()
+    {
+        // An item template has no framework knob at all. Distinguishing it from "the SDK is too old"
+        // is what stops the command from claiming a newer SDK is required when none is.
+        var (_, _, _, choices) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui-page", 8);
+
+        Assert.AreEqual(0, choices.Count);
+        Assert.IsNull(WinUiTemplateCatalog.MinimumSdkMajor(choices));
+    }
+
+    [TestMethod]
+    public void MinimumSdkMajor_IgnoresValuesThatAreNotFrameworkMonikers()
+    {
+        Assert.AreEqual(10, WinUiTemplateCatalog.MinimumSdkMajor(["net10.0"]));
+        Assert.AreEqual(8, WinUiTemplateCatalog.MinimumSdkMajor(["net10.0", "net8.0", "net9.0"]));
+        Assert.IsNull(WinUiTemplateCatalog.MinimumSdkMajor(["latest", "netstandard2.0x"]));
+        Assert.IsNull(WinUiTemplateCatalog.MinimumSdkMajor([]));
+    }
+
+    private static WinUiTemplateEntry Entry(string displayName, string shortNames, string tags = "Windows/WinUI/Desktop")
+        => new(displayName, shortNames.Split(','), "C#", "project", tags);
+
+    [TestMethod]
+    public void IsExperimental_DetectedFromEitherTheTagPathOrTheDisplayName()
+    {
+        // `dotnet new list` truncates over-wide columns, so either signal can be the only one that
+        // survives: the Reactor rows carry both an Experimental tag and an "(Experimental)" name.
+        Assert.IsTrue(Entry("Reactor Blank App", "reactor", "Windows/WinUI/Desktop/Reactor/Experimental").IsExperimental);
+        Assert.IsTrue(Entry("Reactor Blank App (Experimental)", "reactor", "Windows/WinUI/Desktop/Reactor").IsExperimental);
+        Assert.IsFalse(Entry("WinUI Blank App", "winui", "Windows/WinUI/Desktop/XAML").IsExperimental);
+    }
+
+    private static readonly string[] ExpectedKeptDisplayNames =
+        ["Reactor NavigationView App (Experimental)", "WinUI Blank App"];
+
+    [TestMethod]
+    public void RestrictToPack_RepairsTruncatedDisplayNamesAndDropsForeignTemplates()
+    {
+        // `dotnet new list` cut the Reactor name off mid-word to fit its column, and matched a
+        // different pack's "WinUI 3 Desktop App" because that template reuses the `winui` short name.
+        var listed = new List<WinUiTemplateEntry>
+        {
+            Entry("Reactor NavigationView App (Experim...", "reactor-navview,winui-reactor-navview"),
+            Entry("WinUI 3 Desktop App", "winui"),
+            Entry("WinUI Blank App", "winui,winui3,wasdk-single"),
+        };
+        var packRows = WinUiTemplateCatalog.ParsePackTemplates(UninstallOutput, PackageId);
+
+        var kept = WinUiTemplateCatalog.RestrictToPack(listed, packRows);
+
+        CollectionAssert.AreEqual(
+            ExpectedKeptDisplayNames,
+            kept.Select(t => t.DisplayName).ToArray());
+    }
+
+    private static readonly string[] OfficialBlankAppAliases = ["winui", "winui3", "wasdk-single"];
+
+    [TestMethod]
+    public void RestrictToPack_ForeignTemplateBorrowingAnOfficialAlias_IsDropped()
+    {
+        // A third-party pack can publish a template that copies the official name and appends an
+        // official alias to its own. `dotnet new list` matches it (it starts with `winui`) and gives
+        // no column saying which pack it came from, so ownership has to be decided on the canonical
+        // short name — the one that would be passed to `dotnet new` — not on any shared alias.
+        var listed = new List<WinUiTemplateEntry>
+        {
+            Entry("WinUI Blank App", "evil,winui"),
+            Entry("WinUI Blank App", "winui,winui3,wasdk-single"),
+        };
+
+        var kept = WinUiTemplateCatalog.RestrictToPack(listed, WinUiTemplateCatalog.ParsePackTemplates(UninstallOutput, PackageId));
+
+        Assert.AreEqual(1, kept.Count, "Only the pack's own template may be offered.");
+        Assert.AreEqual("winui", kept[0].ShortName, "`dotnet new` must never be invoked with a foreign short name.");
+        Assert.IsFalse(kept[0].MatchesShortName("evil"), "A foreign alias must not resolve via --template.");
+    }
+
+    [TestMethod]
+    public void RestrictToPack_TakesAliasesFromThePackNotTheTruncatedListing()
+    {
+        // The Short Name column is fixed-width too, so a long alias list can be clipped. The pack's
+        // own listing is authoritative, which keeps `--template wasdk-single` working.
+        var listed = new List<WinUiTemplateEntry> { Entry("WinUI Blank App", "winui,winui3") };
+
+        var kept = WinUiTemplateCatalog.RestrictToPack(listed, WinUiTemplateCatalog.ParsePackTemplates(UninstallOutput, PackageId));
+
+        CollectionAssert.AreEqual(OfficialBlankAppAliases, kept[0].ShortNames.ToArray());
+    }
+
+    [TestMethod]
+    public void RestrictToPack_NoPackRows_KeepsNothing()
+    {
+        // Ownership could not be established, so no template may be presented as official. The caller
+        // turns the empty result into an enumeration failure rather than offering unverified rows.
+        var listed = new List<WinUiTemplateEntry> { Entry("WinUI Blank App", "winui") };
+
+        Assert.AreEqual(0, WinUiTemplateCatalog.RestrictToPack(listed, []).Count);
     }
 
     [TestMethod]
@@ -255,16 +369,16 @@ public class WinUiTemplateCatalogTests
     {
         // Wrong package (mount point isn't the Microsoft pack) and unknown short name both mean "keep
         // looking" — the caller then tries the next cache file or the heuristic.
-        var (foundWrongPackage, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, "Some.Other.Pack", "winui", 9);
+        var (foundWrongPackage, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, "Some.Other.Pack", "winui", 9);
         Assert.IsFalse(foundWrongPackage);
 
-        var (foundWrongShort, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui-nope", 9);
+        var (foundWrongShort, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui-nope", 9);
         Assert.IsFalse(foundWrongShort);
 
-        var (foundEmpty, _, _) = WinUiTemplateCatalog.DeriveTfmOption(string.Empty, PackageId, "winui", 9);
+        var (foundEmpty, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(string.Empty, PackageId, "winui", 9);
         Assert.IsFalse(foundEmpty);
 
-        var (foundMalformed, _, _) = WinUiTemplateCatalog.DeriveTfmOption("{ not json", PackageId, "winui", 9);
+        var (foundMalformed, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption("{ not json", PackageId, "winui", 9);
         Assert.IsFalse(foundMalformed);
     }
 }

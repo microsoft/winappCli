@@ -42,8 +42,8 @@ internal class UiRecordCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
+        IUiTargetResolver targetResolver,
+        IUiRecordingService recordingService,
         IAnsiConsole ansiConsole,
         ILogger<UiRecordCommand> logger) : AsynchronousCommandLineAction
     {
@@ -176,7 +176,7 @@ internal class UiRecordCommand : Command, IShortDescription
                     return 1;
                 }
 
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
 
                 var isStdinRedirected = s_isInputRedirectedOverride?.Invoke() ?? Console.IsInputRedirected;
 
@@ -188,7 +188,7 @@ internal class UiRecordCommand : Command, IShortDescription
                     var destinations = framesDirectory is null
                         ? filePath
                         : $"{filePath}; frame artifacts: {framesDirectory}";
-                    ansiConsole.MarkupLine($"[grey]Recording \"{Markup.Escape(session.WindowTitle ?? "")}\" (PID {session.ProcessId}) to {Markup.Escape(destinations)} — until {until}, {fps} fps…[/]");
+                    ansiConsole.MarkupLine($"[grey]Recording \"{Markup.Escape(uiTarget.WindowTitle ?? "")}\" (PID {uiTarget.ProcessId}) to {Markup.Escape(destinations)} — until {until}, {fps} fps…[/]");
                 }
 
                 // Stops received before the first frame wait for encoder readiness.
@@ -231,7 +231,7 @@ internal class UiRecordCommand : Command, IShortDescription
                     FramesDirectory = framesDirectory,
                 };
 
-                var result = await uiAutomation.RecordAsync(session, selector, options, linkedCts.Token, OnRecordingStarted);
+                var result = await recordingService.RecordAsync(uiTarget, selector, options, linkedCts.Token, OnRecordingStarted);
 
                 if (json)
                 {

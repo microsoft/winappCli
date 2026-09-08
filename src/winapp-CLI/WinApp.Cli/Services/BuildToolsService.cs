@@ -66,7 +66,7 @@ internal partial class BuildToolsService(
     private DirectoryInfo? FindPackagePath(string packageName, string subPath)
     {
         var nugetCacheDir = nugetService.GetNuGetGlobalPackagesDir();
-        var packageBaseDir = new DirectoryInfo(Path.Combine(nugetCacheDir.FullName, packageName.ToLowerInvariant()));
+        var packageBaseDir = new DirectoryInfo(Path.Join(nugetCacheDir.FullName, packageName.ToLowerInvariant()));
         if (!packageBaseDir.Exists)
         {
             return null;
@@ -126,9 +126,14 @@ internal partial class BuildToolsService(
         // Check if we have a pinned version
         if (!string.IsNullOrWhiteSpace(pinnedVersion))
         {
+            // A pin may be shorthand (e.g. "1.0"); the cache uses NuGet's canonical folder name ("1.0.0"),
+            // so normalize before matching directory names — otherwise a valid shorthand pin would never
+            // match and would fall through to the strict null return below.
+            var normalizedPin = NugetService.NormalizeVersion(pinnedVersion);
+
             // Look for the specific pinned version directory
             selectedVersionDir = versionDirs
-                .FirstOrDefault(d => string.Equals(d.Name, pinnedVersion, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(d => string.Equals(d.Name, normalizedPin, StringComparison.OrdinalIgnoreCase));
 
             // If pinned version is specified but not found, return null (strict requirement).
             if (selectedVersionDir == null)
@@ -142,7 +147,7 @@ internal partial class BuildToolsService(
             .OrderByDescending(d => ParseVersion(d.Name))
             .First();
 
-        var basePath = new DirectoryInfo(Path.Combine(selectedVersionDir.FullName, subPath));
+        var basePath = new DirectoryInfo(Path.Join(selectedVersionDir.FullName, subPath));
         if (!basePath.Exists)
         {
             return null;
@@ -165,7 +170,7 @@ internal partial class BuildToolsService(
 
         // Resolve the architecture-specific bin directory.
         var currentArch = WorkspaceSetupService.GetSystemArchitecture();
-        var archPath = Path.Combine(latestVersion.FullName, currentArch);
+        var archPath = Path.Join(latestVersion.FullName, currentArch);
 
         if (Directory.Exists(archPath))
         {
@@ -178,7 +183,7 @@ internal partial class BuildToolsService(
         {
             if (arch != currentArch) // Skip the one we already tried
             {
-                var fallbackArchPath = Path.Combine(latestVersion.FullName, arch);
+                var fallbackArchPath = Path.Join(latestVersion.FullName, arch);
                 if (Directory.Exists(fallbackArchPath))
                 {
                     return new DirectoryInfo(fallbackArchPath);
@@ -213,7 +218,7 @@ internal partial class BuildToolsService(
             return null;
         }
 
-        var toolPath = new FileInfo(Path.Combine(binPath.FullName, toolName));
+        var toolPath = new FileInfo(Path.Join(binPath.FullName, toolName));
         return toolPath.Exists ? toolPath : null;
     }
 

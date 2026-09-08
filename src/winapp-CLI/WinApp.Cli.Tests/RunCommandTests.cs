@@ -518,6 +518,7 @@ public class RunCommandTests : BaseCommandTests
             GetRequiredService<IProjectRunService>(),
             GetRequiredService<IManifestTemplateService>(),
             GetRequiredService<IManifestService>(),
+            GetRequiredService<IProjectContextDetector>(),
             GetRequiredService<ILogger<RunCommand>>());
 
         // Act
@@ -1710,9 +1711,80 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakePackageRegistrationService.FindDevPackagesCalls.Count);
         Assert.AreEqual("TestPackage", _fakePackageRegistrationService.FindDevPackagesCalls[0]);
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterCalls.Count, "Only the dev-mode package should be unregistered");
-        Assert.AreEqual("TestPackage", _fakePackageRegistrationService.UnregisterCalls[0].PackageName);
-        Assert.IsFalse(_fakePackageRegistrationService.UnregisterCalls[0].PreserveAppData, "unregister-on-exit should not preserve app data");
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count,
+            "Removal must be by full name; the by-name overload removes every package sharing the identity name");
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Only the dev-mode package should be unregistered");
+        Assert.AreEqual("TestPackage_1.0.0.0_x64__dev", _fakePackageRegistrationService.UnregisterByFullNameCalls[0].PackageFullName);
+        Assert.IsFalse(_fakePackageRegistrationService.UnregisterByFullNameCalls[0].PreserveAppData, "unregister-on-exit should not preserve app data");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_UnregisterOnExit_SameNameNonDevPackage_IsNotRemoved()
+    {
+        // Exit cleanup vets each package, then must remove exactly that one. Removing by identity NAME
+        // re-enumerates every user package sharing it — including the normal, non-development package
+        // skipped here — and does so with preserveAppData: false, uninstalling an unrelated app and
+        // deleting its data.
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_9.9.9.9_x64__8wekyb3d8bbwe", "TestPackage", "9.9.9.9", null, IsDevelopmentMode: false),
+        ];
+        await CreateTestManifestAsync();
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
+
+        Assert.AreEqual(0, exitCode);
+        var removed = _fakePackageRegistrationService.UnregisterByFullNameCalls.Select(c => c.PackageFullName).ToList();
+        Assert.AreEqual(1, removed.Count, "Only the exact development package this run created may be removed");
+        Assert.AreEqual("TestPackage_1.0.0.0_x64__dev", removed[0]);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count,
+            "The by-name overload would also remove the same-named store package");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_UnregisterOnExit_AfterCancellation_StillRemovesTheRegistration()
+    {
+        // Ctrl+C is the normal way to stop an inline console app, which this command now launches through
+        // an alias by default. --unregister-on-exit is a promise made before the app started, so cleanup
+        // has to survive it: handing the run's already-cancelled token to the removal makes
+        // RemovePackageAsync(...).AsTask(token) fail instantly, and the exception is swallowed as debug
+        // noise — leaving the registration and its alias behind to interfere with the next run.
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+        ];
+        await CreateTestManifestAsync();
+        var outputDir = await CreateProcessedManifestAsync("appx-cancel-cleanup", alias: "winapp-run-test.exe");
+        var aliasProxy = CreateExistingFile("winapp-run-test.exe");
+        var processStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var helperPid = 0;
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
+        handler.ProcessStarter = _ =>
+        {
+            var p = StartHelperProcess("/c ping -n 6 127.0.0.1");
+            helperPid = p.Id;
+            processStarted.SetResult();
+            return p;
+        };
+        var command = GetRequiredService<RunCommand>();
+        var parseResult = command.Parse(
+            [_tempDirectory.FullName, "--with-alias", "--unregister-on-exit", "--output-appx-directory", outputDir.FullName]);
+        using var cts = new CancellationTokenSource();
+
+        var invocation = handler.InvokeAsync(parseResult, cts.Token);
+        await processStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cts.Cancel();
+        await invocation;
+
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count,
+            "The registration promised on exit must still be removed after Ctrl+C");
+        Assert.IsFalse(_fakePackageRegistrationService.UnregisterByFullNameTokenCancelled[0],
+            "Cleanup must run on its own token; the run's token is already cancelled and would fail the removal");
+        TryKillByPid(helperPid);
     }
 
     [TestMethod]
@@ -1743,7 +1815,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeDebugOutputService.AttachCalls.Count, "The debug loop should run");
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterCalls.Count, "The dev package should be unregistered after the debug loop");
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "The dev package should be unregistered after the debug loop");
     }
 
     #endregion
@@ -1898,7 +1970,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--unregister-on-exit", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode, "The alias proxy is missing, so the alias path returns 1");
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterCalls.Count, "Dev package should still be unregistered on exit");
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Dev package should still be unregistered on exit");
     }
 
     [TestMethod]
@@ -2024,6 +2096,7 @@ public class RunCommandTests : BaseCommandTests
         var outputDir = await CreateProcessedManifestAsync("appx-cancel", alias: "winapp-run-test.exe");
         var aliasProxy = CreateExistingFile("winapp-run-test.exe");
         var helperPid = 0;
+        var processStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
@@ -2031,13 +2104,17 @@ public class RunCommandTests : BaseCommandTests
         {
             var p = StartHelperProcess("/c ping -n 6 127.0.0.1");
             helperPid = p.Id;
+            processStarted.SetResult();
             return p;
         };
         var command = GetRequiredService<RunCommand>();
         var parseResult = command.Parse([_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(750));
+        using var cts = new CancellationTokenSource();
 
-        var exitCode = await handler.InvokeAsync(parseResult, cts.Token);
+        var invocation = handler.InvokeAsync(parseResult, cts.Token);
+        await processStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cts.Cancel();
+        var exitCode = await invocation;
 
         Assert.AreEqual(-1, exitCode, "Cancellation during the alias wait returns -1");
         Assert.AreEqual(1, _fakeAppLauncherService.TerminateCalls.Count, "The package's processes should be terminated on cancel");

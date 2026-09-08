@@ -28,9 +28,9 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IAnsiConsole ansiConsole,
         ILogger<UiScrollIntoViewCommand> logger) : AsynchronousCommandLineAction
     {
@@ -55,9 +55,9 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
-                var selector = selectorService.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(session, selector, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                var selector = selectorParser.Parse(selectorStr);
+                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -65,10 +65,10 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
                     return 1;
                 }
 
-                await uiAutomation.ScrollIntoViewAsync(session, element, cancellationToken);
+                await uiAutomation.ScrollIntoViewAsync(uiTarget, element, cancellationToken);
                 if (json)
                 {
-                    var result = new UiScrollIntoViewResult { ElementId = (element.Selector ?? element.Id ?? ""), Hwnd = session.WindowHandle };
+                    var result = new UiScrollIntoViewResult { ElementId = (element.Selector ?? element.Id ?? ""), Hwnd = uiTarget.WindowHandle };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiScrollIntoViewResult));
                 }

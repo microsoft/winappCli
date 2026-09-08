@@ -38,7 +38,7 @@ public partial class UiCommandTests
         const int dispW = 100, dispH = 100;
         var source = MakeSolidFrame(srcW, srcH, b: 0, g: 200, r: 0); // green content
 
-        var output = UiAutomationService.ProcessFrame(
+        var output = UiRecordingService.ProcessFrame(
             source, srcW, srcH,
             cropX: 0, cropY: 0, cropW: srcW, cropH: srcH,
             encoderWidth: encW, encoderHeight: encH,
@@ -74,7 +74,7 @@ public partial class UiCommandTests
         const int encoderW = 80, encoderH = 80;
 
         var source = MakeSolidFrame(contentW, contentH, b: 0, g: 0, r: 255); // red
-        var output = UiAutomationService.ProcessFrame(
+        var output = UiRecordingService.ProcessFrame(
             source, contentW, contentH,
             cropX: 0, cropY: 0, cropW: contentW, cropH: contentH,
             encoderWidth: encoderW, encoderHeight: encoderH,
@@ -104,7 +104,7 @@ public partial class UiCommandTests
         const int w = 640, h = 480;
         var source = MakeSolidFrame(w, h, b: 0, g: 255, r: 0); // green
 
-        var output = UiAutomationService.ProcessFrame(
+        var output = UiRecordingService.ProcessFrame(
             source, w, h,
             cropX: 0, cropY: 0, cropW: w, cropH: h,
             encoderWidth: w, encoderHeight: h,
@@ -136,7 +136,7 @@ public partial class UiCommandTests
             }
         }
 
-        var output = UiAutomationService.ProcessFrame(
+        var output = UiRecordingService.ProcessFrame(
             source, srcW, srcH,
             cropX, cropY, cropW, cropH,
             encoderWidth: encW, encoderHeight: encH,
@@ -163,7 +163,7 @@ public partial class UiCommandTests
         Exception? ex = null;
         try
         {
-            UiAutomationService.ProcessFrame(
+            UiRecordingService.ProcessFrame(
                 source, srcW, srcH,
                 cropX: 40, cropY: 40, cropW: 30, cropH: 30, // 40+30=70 > 50 — clamped
                 encoderWidth: 64, encoderHeight: 64,
@@ -187,7 +187,7 @@ public partial class UiCommandTests
 
         var source = MakeSolidFrame(srcW, srcH, b: 255, g: 0, r: 0); // blue content
 
-        var output = UiAutomationService.ProcessFrame(
+        var output = UiRecordingService.ProcessFrame(
             source, srcW, srcH,
             cropX: 0, cropY: 0, cropW: srcW, cropH: srcH,
             encoderWidth: encW, encoderHeight: encH,
@@ -211,7 +211,7 @@ public partial class UiCommandTests
         // bounds) and verifying that the fixed (full-frame) crop captures it.
         const int initialW = 100, initialH = 100;
         const int grownW = 200, grownH = 200;
-        var (encW, encH, dispW, dispH) = UiAutomationService.ComputeTargetSize(initialW, initialH, 0);
+        var (encW, encH, dispW, dispH) = UiRecordingService.ComputeTargetSize(initialW, initialH, 0);
 
         // Source: black in the top-left 100×100 region, blue in the grown (>100) region.
         var source = new byte[grownW * grownH * 4];
@@ -229,13 +229,13 @@ public partial class UiCommandTests
         }
 
         // Stale crop (the bug): only the black top-left 100×100 sub-rect.
-        var staleOutput = UiAutomationService.ProcessFrame(
+        var staleOutput = UiRecordingService.ProcessFrame(
             source, grownW, grownH,
             0, 0, initialW, initialH,
             encW, encH, dispW, dispH);
 
         // Fixed crop (H2 fix): full 200×200 current frame.
-        var fixedOutput = UiAutomationService.ProcessFrame(
+        var fixedOutput = UiRecordingService.ProcessFrame(
             source, grownW, grownH,
             0, 0, grownW, grownH,
             encW, encH, dispW, dispH);
@@ -261,10 +261,10 @@ public partial class UiCommandTests
         // M8: when IsClosed fires and the cached frame is drained before break,
         // ProcessFrame must produce valid encoder-sized output (not empty/zero).
         const int srcW = 64, srcH = 64;
-        var (encW, encH, dispW, dispH) = UiAutomationService.ComputeTargetSize(srcW, srcH, 0);
+        var (encW, encH, dispW, dispH) = UiRecordingService.ComputeTargetSize(srcW, srcH, 0);
         var source = MakeSolidFrame(srcW, srcH, b: 0, g: 180, r: 0); // green
 
-        var output = UiAutomationService.ProcessFrame(
+        var output = UiRecordingService.ProcessFrame(
             source, srcW, srcH, 0, 0, srcW, srcH,
             encW, encH, dispW, dispH);
 

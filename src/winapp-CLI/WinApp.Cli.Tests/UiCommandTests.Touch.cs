@@ -51,7 +51,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_Swipe_ExplicitPoints_InjectsGlidePath()
     {
-        _fakeSession.SessionResult.WindowHandle = 5150;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5150;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -68,7 +68,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_Swipe_Direction_Right_ComputesEndPoint()
     {
-        _fakeSession.SessionResult.WindowHandle = 5151;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5151;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -84,7 +84,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_Swipe_Direction_Left_ComputesEndPoint()
     {
-        _fakeSession.SessionResult.WindowHandle = 5152;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5152;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -99,7 +99,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_Swipe_Direction_Up_ComputesEndPoint()
     {
-        _fakeSession.SessionResult.WindowHandle = 5153;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5153;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -114,7 +114,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_Swipe_Direction_Down_ComputesEndPoint()
     {
-        _fakeSession.SessionResult.WindowHandle = 5154;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5154;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -130,7 +130,7 @@ public partial class UiCommandTests
     public async Task Touch_Swipe_DistanceOnly_DefaultsToRightDirection()
     {
         // Backward-compat: --distance without --direction still moves right (the old behavior).
-        _fakeSession.SessionResult.WindowHandle = 5155;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5155;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -145,7 +145,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_LongPress_NoHoldMs_DefaultsTo500ms()
     {
-        _fakeSession.SessionResult.WindowHandle = 5156;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5156;
 
         var command = GetRequiredService<UiTouchCommand>();
         // No --hold-ms specified → should default to 500 ms for long-press.
@@ -162,7 +162,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_LongPress_ExplicitHoldMs_UsesProvidedValue()
     {
-        _fakeSession.SessionResult.WindowHandle = 5157;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5157;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -177,7 +177,7 @@ public partial class UiCommandTests
     public async Task Touch_LongPress_JsonOutputIncludesEffectiveHoldMs()
     {
         // Verify that the JSON result carries the effective holdMs so agents can observe it.
-        _fakeSession.SessionResult.WindowHandle = 5158;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5158;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -194,7 +194,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_LongPress_ExplicitHoldMs_JsonOutputIncludesExplicitValue()
     {
-        _fakeSession.SessionResult.WindowHandle = 5159;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5159;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -210,7 +210,7 @@ public partial class UiCommandTests
     public async Task Touch_Tap_JsonOutput_HoldMsIsZero()
     {
         // For a plain tap, holdMs=0 and must appear in JSON as 0 (not missing).
-        _fakeSession.SessionResult.WindowHandle = 5160;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5160;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -306,7 +306,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_Swipe_ExplicitMovingOptions_Succeeds()
     {
-        _fakeSession.SessionResult.WindowHandle = 5163;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5163;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -326,7 +326,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_Pinch_ExplicitTwoFingers_Succeeds()
     {
-        _fakeSession.SessionResult.WindowHandle = 5164;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5164;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -347,7 +347,7 @@ public partial class UiCommandTests
         // #661: an out-of-window point is a non-fatal advisory, not a hard failure. Touch injects
         // anyway (consistent with click/drag/hover/scroll, which already inject at out-of-window
         // coordinates) and surfaces a warning, rather than rejecting with invalid_arguments.
-        _fakeSession.SessionResult.WindowHandle = 7000;
+        _fakeTargetResolver.TargetResult.WindowHandle = 7000;
         _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -373,7 +373,7 @@ public partial class UiCommandTests
     {
         // The out-of-window advisory (#661) and the remote-session delivery advisory (id27/id28) are
         // independent; when both apply they must both appear in warnings[].
-        _fakeSession.SessionResult.WindowHandle = 7050;
+        _fakeTargetResolver.TargetResult.WindowHandle = 7050;
         _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
         _fakeForeground.IsRemoteSessionResult = true;
 
@@ -400,7 +400,7 @@ public partial class UiCommandTests
         // just the explicit --at/--path anchor. A swipe whose START is in-bounds but whose generated END
         // waypoint lands outside the window must still warn (and inject), proving the bounds check covers
         // the whole gesture path rather than only the anchor.
-        _fakeSession.SessionResult.WindowHandle = 7100;
+        _fakeTargetResolver.TargetResult.WindowHandle = 7100;
         _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -432,7 +432,7 @@ public partial class UiCommandTests
         // through the static ambient AnsiConsole (TextWriterLogger), so we swap it to a capturing console
         // for the invoke; [DoNotParallelize] keeps that global swap isolated. The advisory must land on
         // that (stdout) console and NOT on stderr, proving it is a non-fatal warning.
-        _fakeSession.SessionResult.WindowHandle = 7200;
+        _fakeTargetResolver.TargetResult.WindowHandle = 7200;
         _fakeUia.WindowRect = new PointerRect(0, 0, 800, 600);
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -462,7 +462,7 @@ public partial class UiCommandTests
     {
         // Session has no window handle (0) and an explicit --at (no element resolves a handle),
         // so there is no verifiable target — the command must refuse to inject.
-        _fakeSession.SessionResult.WindowHandle = 0;
+        _fakeTargetResolver.TargetResult.WindowHandle = 0;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -479,7 +479,7 @@ public partial class UiCommandTests
     {
         // A nonzero handle resolves, but the window rect can't be read → no verifiable
         // target, so the command must refuse (no_target) before the foreground gate.
-        _fakeSession.SessionResult.WindowHandle = 7100;
+        _fakeTargetResolver.TargetResult.WindowHandle = 7100;
         _fakeUia.WindowRectAllow = false;
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -497,7 +497,7 @@ public partial class UiCommandTests
     {
         // Explicit --hold-ms 0 with long-press is a degenerate combination that must be
         // rejected with a structured invalid_arguments error, NOT silently rewritten to 500.
-        _fakeSession.SessionResult.WindowHandle = 5161;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5161;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -513,7 +513,7 @@ public partial class UiCommandTests
         // If the pointer-injection path throws InvalidOperationException (e.g. UP-frame failure
         // now surfacing on the normal path), the command must catch it and return non-zero with a
         // structured JSON error (injection_unsupported), not crash or report success.
-        _fakeSession.SessionResult.WindowHandle = 5162;
+        _fakeTargetResolver.TargetResult.WindowHandle = 5162;
         _fakePointer.ThrowException = new InvalidOperationException("UP frame injection failed — pointer stuck");
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -548,7 +548,7 @@ public partial class UiCommandTests
     {
         // When the session service throws AppNotFoundException (app not running), the outer
         // catch must map it to missing_app, not internal_error.
-        _fakeSession.ThrowException = new WinApp.Cli.Services.AppNotFoundException(
+        _fakeTargetResolver.ThrowException = new AppNotFoundException(
             "No running app found matching '__test_nonexistent__'.");
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -563,7 +563,7 @@ public partial class UiCommandTests
             stderr.AsSpan(jsonStart).TrimEnd());
         Assert.AreEqual(UiJsonError.CodeMissingApp,
             error.GetProperty("error").GetProperty("code").GetString(),
-            "AppNotFoundException from session service must map to missing_app");
+            "AppNotFoundException from the target resolver must map to missing_app");
         Assert.IsFalse(stderr.Contains(UiJsonError.CodeInternalError),
             $"AppNotFoundException must NOT produce internal_error; got stderr: {stderr}");
     }
@@ -573,7 +573,7 @@ public partial class UiCommandTests
     {
         // When FindSingleElementAsync throws plain InvalidOperationException (selector matched
         // multiple elements), the outer catch must map it to invalid_arguments, NOT missing_app.
-        _fakeSession.SessionResult = new WinApp.Cli.Models.UiSessionInfo
+        _fakeTargetResolver.TargetResult = new UiTarget
         {
             ProcessId = 1, ProcessName = "TestApp", WindowHandle = 1234
         };
@@ -610,7 +610,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_RemoteSession_EmitsDeliveryWarning()
     {
-        _fakeSession.SessionResult.WindowHandle = 8200;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8200;
         _fakeForeground.IsRemoteSessionResult = true;
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -631,7 +631,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Touch_LocalSession_NoDeliveryWarning()
     {
-        _fakeSession.SessionResult.WindowHandle = 8201;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8201;
         _fakeForeground.IsRemoteSessionResult = false; // default; explicit for intent
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -647,9 +647,9 @@ public partial class UiCommandTests
     [TestMethod]
     public void RemoteInjectionWarning_PureComposition_NullWhenLocal_MessageWhenRemote()
     {
-        Assert.IsNull(WinApp.Cli.Helpers.ForegroundGuard.RemoteInjectionWarning(false, "touch"),
+        Assert.IsNull(ForegroundGuard.RemoteInjectionWarning(false, "touch"),
             "No warning on a local session");
-        var msg = WinApp.Cli.Helpers.ForegroundGuard.RemoteInjectionWarning(true, "touch");
+        var msg = ForegroundGuard.RemoteInjectionWarning(true, "touch");
         Assert.IsNotNull(msg);
         StringAssert.Contains(msg, "touch", "Warning must name the input kind");
         StringAssert.Contains(msg, "remote", "Warning must name the remote caveat");
@@ -787,7 +787,7 @@ public partial class UiCommandTests
         // A bare selector that resolves to no element: ResolvePointAsync reports element_not_found and
         // returns not-Ok, so the command aborts before injection (covers the null-element branch of
         // PointerCommandSupport and the !target.Ok guard). FindSingleResult stays null by default.
-        _fakeSession.SessionResult.WindowHandle = 6100;
+        _fakeTargetResolver.TargetResult.WindowHandle = 6100;
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["ghost-element", "-a", "TestApp", "--json"]);
@@ -841,7 +841,7 @@ public partial class UiCommandTests
     {
         // The non-JSON render path logs a human success line and, for a local session, no delivery
         // warning. Info/Warning route through the static ambient console, so we swap it to capture.
-        _fakeSession.SessionResult.WindowHandle = 8300;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8300;
         _fakeForeground.IsRemoteSessionResult = false;
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -861,7 +861,7 @@ public partial class UiCommandTests
     {
         // Remote (RDP) session: the non-JSON path still injects (exit 0) but appends an advisory
         // delivery-uncertainty warning to the human output.
-        _fakeSession.SessionResult.WindowHandle = 8301;
+        _fakeTargetResolver.TargetResult.WindowHandle = 8301;
         _fakeForeground.IsRemoteSessionResult = true;
 
         var command = GetRequiredService<UiTouchCommand>();
@@ -893,7 +893,7 @@ public partial class UiCommandTests
     {
         // A non-COM, non-app-not-found, non-IOE exception during session resolution falls through to
         // the catch-all generic handler and is reported (not swallowed or crashed).
-        _fakeSession.ResolveThrow = new TimeoutException("boom (test)");
+        _fakeTargetResolver.ResolveThrow = new TimeoutException("boom (test)");
 
         var command = GetRequiredService<UiTouchCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn-ok", "-a", "TestApp", "--json"]);

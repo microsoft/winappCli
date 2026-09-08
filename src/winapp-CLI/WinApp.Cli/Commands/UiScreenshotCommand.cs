@@ -34,8 +34,8 @@ internal class UiScreenshotCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
         IOwnedWindowFinder ownedWindowFinder,
         ISystemUiQuery systemQuery,
         IAnsiConsole ansiConsole,
@@ -68,27 +68,27 @@ internal class UiScreenshotCommand : Command, IShortDescription
                         // Resolve session using the largest window's HWND (suppresses session multi-window warning)
                         var main = allWindows.OrderByDescending(w =>
                         {
-                            var info = UiSessionService.GetWindowInfo(w.Hwnd);
+                            var info = UiTargetResolver.GetWindowInfo(w.Hwnd);
                             return (long)info.Width * info.Height;
                         }).First();
-                        var session = await sessionService.ResolveSessionAsync(null, main.Hwnd, cancellationToken);
-                        return await CaptureMultipleWindows(allWindows, session, output, json, captureScreen, focus, cancellationToken);
+                        var uiTarget = await targetResolver.ResolveAsync(null, main.Hwnd, cancellationToken);
+                        return await CaptureMultipleWindows(allWindows, uiTarget, output, json, captureScreen, focus, cancellationToken);
                     }
                 }
 
                 // Single window capture (or element crop)
-                var singleSession = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
+                var singleSession = await targetResolver.ResolveAsync(app, window, cancellationToken);
 
                 // Even for single-window session, check for owned dialogs
                 if (selector is null)
                 {
-                    var sessionHwnd = (nint)singleSession.WindowHandle;
-                    var ownedWindows = ownedWindowFinder.FindOwnedWindows([(sessionHwnd, singleSession.ProcessId, singleSession.WindowTitle ?? "")]);
+                    var targetWindowHwnd = (nint)singleSession.WindowHandle;
+                    var ownedWindows = ownedWindowFinder.FindOwnedWindows([(targetWindowHwnd, singleSession.ProcessId, singleSession.WindowTitle ?? "")]);
                     if (ownedWindows.Count > 0)
                     {
                         var allWindows = new List<(nint Hwnd, int Pid, string Title)>
                         {
-                            (sessionHwnd, singleSession.ProcessId, singleSession.WindowTitle ?? "")
+                            (targetWindowHwnd, singleSession.ProcessId, singleSession.WindowTitle ?? "")
                         };
                         allWindows.AddRange(ownedWindows);
                         return await CaptureMultipleWindows(allWindows, singleSession, output, json, captureScreen, focus, cancellationToken);
@@ -142,7 +142,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
 
         private async Task<int> CaptureMultipleWindows(
             List<(nint Hwnd, int Pid, string Title)> windows,
-            UiSessionInfo session,
+            UiTarget uiTarget,
             string? output,
             bool json,
             bool captureScreen,
@@ -154,7 +154,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
             // Sort: main window first (largest), then others
             var sorted = windows.OrderByDescending(w =>
             {
-                var info = UiSessionService.GetWindowInfo(w.Hwnd);
+                var info = UiTargetResolver.GetWindowInfo(w.Hwnd);
                 return (long)info.Width * info.Height;
             }).ToList();
 
@@ -168,14 +168,14 @@ internal class UiScreenshotCommand : Command, IShortDescription
             var windowDetails = new List<UiScreenshotWindowInfo>();
             foreach (var w in sorted)
             {
-                var info = UiSessionService.GetWindowInfo(w.Hwnd);
+                var info = UiTargetResolver.GetWindowInfo(w.Hwnd);
                 var title = string.IsNullOrEmpty(w.Title) ? "(no title)" : w.Title;
                 try
                 {
-                    var windowSession = new UiSessionInfo
+                    var windowSession = new UiTarget
                     {
                         ProcessId = w.Pid,
-                        ProcessName = session.ProcessName,
+                        ProcessName = uiTarget.ProcessName,
                         WindowTitle = title,
                         WindowHandle = w.Hwnd
                     };
@@ -248,9 +248,9 @@ internal class UiScreenshotCommand : Command, IShortDescription
                     FilePath = absolutePath,
                     Width = compositeWidth,
                     Height = compositeHeight,
-                    ProcessId = session.ProcessId,
-                    WindowTitle = session.WindowTitle,
-                    Hwnd = session.WindowHandle,
+                    ProcessId = uiTarget.ProcessId,
+                    WindowTitle = uiTarget.WindowTitle,
+                    Hwnd = uiTarget.WindowHandle,
                     Windows = windowDetails.ToArray(),
                 };
                 ansiConsole.Profile.Out.Writer.WriteLine(

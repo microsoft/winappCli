@@ -79,9 +79,9 @@ internal class UiPenCommand : Command, IShortDescription
     }
 
     public class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
-        ISelectorService selectorService,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IPointerInput pointerInput,
         IForegroundGuard foregroundGuard,
         IAnsiConsole ansiConsole,
@@ -191,9 +191,9 @@ internal class UiPenCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
 
-                long targetHwnd = session.WindowHandle;
+                long targetHwnd = uiTarget.WindowHandle;
                 // L1: report the effective target — pathStr when --path was given, atStr when --at
                 // was given, or selectorStr when the selector resolved the contact point.
                 var targetLabel = pathStr ?? (at is not null ? atStr : selectorStr);
@@ -202,7 +202,7 @@ internal class UiPenCommand : Command, IShortDescription
                 if (path is null)
                 {
                     var target = await PointerCommandSupport.ResolvePointAsync(
-                        uiAutomation, selectorService, session, selectorStr, at, atStr,
+                        uiAutomation, selectorParser, uiTarget, selectorStr, at, atStr,
                         "pen", "pen point", logger, json, cancellationToken);
                     if (!target.Ok)
                     {
@@ -298,7 +298,7 @@ internal class UiPenCommand : Command, IShortDescription
             {
                 // Session resolution failure — the requested app was not found.
                 // Injection IOE is already caught by the inner try/catch (returns 1 without
-                // re-throwing), so AppNotFoundException can only come from ResolveSessionAsync.
+                // re-throwing), so AppNotFoundException can only come from ResolveAsync.
                 logger.LogError("{Symbol} {Message}", UiSymbols.Error, ioEx.Message);
                 UiJsonError.Emit(json, UiJsonError.CodeMissingApp, ioEx.Message,
                     errorOut: parseResult.InvocationConfiguration.Error);

@@ -40,6 +40,10 @@ You need an **existing app project** — `winapp init` does **not** create new p
 
 To start a brand-new **WinUI** app (rather than adding Windows support to an existing project), use `winapp new`. It verifies the .NET SDK, installs the official WinUI `dotnet new` template pack on demand (grabbing the latest, or offering to update a stale one), and scaffolds the app against your installed SDK's target framework. Most WinUI templates already include packaging/identity, so **no `winapp init` step is needed** afterward — follow the template-specific next step `winapp new` prints when it finishes. App templates go straight to `winapp run` (which builds and launches the app); the `winui-lib` (class library) and `winui-unittest` templates differ (reference the library from an app project, or `winapp run` the packaged test app to run its tests). The template list is read live from the installed pack — run `winapp new --list` to see the current set.
 
+The pack ships two styles of app. **XAML** templates (`winui`, `winui-navview`, `winui-tabview`, `winui-mvvm`) define the UI in markup with a C# code-behind. **Reactor** templates (`reactor`, `reactor-mvu`, `reactor-navview`, `reactor-tabview`) are pure C# with no XAML, using an MVU pattern.
+
+> **Reactor templates are experimental.** They reference the prerelease `Microsoft.UI.Reactor` packages, whose APIs can change or be removed in a future release — don't pick one unless the user explicitly asks for Reactor. `winapp new` marks them **(Experimental)** in `--list` and in the picker, reports `"Experimental": true` in `--json`, and never selects one as the default. They also require the **.NET 10 SDK or newer**; on an older SDK `winapp new` fails up front naming the version it needs.
+
 > A first run, template-pack update, or newly published Windows App SDK version may take longer while missing NuGet packages download and restore. If scaffolding continues beyond 10 seconds, `winapp new` updates its status message rather than silently waiting.
 
 ```powershell
@@ -51,6 +55,9 @@ winapp new --list
 
 # One-shot with a specific template (short names come from `winapp new --list`)
 winapp new --name MyApp --template winui-navview
+
+# Experimental Reactor app (pure C#, no XAML) — requires the .NET 10 SDK
+winapp new --name MyApp --template reactor-mvu
 
 # Diagnose a failed scaffold: --verbose streams dotnet new's post-creation actions
 # (restore, package add, etc.) live so the underlying dotnet error is visible
@@ -129,7 +136,23 @@ winapp restore
 winapp restore ./my-project
 ```
 
-Use `restore` when you clone a repo that already has `winapp.yaml` but no `.winapp/` folder.
+Use `restore` when you clone a repo that already has `winapp.yaml` but no `.winapp/` folder. For a .NET project there is no `winapp.yaml`, so `restore` runs `dotnet restore` instead.
+
+### Private or custom NuGet feeds
+
+`init`, `restore`, and `update` download the SDK packages through NuGet, honoring your standard `nuget.config` hierarchy. Private feeds and mirrors, feed credentials (including credential providers), and a custom `globalPackagesFolder` all work as they do for `dotnet restore`. To use only your feed, `<clear />` the inherited sources first:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="contoso" value="https://pkgs.dev.azure.com/contoso/_packaging/winsdk-mirror/nuget/v3/index.json" />
+  </packageSources>
+</configuration>
+```
+
+> **Security note:** For native projects winapp resolves `nuget.config` from the directory it operates on: the `init`/`restore` directory argument, `--config-dir` when given, otherwise the current directory. For **.NET projects** the sources come from the project's own `nuget.config` hierarchy instead, because that is what `dotnet add package` and `dotnet restore` use — so put a private feed's config in the project directory or an ancestor, not in a sibling passed via `--config-dir` (that is reported and ignored). Run these commands only against directories you trust, the same as `dotnet restore`. Use `<packageSourceMapping>` to pin packages to specific feeds when more than one source is configured.
 
 ### Update SDK versions
 
@@ -273,6 +296,8 @@ For full debugging scenarios and IDE setup, see the [Debugging Guide](https://gi
 | "winapp.yaml not found" | Running `restore`/`update` without config | Run `winapp init` first, or ensure you're in the right directory |
 | "Directory not found" | Target directory doesn't exist | Create the directory first or check the path |
 | SDK download fails | Network issue or firewall | Ensure internet access; check proxy settings |
+| SDK download fails with 401/403 | Private feed requires authentication | Store credentials in `nuget.config` (`<packageSourceCredentials>`) or configure a credential provider / feed environment credentials before running in CI |
+| SDK package not found on private feed | Feed doesn't mirror the SDK packages, or the wrong source is configured | Ensure the feed serves `Microsoft.WindowsAppSDK`, `Microsoft.Windows.SDK.CPP`, `Microsoft.Windows.CppWinRT`, etc.; keep `nuget.org` enabled if the feed only supplements it |
 | `init` prompts unexpectedly in CI | Missing `--use-defaults` flag | Add `--use-defaults` to skip all prompts (note: non-interactive shells are now auto-detected) |
 | `winapp new` fails during scaffolding | A `dotnet new` post-creation action (restore, package add) failed | Re-run with `--verbose` to stream the live dotnet output and see the underlying error |
 

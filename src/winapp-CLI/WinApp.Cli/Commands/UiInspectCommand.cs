@@ -43,8 +43,8 @@ internal partial class UiInspectCommand : Command, IShortDescription
     }
 
     public partial class Handler(
-        IUiSessionService sessionService,
-        IUiAutomationService uiAutomation,
+        IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
         IAnsiConsole ansiConsole,
         ILogger<UiInspectCommand> logger) : AsynchronousCommandLineAction
     {
@@ -78,12 +78,12 @@ internal partial class UiInspectCommand : Command, IShortDescription
 
             try
             {
-                var session = await sessionService.ResolveSessionAsync(app, window, cancellationToken);
-                Models.UiElement[] elements;
+                var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                UiElement[] elements;
 
                 if (ancestors && selector is not null)
                 {
-                    elements = await uiAutomation.InspectAncestorsAsync(session, selector, cancellationToken);
+                    elements = await uiAutomation.InspectAncestorsAsync(uiTarget, selector, cancellationToken);
                     // The ancestor walk returns root-first..target-last but does not assign Depth.
                     // BuildWindows/NestElements use a depth-stack to nest children, so without an
                     // ascending depth assignment all ancestors collapse into sibling roots in JSON.
@@ -91,7 +91,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
                 }
                 else
                 {
-                    elements = await uiAutomation.InspectAsync(session, selector, depth, cancellationToken);
+                    elements = await uiAutomation.InspectAsync(uiTarget, selector, depth, cancellationToken);
                 }
 
                 // Apply filters (preserve window separator elements)
@@ -126,7 +126,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
                     // the unfiltered tree so BuildWindows can collapse non-interactive ancestors
                     // and surface them as ancestorPath breadcrumbs on the surviving descendants.
                     var jsonElements = interactive ? allElements : elements;
-                    var windows = BuildWindows(jsonElements, session, interactive);
+                    var windows = BuildWindows(jsonElements, uiTarget, interactive);
 
                     var result = new UiInspectResult
                     {
@@ -295,15 +295,15 @@ internal partial class UiInspectCommand : Command, IShortDescription
         };
 
         /// <summary>An element is interactive if it supports an actionable UIA pattern OR matches a conventional control type.</summary>
-        private static bool IsInteractive(Models.UiElement el)
+        private static bool IsInteractive(UiElement el)
             => el.IsInvokable || InteractiveTypes.Contains(el.Type);
 
         /// <summary>For each interactive element without its own actionable pattern, find the nearest
         /// invokable ancestor in the unfiltered element list and attach it as a fallback hint.</summary>
-        private static void AttachInvokableAncestors(Models.UiElement[] filtered, Models.UiElement[] all)
+        private static void AttachInvokableAncestors(UiElement[] filtered, UiElement[] all)
         {
             // Index 'all' by selector for fast lookup.
-            var bySelector = new Dictionary<string, Models.UiElement>(StringComparer.Ordinal);
+            var bySelector = new Dictionary<string, UiElement>(StringComparer.Ordinal);
             foreach (var el in all)
             {
                 var key = el.Selector ?? el.Id;
@@ -337,11 +337,11 @@ internal partial class UiInspectCommand : Command, IShortDescription
         /// keeps the full structural tree but prunes subtrees with no interactive descendants.
         /// Clears redundant per-element fields (depth/parentSelector/ancestorPath/windowHandle)
         /// since they're implied by the tree structure.</summary>
-        private static UiInspectWindowInfo[] BuildWindows(Models.UiElement[] elements, UiSessionInfo session, bool interactive)
+        private static UiInspectWindowInfo[] BuildWindows(UiElement[] elements, UiTarget uiTarget, bool interactive)
         {
             var windows = new List<UiInspectWindowInfo>();
             UiInspectWindowInfo? current = null;
-            var bucket = new List<Models.UiElement>();
+            var bucket = new List<UiElement>();
 
             void Flush()
             {
@@ -373,8 +373,8 @@ internal partial class UiInspectCommand : Command, IShortDescription
                     {
                         current = new UiInspectWindowInfo
                         {
-                            Hwnd = el.WindowHandle ?? session.WindowHandle,
-                            Title = session.WindowTitle,
+                            Hwnd = el.WindowHandle ?? uiTarget.WindowHandle,
+                            Title = uiTarget.WindowTitle,
                         };
                     }
                     bucket.Add(el);
@@ -387,17 +387,17 @@ internal partial class UiInspectCommand : Command, IShortDescription
 
         /// <summary>Build a nested tree from a DFS-ordered flat list using a depth-stack.
         /// Clears redundant fields and (for --interactive) prunes branches with no interactive descendants.</summary>
-        private static Models.UiElement[] NestElements(List<Models.UiElement> flat, bool interactive, out int totalCount)
+        private static UiElement[] NestElements(List<UiElement> flat, bool interactive, out int totalCount)
         {
-            var roots = new List<Models.UiElement>();
-            var stack = new Stack<(Models.UiElement el, List<Models.UiElement> kids)>();
+            var roots = new List<UiElement>();
+            var stack = new Stack<(UiElement el, List<UiElement> kids)>();
 
             foreach (var el in flat)
             {
                 var d = el.Depth ?? 0;
                 while (stack.Count > 0 && (stack.Peek().el.Depth ?? 0) >= d) { Finalize(stack.Pop()); }
 
-                var kids = new List<Models.UiElement>();
+                var kids = new List<UiElement>();
                 if (stack.Count == 0) { roots.Add(el); }
                 else { stack.Peek().kids.Add(el); }
                 stack.Push((el, kids));
@@ -419,12 +419,12 @@ internal partial class UiInspectCommand : Command, IShortDescription
             foreach (var r in roots) { StripRedundant(r, ref totalCount, interactive); }
             return roots.ToArray();
 
-            static void Finalize((Models.UiElement el, List<Models.UiElement> kids) frame)
+            static void Finalize((UiElement el, List<UiElement> kids) frame)
             {
                 frame.el.Children = frame.kids.Count > 0 ? frame.kids.ToArray() : null;
             }
 
-            static bool PruneInteractive(Models.UiElement el)
+            static bool PruneInteractive(UiElement el)
             {
                 if (el.Children is { Length: > 0 } kids)
                 {
@@ -439,9 +439,9 @@ internal partial class UiInspectCommand : Command, IShortDescription
             // their type is appended to droppedAbove and propagated to their (recursively collapsed)
             // children, which are spliced up to take their place. Each surviving node gets the
             // accumulated droppedAbove chain attached as ancestorPath.
-            static List<Models.UiElement> CollapseNonInteractive(List<Models.UiElement> nodes, List<string> droppedAbove)
+            static List<UiElement> CollapseNonInteractive(List<UiElement> nodes, List<string> droppedAbove)
             {
-                var output = new List<Models.UiElement>();
+                var output = new List<UiElement>();
                 foreach (var el in nodes)
                 {
                     var selfSurvives = IsInteractive(el) || el.HasMoreChildren == true;
@@ -463,7 +463,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
                 return output;
             }
 
-            static void StripRedundant(Models.UiElement el, ref int count, bool interactive)
+            static void StripRedundant(UiElement el, ref int count, bool interactive)
             {
                 count++;
                 el.Id = null;
@@ -475,7 +475,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
                 // descendant points back to one of its own ancestors that's also in the tree.
                 if (el.InvokableAncestor is { } anc)
                 {
-                    el.InvokableAncestor = new Models.UiElement
+                    el.InvokableAncestor = new UiElement
                     {
                         Type = anc.Type,
                         Name = anc.Name,

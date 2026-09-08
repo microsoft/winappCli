@@ -616,7 +616,10 @@ export async function handleRestore(args: string[]): Promise<void> {
   }
 
   // Stale lockfile can linger after packages removed; no packages = nothing to generate.
-  const restoreYamlPath = resolveYamlPath(args);
+  // Resolve against workspaceDir, not the process cwd: `winapp restore .\my-project` restores that
+  // directory's winapp.yaml, so reading cwd here found a different (or missing) file and skipped
+  // binding generation after a restore that actually succeeded. Matches handleInit/handleUpdate.
+  const restoreYamlPath = resolveYamlPath(args, workspaceDir);
   const yamlPackages = readWinappYamlPackages(workspaceDir, restoreYamlPath);
   if (!yamlPackages || yamlPackages.length === 0) {
     if (!quiet) {

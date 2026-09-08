@@ -26,9 +26,9 @@ public partial class UiCommandTests
 
         var framesDirectory = Path.Join(_tempDirectory.FullName, "unbounded.frames");
         Assert.AreEqual(0, exitCode);
-        Assert.AreEqual(0, _fakeUia.LastRecordOptions?.DurationSec);
-        Assert.AreEqual(1280, _fakeUia.LastRecordOptions?.MaxEdge);
-        Assert.AreEqual(framesDirectory, _fakeUia.LastRecordOptions?.FramesDirectory);
+        Assert.AreEqual(0, _fakeRecording.LastRecordOptions?.DurationSec);
+        Assert.AreEqual(1280, _fakeRecording.LastRecordOptions?.MaxEdge);
+        Assert.AreEqual(framesDirectory, _fakeRecording.LastRecordOptions?.FramesDirectory);
         Assert.IsTrue(File.Exists(Path.Join(framesDirectory, "manifest.json")));
     }
 
@@ -101,7 +101,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Record_Frames_EmitsAdditiveJsonAndStartedEvent()
     {
-        _fakeUia.RecordResult = new RecordCaptureResult
+        _fakeRecording.RecordResult = new RecordCaptureResult
         {
             Frames = 10,
             Width = 640,
@@ -141,7 +141,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Record_StartedEventOmitsUnavailableFramePaths()
     {
-        _fakeUia.RecordingStartedFrameArtifactsActiveOverride = false;
+        _fakeRecording.RecordingStartedFrameArtifactsActiveOverride = false;
         var command = GetRequiredService<UiRecordCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
@@ -168,7 +168,7 @@ public partial class UiCommandTests
     public async Task Record_PartialOutput_EmitsStableRecoveryEnvelope()
     {
         var videoPath = Path.Join(_tempDirectory.FullName, "preserved.mp4");
-        _fakeUia.RecordException = new RecordPartialOutputException(
+        _fakeRecording.RecordException = new RecordPartialOutputException(
             "Frame output failed.",
             videoPath,
             framesDirectory: null,
@@ -194,7 +194,7 @@ public partial class UiCommandTests
     public async Task Record_PartialOutputAfterStarted_EmitsJsonLines()
     {
         var videoPath = Path.Join(_tempDirectory.FullName, "preserved-after-start.mp4");
-        _fakeUia.RecordExceptionAfterStarted = new RecordPartialOutputException(
+        _fakeRecording.RecordExceptionAfterStarted = new RecordPartialOutputException(
             "Frame output failed.",
             videoPath,
             framesDirectory: null,
@@ -221,7 +221,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Record_FrameOutputFailed_EmitsStableRecoveryEnvelope()
     {
-        _fakeUia.RecordException = new RecordFrameOutputException(
+        _fakeRecording.RecordException = new RecordFrameOutputException(
             "No recording artifact could be preserved.",
             "Check disk space and retry with a new --output path.",
             new IOException("simulated frame failure"));
