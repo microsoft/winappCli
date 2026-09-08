@@ -104,39 +104,45 @@ node cli.js help
 Failed to install Microsoft.Windows.SDK.BuildTools: The SSL connection could not be established
 ```
 
-**These failures are configuration, not a limitation.** With the setup below the full unit suite
-passes locally on a corp machine: **4621 tests, 0 failures**. Do not accept a NuGet-related
-failure as environmental — none of them are.
+**This is a known limitation, not a flaky test and not a transient outage.** Do not dismiss a
+failure on these grounds and do not re-run hoping it passes.
 
-Two separate mechanisms are involved, and you need both:
+`NugetService` resolves its package sources from the standard `nuget.config` hierarchy (rooted at
+the working directory), so pointing it at a reachable mirror is a config change, not an
+environment-variable override. Add a mirror of nuget.org to your user-level
+`%APPDATA%\NuGet\NuGet.Config` — the corporate proxy works and needs no token:
 
-**1. `NugetService` downloads** (`Microsoft.Windows.SDK.BuildTools` and friends) read the
-`WINAPP_NUGET_*` variables and fall back to `api.nuget.org` only when they are unset. These are
-the same values `.pipelines/templates/build.yaml` uses in CI:
+```xml
+<add key="azure-default" value="https://packagefeedproxy.microsoft.io/nuget/v3/index.json" protocolVersion="3" />
+```
+
+The repo-root `nuget.config` deliberately declares no `<packageSources>`, so that user-level source
+is inherited by both `dotnet restore` and the CLI's own package downloads.
+
+The live-feed integration tests in `NugetServiceTests` pin themselves to an isolated config so they
+can't inherit a machine that has nuget.org disabled. Point them at the same mirror:
 
 ```powershell
-$env:WINAPP_NUGET_FLAT_CONTAINER = 'https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/flat2'
-$env:WINAPP_NUGET_REGISTRATION   = 'https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/registrations2-semver2'
-$env:WINAPP_NUGET_AUTH_PREFIX    = 'https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/'
+$env:WINAPP_TEST_NUGET_SOURCE = 'https://packagefeedproxy.microsoft.io/nuget/v3/index.json'
+```
 
-# Basic auth as VssSessionToken:<token>, applied only to URLs under WINAPP_NUGET_AUTH_PREFIX
+Confirm the mirror answers before spending time on a long run:
+
+```powershell
+Invoke-RestMethod 'https://packagefeedproxy.microsoft.io/nuget/v3/index.json'
+```
+
+If you need the `pde-oss_Internal` feed itself (the one CI restores from), it requires a token:
+
+```powershell
 $t = azureauth aad --resource 499b84ac-1321-427f-aa17-267ca6975798 `
     --client 872cd9fa-d31f-45e0-9eab-6e460a02d1f1 `
     --tenant 72f988bf-86f1-41af-91ab-2d7cd011db47 --output token
 $env:VSS_NUGET_ACCESSTOKEN = ($t | Select-Object -Last 1).Trim()
 ```
 
-Confirm the feed answers before spending time on a long run:
-
-```powershell
-$cred = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("VssSessionToken:$env:VSS_NUGET_ACCESSTOKEN"))
-Invoke-RestMethod "$env:WINAPP_NUGET_FLAT_CONTAINER/microsoft.windows.sdk.buildtools/index.json" `
-    -Headers @{ Authorization = "Basic $cred" }
-```
-
-**2. End-to-end tests that shell out to `dotnet add package Microsoft.WindowsAppSDK`** go through
-the NuGet client instead, which reads `nuget.config` and ignores `WINAPP_NUGET_*` entirely. If
-`nuget.org` is disabled and no internal feed is a registered source, they fail with
+End-to-end tests that shell out to `dotnet add package Microsoft.WindowsAppSDK` need that feed to be
+a registered source. If `nuget.org` is disabled and no internal feed is registered, they fail with
 `[ERROR] - Failed to add Microsoft.WindowsAppSDK package reference`.
 
 Do **not** fix this by adding a global package source — these tests run in `%TEMP%`, outside the
@@ -166,6 +172,9 @@ it somewhere else. CI does the same thing less surgically, by copying that file 
 `%APPDATA%\NuGet\NuGet.Config` on a throwaway agent.
 
 Because `APPDATA` is redirected, run this in a dedicated shell and let it end with the run.
+
+Note that the CLI's own package downloads read this same `nuget.config` hierarchy, so redirecting
+`APPDATA` covers both them and anything that shells out to `dotnet`.
 
 More generally: if something fails locally but passes in CI, the difference is configuration,
 not luck. Check `.pipelines/templates/build.yaml` for the environment CI provides before

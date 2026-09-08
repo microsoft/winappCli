@@ -5,11 +5,19 @@ using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text;
 using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
 internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWinrtService
 {
+    /// <summary>
+    /// Authenticode gate applied to cppwinrt.exe before it is executed. Defaults to the real verifier;
+    /// tests override it because their fixtures stand in dummy unsigned files for the real SDK binaries.
+    /// Mirrors <see cref="BuildToolsService.SignatureVerifier"/>.
+    /// </summary>
+    internal static Func<string, ILogger, bool> SignatureVerifier { get; set; } = AuthenticodeVerifier.IsTrustedMicrosoftSigned;
+
     public FileInfo? FindCppWinrtExe(DirectoryInfo packagesDir, IDictionary<string, string> usedVersions)
     {
         var pkgName = "Microsoft.Windows.CppWinRT";
@@ -27,6 +35,20 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
     public async Task RunWithRspAsync(FileInfo cppwinrtExe, IEnumerable<FileInfo> winmdInputs, DirectoryInfo outputDir, DirectoryInfo workingDirectory, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         outputDir.Create();
+
+        // cppwinrt.exe is downloaded from the configured NuGet feeds and then executed, so verify it at the
+        // point of use — the same gate BuildToolsService applies to every build tool. Without it a custom or
+        // compromised feed could supply an unsigned replacement that runs as the invoking user.
+        // Deliberately not memoized, for the reason given in BuildToolsService: any cache key cheap enough to
+        // compute here is metadata that whoever can replace the file can also reproduce.
+        if (!SignatureVerifier(cppwinrtExe.FullName, logger))
+        {
+            throw new BuildToolSignatureException(
+                $"'{cppwinrtExe.Name}' is not validly signed by Microsoft, so it was not run ({cppwinrtExe.FullName}). " +
+                "The file on disk is not what Microsoft published, which usually means a corrupt or partial " +
+                "download. Delete the package from the NuGet cache and run the command again to re-download it.");
+        }
+
         var rspPath = new FileInfo(Path.Combine(outputDir.FullName, ".cppwinrt.rsp"));
 
         var sb = new StringBuilder();

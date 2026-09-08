@@ -1801,7 +1801,7 @@
       }
     },
     "restore": {
-      "description": "Use after cloning a repo or when .winapp/ folder is missing. Reinstalls SDK packages from existing winapp.yaml without changing versions. Requires winapp.yaml (created by 'init'). To check for newer SDK versions, use 'update' instead.",
+      "description": "Use after cloning a repo or when .winapp/ folder is missing. Reinstalls SDK packages without changing versions, reading them from winapp.yaml or, for a .NET project initialized by 'init', from the .csproj via 'dotnet restore'. Requires a project already initialized by 'init'. To check for newer SDK versions, use 'update' instead.",
       "hidden": false,
       "arguments": {
         "base-directory": {
@@ -1818,7 +1818,7 @@
       },
       "options": {
         "--config-dir": {
-          "description": "Directory to read configuration from (default: current directory)",
+          "description": "Directory to read configuration from (default: base-directory)",
           "hidden": false,
           "valueType": "System.IO.DirectoryInfo",
           "hasDefaultValue": false,

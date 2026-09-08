@@ -29,7 +29,7 @@ winapp init [base-directory] [options]
 
 **Options:**
 
-- `--config-dir <path>` - Directory to read/store configuration (default: current directory)
+- `--config-dir <path>` - Directory to read/store configuration (default: the selected project directory, or current directory if no project is detected)
 - `--setup-sdks` - SDK installation mode: 'stable' (default), 'preview', 'experimental', or 'none' (skip SDK installation)
 - `--ignore-config`, `--no-config` - Don't use configuration file for version management
 - `--no-gitignore` - Don't update .gitignore file
@@ -220,12 +220,16 @@ winapp new --use-defaults --name MyApp --json
 Restore packages and regenerate files based on existing `winapp.yaml` configuration.
 
 ```bash
-winapp restore [options]
+winapp restore [base-directory] [options]
 ```
+
+**Arguments:**
+
+- `base-directory` - Directory to restore (default: current directory). Also selects where `winapp.yaml` and `nuget.config` are read from unless `--config-dir` overrides it.
 
 **Options:**
 
-- `--config-dir <path>` - Directory containing winapp.yaml (default: current directory)
+- `--config-dir <path>` - Directory containing winapp.yaml (default: base-directory)
 
 **What it does:**
 
@@ -235,14 +239,34 @@ winapp restore [options]
 - Stores shareable files in the global cache directory
 
 > [!NOTE]
-> For .NET projects initialized with `winapp init`, there is no `winapp.yaml`. Use `dotnet restore` to restore NuGet packages instead.
+> For .NET projects there is no `winapp.yaml` — the SDK versions live as `PackageReference` entries in the `.csproj` — so `winapp restore` runs `dotnet restore` for you.
 
 **Examples:**
 
 ```bash
 # Restore from winapp.yaml in current directory
 winapp restore
+
+# Restore a specific project directory (reads ./my-project/winapp.yaml)
+winapp restore ./my-project
 ```
+
+**Custom and private NuGet feeds:**
+
+`winapp init`, `restore`, and `update` download the Windows SDK and Windows App SDK packages through NuGet, honoring your standard [`nuget.config`](https://learn.microsoft.com/nuget/reference/nuget-config-file) hierarchy. Private feeds and mirrors, feed credentials (including credential providers), and a custom `globalPackagesFolder` all work as they do for `dotnet restore`. To restore exclusively from your own mirror, `<clear />` the inherited sources and add just yours:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="contoso" value="https://pkgs.dev.azure.com/contoso/_packaging/winsdk-mirror/nuget/v3/index.json" />
+  </packageSources>
+</configuration>
+```
+
+> [!NOTE]
+> For native projects winapp resolves `nuget.config` from the directory it operates on: the `init`/`restore` directory argument, `--config-dir` when given, otherwise the current directory. For **.NET projects** the sources come from the project's own `nuget.config` hierarchy instead, because that is what `dotnet add package` and `dotnet restore` use, so put a private feed's config in the project directory or an ancestor. A `--config-dir` outside that hierarchy is reported and ignored rather than silently selecting versions the project cannot restore. Run these commands only against directories you trust, the same caution that applies to `dotnet restore`. When several sources are configured, use [Package Source Mapping](https://learn.microsoft.com/nuget/consume-packages/package-source-mapping) to pin each package to a feed.
 
 ---
 

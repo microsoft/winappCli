@@ -1,7 +1,7 @@
 ---
 title: Windows App Development CLI telemetry
 description: The Windows App Development CLI collects usage information and sends it to Microsoft. Learn what data is collected and how to opt out.
-ms.date: 2025-11-13
+ms.date: 2026-08-25
 ---
 
 # Windows App Development CLI telemetry
@@ -66,7 +66,9 @@ This message is shown only once per user. A marker file (`.first-run-complete`) 
 
 ## Data points
 
-The telemetry feature doesn't collect personal data, such as usernames or email addresses. It doesn't scan your code and doesn't extract project-level data, such as name, repository, or author. It doesn't extract the contents of any data files accessed or created by your apps, dumps of any memory occupied by your apps' objects, or the contents of the clipboard. The data is sent securely to Microsoft servers using ETW events, held under restricted access.
+The telemetry feature doesn't collect personal data, such as usernames or email addresses. It doesn't scan source code and doesn't collect project names, paths, repository identities, authors, package versions, or dependency lists. For project-aware commands (`init`, `run`, `restore`, `update`, and `package`), the CLI checks only a bounded set of recognized project metadata markers in the selected directory and up to eight parent directories, stopping at a Git repository boundary. Integrated callers such as the winapp NuGet package can instead provide an allow-listed framework category derived from evaluated build properties. Only the normalized categories described below are transmitted.
+
+Recognized metadata includes project files such as `.csproj` and `package.json` and marker files such as `tauri.conf.json`, `pubspec.yaml`, `Cargo.toml`, `CMakeLists.txt`, and `winapp.yaml`. Metadata files read for classification are size-limited. Their contents, names, paths, and unrecognized values aren't included in telemetry. Project classification isn't performed when telemetry is opted out.
 
 Protecting your privacy is important to us. If you suspect the telemetry is collecting sensitive data or the data is being insecurely or inappropriately handled, file an issue in the [microsoft/winsdk](https://github.com/microsoft/winsdk/issues) repository for investigation.
 
@@ -84,6 +86,7 @@ The telemetry feature collects the following data:
 | CLI version | The version of the winapp CLI tool (from assembly version). |
 | CI environment | A boolean flag indicating whether the CLI is running in a Continuous Integration environment. |
 | Caller | The value of the `WINAPP_CLI_CALLER` environment variable, if set. This allows wrapper tools (like the npm package) to identify themselves. |
+| Project context | For `init`, `run`, `restore`, `update`, and `package`, a separate correlated event records bounded categories describing the project family (`dotnet`, `node`, `cpp`, `rust`, `dart`, `hybrid`, `mixed`, or `unknown`), recognized app framework (such as `winui`, `wpf`, `winforms`, `maui`, `electron`, `tauri`, `flutter`, `react-native-windows`, `avalonia`, `uwp`, `windows-app-sdk`, or `other-dotnet`), target kind, detection source, confidence, packaging model, and whether `run` used project or folder execution. It doesn't include project names, paths, repositories, versions, dependency lists, or source. |
 | `find-ui` usage | For the `winapp find-ui` command only, an additional usage event with non-personal, bounded values: the mode (`search`, `fetch`, or `list`); the selected `--source` (a fixed value — `gallery`, `toolkit`, `reactor`, or `core`); the catalog scenario IDs fetched (e.g. `gallery-tabview-1`), which identify built-in WinUI sample controls, never your code; whether `--json` was used; and result/ID counts. The free-form search query is **never** collected, and any requested IDs that don't match a real catalog entry are counted but **not** collected as text. |
 
 ### Sanitization of sensitive data
@@ -93,6 +96,7 @@ The winapp CLI takes several measures to protect your privacy:
 - **Command arguments and options** of type `string`, `FileInfo`, or `DirectoryInfo` are replaced with `[string]`.
 - **Implicit values** (default values that weren't explicitly provided) are not collected.
 - **Parsing errors** are logged as `[error]` without including the actual erroneous input.
+- **Project classification** emits only fixed, allow-listed category values. Unknown or unrecognized metadata is reported as `unknown` or a generic family category rather than transmitted as text.
 - All string values in telemetry events undergo **sensitive string replacement** before transmission, which replaces any registered sensitive strings with anonymized tokens.
 
 ## Crash exception telemetry

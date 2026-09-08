@@ -106,7 +106,11 @@ $extraProps  </PropertyGroup>
                 [switch]$WinAppRunUnregisterOnExit,
                 [switch]$WinAppRunClean,
                 [switch]$WinAppRunSymbols,
-                [string]$WinAppRunExecutable = ""
+                [string]$WinAppRunExecutable = "",
+                [switch]$UseWinUI,
+                [switch]$UseWPF,
+                [switch]$UseWindowsForms,
+                [switch]$UseMaui
             )
             $dir = Join-Path $script:tempRoot $CaseName
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -127,6 +131,10 @@ $extraProps  </PropertyGroup>
             if ($WinAppRunClean) { $extraProps += "    <WinAppRunClean>true</WinAppRunClean>`n" }
             if ($WinAppRunSymbols) { $extraProps += "    <WinAppRunSymbols>true</WinAppRunSymbols>`n" }
             if ($WinAppRunExecutable) { $extraProps += "    <WinAppRunExecutable>$WinAppRunExecutable</WinAppRunExecutable>`n" }
+            if ($UseWinUI) { $extraProps += "    <UseWinUI>true</UseWinUI>`n" }
+            if ($UseWPF) { $extraProps += "    <UseWPF>true</UseWPF>`n" }
+            if ($UseWindowsForms) { $extraProps += "    <UseWindowsForms>true</UseWindowsForms>`n" }
+            if ($UseMaui) { $extraProps += "    <UseMaui>true</UseMaui>`n" }
 
             $csproj = @"
 <Project Sdk="Microsoft.NET.Sdk">
@@ -247,6 +255,7 @@ $extraProps  </PropertyGroup>
         It "Emits no optional switches when every property is left at its default" {
             $args = Get-ComputedRunArgs -CaseName 'run-defaults'
 
+            $args | Should -Match ' --project-framework other-dotnet '
             $args | Should -Match ' --caller nuget-package$'
             $args | Should -Not -Match ' --detach'
             $args | Should -Not -Match ' --unregister-on-exit'
@@ -259,6 +268,26 @@ $extraProps  </PropertyGroup>
             $args = Get-ComputedRunArgs -CaseName 'run-launch-args' -WinAppLaunchArgs '--from-property value'
 
             $args | Should -Match ' --args "--from-property value"'
+        }
+
+        It "Passes the evaluated WinUI framework category" {
+            Get-ComputedRunArgs -CaseName 'run-winui' -UseWinUI |
+                Should -Match ' --project-framework winui '
+        }
+
+        It "Passes the evaluated WPF framework category" {
+            Get-ComputedRunArgs -CaseName 'run-wpf' -UseWPF |
+                Should -Match ' --project-framework wpf '
+        }
+
+        It "Passes the evaluated WinForms framework category" {
+            Get-ComputedRunArgs -CaseName 'run-winforms' -UseWindowsForms |
+                Should -Match ' --project-framework winforms '
+        }
+
+        It "Prefers MAUI when multiple framework properties are present" {
+            Get-ComputedRunArgs -CaseName 'run-maui' -UseMaui -UseWinUI |
+                Should -Match ' --project-framework maui '
         }
 
         It "Maps each boolean run property to its CLI switch" {

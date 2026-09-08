@@ -43,14 +43,23 @@ internal class WorkspaceSetupService(
     IGitignoreService gitignoreService,
     IDirectoryPackagesService directoryPackagesService,
     IDotNetService dotNetService,
+    IDotNetProjectRestoreService dotNetProjectRestoreService,
     IStatusService statusService,
     ICurrentDirectoryProvider currentDirectoryProvider,
+    NugetSourceProvider nugetSourceProvider,
     IAnsiConsole ansiConsole,
     ILogger<WorkspaceSetupService> logger) : IWorkspaceSetupService
 {
     public async Task<int> SetupWorkspaceAsync(WorkspaceSetupOptions options, CancellationToken cancellationToken = default)
     {
-        configService.ConfigPath = new FileInfo(Path.Combine(options.ConfigDir.FullName, "winapp.yaml"));
+        configService.ConfigPath = new FileInfo(Path.Join(options.ConfigDir.FullName, "winapp.yaml"));
+
+        // Resolve the user's nuget.config hierarchy from the selected project/config directory, which can
+        // differ from the process working directory when `init <dir>` / `restore <dir>` / `--config-dir <dir>`
+        // is used. Without this, a project-level private feed, credentials or globalPackagesFolder would be
+        // ignored unless the user first changed into that directory. For .NET projects this is re-rooted at
+        // the project below, once one has been selected.
+        nugetSourceProvider.SetConfigRoot(options.ConfigDir);
 
         // Detect .NET project (.csproj) in the base directory
         FileInfo? csprojFile = null;
@@ -65,13 +74,17 @@ internal class WorkspaceSetupService(
                 logger.LogDebug("Detected {Count} .NET project(s) in {BaseDirectory}", csprojFiles.Count, options.BaseDirectory);
                 csprojFile = await SelectCsprojFileAsync(csprojFiles, cancellationToken);
                 logger.LogDebug(".NET project setup for {CsprojFile}", csprojFile.FullName);
+                AlignNugetConfigRootWithProject(options.ConfigDir, csprojFile);
             }
         }
         else if (dotNetService.FindCsproj(options.BaseDirectory).Count > 0 && !configService.Exists())
         {
-            // Restore on a .NET project that was initialized with winapp init (no winapp.yaml)
-            logger.LogError(".NET project detected, but no winapp.yaml configuration file was found. The 'winapp restore' command is not supported for .NET projects without a winapp.yaml. Please run 'dotnet restore' to restore NuGet packages for this project.");
-            return 1;
+            // Restore on a .NET project that `winapp init` configured. For .NET projects init records the SDK
+            // package versions as PackageReferences in the .csproj rather than in a winapp.yaml, so there is
+            // no winapp.yaml to read and `dotnet restore` is what actually restores them. Run it instead of
+            // failing with an instruction to run it by hand: `winapp init` leaves the project in exactly this
+            // shape, so `winapp restore` immediately afterwards must not be an error.
+            return await dotNetProjectRestoreService.RestoreAsync(options.BaseDirectory, options.ConfigDir, cancellationToken);
         }
 
         // Restore on a non-.NET project with no winapp.yaml — nothing to restore.
@@ -133,7 +146,7 @@ internal class WorkspaceSetupService(
                     }
                     catch (Exception ex)
                     {
-                        logger.LogDebug("{UISymbol} Could not get version for {PackageName}: {ErrorMessage}", UiSymbols.Note, packageName, ex.Message);
+                        logger.LogDebug("{UISymbol} Could not get version for {PackageName}: {ErrorMessage}", UiSymbols.Note, packageName, NugetErrorMessage.Redact(ex.Message));
                     }
                 }
 
@@ -373,7 +386,7 @@ internal class WorkspaceSetupService(
                         }
                         catch (Exception ex)
                         {
-                            taskContext.AddDebugMessage($"{UiSymbols.Note} Could not query existing packages: {ex.Message}");
+                            taskContext.AddDebugMessage($"{UiSymbols.Note} Could not query existing packages: {NugetErrorMessage.Redact(ex.Message)}");
                         }
 
                         foreach (var (packageName, required) in packages)
@@ -399,10 +412,16 @@ internal class WorkspaceSetupService(
                             }
                             catch (Exception ex)
                             {
-                                taskContext.AddDebugMessage($"{UiSymbols.Note} Could not get version for {packageName}: {ex.Message}");
+                                // Surface the underlying reason rather than burying it in verbose-only output.
+                                // Sources come from the user's nuget.config, so the likely causes here are a
+                                // feed that is unreachable/blocked, unauthenticated, or simply doesn't carry the
+                                // package — and the NuGet layer's message names the offending source and why it
+                                // failed. Reporting only "Failed to get version for X" leaves the user with no
+                                // way to connect the failure to the nuget.config that selected that feed.
+                                taskContext.AddStatusMessage($"{UiSymbols.Warning} Could not get version for {packageName}: {NugetErrorMessage.Redact(ex.Message)}");
                                 if (required)
                                 {
-                                    return (1, $"Failed to get version for {packageName}");
+                                    return (1, $"Failed to get version for {packageName}: {NugetErrorMessage.Redact(ex.Message)}");
                                 }
                             }
 
@@ -414,10 +433,13 @@ internal class WorkspaceSetupService(
                             }
                             catch (Exception ex)
                             {
-                                taskContext.AddDebugMessage($"{UiSymbols.Note} Could not add {packageName}: {ex.Message}");
+                                // Same reasoning as the version lookup above: 'dotnet add package' fails here
+                                // when the feeds in the project's nuget.config cannot serve the package, and its
+                                // message carries that detail. Keep it visible instead of debug-only.
+                                taskContext.AddStatusMessage($"{UiSymbols.Warning} Could not add {packageName}: {NugetErrorMessage.Redact(ex.Message)}");
                                 if (required)
                                 {
-                                    return (1, $"Failed to add {packageName} package reference");
+                                    return (1, $"Failed to add {packageName} package reference: {NugetErrorMessage.Redact(ex.Message)}");
                                 }
                                 failedPackages.Add(packageName);
                             }
@@ -545,12 +567,12 @@ internal class WorkspaceSetupService(
                             if (usedVersions.TryGetValue(BuildToolsService.WINAPP_SDK_PACKAGE, out var wasdkVersion))
                             {
                                 var pkgDir = nugetService.GetNuGetPackageDir(BuildToolsService.WINAPP_SDK_PACKAGE, wasdkVersion);
-                                var licenseSrc = Path.Combine(pkgDir.FullName, "license.txt");
+                                var licenseSrc = Path.Join(pkgDir.FullName, "license.txt");
                                 if (File.Exists(licenseSrc))
                                 {
-                                    var shareDir = Path.Combine(localWinappDir.FullName, "share", BuildToolsService.WINAPP_SDK_PACKAGE);
+                                    var shareDir = Path.Join(localWinappDir.FullName, "share", BuildToolsService.WINAPP_SDK_PACKAGE);
                                     Directory.CreateDirectory(shareDir);
-                                    var licenseDst = Path.Combine(shareDir, "copyright");
+                                    var licenseDst = Path.Join(shareDir, "copyright");
                                     File.Copy(licenseSrc, licenseDst, overwrite: true);
                                     taskContext.AddDebugMessage($"{UiSymbols.Check} License copied → {licenseDst}");
                                 }
@@ -717,7 +739,7 @@ internal class WorkspaceSetupService(
 
                 if (!options.RequireExistingConfig && options.SdkInstallMode != SdkInstallMode.None && !options.NoGitignore && localWinappDir?.Parent != null)
                 {
-                    var gitignorePath = Path.Combine(localWinappDir.Parent.FullName, ".gitignore");
+                    var gitignorePath = Path.Join(localWinappDir.Parent.FullName, ".gitignore");
 
                     if (File.Exists(gitignorePath))
                     {
@@ -795,6 +817,42 @@ internal class WorkspaceSetupService(
     /// <summary>
     /// Selects the .csproj file to configure when multiple are found.
     /// </summary>
+    /// <summary>
+    /// For a .NET project, keeps winapp's own NuGet lookups on the same <c>nuget.config</c> hierarchy the .NET
+    /// SDK will use. Versions are chosen here but written into the project as <c>PackageReference</c> entries
+    /// by <c>dotnet add package</c>, which always resolves <c>nuget.config</c> by walking up from the project.
+    /// Any other root can disagree with it: an unrelated <c>--config-dir</c> misses the project's sources
+    /// entirely, and even an ANCESTOR one does, because starting higher up skips a <c>nuget.config</c> sitting
+    /// in the project itself. Either way a version can be selected from a feed dotnet cannot see, and the
+    /// reference then fails to restore with NU1102.
+    ///
+    /// So the root is always the project directory. NuGet walks up from there, so anything an ancestor
+    /// <c>--config-dir</c> would have contributed is still included — this only adds back the levels below it.
+    /// The ancestor check decides only whether the user needs to be told their <c>--config-dir</c> does not
+    /// apply, not which root to use.
+    ///
+    /// Aligning to the project rather than forcing <c>dotnet</c> to the config directory is deliberate. The
+    /// only way to do the latter is <c>--configfile</c>, which replaces the entire hierarchy with one file and
+    /// so drops the user- and machine-level sources and their credentials.
+    /// </summary>
+    private void AlignNugetConfigRootWithProject(DirectoryInfo configDir, FileInfo csprojFile)
+    {
+        var projectDirectory = csprojFile.Directory!;
+
+        // Warn only when the selected directory is outside what dotnet discovers. An ancestor still
+        // contributes its settings once we root at the project, so there is nothing to report.
+        if (!DirectoryRelationship.IsSameOrAncestor(configDir, projectDirectory))
+        {
+            logger.LogWarning(
+                "{UISymbol} The selected configuration directory ({ConfigDir}) does not apply to {Project}: 'dotnet add package' resolves nuget.config relative to the project. Using the project's own nuget.config hierarchy for package sources so the versions selected here can actually be restored.",
+                UiSymbols.Warning,
+                configDir.FullName,
+                csprojFile.Name);
+        }
+
+        nugetSourceProvider.SetConfigRoot(projectDirectory);
+    }
+
     private async Task<FileInfo> SelectCsprojFileAsync(IReadOnlyList<FileInfo> csprojFiles, CancellationToken cancellationToken)
     {
         if (csprojFiles.Count == 1)
@@ -1154,7 +1212,7 @@ internal class WorkspaceSetupService(
         }
         catch (Exception ex)
         {
-            logger.LogDebug("Failed to fetch latest version for {PackageName} ({Mode}): {ErrorMessage}", packageName, mode, ex.Message);
+            logger.LogDebug("Failed to fetch latest version for {PackageName} ({Mode}): {ErrorMessage}", packageName, mode, NugetErrorMessage.Redact(ex.Message));
             return null;
         }
     }

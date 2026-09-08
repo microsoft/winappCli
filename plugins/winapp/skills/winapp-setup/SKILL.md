@@ -136,7 +136,23 @@ winapp restore
 winapp restore ./my-project
 ```
 
-Use `restore` when you clone a repo that already has `winapp.yaml` but no `.winapp/` folder.
+Use `restore` when you clone a repo that already has `winapp.yaml` but no `.winapp/` folder. For a .NET project there is no `winapp.yaml`, so `restore` runs `dotnet restore` instead.
+
+### Private or custom NuGet feeds
+
+`init`, `restore`, and `update` download the SDK packages through NuGet, honoring your standard `nuget.config` hierarchy. Private feeds and mirrors, feed credentials (including credential providers), and a custom `globalPackagesFolder` all work as they do for `dotnet restore`. To use only your feed, `<clear />` the inherited sources first:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="contoso" value="https://pkgs.dev.azure.com/contoso/_packaging/winsdk-mirror/nuget/v3/index.json" />
+  </packageSources>
+</configuration>
+```
+
+> **Security note:** For native projects winapp resolves `nuget.config` from the directory it operates on: the `init`/`restore` directory argument, `--config-dir` when given, otherwise the current directory. For **.NET projects** the sources come from the project's own `nuget.config` hierarchy instead, because that is what `dotnet add package` and `dotnet restore` use — so put a private feed's config in the project directory or an ancestor, not in a sibling passed via `--config-dir` (that is reported and ignored). Run these commands only against directories you trust, the same as `dotnet restore`. Use `<packageSourceMapping>` to pin packages to specific feeds when more than one source is configured.
 
 ### Update SDK versions
 
@@ -241,6 +257,8 @@ For full debugging scenarios and IDE setup, see the [Debugging Guide](https://gi
 | "winapp.yaml not found" | Running `restore`/`update` without config | Run `winapp init` first, or ensure you're in the right directory |
 | "Directory not found" | Target directory doesn't exist | Create the directory first or check the path |
 | SDK download fails | Network issue or firewall | Ensure internet access; check proxy settings |
+| SDK download fails with 401/403 | Private feed requires authentication | Store credentials in `nuget.config` (`<packageSourceCredentials>`) or configure a credential provider / feed environment credentials before running in CI |
+| SDK package not found on private feed | Feed doesn't mirror the SDK packages, or the wrong source is configured | Ensure the feed serves `Microsoft.WindowsAppSDK`, `Microsoft.Windows.SDK.CPP`, `Microsoft.Windows.CppWinRT`, etc.; keep `nuget.org` enabled if the feed only supplements it |
 | `init` prompts unexpectedly in CI | Missing `--use-defaults` flag | Add `--use-defaults` to skip all prompts (note: non-interactive shells are now auto-detected) |
 | `winapp new` fails during scaffolding | A `dotnet new` post-creation action (restore, package add) failed | Re-run with `--verbose` to stream the live dotnet output and see the underlying error |
 

@@ -215,6 +215,44 @@ public class BuildToolsServiceTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void GetBuildToolPath_WithShorthandPinnedVersion_MatchesNormalizedCacheDir()
+    {
+        // Arrange - the cache uses NuGet's canonical folder name "1.0.0", but a config pin can be shorthand
+        // ("1.0"). Before pin normalization these strings did not match, so the pinned version was treated as
+        // "not found" and — because a tool path is architecture-scoped (a strict requirement) — FindPackagePath
+        // returned null instead of the pinned build tools.
+        var packagesDir = Path.Join(_testCacheDirectory.FullName, "packages");
+
+        // The pinned (shorthand) version, stored on disk under its normalized "1.0.0" name.
+        var pinnedBinDir = Path.Join(packagesDir, "microsoft.windows.sdk.buildtools", "1.0.0", "bin", "10.0.26100.0", "x64");
+        Directory.CreateDirectory(pinnedBinDir);
+        File.WriteAllText(Path.Join(pinnedBinDir, "mt.exe"), "pinned mt.exe");
+
+        // A newer version that the pin must NOT select (proving the pin was honored, not the latest fallback).
+        var newerBinDir = Path.Join(packagesDir, "microsoft.windows.sdk.buildtools", "2.0.0", "bin", "10.0.26100.0", "x64");
+        Directory.CreateDirectory(newerBinDir);
+        File.WriteAllText(Path.Join(newerBinDir, "mt.exe"), "newer mt.exe");
+
+        // Pin the shorthand "1.0" (quoted so YAML keeps it a string rather than parsing it as a float).
+        var configContent = @"packages:
+  - name: Microsoft.Windows.SDK.BuildTools
+    version: '1.0'
+";
+        File.WriteAllText(_configService.ConfigPath.FullName, configContent);
+
+        // Act
+        var result = _buildToolsService.GetBuildToolPath("mt.exe");
+
+        // Assert - the shorthand pin must resolve to the normalized "1.0.0" cache directory, not null and not
+        // the newer 2.0.0 version.
+        Assert.IsNotNull(result, "Shorthand pin '1.0' should have matched the normalized '1.0.0' cache directory.");
+        Assert.Contains(Path.Join("buildtools", "1.0.0"),
+            result.FullName, $"Expected the resolved path under the normalized '1.0.0' directory but got: {result.FullName}");
+        Assert.DoesNotContain(Path.Join("buildtools", "2.0.0"),
+            result.FullName, $"The shorthand pin must not fall back to the newer 2.0.0 version: {result.FullName}");
+    }
+
+    [TestMethod]
     public void GetBuildToolPath_WithMultipleArchitectures_ReturnsCorrectArchitecture()
     {
         // Arrange - Create package with multiple architectures

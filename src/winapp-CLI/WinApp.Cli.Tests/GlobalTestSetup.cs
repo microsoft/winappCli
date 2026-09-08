@@ -13,11 +13,16 @@ namespace WinApp.Cli.Tests;
 public static class GlobalTestSetup
 {
     /// <summary>
-    /// The production Authenticode gate, captured before <see cref="AssemblyInitialize"/> opens it
+    /// The production Authenticode gates, captured before <see cref="AssemblyInitialize"/> opens them
     /// for the suite. Tests asserting on the real verifier must use this: a value the test assigns
     /// itself would still pass if production were rewired to an always-true stub.
     /// </summary>
     internal static Func<string, ILogger, bool> ProductionSignatureVerifier { get; private set; } = null!;
+
+    /// <summary>
+    /// The production gate for <see cref="CppWinrtService"/>, captured for the same reason.
+    /// </summary>
+    internal static Func<string, ILogger, bool> ProductionCppWinrtSignatureVerifier { get; private set; } = null!;
 
     /// <summary>
     /// Global test initialization - runs once before all tests
@@ -43,6 +48,11 @@ public static class GlobalTestSetup
         // BuildToolsSignatureVerificationTests drives the gate directly and is [DoNotParallelize].
         ProductionSignatureVerifier = BuildToolsService.SignatureVerifier;
         BuildToolsService.SignatureVerifier = static (_, _) => true;
+
+        // Same for cppwinrt.exe, which fixtures also stand in as a dummy unsigned script.
+        // CppWinrtSignatureVerificationTests drives that gate directly and is [DoNotParallelize].
+        ProductionCppWinrtSignatureVerifier = CppWinrtService.SignatureVerifier;
+        CppWinrtService.SignatureVerifier = static (_, _) => true;
     }
 
     /// <summary>

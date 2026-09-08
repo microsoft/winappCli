@@ -48,6 +48,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Exercise the same System.Text.Json NuGet deserialization path the published CLI uses (see the matching
+         option in WinApp.Cli.csproj), so the NuGet integration tests cover the AOT/STJ code path this migration
+         depends on instead of the default Newtonsoft.Json reflection path the test host would otherwise use. -->
+    <RuntimeHostConfigurationOption Include="NuGet.UseSystemTextJsonDeserialization"
+                                    Value="true"
+                                    Trim="true" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="TestData\WindowsAppModel\appx-manifest-conformance-vectors.json"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

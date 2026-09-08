@@ -576,12 +576,12 @@ export async function packageApp(options: PackageOptions): Promise<WinappResult>
 export interface RestoreOptions extends CommonOptions {
   /** Base/root directory for the winapp workspace */
   baseDirectory?: string;
-  /** Directory to read configuration from (default: current directory) */
+  /** Directory to read configuration from (default: base-directory) */
   configDir?: string;
 }
 
 /**
- * Use after cloning a repo or when .winapp/ folder is missing. Reinstalls SDK packages from existing winapp.yaml without changing versions. Requires winapp.yaml (created by 'init'). To check for newer SDK versions, use 'update' instead.
+ * Use after cloning a repo or when .winapp/ folder is missing. Reinstalls SDK packages without changing versions, reading them from winapp.yaml or, for a .NET project initialized by 'init', from the .csproj via 'dotnet restore'. Requires a project already initialized by 'init'. To check for newer SDK versions, use 'update' instead.
  */
 export async function restore(options: RestoreOptions = {}): Promise<WinappResult> {
   const args: string[] = ['restore'];

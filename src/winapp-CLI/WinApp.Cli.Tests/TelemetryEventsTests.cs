@@ -8,6 +8,7 @@ using System.Text.Json;
 using Microsoft.Diagnostics.Telemetry;
 using Microsoft.Diagnostics.Telemetry.Internal;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Services;
 using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Tests;
@@ -118,6 +119,33 @@ public sealed class TelemetryEventsTests
         var names = listener.WaitForEventNames(2);
         CollectionAssert.Contains(names, "CommandInvoked_Event");
         CollectionAssert.Contains(names, "CommandCompleted_Event");
+    }
+
+    [TestMethod]
+    public void ProjectContextEvent_StoresOnlyNormalizedCategories()
+    {
+        var telemetryEvent = new ProjectContextEvent(
+            "run",
+            new ProjectContext(
+                ProjectFamily.Dotnet,
+                ProjectAppFramework.WinUI,
+                ProjectTargetKind.SourceProject,
+                ProjectContextSource.NuGetMsBuild,
+                ProjectContextConfidence.High,
+                ProjectContextPackaging.Packaged,
+                ProjectExecutionMode.Folder));
+
+        telemetryEvent.ReplaceSensitiveStrings(value => value.Replace("run", "execute", StringComparison.Ordinal));
+
+        Assert.AreEqual("execute", telemetryEvent.Command);
+        Assert.AreEqual("dotnet", telemetryEvent.ProjectFamily);
+        Assert.AreEqual("winui", telemetryEvent.AppFramework);
+        Assert.AreEqual("source-project", telemetryEvent.TargetKind);
+        Assert.AreEqual("nuget-msbuild", telemetryEvent.DetectionSource);
+        Assert.AreEqual("high", telemetryEvent.Confidence);
+        Assert.AreEqual("packaged", telemetryEvent.Packaging);
+        Assert.AreEqual("folder", telemetryEvent.ExecutionMode);
+        Assert.AreEqual(PartA_PrivTags.ProductAndServiceUsage, telemetryEvent.PartA_PrivTags);
     }
 
     [TestMethod]

@@ -13,6 +13,7 @@ using System.Text.Json.Serialization;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
@@ -210,6 +211,7 @@ internal partial class RunCommand : Command, IShortDescription
         IAnsiConsole ansiConsole,
         IStatusService statusService,
         IProjectRunService projectRunService,
+        IProjectContextDetector projectContextDetector,
         ILogger<RunCommand> logger) : AsynchronousCommandLineAction
     {
         // Test seams for the execution-alias launch path. They isolate the two operating-system
@@ -431,6 +433,26 @@ internal partial class RunCommand : Command, IShortDescription
             {
                 return Fail(ex.Message, isJson);
             }
+
+            ProjectContextEvent.Log("run", () =>
+                string.Equals(
+                    parseResult.GetValue(WinAppRootCommand.CallerOption),
+                    "nuget-package",
+                    StringComparison.Ordinal)
+                    ? projectContextDetector.CreateNuGetContext(
+                        parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption))
+                    : inputResolution.Mode == WinAppRunMode.Project
+                        ? projectContextDetector.DetectProject(inputResolution.Csproj!) with
+                        {
+                            ExecutionMode = ProjectExecutionMode.Project,
+                        }
+                        : projectContextDetector.DetectDirectory(
+                            inputResolution.ProjectDirectory,
+                            ProjectTargetKind.BuildOutput) with
+                        {
+                            Packaging = ProjectContextPackaging.Packaged,
+                            ExecutionMode = ProjectExecutionMode.Folder,
+                        });
 
             if (inputResolution.Mode == WinAppRunMode.Project)
             {

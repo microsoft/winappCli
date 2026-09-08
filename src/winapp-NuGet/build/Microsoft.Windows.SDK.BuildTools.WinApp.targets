@@ -215,6 +215,16 @@
       <_WinAppManifestPathArg>$(WinAppManifestPath.TrimEnd('\'))</_WinAppManifestPathArg>
       <_WinAppLooseLayoutPathArg>$(WinAppLooseLayoutPath.TrimEnd('\'))</_WinAppLooseLayoutPathArg>
       <_WinAppInputFolderArg>$(OutputPath.TrimEnd('\'))</_WinAppInputFolderArg>
+      <!--
+        Pass only an allow-listed framework category derived from evaluated MSBuild properties.
+        The CLI never receives the project path/name for telemetry. MAUI is last because it is the
+        highest-level app model and may use WinUI in its Windows head.
+      -->
+      <_WinAppProjectFramework>other-dotnet</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseWindowsForms)' == 'true'">winforms</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseWPF)' == 'true'">wpf</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseWinUI)' == 'true'">winui</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseMaui)' == 'true'">maui</_WinAppProjectFramework>
       <!-- Build command with input-folder positional argument -->
       <_WinAppRunArgs>run "$(_WinAppInputFolderArg)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppManifestPathArg)' != ''">$(_WinAppRunArgs) --manifest "$(_WinAppManifestPathArg)"</_WinAppRunArgs>
@@ -228,6 +238,7 @@
       <_WinAppRunArgs Condition="'$(WinAppRunClean)' == 'true'">$(_WinAppRunArgs) --clean</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunSymbols)' == 'true'">$(_WinAppRunArgs) --symbols</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunExecutable)' != ''">$(_WinAppRunArgs) --executable "$(WinAppRunExecutable)"</_WinAppRunArgs>
+      <_WinAppRunArgs>$(_WinAppRunArgs) --project-framework $(_WinAppProjectFramework)</_WinAppRunArgs>
       <_WinAppRunArgs>$(_WinAppRunArgs) --caller nuget-package</_WinAppRunArgs>
       <!--
         WinAppRunArgs is appended last so it lands after every property-derived switch,

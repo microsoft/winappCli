@@ -132,7 +132,7 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 ### `winapp restore [base-directory]`
 **Purpose:** Reinstall SDK packages from existing config without changing versions.
 **When to use:** After cloning a repo that has `winapp.yaml`, or when the `.winapp/` folder is missing/corrupted.
-**Requires:** `winapp.yaml`
+**Requires:** A project already initialized by `init`. For .NET projects there is no `winapp.yaml` — versions live as `PackageReference` entries — and `restore` runs `dotnet restore` instead.
 
 ### `winapp update`
 **Purpose:** Check for and install newer SDK versions.

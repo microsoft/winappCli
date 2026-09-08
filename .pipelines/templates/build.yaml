@@ -14,9 +14,11 @@ steps:
   displayName: Build CLI
   env:
     NPM_CONFIG_USERCONFIG: $(System.DefaultWorkingDirectory)\.npmrc
-    WINAPP_NUGET_FLAT_CONTAINER: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/flat2
-    WINAPP_NUGET_REGISTRATION: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/registrations2-semver2
-    WINAPP_NUGET_AUTH_PREFIX: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/
+    # The CLI's own package downloads (and the live-feed NuGet tests) resolve their sources from the
+    # nuget.config hierarchy, which the "Add release package source" step has already pointed at
+    # pde-oss_Internal at both the repo and user scope, with NuGetAuthenticate providing credentials.
+    # The live-feed tests write their own isolated config, so name the internal feed for them here.
+    WINAPP_TEST_NUGET_SOURCE: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/index.json
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
@@ -121,10 +123,6 @@ steps:
     arguments: "-Stable:$${{ parameters.stable }}"
 - task: PowerShell@2
   displayName: Bundle MSIX Packages
-  env:
-    WINAPP_NUGET_FLAT_CONTAINER: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/flat2
-    WINAPP_NUGET_REGISTRATION: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/registrations2-semver2
-    WINAPP_NUGET_AUTH_PREFIX: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\package-msix.ps1
