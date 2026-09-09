@@ -438,7 +438,7 @@ function run(options?: RunOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Default: the current process architecture. |
+| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
 | `clean` | `boolean \| undefined` | No | Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments. |
 | `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug. |
@@ -453,8 +453,8 @@ function run(options?: RunOptions): Promise<WinappResult>
 | `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Ignored in folder mode. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
 | `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. |
-| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Ignored in folder mode. |
-| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, and rejects non-Windows RIDs (e.g. linux-x64); it overrides --arch. Ignored in folder mode. |
+| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
+| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. |
 | `symbols` | `boolean \| undefined` | No | Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. |
 | `unregisterOnExit` | `boolean \| undefined` | No | Unregister the development package after the application exits. Only removes packages registered in development mode. |
 | `withAlias` | `boolean \| undefined` | No | Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Requires a uap5:ExecutionAlias in the manifest. Use "winapp manifest add-alias" to add an execution alias to the manifest. |
@@ -1635,7 +1635,7 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Default: the current process architecture. |
+| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
 | `clean` | `boolean \| undefined` | No | Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments. |
 | `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug. |
@@ -1650,8 +1650,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Ignored in folder mode. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
 | `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. |
-| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Ignored in folder mode. |
-| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, and rejects non-Windows RIDs (e.g. linux-x64); it overrides --arch. Ignored in folder mode. |
+| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
+| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. |
 | `symbols` | `boolean \| undefined` | No | Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. |
 | `unregisterOnExit` | `boolean \| undefined` | No | Unregister the development package after the application exits. Only removes packages registered in development mode. |
 | `withAlias` | `boolean \| undefined` | No | Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Requires a uap5:ExecutionAlias in the manifest. Use "winapp manifest add-alias" to add an execution alias to the manifest. |

@@ -626,7 +626,7 @@ export interface RunOptions extends CommonOptions {
   input?: string;
   /** @deprecated Use `input` instead. Retained for backward compatibility. */
   inputFolder?: string;
-  /** Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Default: the current process architecture. */
+  /** Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Default: the current process architecture. */
   arch?: string;
   /** Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). */
   args?: string;
@@ -656,9 +656,9 @@ export interface RunOptions extends CommonOptions {
   outputAppxDirectory?: string;
   /** Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. */
   project?: string;
-  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Ignored in folder mode. */
+  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. */
   property?: string | string[];
-  /** Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, and rejects non-Windows RIDs (e.g. linux-x64); it overrides --arch. Ignored in folder mode. */
+  /** Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. */
   runtime?: string;
   /** Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. */
   symbols?: boolean;
