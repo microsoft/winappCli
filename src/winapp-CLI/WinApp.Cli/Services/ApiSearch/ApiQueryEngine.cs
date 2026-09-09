@@ -828,6 +828,15 @@ internal static class ApiQueryEngine
         {
             return true;
         }
+        // An init-only property is assignable in an object initializer and nowhere else,
+        // so reporting it writable invites a post-construction assignment that fails to
+        // compile (CS8852). The `init` in the signature is what says it can still be set
+        // at construction.
+        if (member.Signature.EndsWith("{ get; init; }", StringComparison.Ordinal)
+            || member.Signature.EndsWith("{ init; }", StringComparison.Ordinal))
+        {
+            return false;
+        }
         return member.Signature.EndsWith("{ get; }", StringComparison.Ordinal) ? false : null;
     }
 

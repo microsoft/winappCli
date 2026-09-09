@@ -471,9 +471,11 @@ internal static class WinMdParser
                 bool hasPublicSetter = !accessors.Setter.IsNil && (reader.GetMethodDefinition(accessors.Setter).Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
                 if (hasPublicGetter || hasPublicSetter)
                 {
+                    bool initOnly = hasPublicSetter && IsInitOnlySetter(reader, accessors.Setter);
+                    string setterText = initOnly ? "init;" : "set;";
                     string accessorText = hasPublicGetter
-                        ? (hasPublicSetter ? "{ get; set; }" : "{ get; }")
-                        : "{ set; }";
+                        ? (hasPublicSetter ? $"{{ get; {setterText} }}" : "{ get; }")
+                        : $"{{ {setterText} }}";
                     // A property is static when its accessors are. Application.Current is
                     // read off the type, so a signature without `static` tells a caller to
                     // construct an Application first — code that does not compile.
@@ -588,6 +590,63 @@ internal static class WinMdParser
     /// <summary>Whether a property or event accessor exists and is static.</summary>
     private static bool IsStaticAccessor(MetadataReader reader, MethodDefinitionHandle handle) =>
         !handle.IsNil && (reader.GetMethodDefinition(handle).Attributes & MethodAttributes.Static) != 0;
+
+    /// <summary>
+    /// Whether a property setter is <c>init</c> rather than <c>set</c>.
+    /// </summary>
+    /// <remarks>
+    /// There is no attribute for this. The compiler records it as a required custom
+    /// modifier of <c>System.Runtime.CompilerServices.IsExternalInit</c> on the setter's
+    /// return type, which the signature decoder deliberately discards along with every
+    /// other modifier — so the raw blob is the only place to read it. The return type sits
+    /// immediately after the header and parameter count, and any modifiers precede it.
+    /// </remarks>
+    private static bool IsInitOnlySetter(MetadataReader reader, MethodDefinitionHandle handle)
+    {
+        if (handle.IsNil)
+        {
+            return false;
+        }
+        try
+        {
+            BlobReader blob = reader.GetBlobReader(reader.GetMethodDefinition(handle).Signature);
+            SignatureHeader header = blob.ReadSignatureHeader();
+            if (header.IsGeneric)
+            {
+                blob.ReadCompressedInteger();
+            }
+            blob.ReadCompressedInteger();
+
+            while (blob.RemainingBytes > 0)
+            {
+                SignatureTypeCode code = blob.ReadSignatureTypeCode();
+                if (code is not (SignatureTypeCode.RequiredModifier or SignatureTypeCode.OptionalModifier))
+                {
+                    return false;
+                }
+                EntityHandle modifier = blob.ReadTypeHandle();
+                if (code == SignatureTypeCode.RequiredModifier
+                    && ModifierTypeName(reader, modifier) == "IsExternalInit")
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException
+            or ArgumentException or ArgumentOutOfRangeException)
+        {
+            // An undecodable setter signature just means init cannot be proven, and the
+            // property is reported as an ordinary settable one, exactly as before.
+        }
+        return false;
+    }
+
+    private static string? ModifierTypeName(MetadataReader reader, EntityHandle handle) => handle.Kind switch
+    {
+        HandleKind.TypeReference => reader.GetString(reader.GetTypeReference((TypeReferenceHandle)handle).Name),
+        HandleKind.TypeDefinition => reader.GetString(reader.GetTypeDefinition((TypeDefinitionHandle)handle).Name),
+        _ => null,
+    };
 
     /// <summary>
     /// Pairs each signature parameter type with its metadata Parameter row.

@@ -1385,7 +1385,7 @@ What was omitted is always reported (`hiddenDependencyProperties`, `descriptions
 
 **`--json` payloads omit diagnostics.** Cache file paths appear only under `--verbose` (matching text output, where they were already verbose-only), and empty suggestion arrays are omitted rather than serialized as `[]`.
 
-**Exit codes:** `search` with no hits, `check-property` on a missing property, and `enums` on a non-enum type all exit non-zero — gate code generation and CI checks on them. A batched invocation exits non-zero if *any* subject fails. A read-only property is *not* a failure — it exists, so `check-property` exits `0` and flags it in the output (`writable: false` in `--json`).
+**Exit codes:** `search` with no hits, `check-property` on a missing property, and `enums` on a non-enum type all exit non-zero — gate code generation and CI checks on them. A batched invocation exits non-zero if *any* subject fails. A read-only property is *not* a failure — it exists, so `check-property` exits `0` and flags it in the output (`writable: false` in `--json`). An `init` property reports `writable: false` for the same reason: it can be set in an object initializer, and its signature says `{ get; init; }`, but assigning it afterwards does not compile.
 
 **Related:** `find-api` answers "does this API exist and what are its members?"; use [`find-ui`](#find-ui) to find a working WinUI sample for a control.
 
