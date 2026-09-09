@@ -696,9 +696,9 @@ internal static partial class NuGetResolver
         return results;
     }
 
-    internal static string? FindRestoreOutput(string projectDir)
+    internal static string? FindRestoreOutput(string projectDir, string? projectFile = null)
     {
-        string? assetsPath = FindProjectAssetsJson(projectDir);
+        string? assetsPath = FindProjectAssetsJson(projectDir, projectFile);
         if (assetsPath is not null)
         {
             return assetsPath;
@@ -714,6 +714,15 @@ internal static partial class NuGetResolver
         return File.Exists(lockfilePath) ? lockfilePath : null;
     }
 
+    /// <summary>
+    /// Whether a <c>project.assets.json</c> records that it was restored for
+    /// <paramref name="projectFile"/>. An assets file that names no project answers
+    /// <see langword="false"/>, so it is never mistaken for a specific project's own
+    /// restore output.
+    /// </summary>
+    private static bool OwnsAssetsFile(string assetsFile, string projectFile) =>
+        string.Equals(ReadRestoreProjectPath(assetsFile), Path.GetFullPath(projectFile), StringComparison.OrdinalIgnoreCase);
+
     internal static string? FindProjectAssetsJson(string projectDir, string? projectFile = null)
     {
         string objDir = Path.Combine(projectDir, "obj");
@@ -726,7 +735,12 @@ internal static partial class NuGetResolver
             return null;
         }
         string direct = Path.Combine(objDir, "project.assets.json");
-        if (File.Exists(direct))
+        // Ownership still has to be checked: colocated projects share this directory, so
+        // the default location can hold a sibling's restore output while the project being
+        // asked about keeps its own under a nested BaseIntermediateOutputPath. Returning
+        // the sibling's file reports that project's restore time, and a query then answers
+        // from an index that its own restore already invalidated.
+        if (File.Exists(direct) && (projectFile is null || OwnsAssetsFile(direct, projectFile)))
         {
             return direct;
         }
@@ -746,9 +760,8 @@ internal static partial class NuGetResolver
         // instead makes the whole index depend on which project was built last.
         if (projectFile is not null && files.Length > 1)
         {
-            string wanted = Path.GetFullPath(projectFile);
             string[] owned = files
-                .Where(file => string.Equals(ReadRestoreProjectPath(file), wanted, StringComparison.OrdinalIgnoreCase))
+                .Where(file => OwnsAssetsFile(file, projectFile))
                 .ToArray();
             if (owned.Length > 0)
             {

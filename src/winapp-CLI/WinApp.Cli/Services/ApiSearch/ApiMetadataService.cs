@@ -465,7 +465,8 @@ internal sealed class ApiMetadataService(
     /// <c>ProjectDir</c>, not on file name, so a same-named project in another directory
     /// cannot be mistaken for this one and suppress indexing of the project being queried.
     /// A directory holding several projects is stale until every one of them is indexed,
-    /// so a second project added beside the first does not stay invisible.
+    /// so a second project added beside the first does not stay invisible, and each of
+    /// them is compared against its own restore output rather than the directory's.
     /// </summary>
     private static bool IsProjectDirStale(string[] manifestFiles, string projectDir, string cacheDir)
     {
@@ -478,9 +479,18 @@ internal sealed class ApiMetadataService(
         {
             return true;
         }
-        string? restoreOutput = NuGetResolver.FindRestoreOutput(projectDir);
         foreach (string manifestPath in manifestPaths)
         {
+            // Each project keeps its own restore output, and colocated projects can put
+            // theirs in different places under one obj tree. Asking for the directory's
+            // restore output can therefore answer with a sibling's file, whose write time
+            // says nothing about whether this project has been restored since it was
+            // indexed -- so a query answers from a surface its own restore replaced.
+            ProjectManifest? manifest = DeserializeManifest(manifestPath);
+            string? projectFile = manifest is not null && !string.IsNullOrEmpty(manifest.ProjectFile)
+                ? Path.Combine(projectDir, manifest.ProjectFile)
+                : null;
+            string? restoreOutput = NuGetResolver.FindRestoreOutput(projectDir, projectFile);
             if (restoreOutput is not null
                 && File.GetLastWriteTimeUtc(restoreOutput) > File.GetLastWriteTimeUtc(manifestPath))
             {

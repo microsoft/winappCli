@@ -780,6 +780,54 @@ public sealed class ApiMetadataServiceTests
     }
 
     [TestMethod]
+    public void Stale_ColocatedProjects_EachComparesAgainstItsOwnRestoreOutput()
+    {
+        // Two projects can share a directory, and only one of them can own the default
+        // obj\project.assets.json -- the other sets BaseIntermediateOutputPath and keeps
+        // its restore output in a nested folder. Asking the directory for "the" restore
+        // output answers with whichever file sits in the default spot, so restoring the
+        // other project moves a timestamp nothing compares against, its index is never
+        // rebuilt, and a query answers from the surface that restore replaced.
+        string cacheDir = Path.Combine(_globalDir, "cache", "find-api");
+        Directory.CreateDirectory(cacheDir);
+        WriteProjectFile(_currentDir, "A");
+        WriteProjectFile(_currentDir, "B");
+        WriteManifest("A", _currentDir, "A_11111111");
+        WriteManifest("B", _currentDir, "B_22222222");
+        WritePackageCache(cacheDir, new ProjectPackageRef { Id = "Some.Pkg", Version = "1.0.0", SourceStamp = "0a1b2c3d", AssetPathKey = "0a1b2c3d" });
+
+        // A owns the default location and was restored before both were indexed.
+        string aAssets = WriteAssetsFor("A", Path.Combine(_currentDir, "obj"));
+        File.SetLastWriteTimeUtc(aAssets, DateTime.UtcNow.AddHours(-2));
+
+        // B keeps its own under a nested path and has just been restored.
+        string bAssets = WriteAssetsFor("B", Path.Combine(_currentDir, "obj", "B"));
+        File.SetLastWriteTimeUtc(bAssets, DateTime.UtcNow.AddHours(1));
+
+        string? error = CreateService().LockTimedOutResult(_currentDir, cacheDir);
+
+        Assert.IsNotNull(error, "B was restored after it was indexed, so the directory is stale");
+    }
+
+    /// <summary>
+    /// Writes a <c>project.assets.json</c> recording that it was restored for
+    /// <paramref name="projectName"/>, which is how colocated projects' restore outputs
+    /// are told apart.
+    /// </summary>
+    private string WriteAssetsFor(string projectName, string objDir)
+    {
+        Directory.CreateDirectory(objDir);
+        string projectPath = Path.Combine(_currentDir, projectName + ".csproj");
+        string path = Path.Combine(objDir, "project.assets.json");
+        string quotedPath = JsonSerializer.Serialize(projectPath);
+        File.WriteAllText(path,
+            "{\"version\":3,\"targets\":{},\"libraries\":{},\"project\":{\"restore\":{\"projectPath\":"
+            + quotedPath
+            + "},\"frameworks\":{}}}");
+        return path;
+    }
+
+    [TestMethod]
     public void ManifestName_SameProjectNameInDifferentDirs_ProducesDistinctNames()
     {
         // The cache key must include the project's path, otherwise the second project
