@@ -51,6 +51,30 @@ public class NugetErrorMessageTests
         StringAssert.Contains(redacted, "https://127.0.0.1:8443/v3/index.json", StringComparison.Ordinal);
     }
 
+    [TestMethod]
+    public void Redact_InvalidPortWithQuery_RedactsWholeUrl()
+    {
+        var message = "Unable to load source https://feed.example:99999/v3/index.json?sig=COMMAND_SECRET.";
+
+        var redacted = NugetErrorMessage.Redact(message);
+
+        Assert.DoesNotContain("COMMAND_SECRET", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("sig=", redacted, StringComparison.Ordinal);
+        StringAssert.Contains(redacted, "<redacted-url>.", StringComparison.Ordinal);
+    }
+
+    [TestMethod]
+    public void Redact_MalformedUserInfo_RedactsWholeUrl()
+    {
+        var message = "Unable to load source https://user:p@ss@word@feed.example/v3/index.json.";
+
+        var redacted = NugetErrorMessage.Redact(message);
+
+        Assert.DoesNotContain("p@ss", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("word@", redacted, StringComparison.Ordinal);
+        StringAssert.Contains(redacted, "<redacted-url>.", StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A URL with nothing sensitive must read exactly as NuGet wrote it, so the common failure keeps its
     /// original wording and stays greppable.
