@@ -6,8 +6,8 @@
     <RootNamespace>dotnet_app</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- Launch via execution alias so console I/O stays in the current terminal -->
-    <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
+    <!-- Console I/O stays in the current terminal automatically: winapp launches an OutputType=Exe app
+         through its execution alias. Set WinAppRunUseExecutionAlias to false to force AUMID instead. -->
     <!-- Uncomment to capture OutputDebugString messages and first-chance exceptions -->
     <!-- <WinAppRunDebugOutput>true</WinAppRunDebugOutput> -->
   </PropertyGroup>

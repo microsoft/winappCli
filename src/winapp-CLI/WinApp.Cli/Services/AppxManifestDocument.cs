@@ -4,6 +4,7 @@
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -467,6 +468,208 @@ internal class AppxManifestDocument
         if (existing == null)
         {
             capabilities.Add(new XElement(targetNs + "Capability", new XAttribute("Name", capabilityName)));
+        }
+    }
+
+    /// <summary>
+    /// Declares a capability resolved by <see cref="AppxCapabilityCatalog"/>, including its XML namespace,
+    /// its <c>IgnorableNamespaces</c> entry, and any <c>MaxVersionTested</c> floor it requires.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Element ORDER matters: the schema requires every <c>DeviceCapability</c> to come after all
+    /// <c>Capability</c> elements, so a <c>Capability</c> is inserted ahead of the first
+    /// <c>DeviceCapability</c> rather than appended. Appending regardless produces a manifest Windows
+    /// rejects as soon as one device capability precedes one ordinary capability.
+    /// </para>
+    /// <para>
+    /// Matching is by name only, across namespaces, and case-insensitively: the same capability declared
+    /// twice is a schema violation regardless of which namespaces or spellings were used. This mirrors the
+    /// sparse-manifest check in <c>MsixService</c>.
+    /// </para>
+    /// </remarks>
+    public void EnsureCapability(AppxCapability capability)
+    {
+        var root = _document.Root;
+        if (root == null)
+        {
+            return;
+        }
+
+        if (capability.Prefix is { Length: > 0 } prefix)
+        {
+            EnsureNamespace(prefix, capability.Namespace);
+            AddIgnorableNamespace(prefix);
+        }
+
+        if (capability.MinimumMaxVersionTested is { Length: > 0 } floor)
+        {
+            EnsureMinimumMaxVersionTested(floor);
+        }
+
+        var capabilities = GetCapabilitiesElement();
+        if (capabilities == null)
+        {
+            capabilities = new XElement(DefaultNs + "Capabilities");
+            root.Add(capabilities);
+        }
+
+        var alreadyDeclared = capabilities.Elements()
+            .Any(e => string.Equals(e.Attribute("Name")?.Value, capability.Name, StringComparison.OrdinalIgnoreCase));
+        if (alreadyDeclared)
+        {
+            return;
+        }
+
+        var element = new XElement(
+            capability.Namespace + capability.ElementName,
+            new XAttribute("Name", capability.Name));
+
+        var firstDeviceCapability = capabilities.Elements()
+            .FirstOrDefault(e => e.Name.LocalName == "DeviceCapability");
+
+        if (!capability.IsDeviceCapability && firstDeviceCapability != null)
+        {
+            firstDeviceCapability.AddBeforeSelf(element);
+        }
+        else
+        {
+            capabilities.Add(element);
+        }
+    }
+
+    /// <summary>
+    /// Returns the execution aliases the given application declares, or all of them when
+    /// <paramref name="appId"/> is null.
+    /// </summary>
+    /// <remarks>
+    /// Matches <c>ExecutionAlias</c> in either the <c>uap5</c> or the <c>desktop</c> namespace, as
+    /// <see cref="MsixService.ExtractExecutionAliases"/> does. Both are valid, and recognizing only
+    /// <c>uap5</c> would read a legacy <c>desktop:ExecutionAlias</c> as "no alias declared" — so winapp
+    /// would stage a second, generated one instead of using the command name the author chose.
+    /// </remarks>
+    public IReadOnlyList<string> GetExecutionAliases(string? appId = null)
+    {
+        var app = FindApplication(appId);
+        if (app == null)
+        {
+            return [];
+        }
+
+        return [.. app.Descendants()
+            .Where(e => e.Name.LocalName == "ExecutionAlias"
+                && (e.Name.Namespace == Uap5Ns || e.Name.Namespace == DesktopNs))
+            .Select(e => e.Attribute("Alias")?.Value)
+            .Where(v => !string.IsNullOrEmpty(v))
+            .Select(v => v!)];
+    }
+
+    /// <summary>
+    /// Declares <paramref name="aliasName"/> as an execution alias, unless the application already
+    /// declares one. Returns the alias now in effect, or <see langword="null"/> if none could be added.
+    /// </summary>
+    /// <remarks>
+    /// An alias the app author wrote is always left alone — they chose the command name deliberately, and
+    /// replacing it would rename a command their users already type. This exists so winapp can add one to
+    /// the <b>staged</b> manifest in the AppX layout, which lets a console app's output reach the terminal
+    /// without editing the manifest the user has checked in.
+    /// </remarks>
+    public string? EnsureExecutionAlias(string aliasName, string? appId = null)
+    {
+        var root = _document.Root;
+        var app = FindApplication(appId);
+        if (root == null || app == null || !ExecutionAliasResolver.IsSafeAliasName(aliasName))
+        {
+            return null;
+        }
+
+        var existing = GetExecutionAliases(appId);
+        if (existing.Count > 0)
+        {
+            return existing[0];
+        }
+
+        EnsureNamespace("uap5", Uap5Ns);
+        AddIgnorableNamespace("uap5");
+
+        var extensions = app.Element(DefaultNs + "Extensions");
+        if (extensions == null)
+        {
+            extensions = new XElement(DefaultNs + "Extensions");
+            app.Add(extensions);
+        }
+
+        var aliasElement = new XElement(Uap5Ns + "ExecutionAlias", new XAttribute("Alias", aliasName));
+
+        var aliasExtension = extensions.Elements(Uap5Ns + "Extension")
+            .FirstOrDefault(e => string.Equals(e.Attribute("Category")?.Value, "windows.appExecutionAlias", StringComparison.OrdinalIgnoreCase));
+
+        if (aliasExtension == null)
+        {
+            extensions.Add(new XElement(
+                Uap5Ns + "Extension",
+                new XAttribute("Category", "windows.appExecutionAlias"),
+                new XElement(Uap5Ns + "AppExecutionAlias", aliasElement)));
+        }
+        else
+        {
+            var appExecAlias = aliasExtension.Element(Uap5Ns + "AppExecutionAlias");
+            if (appExecAlias == null)
+            {
+                aliasExtension.Add(new XElement(Uap5Ns + "AppExecutionAlias", aliasElement));
+            }
+            else
+            {
+                appExecAlias.Add(aliasElement);
+            }
+        }
+
+        return aliasName;
+    }
+
+    private XElement? FindApplication(string? appId)
+    {
+        var applications = _document.Root?.Descendants(DefaultNs + "Application").ToList() ?? [];
+        if (applications.Count == 0)
+        {
+            return null;
+        }
+
+        return string.IsNullOrEmpty(appId)
+            ? applications[0]
+            : applications.FirstOrDefault(a => string.Equals(a.Attribute("Id")?.Value, appId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Raises every <c>TargetDeviceFamily/@MaxVersionTested</c> that is below <paramref name="minimum"/>.
+    /// </summary>
+    /// <remarks>
+    /// Some capabilities are only honored from a given OS version — <c>systemAIModels</c> needs
+    /// 10.0.26226.0 — and a manifest declaring one below its floor registers successfully while the API
+    /// still fails, which is the least debuggable outcome. Only ever raises: an app that already tested
+    /// against something newer keeps its value.
+    /// </remarks>
+    public void EnsureMinimumMaxVersionTested(string minimum)
+    {
+        if (!Version.TryParse(minimum, out var required))
+        {
+            return;
+        }
+
+        var families = _document.Root?.Element(DefaultNs + "Dependencies")
+            ?.Elements(DefaultNs + "TargetDeviceFamily") ?? [];
+
+        foreach (var attribute in families.Select(static family => family.Attribute("MaxVersionTested")))
+        {
+            if (attribute == null)
+            {
+                continue;
+            }
+
+            if (!Version.TryParse(attribute.Value, out var current) || current < required)
+            {
+                attribute.Value = minimum;
+            }
         }
     }
 

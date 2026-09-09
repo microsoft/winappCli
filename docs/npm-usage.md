@@ -576,7 +576,7 @@ function restore(options?: RestoreOptions): Promise<WinappResult>
 
 ### `run()`
 
-Builds and runs a Windows app from a .csproj/.sln or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in folder mode, creates a debug-signed layout, registers the package, and launches it.
+Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
 
 ```typescript
 function run(options?: RunOptions): Promise<WinappResult>
@@ -586,28 +586,29 @@ function run(options?: RunOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
+| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Default: the current process architecture. |
+| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
 | `clean` | `boolean \| undefined` | No | Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments. |
-| `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug. |
+| `configuration` | `string \| undefined` | No | Project and single-file mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug. |
 | `debugOutput` | `boolean \| undefined` | No | Capture OutputDebugString messages and first-chance exceptions from the launched application. Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use --no-launch instead if you need to attach a different debugger. For WinUI apps, a crash also triggers a stowed-exception triage pass; the first run downloads debugger components (cached under the winapp global directory) and can be pointed at an existing debugger install via the WINAPP_DBGTOOLS_DIR environment variable. Cannot be combined with --no-launch or --json. |
 | `detach` | `boolean \| undefined` | No | Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Prints the PID to stdout (or in JSON with --json). |
 | `executable` | `string \| undefined` | No | Path to the executable relative to the input folder. Use to disambiguate when the manifest contains a $targetnametoken$ placeholder and multiple .exe files are present in the input folder. |
-| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored in folder mode. |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored in folder mode. Rejected for a .cs file-based app, which declares its own with '#:property TargetFramework=...'. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to the Package.appxmanifest (default: auto-detect from input folder or current directory) |
-| `noBuild` | `boolean \| undefined` | No | Project mode: skip building and run the existing build output (still evaluates output properties). Ignored in folder mode. |
+| `noBuild` | `boolean \| undefined` | No | Project and single-file mode: skip building and run the existing build output (still evaluates output properties). Ignored in folder mode. |
 | `noLaunch` | `boolean \| undefined` | No | Only create the debug identity and register the package without launching the application |
-| `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Ignored in folder mode. |
+| `noRestore` | `boolean \| undefined` | No | Project and single-file mode: skip restoring before building. Ignored in folder mode. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
-| `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. |
-| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
-| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. |
+| `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. |
+| `property` | `string \| string[] \| undefined` | No | Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
+| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too. |
 | `symbols` | `boolean \| undefined` | No | Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. |
 | `unregisterOnExit` | `boolean \| undefined` | No | Unregister the development package after the application exits. Only removes packages registered in development mode. |
-| `withAlias` | `boolean \| undefined` | No | Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Requires a uap5:ExecutionAlias in the manifest. Use "winapp manifest add-alias" to add an execution alias to the manifest. |
+| `withAlias` | `boolean \| undefined` | No | Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Console apps (OutputType=Exe) already do this by default; pass this to force it for a windowed app. winapp adds a uap5:ExecutionAlias to the manifest it stages for you, so no manifest edit is needed. |
+| `withoutAlias` | `boolean \| undefined` | No | Launch via AUMID activation even for a console app, instead of the default execution alias. The app then runs without a console, so it prints nothing to this terminal. |
 | `appArgs` | `string \| string[] \| undefined` | No | Arguments to pass to the launched application (forwarded after --). |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -1163,9 +1164,16 @@ function unregister(options?: UnregisterOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `force` | `boolean \| undefined` | No | Skip the install-location directory check and unregister even if the package was registered from a different project tree |
+| `input` | `string \| undefined` | No | Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. |
+| `arch` | `string \| undefined` | No | Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. |
+| `configuration` | `string \| undefined` | No | Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. |
+| `force` | `boolean \| undefined` | No | Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to the Package.appxmanifest (default: auto-detect from current directory) |
+| `outputAppxDirectory` | `string \| undefined` | No | The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped. |
+| `property` | `string \| string[] \| undefined` | No | MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input. |
+| `prune` | `boolean \| undefined` | No | Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest. |
+| `runtime` | `string \| undefined` | No | Target .NET runtime identifier (e.g. win-x64) used when resolving a .cs file-based app's identity. Only its architecture is used, and it overrides --arch. Only applies to a .cs input. |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1884,28 +1892,29 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
+| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Default: the current process architecture. |
+| `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
 | `clean` | `boolean \| undefined` | No | Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments. |
-| `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug. |
+| `configuration` | `string \| undefined` | No | Project and single-file mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug. |
 | `debugOutput` | `boolean \| undefined` | No | Capture OutputDebugString messages and first-chance exceptions from the launched application. Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use --no-launch instead if you need to attach a different debugger. For WinUI apps, a crash also triggers a stowed-exception triage pass; the first run downloads debugger components (cached under the winapp global directory) and can be pointed at an existing debugger install via the WINAPP_DBGTOOLS_DIR environment variable. Cannot be combined with --no-launch or --json. |
 | `detach` | `boolean \| undefined` | No | Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Prints the PID to stdout (or in JSON with --json). |
 | `executable` | `string \| undefined` | No | Path to the executable relative to the input folder. Use to disambiguate when the manifest contains a $targetnametoken$ placeholder and multiple .exe files are present in the input folder. |
-| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored in folder mode. |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored in folder mode. Rejected for a .cs file-based app, which declares its own with '#:property TargetFramework=...'. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to the Package.appxmanifest (default: auto-detect from input folder or current directory) |
-| `noBuild` | `boolean \| undefined` | No | Project mode: skip building and run the existing build output (still evaluates output properties). Ignored in folder mode. |
+| `noBuild` | `boolean \| undefined` | No | Project and single-file mode: skip building and run the existing build output (still evaluates output properties). Ignored in folder mode. |
 | `noLaunch` | `boolean \| undefined` | No | Only create the debug identity and register the package without launching the application |
-| `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Ignored in folder mode. |
+| `noRestore` | `boolean \| undefined` | No | Project and single-file mode: skip restoring before building. Ignored in folder mode. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
-| `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. |
-| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
-| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. |
+| `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. |
+| `property` | `string \| string[] \| undefined` | No | Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
+| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too. |
 | `symbols` | `boolean \| undefined` | No | Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. |
 | `unregisterOnExit` | `boolean \| undefined` | No | Unregister the development package after the application exits. Only removes packages registered in development mode. |
-| `withAlias` | `boolean \| undefined` | No | Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Requires a uap5:ExecutionAlias in the manifest. Use "winapp manifest add-alias" to add an execution alias to the manifest. |
+| `withAlias` | `boolean \| undefined` | No | Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Console apps (OutputType=Exe) already do this by default; pass this to force it for a windowed app. winapp adds a uap5:ExecutionAlias to the manifest it stages for you, so no manifest edit is needed. |
+| `withoutAlias` | `boolean \| undefined` | No | Launch via AUMID activation even for a console app, instead of the default execution alias. The app then runs without a console, so it prints nothing to this terminal. |
 | `appArgs` | `string \| string[] \| undefined` | No | Arguments to pass to the launched application (forwarded after --). |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -2286,9 +2295,16 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `force` | `boolean \| undefined` | No | Skip the install-location directory check and unregister even if the package was registered from a different project tree |
+| `input` | `string \| undefined` | No | Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. |
+| `arch` | `string \| undefined` | No | Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. |
+| `configuration` | `string \| undefined` | No | Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. |
+| `force` | `boolean \| undefined` | No | Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to the Package.appxmanifest (default: auto-detect from current directory) |
+| `outputAppxDirectory` | `string \| undefined` | No | The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped. |
+| `property` | `string \| string[] \| undefined` | No | MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input. |
+| `prune` | `boolean \| undefined` | No | Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest. |
+| `runtime` | `string \| undefined` | No | Target .NET runtime identifier (e.g. win-x64) used when resolving a .cs file-based app's identity. Only its architecture is used, and it overrides --arch. Only applies to a .cs input. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |

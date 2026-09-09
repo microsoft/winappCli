@@ -162,7 +162,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
     }
 
     /// <inheritdoc />
-    public async Task UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default)
+    public async Task<bool> UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default)
     {
         logger.LogDebug("Removing package: {PackageFullName} (preserveAppData={PreserveAppData})", packageFullName, preserveAppData);
 
@@ -171,7 +171,10 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         if (!string.IsNullOrEmpty(result.ErrorText))
         {
             logger.LogWarning("Warning removing package {PackageFullName}: {Error}", packageFullName, result.ErrorText);
+            return false;
         }
+
+        return true;
     }
 
     /// <inheritdoc />
@@ -333,25 +336,77 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 continue;
             }
 
-            string? installLocation = null;
-            try
-            {
-                installLocation = pkg.InstalledLocationAccessor();
-            }
-            catch
-            {
-                // InstalledLocation can throw if the path no longer exists
-            }
-
-            results.Add(new DevPackageInfo(
-                FullName: pkg.FullName,
-                Name: pkg.Name,
-                Version: $"{pkg.VersionMajor}.{pkg.VersionMinor}.{pkg.VersionBuild}.{pkg.VersionRevision}",
-                InstallLocation: installLocation,
-                IsDevelopmentMode: pkg.IsDevelopmentMode));
+            results.Add(ToDevPackageInfo(pkg));
         }
 
         return results;
+    }
+
+    /// <inheritdoc />
+    public List<DevPackageInfo> FindOrphanedDevPackages()
+    {
+        var results = new List<DevPackageInfo>();
+
+        foreach (var pkg in EnumerateUserPackagesImpl())
+        {
+            if (!pkg.IsDevelopmentMode)
+            {
+                continue;
+            }
+
+            var info = ToDevPackageInfo(pkg);
+
+            // An empty install location means the accessor threw, which for a registered package means
+            // its files are no longer reachable. Treat a location that simply does not exist the same
+            // way; both leave a registration that can never launch.
+            if (string.IsNullOrEmpty(info.InstallLocation) || !DirectoryExists(info.InstallLocation))
+            {
+                results.Add(info);
+            }
+        }
+
+        return results;
+    }
+
+    private static DevPackageInfo ToDevPackageInfo(InstalledPackageView pkg)
+    {
+        string? installLocation = null;
+        try
+        {
+            installLocation = pkg.InstalledLocationAccessor();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Deliberately broad, with a filter rather than a bare catch. Reading the location is a
+            // best-effort probe of an OPTIONAL value with a total fallback ("unknown"), and it is a WinRT
+            // call: a package whose files are gone throws, and the HRESULT it surfaces as is not
+            // contractual. FindOrphanedDevPackages walks EVERY installed package, so letting an
+            // unanticipated type escape would abort the whole sweep over one bad entry — which is exactly
+            // the state this method exists to report. Cancellation still propagates.
+        }
+
+        return new DevPackageInfo(
+            FullName: pkg.FullName,
+            Name: pkg.Name,
+            Version: $"{pkg.VersionMajor}.{pkg.VersionMinor}.{pkg.VersionBuild}.{pkg.VersionRevision}",
+            InstallLocation: installLocation,
+            IsDevelopmentMode: pkg.IsDevelopmentMode);
+    }
+
+    /// <summary>
+    /// Existence probe for an install location. A path that cannot even be evaluated (malformed, or on
+    /// a device that is gone) counts as missing rather than throwing out of the enumeration.
+    /// </summary>
+    private static bool DirectoryExists(string path)
+    {
+        try
+        {
+            return Directory.Exists(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     internal static bool IsSideloadPolicyError(Exception ex)
