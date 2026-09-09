@@ -337,7 +337,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(manifest.FullName, "manifest", TestContext.CancellationToken);
         var external = _tempDirectory;
 
-        await _msixService.RegisterSparsePackageAsync(manifest, external, TestTaskContext, TestContext.CancellationToken);
+        await _msixService.RegisterSparsePackageAsync(manifest, external, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.HasCount(1, _fakeRegistration.RegisterSparseCalls);
         Assert.AreEqual(manifest.FullName, _fakeRegistration.RegisterSparseCalls[0].ManifestPath);
@@ -352,7 +352,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(manifest.FullName, "manifest", TestContext.CancellationToken);
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            _msixService.RegisterSparsePackageAsync(manifest, _tempDirectory, TestTaskContext, TestContext.CancellationToken));
+            _msixService.RegisterSparsePackageAsync(manifest, _tempDirectory, TestTaskContext, cancellationToken: TestContext.CancellationToken));
         Assert.Contains("Failed to register sparse package", ex.Message);
     }
 
@@ -362,7 +362,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var manifest = new FileInfo(Path.Combine(_tempDirectory.FullName, "appxmanifest.xml"));
         await File.WriteAllTextAsync(manifest.FullName, "manifest", TestContext.CancellationToken);
 
-        await _msixService.RegisterLooseLayoutPackageAsync(manifest, TestTaskContext, TestContext.CancellationToken);
+        await _msixService.RegisterLooseLayoutPackageAsync(manifest, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls);
         Assert.AreEqual(manifest.FullName, _fakeRegistration.RegisterLooseLayoutCalls[0]);
@@ -376,7 +376,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(manifest.FullName, "manifest", TestContext.CancellationToken);
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            _msixService.RegisterLooseLayoutPackageAsync(manifest, TestTaskContext, TestContext.CancellationToken));
+            _msixService.RegisterLooseLayoutPackageAsync(manifest, TestTaskContext, cancellationToken: TestContext.CancellationToken));
         Assert.Contains("Failed to register package", ex.Message);
     }
 
@@ -388,7 +388,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var missingManifest = new FileInfo(Path.Combine(_tempDirectory.FullName, "nope.xml"));
 
         await Assert.ThrowsExactlyAsync<FileNotFoundException>(() =>
-            _msixService.AddSparseIdentityAsync(null, missingManifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken));
+            _msixService.AddSparseIdentityAsync(null, missingManifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
     }
 
     [TestMethod]
@@ -399,7 +399,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(manifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            _msixService.AddSparseIdentityAsync("app.exe", manifest, noInstall: false, keepIdentity: false, TestTaskContext, TestContext.CancellationToken));
+            _msixService.AddSparseIdentityAsync("app.exe", manifest, noInstall: false, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
         Assert.Contains("Developer Mode", ex.Message);
     }
 
@@ -410,7 +410,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(manifest.FullName, BuildMSBuildManifest(exe: "$targetnametoken$.exe"), TestContext.CancellationToken);
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            _msixService.AddSparseIdentityAsync(null, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken));
+            _msixService.AddSparseIdentityAsync(null, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
         Assert.Contains("placeholder", ex.Message);
     }
 
@@ -423,7 +423,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var missingExe = Path.Combine(_tempDirectory.FullName, "not-here.exe");
 
         await Assert.ThrowsExactlyAsync<FileNotFoundException>(() =>
-            _msixService.AddSparseIdentityAsync(missingExe, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken));
+            _msixService.AddSparseIdentityAsync(missingExe, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
     }
 
     // ---- AddLooseLayoutIdentityAsync guards ---------------------------------------
@@ -682,7 +682,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var (manifest, exePath) = ArrangeSparseInputs();
 
         var result = await _msixService.AddSparseIdentityAsync(
-            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken);
+            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         // keepIdentity:false -> CreateDebugIdentity appends ".debug".
         Assert.AreEqual("TestApp.debug", result.PackageName);
@@ -701,7 +701,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var (manifest, exePath) = ArrangeSparseInputs();
 
         var result = await _msixService.AddSparseIdentityAsync(
-            exePath, manifest, noInstall: false, keepIdentity: true, TestTaskContext, TestContext.CancellationToken);
+            exePath, manifest, noInstall: false, keepIdentity: true, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         // keepIdentity:true -> original identity is preserved (no ".debug" suffix).
         Assert.AreEqual("TestApp", result.PackageName);
@@ -723,7 +723,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(exePath, "pe", TestContext.CancellationToken);
 
         var result = await _msixService.AddSparseIdentityAsync(
-            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken);
+            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         // Placeholder Executable ($targetnametoken$) resolves to the entry-point name.
         Assert.AreEqual("TestApp.debug", result.PackageName);
@@ -742,7 +742,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(exePath, "pe", TestContext.CancellationToken);
 
         var result = await _msixService.AddSparseIdentityAsync(
-            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken);
+            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.AreEqual("TestApp.debug", result.PackageName);
         Assert.IsTrue(File.Exists(Path.Combine(dir.FullName, "resources.pri")), "PRI should still be generated when manifest and exe share a directory");
@@ -761,7 +761,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(manifest.FullName, content, TestContext.CancellationToken);
 
         var result = await _msixService.AddSparseIdentityAsync(
-            entryPointPath: null, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken);
+            entryPointPath: null, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.AreEqual("TestApp.debug", result.PackageName);
     }
@@ -776,7 +776,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             _msixService.AddSparseIdentityAsync(
-                entryPointPath: null, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken));
+                entryPointPath: null, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
     }
 
     // ---- AddLooseLayoutIdentityAsync (non-MSBuild edge/error paths) ----------------
@@ -830,7 +830,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var (manifest, exePath) = ArrangeSparseInputs();
 
         var result = await _msixService.AddSparseIdentityAsync(
-            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken);
+            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.AreEqual("TestApp.debug", result.PackageName);
         // Because an existing manifest was found, mt.exe should have been asked to MERGE
@@ -853,7 +853,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var (manifest, exePath) = ArrangeSparseInputs();
 
         var result = await _msixService.AddSparseIdentityAsync(
-            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken);
+            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.AreEqual("TestApp.debug", result.PackageName);
     }
@@ -960,7 +960,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var (manifest, exePath) = ArrangeSparseInputs();
 
         var result = await _msixService.AddSparseIdentityAsync(
-            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, TestContext.CancellationToken);
+            exePath, manifest, noInstall: true, keepIdentity: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.AreEqual("TestApp.debug", result.PackageName);
         // PRI generation failed, so resources.pri should NOT have been produced next to the exe.
@@ -994,12 +994,12 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         // First call creates the debug directory and an initial resources.pri next to the exe.
         await _msixService.GenerateSparsePackageStructureAsync(
-            manifest, exePath, keepIdentity: false, null, TestTaskContext, TestContext.CancellationToken);
+            manifest, exePath, keepIdentity: false, null, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         // Second call must delete the pre-existing debug directory and replace the
         // pre-existing target resources.pri. keepIdentity:true keeps the original identity.
         var (debugManifestPath, debugIdentity) = await _msixService.GenerateSparsePackageStructureAsync(
-            manifest, exePath, keepIdentity: true, null, TestTaskContext, TestContext.CancellationToken);
+            manifest, exePath, keepIdentity: true, null, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.IsTrue(File.Exists(debugManifestPath.FullName));
         Assert.AreEqual("TestApp", debugIdentity.PackageName);
@@ -1083,12 +1083,12 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var csproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.csproj"));
 
         await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
-            csproj, "x64", framework: null, noRestore: true, TestTaskContext, TestContext.CancellationToken);
+            csproj, "x64", framework: null, noRestore: true, TestTaskContext, cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(true, _fakeDotNet.LastGetPackageListNoRestore,
             "--no-restore must be forwarded to dotnet list package during runtime discovery");
 
         await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
-            csproj, "x64", framework: null, noRestore: false, TestTaskContext, TestContext.CancellationToken);
+            csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
         Assert.AreEqual(false, _fakeDotNet.LastGetPackageListNoRestore,
             "runtime discovery must restore normally when --no-restore was not requested");
     }
@@ -1106,7 +1106,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             _msixService.EnsureWindowsAppRuntimeInstalledAsync(
-                csproj, "x64", framework: null, noRestore: false, TestTaskContext, TestContext.CancellationToken));
+                csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
 
         StringAssert.Contains(ex.Message, "could not be located");
     }
@@ -1127,7 +1127,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             _msixService.EnsureWindowsAppRuntimeInstalledAsync(
-                csproj, "x64", framework: null, noRestore: false, TestTaskContext, TestContext.CancellationToken));
+                csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken));
 
         StringAssert.Contains(ex.Message, "not registered");
     }
@@ -1145,7 +1145,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var csproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.csproj"));
 
         await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
-            csproj, "x64", framework: null, noRestore: false, TestTaskContext, TestContext.CancellationToken);
+            csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         Assert.HasCount(1, _fakeWindowsAppRuntime.InstallRuntimeCalls);
     }
@@ -1162,7 +1162,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var csproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.csproj"));
 
         await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
-            csproj, "x64", framework: null, noRestore: false, TestTaskContext, TestContext.CancellationToken);
+            csproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
         var messages = TestTask.SubTasks.OfType<StatusMessageTask>().Select(t => t.CompletedMessage ?? string.Empty).ToList();
         Assert.IsTrue(

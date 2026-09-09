@@ -174,7 +174,7 @@ internal partial class MsixService
             // A self-contained app carries its own Windows App SDK, so both steps are skipped.
             if (!selfContained)
             {
-                var msbuildPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, projectAssetsFile, cancellationToken);
+                var msbuildPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, projectAssetsFile, runtimeArch, cancellationToken);
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
             }
 
@@ -260,7 +260,7 @@ internal partial class MsixService
         // A self-contained app carries its own Windows App SDK, so skip discovery entirely.
         var dotNetPackageList = selfContained
             ? null
-            : await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, projectAssetsFile, cancellationToken);
+            : await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, projectAssetsFile, runtimeArch, cancellationToken);
 
         // If there is a pri file named after the executable, rename it to resources.pri
         var priFilePath = Path.Combine(outputAppXDirectory.FullName, Path.GetFileNameWithoutExtension(executableMatch.Name) + ".pri");
@@ -593,22 +593,19 @@ internal partial class MsixService
     /// list (or falls back to a cwd glob) and installs the Windows App Runtime framework packages for
     /// the given architecture. Callers gate on <c>WindowsAppSDKSelfContained</c> before calling.
     /// </summary>
-    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, CancellationToken cancellationToken = default)
+    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, FileInfo? projectAssetsFile = null, CancellationToken cancellationToken = default)
     {
-        // projectAssetsFile: null — this unpackaged entry point is reached without the build's assets
-        // file, so it keeps re-evaluating the project, unchanged.
-        var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, projectAssetsFile: null, cancellationToken);
+        var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, projectAssetsFile, architecture, cancellationToken);
 
         // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
         // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
         // prints a noisy "could not determine runtime" warning. Skip only on a positive no-reference
         // result; an unresolved list falls through to prep so a real WinUI app keeps its runtime.
         //
-        // Known limitation for THIS entry point: it is reached without the build's assets file, so the
-        // graph is re-evaluated in the default Configuration/RID. A Windows App SDK reference conditioned
-        // on a non-default one would be missed here and runtime prep wrongly skipped. Callers that do have
-        // the assets file pass it through AddLooseLayoutIdentityAsync instead. The skip only fires on a
-        // positive no-reference result, so an unresolved list still preps the runtime.
+        // Callers that know the build's assets file pass it, which makes the graph exact. A caller that
+        // does not falls back to re-evaluating the project in the default Configuration/RID, where a
+        // Windows App SDK reference conditioned on a non-default one would be missed and prep wrongly
+        // skipped — bounded by the skip firing only on a positive no-reference result.
         var referencesWindowsAppSdk = packageList is not null && ReferencesWindowsAppSdk(packageList);
         if (packageList is not null && !referencesWindowsAppSdk)
         {
@@ -673,10 +670,16 @@ internal partial class MsixService
     /// forwards <c>--no-restore</c> to <c>dotnet list package</c> so a no-restore run can't trigger an
     /// implicit restore during runtime discovery.
     /// </summary>
-    private async Task<DotNetPackageListJson?> ResolveDotNetPackageListAsync(FileInfo? projectFile, string? framework, bool noRestore, FileInfo? projectAssetsFile, CancellationToken cancellationToken)
+    private async Task<DotNetPackageListJson?> ResolveDotNetPackageListAsync(FileInfo? projectFile, string? framework, bool noRestore, FileInfo? projectAssetsFile, string? runtimeArch, CancellationToken cancellationToken)
     {
+        // Restore accumulates one target per RID it has ever resolved, so reading the assets file needs to
+        // know which one this build used. The architecture already threaded here is that RID in winapp's
+        // own form; an app that declares an exotic RID of its own simply doesn't match, and the reader
+        // then falls back to the plain TFM target rather than reading a sibling architecture's packages.
+        var runtimeIdentifier = string.IsNullOrWhiteSpace(runtimeArch) ? null : RunArchHelper.ToRuntimeIdentifier(runtimeArch);
+
         var packageList = projectFile is not null
-            ? await dotNetService.GetPackageListAsync(projectFile, noRestore: noRestore, projectAssetsFile: projectAssetsFile, cancellationToken: cancellationToken)
+            ? await dotNetService.GetPackageListAsync(projectFile, noRestore: noRestore, projectAssetsFile: projectAssetsFile, runtimeIdentifier: runtimeIdentifier, cancellationToken: cancellationToken)
             : await FetchDotNetPackageListAsync(cancellationToken);
 
         // A named project that yields no graph is worth saying out loud: the framework dependency written

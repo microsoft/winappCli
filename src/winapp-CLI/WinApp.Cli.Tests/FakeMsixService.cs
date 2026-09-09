@@ -25,6 +25,9 @@ internal class FakeMsixService : IMsixService
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<string?> AddLooseLayoutAssetsFileCalls { get; } = [];
 
+    /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
+    public List<string?> EnsureRuntimeInstalledAssetsFileCalls { get; } = [];
+
     /// <summary>Records the <c>ensureExecutionAlias</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<bool> AddLooseLayoutEnsureAliasCalls { get; } = [];
     public List<(string? ProjectFile, string? Architecture, string? Framework, bool NoRestore)> EnsureRuntimeInstalledCalls { get; } = [];
@@ -105,8 +108,10 @@ internal class FakeMsixService : IMsixService
         string? framework,
         bool noRestore,
         TaskContext taskContext,
+        FileInfo? projectAssetsFile = null,
         CancellationToken cancellationToken = default)
     {
+        EnsureRuntimeInstalledAssetsFileCalls.Add(projectAssetsFile?.FullName);
         EnsureRuntimeInstalledCalls.Add((projectFile?.FullName, architecture, framework, noRestore));
         if (EnsureRuntimeInstalledException != null)
         {

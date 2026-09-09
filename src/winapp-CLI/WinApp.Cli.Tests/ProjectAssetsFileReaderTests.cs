@@ -72,7 +72,7 @@ public class ProjectAssetsFileReaderTests
     {
         // A PackageReference added only under a RID lands in the TFM/RID target. Reading just the plain
         // TFM target would miss it, which is the whole failure this reader exists to prevent.
-        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets));
+        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets), "win-x64");
 
         Assert.IsNotNull(result);
         var framework = result.Projects.Single().Frameworks.Single();
@@ -86,7 +86,7 @@ public class ProjectAssetsFileReaderTests
     {
         // FilterPackageListToFramework matches on the built TFM, so a 'net10.0/win-x64' label would make
         // it fail to match and fall back to every framework.
-        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets));
+        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets), "win-x64");
 
         Assert.AreEqual("net10.0", result!.Projects.Single().Frameworks.Single().Framework);
     }
@@ -97,7 +97,7 @@ public class ProjectAssetsFileReaderTests
     [TestMethod]
     public void Read_SplitsTopLevelFromTransitive_UsingTheProjectsOwnDependencies()
     {
-        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets));
+        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets), "win-x64");
 
         var framework = result!.Projects.Single().Frameworks.Single();
         CollectionAssert.AreEquivalent(
@@ -112,7 +112,7 @@ public class ProjectAssetsFileReaderTests
     [TestMethod]
     public void Read_ReportsTheResolvedVersionFromTheLibraryKey()
     {
-        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets));
+        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets), "win-x64");
 
         var sdk = result!.Projects.Single().Frameworks.Single().TopLevelPackages
             .Single(p => p.Id == "Microsoft.WindowsAppSDK");
@@ -123,11 +123,64 @@ public class ProjectAssetsFileReaderTests
     [TestMethod]
     public void Read_SkipsProjectReferences_SoOnlyNuGetPackagesAreListed()
     {
-        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets));
+        var result = ProjectAssetsFileReader.TryRead(WriteAssets(RealisticAssets), "win-x64");
 
         var framework = result!.Projects.Single().Frameworks.Single();
         var all = framework.TopLevelPackages.Concat(framework.TransitivePackages).Select(p => p.Id);
         Assert.IsFalse(all.Contains("SomeReferencedProject"), "A project-to-project reference is not a package");
+    }
+
+    private const string MultiRidAssets = """
+    {
+      "version": 3,
+      "targets": {
+        "net10.0": {},
+        "net10.0/win-x64": {
+          "Microsoft.WindowsAppSDK/1.7.250606001": { "type": "package" }
+        },
+        "net10.0/win-arm64": {
+          "Microsoft.WindowsAppSDK/1.8.999999999": { "type": "package" }
+        }
+      },
+      "project": {
+        "frameworks": {
+          "net10.0": {
+            "dependencies": {
+              "Microsoft.WindowsAppSDK": { "target": "Package", "version": "[1.7.250606001, )" }
+            }
+          }
+        }
+      }
+    }
+    """;
+
+    [TestMethod]
+    public void Read_UsesOnlyTheRidTheBuildUsed_NotASiblingRidsVersion()
+    {
+        // Restore accumulates a target per RID it has ever resolved. Reading them all would let another
+        // architecture's Windows App SDK version drive runtime provisioning for this build, so winapp
+        // would check for and install the wrong Windows App Runtime family.
+        var assets = WriteAssets(MultiRidAssets);
+
+        var x64 = ProjectAssetsFileReader.TryRead(assets, "win-x64");
+        var arm64 = ProjectAssetsFileReader.TryRead(assets, "win-arm64");
+
+        Assert.AreEqual("1.7.250606001",
+            x64!.Projects.Single().Frameworks.Single().TopLevelPackages.Single().ResolvedVersion);
+        Assert.AreEqual("1.8.999999999",
+            arm64!.Projects.Single().Frameworks.Single().TopLevelPackages.Single().ResolvedVersion);
+    }
+
+    [TestMethod]
+    public void Read_WithoutARid_SkipsRidQualifiedTargetsRatherThanGuessing()
+    {
+        // With no RID to match, picking one of several RID targets would be arbitrary. The plain TFM
+        // target is what a RID-less build resolved, so only that is read.
+        var result = ProjectAssetsFileReader.TryRead(WriteAssets(MultiRidAssets), runtimeIdentifier: null);
+
+        var framework = result!.Projects.Single().Frameworks.Single();
+        Assert.AreEqual(0, framework.TopLevelPackages.Count + framework.TransitivePackages.Count,
+            "A sibling RID's packages must not be attributed to a RID-less build");
     }
 
     [TestMethod]

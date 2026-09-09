@@ -144,7 +144,11 @@ internal partial class RunCommand
                     resolution.Architecture,
                     resolution.TargetFramework,
                     noRestore,
-                    resolution.RunArguments);
+                    resolution.RunArguments,
+                    // Carry the assets file across: the unpackaged path still provisions the Windows App
+                    // Runtime, and without it that decision is made from a re-evaluated graph rather than
+                    // the one the build resolved.
+                    ProjectAssetsFile: resolution.ProjectAssetsFile);
 
                 return await RunUnpackagedProjectAsync(
                     unpackaged, singleFile, appArgs,

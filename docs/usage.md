@@ -982,6 +982,11 @@ publishers still get different aliases. The prefix keeps the name clear of real 
 `python.cs` gets a `winapp-…` alias, never `python.exe`. If you author your own manifest, the alias you
 declare there is used as-is and winapp adds nothing.
 
+That applies to the alias only. Registration itself is keyed on the package *name*, so running a second
+app that declares the same `WinAppPackageName` under a different publisher replaces the first
+registration rather than sitting alongside it. Give each app its own name if you want both registered
+at once.
+
 `winapp run` prints the alias it registered, so you don't have to compute the hash to find it.
 
 The alias is a command on your PATH that lasts as long as the package stays registered. If some other

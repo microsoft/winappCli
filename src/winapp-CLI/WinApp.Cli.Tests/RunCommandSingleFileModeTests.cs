@@ -85,13 +85,14 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
     }
 
     /// <summary>Sets an UNPACKAGED outcome, so the shared unpackaged gate is exercised.</summary>
-    private void SetUnpackagedOutcome(FileInfo singleFile, DirectoryInfo outputDirectory)
+    private void SetUnpackagedOutcome(FileInfo singleFile, DirectoryInfo outputDirectory, string? projectAssetsFile = null)
     {
         _fakeProjectRunService.SingleFileBuildOutcome = new SingleFileBuildOutcome(
             new SingleFileRunResolution(
                 singleFile, outputDirectory.FullName, "counter.exe", "x64", "net10.0-windows10.0.19041.0", false,
                 ProjectPackaging.Unpackaged, Path.Join(outputDirectory.FullName, "counter.exe"), null,
-                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)), 0);
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                projectAssetsFile), 0);
     }
 
     private static XDocument LoadGeneratedManifest(DirectoryInfo outputDirectory)
@@ -194,6 +195,25 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode, $"{option} must be rejected for an unpackaged app");
         StringAssert.Contains(ConsoleStdErr.ToString(), option);
+    }
+
+    [TestMethod]
+    public async Task SingleFileMode_UnpackagedApp_StillReadsThePackageGraphFromTheBuildsAssetsFile()
+    {
+        // An unpackaged app has no manifest, but it still provisions the Windows App Runtime — and that
+        // decision is gated on whether the app references the Windows App SDK at all. Dropping the assets
+        // file here would re-evaluate the default graph, report "No Windows App SDK reference", and launch
+        // an app whose runtime was never prepared.
+        var (singleFile, outputDir) = CreateSingleFileApp();
+        var assetsFile = Path.Join(outputDir.FullName, "obj", "project.assets.json");
+        SetUnpackagedOutcome(singleFile, outputDir, assetsFile);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(assetsFile, _fakeMsixService.EnsureRuntimeInstalledAssetsFileCalls.Single(),
+            "The build's own assets file must reach unpackaged runtime provisioning too");
     }
 
     #endregion

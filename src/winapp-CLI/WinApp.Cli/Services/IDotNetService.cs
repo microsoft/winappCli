@@ -168,7 +168,7 @@ internal interface IDotNetService
     /// the graph is read from it, because that is restore's output for the build's actual inputs; the
     /// command itself accepts no <c>-c</c>/<c>-r</c>/<c>-p</c> and so cannot reproduce them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, FileInfo? projectAssetsFile = null, CancellationToken cancellationToken = default);
+    Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, FileInfo? projectAssetsFile = null, string? runtimeIdentifier = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Ensures the .csproj has <c>&lt;EnableMsixTooling&gt;true&lt;/EnableMsixTooling&gt;</c>.

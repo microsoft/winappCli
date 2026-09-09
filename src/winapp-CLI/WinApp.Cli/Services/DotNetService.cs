@@ -683,14 +683,14 @@ internal partial class DotNetService : IDotNetService
     /// <c>EnsureWindowsAppRuntimeInstalledAsync</c> is the backstop: a genuinely missing runtime fails the
     /// launch with an actionable error rather than silently under-provisioning.
     /// </remarks>
-    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, FileInfo? projectAssetsFile = null, CancellationToken cancellationToken = default)
+    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, FileInfo? projectAssetsFile = null, string? runtimeIdentifier = null, CancellationToken cancellationToken = default)
     {
         if (!projectOrFile.Exists)
         {
             return null;
         }
 
-        if (projectAssetsFile is not null && ProjectAssetsFileReader.TryRead(projectAssetsFile) is { } resolvedFromAssets)
+        if (projectAssetsFile is not null && ProjectAssetsFileReader.TryRead(projectAssetsFile, runtimeIdentifier) is { } resolvedFromAssets)
         {
             return resolvedFromAssets;
         }

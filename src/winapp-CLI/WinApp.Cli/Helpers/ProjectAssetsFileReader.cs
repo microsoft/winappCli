@@ -30,7 +30,13 @@ internal static class ProjectAssetsFileReader
     /// Reads <paramref name="assetsFile"/> into the same shape <c>dotnet package list --format json</c>
     /// produces, or null when it is absent or unreadable so the caller can fall back to that command.
     /// </summary>
-    public static DotNetPackageListJson? TryRead(FileInfo assetsFile)
+    /// <param name="assetsFile">The <c>project.assets.json</c> the build consumed.</param>
+    /// <param name="runtimeIdentifier">
+    /// The RID the build used. Restore accumulates one target per RID it has ever resolved, so only the
+    /// plain TFM target and this exact <c>TFM/RID</c> target are read; folding in a sibling RID would
+    /// report another architecture's packages, and its Windows App SDK version, for this build.
+    /// </param>
+    public static DotNetPackageListJson? TryRead(FileInfo assetsFile, string? runtimeIdentifier = null)
     {
         if (!assetsFile.Exists)
         {
@@ -56,13 +62,12 @@ internal static class ProjectAssetsFileReader
         var frameworks = new List<DotNetFramework>();
         foreach (var (targetFramework, declared) in declaredFrameworks)
         {
-            // Restore writes one target per TFM plus one per TFM/RID. The RID-qualified target is what a
-            // RID-specific build consumed, so both are folded together and deduplicated: for this graph a
-            // superset is the safe direction, matching the fail-open filtering the callers already use.
+            // The RID-qualified target is where a RID-conditional PackageReference lands, so it is read
+            // alongside the plain TFM target — but only the RID this build used.
             var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (targetName, libraries) in assets.Targets ?? [])
             {
-                if (!TargetMatchesFramework(targetName, targetFramework) || libraries is null)
+                if (!TargetMatchesBuild(targetName, targetFramework, runtimeIdentifier) || libraries is null)
                 {
                     continue;
                 }
@@ -78,7 +83,7 @@ internal static class ProjectAssetsFileReader
                     var separator = libraryKey.LastIndexOf('/');
                     if (separator > 0)
                     {
-                        resolved.TryAdd(libraryKey[..separator], libraryKey[(separator + 1)..]);
+                        resolved[libraryKey[..separator]] = libraryKey[(separator + 1)..];
                     }
                 }
             }
@@ -103,18 +108,22 @@ internal static class ProjectAssetsFileReader
     }
 
     /// <summary>
-    /// True when a <c>targets</c> key is the given TFM, with or without a trailing <c>/&lt;rid&gt;</c>.
+    /// True when a <c>targets</c> key describes the build in progress: the plain TFM, or that TFM
+    /// qualified by the RID the build used. A different RID's target is skipped.
     /// </summary>
-    private static bool TargetMatchesFramework(string targetName, string targetFramework)
+    /// <remarks>
+    /// When the caller does not know the RID, RID-qualified targets are skipped entirely rather than
+    /// guessed at — the plain TFM target is the one a RID-less build resolved.
+    /// </remarks>
+    private static bool TargetMatchesBuild(string targetName, string targetFramework, string? runtimeIdentifier)
     {
         if (string.Equals(targetName, targetFramework, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return targetName.Length > targetFramework.Length
-            && targetName[targetFramework.Length] == '/'
-            && targetName.AsSpan(0, targetFramework.Length).Equals(targetFramework, StringComparison.OrdinalIgnoreCase);
+        return !string.IsNullOrWhiteSpace(runtimeIdentifier)
+            && string.Equals(targetName, $"{targetFramework}/{runtimeIdentifier}", StringComparison.OrdinalIgnoreCase);
     }
 }
 
