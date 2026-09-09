@@ -1130,14 +1130,18 @@ The following MSBuild properties can be set in your `.csproj` to control behavio
 
 **Mutually exclusive settings.** `WinAppRunNoLaunch` and `WinAppRunDetach` each describe a different
 launch behavior, so they conflict with the other launch properties and with each other. Setting a
-conflicting pair fails the run with `--X and --Y cannot be used together`. Only
-`WinAppRunUseExecutionAlias=true` conflicts — setting it to `false` asks for AUMID activation, which is
-what both of these already use:
+conflicting pair fails the run with `--X and --Y cannot be used together`:
 
 | Property | Cannot be combined with |
 |----------|-------------------------|
-| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunUseExecutionAlias=true`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
-| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunUseExecutionAlias=true`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+
+`WinAppRunUseExecutionAlias` is deliberately **not** in that list, in either direction. `false` asks
+for AUMID activation, which no-launch and detach already use; `true` is simply not applied when
+either is set, because an execution alias needs a tracked, running process. So a project that checks
+in `<WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>` still runs cleanly under
+`dotnet run -p:WinAppRunDetach=true`, launching via AUMID rather than failing.
 
 `WinAppRunUseExecutionAlias`, `WinAppRunDebugOutput`, and `WinAppRunUnregisterOnExit` can be combined
 with each other. `WinAppRunClean`, `WinAppRunSymbols`, `WinAppRunExecutable`, and `WinAppLaunchArgs`

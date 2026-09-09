@@ -101,12 +101,14 @@ Set these MSBuild properties in your `.csproj` to customize behavior:
 | `WinAppRunExecutable` | (empty) | Executable path relative to the build-output folder. Use when the manifest contains `$targetnametoken$` and the output folder has more than one `.exe`. |
 | `WinAppRunArgs` | (empty) | Raw arguments appended to the `winapp run` command line, for options with no dedicated property. Appended after every property above. |
 
-**Mutually exclusive settings.** `WinAppRunNoLaunch` and `WinAppRunDetach` each describe a different launch behavior, so they conflict with the other launch properties and with each other. Only `WinAppRunUseExecutionAlias=true` conflicts — setting it to `false` asks for AUMID activation, which is what both of these already use:
+**Mutually exclusive settings.** `WinAppRunNoLaunch` and `WinAppRunDetach` each describe a different launch behavior, so they conflict with the other launch properties and with each other:
 
 | Property | Cannot be combined with |
 |----------|-------------------------|
-| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunUseExecutionAlias=true`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
-| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunUseExecutionAlias=true`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+
+`WinAppRunUseExecutionAlias` is deliberately **not** in that list. Neither value conflicts: `false` asks for AUMID activation, which no-launch and detach already use, and `true` is simply not applied when either is set — an execution alias needs a tracked, running process. So a project that checks in `<WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>` still runs cleanly under `dotnet run -p:WinAppRunDetach=true`, launching via AUMID rather than failing.
 
 A conflicting pair fails the run with `--X and --Y cannot be used together`. The other three launch properties can be combined with each other, and `WinAppRunClean`, `WinAppRunSymbols`, `WinAppRunExecutable`, and `WinAppLaunchArgs` have no restrictions. `WinAppRunArgs` adds no restriction of its own, but a switch passed through it is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `WinAppRunNoLaunch`.
 

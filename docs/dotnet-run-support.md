@@ -94,8 +94,15 @@ properties that need a tracked, running process, nor with each other:
 
 | Property | Cannot be combined with |
 |----------|-------------------------|
-| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunUseExecutionAlias=true`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
-| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunUseExecutionAlias=true`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+
+`WinAppRunUseExecutionAlias` is deliberately **not** in that list, in either direction. `false` asks
+for AUMID activation, which no-launch and detach already use; `true` is simply not applied when
+either is set, because an execution alias needs a tracked, running process. A project that checks in
+`<WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>` therefore still runs cleanly under
+`dotnet run -p:WinAppRunDetach=true` — it launches via AUMID instead of failing, so a persistent
+project setting never turns an unrelated command line into a build error.
 
 The CLI rejects a conflicting pair before doing any work, so the run fails immediately:
 
