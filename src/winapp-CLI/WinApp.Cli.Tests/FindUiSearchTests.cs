@@ -339,4 +339,52 @@ public class FindUiSearchTests
             Assert.AreEqual(0, Synonyms.Stem(w).Count(), $"'{w}' must not be suffix-stripped");
         }
     }
+
+    /// <summary>Image and Grid are controls in their own right, so a photo-grid query
+    /// competes with them on its literal words.</summary>
+    [TestMethod]
+    public void Preprocess_ImageGridPhrase_RoutesToCollectionControls()
+    {
+        // "image grid" is the plainest phrasing for the layout the ItemsRepeater notes
+        // describe, but both of its words name other controls, so the literal tokens pull
+        // the query to Image and Grid. Merging the phrase is what puts the collection
+        // controls in front of the ranker at all — "photo grid" already worked.
+        var expanded = Synonyms.Expand(BM25.Tokenize(Synonyms.Preprocess("image grid"))).ToList();
+
+        foreach (var control in new[] { "itemsrepeater", "gridview", "itemsview" })
+        {
+            CollectionAssert.Contains(expanded, control, $"'image grid' must reach {control}");
+        }
+    }
+
+    [TestMethod]
+    public void GetPattern_ScenarioWithNoUpstreamCode_StillCarriesWinappGuidance()
+    {
+        // Upstream's CommandBar sample is a doc-style elided fragment ("..." inside the
+        // markup), so the sanitizer drops its XAML and there is no code to emit. The
+        // pattern still has to reach the caller as winapp-attributed guidance instead of
+        // a successful-looking result with nothing in it.
+        var engine = new SearchEngine(
+            [
+                new Scenario
+                {
+                    Id = "commandbar-1",
+                    ControlId = "commandbar",
+                    ControlName = "CommandBar",
+                    HeaderText = "A command bar with labels on the side free floating in a page",
+                    Source = "gallery",
+                    Xaml = null,
+                    CSharp = null,
+                }
+            ],
+            corePatterns: [],
+            enrichmentTags: new(),
+            curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("gallery-commandbar-1");
+
+        Assert.IsTrue(found, "the id find-ui advertises must resolve");
+        StringAssert.Contains(formatted, "AppBarButton", "the toolbar shape must survive in the notes");
+        StringAssert.Contains(formatted, "CommandBar.SecondaryCommands", "overflow placement must survive in the notes");
+    }
 }

@@ -98,15 +98,24 @@ public class EmbeddedSnapshotTests
         // becomes the "[gallery]" tag and the "gallery-" id prefix, so anything baked in
         // here is presented to users — and to the WinUI-Gallery maintainers we are asking
         // to publish an index (#703) — as content their repository owns. winapp used to
-        // append this sample because no Gallery sample demos UniformGridLayout directly;
-        // that guidance now lives in Notes.cs, where it is labelled as ours.
+        // append these samples because no Gallery sample demos UniformGridLayout directly
+        // and upstream's CommandBar sample is doc-elided; that guidance now lives in
+        // Notes.cs, where it is labelled as ours.
         var gallery = EmbeddedSnapshot.TryLoad("gallery")!;
 
-        Assert.IsFalse(
-            gallery.Scenarios.Any(s =>
-                string.Equals(s.HeaderText, "Photo gallery: image grid (UniformGridLayout)", StringComparison.Ordinal)),
-            "a winapp-authored sample is baked into the gallery corpus — upstream it to WinUI-Gallery " +
-            "or put the guidance in Notes.cs instead of merging it into their samples");
+        string[] winappAuthoredHeaders =
+        [
+            "Photo gallery: image grid (UniformGridLayout)",
+            "Primary and secondary commands",
+        ];
+
+        foreach (var header in winappAuthoredHeaders)
+        {
+            Assert.IsFalse(
+                gallery.Scenarios.Any(s => string.Equals(s.HeaderText, header, StringComparison.Ordinal)),
+                $"the winapp-authored sample \"{header}\" is baked into the gallery corpus — upstream it to " +
+                "WinUI-Gallery or put the guidance in Notes.cs instead of merging it into their samples");
+        }
     }
 
     [TestMethod]

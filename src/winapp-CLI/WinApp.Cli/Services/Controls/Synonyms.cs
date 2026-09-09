@@ -67,6 +67,15 @@ internal static class Synonyms
         ["live region"]            = "liveregion",
         ["list view"]              = "listview",
         ["grid view"]              = "gridview",
+        // "image grid" / "image gallery" is the natural phrasing for a photo grid, but
+        // both words name controls of their own (Image, Grid), so a plain lexical match
+        // lands there. Merge the phrase into a token that routes to the collection
+        // controls — see the image-grid entries in Map.
+        ["image grid"]             = "photogrid",
+        ["image gallery"]          = "photogrid",
+        ["photo grid"]             = "photogrid",
+        ["picture grid"]           = "photogrid",
+        ["thumbnail grid"]         = "photogrid",
         ["web view"]               = "webview",
         ["map view"]               = "map",
         ["image view"]             = "image",
@@ -281,6 +290,7 @@ internal static class Synonyms
         ["photos"]          = ["itemsrepeater", "gridview", "itemsview"],
         ["gallery"]         = ["itemsrepeater", "gridview", "itemsview"],
         ["uniformgrid"]     = ["itemsrepeater", "gridview", "itemsview"],
+        ["photogrid"]       = ["itemsrepeater", "gridview", "itemsview"],
 
         // ─── Scrolling / virtualization ───
         ["scrollview"]      = ["scrollviewer"],
