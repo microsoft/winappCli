@@ -787,7 +787,7 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 - `--no-restore` - Skip restoring the project before building.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value.
 
-**Build output & verbosity:** dependency restore and `dotnet build` output **stream live** to your console, followed by a fast property-evaluation pass. Restore output streams as plain, sanitized lines so authenticated feed URLs do not expose credentials. In an interactive terminal, dotnet's terminal logger shows in-place build progress and elapsed time when the build does not need to restore; redirected build output and CI use sanitized plain lines instead. In default and verbose modes, winapp prints each sanitized `dotnet restore …` or `dotnet build …` invocation first, so package downloads, feed retries, errors, and build warnings remain visible. Verbosity:
+**Build output & verbosity:** restore and build output stream live. Displayed commands and output redact credentials from authenticated feed URLs. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
