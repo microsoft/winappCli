@@ -673,7 +673,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
         // Spectre wraps at the profile width and can break a long alias mid-token, so compare with
         // whitespace collapsed rather than asserting on the raw output.
-        var output = Regex.Replace(TestAnsiConsole.Output + ConsoleStdOut.ToString(), @"\s+", "");
+        var output = Regex.Replace(TestAnsiConsole.Output + ConsoleStdOut, @"\s+", "");
         StringAssert.Contains(output, "(alias:winapp-counter-",
             $"The registered alias must be named. Output was: {TestAnsiConsole.Output}");
     }
