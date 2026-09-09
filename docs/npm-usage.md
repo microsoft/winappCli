@@ -231,7 +231,7 @@ function findApi(options?: FindApiOptions): Promise<WinappResult>
 | `project` | `string \| undefined` | No | Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. |
 | `projectDir` | `string \| undefined` | No | Project directory to query (defaults to the current directory). Used to locate the indexed project. |
 
-*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
 ---
 
@@ -253,7 +253,7 @@ function findApiCheckProperty(options?: FindApiCheckPropertyOptions): Promise<Wi
 | `project` | `string \| undefined` | No | Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. |
 | `projectDir` | `string \| undefined` | No | Project directory to query (defaults to the current directory). Used to locate the indexed project. |
 
-*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
 ---
 
@@ -275,7 +275,7 @@ function findApiEnums(options?: FindApiEnumsOptions): Promise<WinappResult>
 | `project` | `string \| undefined` | No | Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. |
 | `projectDir` | `string \| undefined` | No | Project directory to query (defaults to the current directory). Used to locate the indexed project. |
 
-*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
 ---
 
@@ -298,7 +298,7 @@ function findApiMembers(options?: FindApiMembersOptions): Promise<WinappResult>
 | `project` | `string \| undefined` | No | Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. |
 | `projectDir` | `string \| undefined` | No | Project directory to query (defaults to the current directory). Used to locate the indexed project. |
 
-*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
 ---
 
@@ -318,7 +318,7 @@ function findApiPackages(options?: FindApiPackagesOptions): Promise<WinappResult
 | `project` | `string \| undefined` | No | Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. |
 | `projectDir` | `string \| undefined` | No | Project directory to query (defaults to the current directory). Used to locate the indexed project. |
 
-*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
 ---
 
@@ -339,7 +339,7 @@ function findApiRefresh(options?: FindApiRefreshOptions): Promise<WinappResult>
 | `projectDir` | `string \| undefined` | No | Project directory to query (defaults to the current directory). Used to locate the indexed project. |
 | `scan` | `boolean \| undefined` | No | Recursively discover and index every project under the directory instead of just the top-level project(s). |
 
-*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
 ---
 
@@ -359,7 +359,7 @@ function findApiStats(options?: FindApiStatsOptions): Promise<WinappResult>
 | `project` | `string \| undefined` | No | Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. |
 | `projectDir` | `string \| undefined` | No | Project directory to query (defaults to the current directory). Used to locate the indexed project. |
 
-*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
 ---
 
@@ -1643,6 +1643,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
 ### `FindApiCheckPropertyOptions`
 
@@ -1656,6 +1658,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
 ### `FindApiEnumsOptions`
 
@@ -1669,6 +1673,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
 ### `FindApiMembersOptions`
 
@@ -1683,6 +1689,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
 ### `FindApiPackagesOptions`
 
@@ -1694,6 +1702,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
 ### `FindApiRefreshOptions`
 
@@ -1706,6 +1716,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
 ### `FindApiStatsOptions`
 
@@ -1717,6 +1729,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
 ### `FindUiOptions`
 
