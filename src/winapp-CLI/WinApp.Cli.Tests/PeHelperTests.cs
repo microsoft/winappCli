@@ -62,6 +62,58 @@ public class PeHelperTests
         Assert.IsNull(PeHelper.ClassifyArchitecture(Unknown, CorFlags.ILOnly));
     }
 
+    // ---- IsConsoleSubsystem -------------------------------------------------------
+
+    [TestMethod]
+    public void IsConsoleSubsystem_ConsoleExecutable_IsTrue()
+    {
+        // The test host itself is a console app, so it is a real IMAGE_SUBSYSTEM_WINDOWS_CUI binary
+        // rather than a synthesized one.
+        var self = Environment.ProcessPath;
+        Assert.IsNotNull(self);
+
+        Assert.AreEqual(true, PeHelper.IsConsoleSubsystem(self),
+            "A console binary must be reported as console, since that is what OutputType=Exe produces");
+    }
+
+    [TestMethod]
+    public void IsConsoleSubsystem_WindowedExecutable_IsFalse()
+    {
+        // notepad.exe is a GUI binary shipped with Windows: IMAGE_SUBSYSTEM_WINDOWS_GUI, which is what
+        // OutputType=WinExe produces.
+        var notepad = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe");
+        if (!File.Exists(notepad))
+        {
+            Assert.Inconclusive("notepad.exe is not present on this machine.");
+        }
+
+        Assert.AreEqual(false, PeHelper.IsConsoleSubsystem(notepad));
+    }
+
+    [TestMethod]
+    public void IsConsoleSubsystem_NotAPeImage_ReturnsNull()
+    {
+        // Callers use null to mean "cannot tell", which keeps AUMID activation rather than guessing.
+        var text = Path.Join(Path.GetTempPath(), $"winapp-not-pe-{Guid.NewGuid():N}.exe");
+        File.WriteAllText(text, "this is not a PE image");
+
+        try
+        {
+            Assert.IsNull(PeHelper.IsConsoleSubsystem(text));
+        }
+        finally
+        {
+            File.Delete(text);
+        }
+    }
+
+    [TestMethod]
+    public void IsConsoleSubsystem_MissingFile_ReturnsNull()
+    {
+        Assert.IsNull(PeHelper.IsConsoleSubsystem(
+            Path.Join(Path.GetTempPath(), $"winapp-missing-{Guid.NewGuid():N}.exe")));
+    }
+
     [TestMethod]
     public void ClassifyArchitecture_MixedModeManaged_FallsBackToMachine()
     {
