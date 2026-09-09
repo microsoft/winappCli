@@ -2,8 +2,10 @@
 // Licensed under the MIT License.
 
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
+using System.Xml.Linq;
 
 namespace WinApp.Cli.Services.ApiSearch;
 
@@ -40,8 +42,12 @@ internal static partial class XmlDocParser
                         continue;
                     }
 
-                    string innerXml = reader.ReadInnerXml();
-                    string? summary = ExtractSummary(innerXml);
+                    XElement element;
+                    using (XmlReader memberReader = reader.ReadSubtree())
+                    {
+                        element = XElement.Load(memberReader);
+                    }
+                    string? summary = ExtractSummary(element);
                     if (summary != null)
                     {
                         docs[name] = summary;
@@ -58,40 +64,101 @@ internal static partial class XmlDocParser
         return docs;
     }
 
-    private static string? ExtractSummary(string innerXml)
+    private static string? ExtractSummary(XElement member)
     {
-        int start = innerXml.IndexOf("<summary>", StringComparison.Ordinal);
-        if (start < 0)
-        {
-            return null;
-        }
-        start += "<summary>".Length;
-
-        int end = innerXml.IndexOf("</summary>", start, StringComparison.Ordinal);
-        if (end < 0)
+        XElement? summary = member.Element("summary");
+        if (summary is null)
         {
             return null;
         }
 
-        string raw = innerXml.Substring(start, end - start);
-        return CleanXmlText(raw);
+        var builder = new StringBuilder();
+        AppendNodes(summary, builder);
+        string text = WhitespaceRegex().Replace(builder.ToString(), " ").Trim();
+        return string.IsNullOrEmpty(text) ? null : text;
     }
 
-    private static string? CleanXmlText(string raw)
+    /// <summary>
+    /// Flattens documentation markup to the prose a caller reads.
+    /// <para>
+    /// The markup carries meaning in attributes, not just in text: <c>&lt;see
+    /// langword="null"/&gt;</c> *is* the word "null", and deleting the element deletes the
+    /// answer while leaving a fluent sentence behind — "or to use the default encoder"
+    /// reads as though nothing is missing. So every element is mapped explicitly rather
+    /// than stripped.
+    /// </para>
+    /// </summary>
+    private static void AppendNodes(XElement element, StringBuilder builder)
     {
-        // Replace <see cref="..."/> with the short (final-segment) name.
-        string text = SeeCrefRegex().Replace(raw, static m =>
+        foreach (XNode node in element.Nodes())
         {
-            string cref = CrefValueRegex().Match(m.Value).Groups[1].Value;
-            int dot = cref.LastIndexOf('.');
-            return dot >= 0 ? cref.Substring(dot + 1) : cref;
-        });
+            switch (node)
+            {
+                case XText text:
+                    builder.Append(text.Value);
+                    break;
+                case XElement child:
+                    AppendElement(child, builder);
+                    break;
+            }
+        }
+    }
 
-        // Strip any remaining XML tags and collapse whitespace.
-        text = AnyTagRegex().Replace(text, "");
-        text = WhitespaceRegex().Replace(text, " ").Trim();
+    private static void AppendElement(XElement element, StringBuilder builder)
+    {
+        // A paragraph or line break is a word boundary; without one the surrounding
+        // words run together once whitespace is collapsed.
+        bool isBlock = element.Name.LocalName is "para" or "br" or "p";
+        if (isBlock)
+        {
+            builder.Append(' ');
+        }
 
-        return string.IsNullOrEmpty(text) ? null : text;
+        // Explicit content wins over any attribute: <see cref="X">custom text</see>
+        // documents itself.
+        if (element.Nodes().Any())
+        {
+            AppendNodes(element, builder);
+        }
+        else if (element.Attribute("langword")?.Value is { Length: > 0 } langword)
+        {
+            builder.Append(langword);
+        }
+        else if (element.Attribute("cref")?.Value is { Length: > 0 } cref)
+        {
+            builder.Append(ShortCrefName(cref));
+        }
+        else if (element.Attribute("name")?.Value is { Length: > 0 } name)
+        {
+            // paramref and typeparamref name the thing they refer to.
+            builder.Append(name);
+        }
+
+        if (isBlock)
+        {
+            builder.Append(' ');
+        }
+    }
+
+    /// <summary>
+    /// The readable name in a documentation reference: <c>T:System.Text.Json.JsonElement</c>
+    /// becomes <c>JsonElement</c>.
+    /// </summary>
+    private static string ShortCrefName(string cref)
+    {
+        // A doc ID is prefixed with its member kind ("T:", "M:", "P:"...).
+        string name = cref.Length > 2 && cref[1] == ':' ? cref[2..] : cref;
+
+        // Method references carry a parameter list, whose own dotted type names would
+        // otherwise be mistaken for the trailing segment.
+        int parameters = name.IndexOf('(', StringComparison.Ordinal);
+        if (parameters >= 0)
+        {
+            name = name[..parameters];
+        }
+
+        int dot = name.LastIndexOf('.');
+        return dot >= 0 ? name[(dot + 1)..] : name;
     }
 
     /// <summary>
@@ -152,15 +219,6 @@ internal static partial class XmlDocParser
         }
         return key;
     }
-
-    [GeneratedRegex("<see\\s+cref=\"[^\"]*\"\\s*/>")]
-    private static partial Regex SeeCrefRegex();
-
-    [GeneratedRegex("cref=\"([^\"]*)\"")]
-    private static partial Regex CrefValueRegex();
-
-    [GeneratedRegex("<[^>]+>")]
-    private static partial Regex AnyTagRegex();
 
     [GeneratedRegex("\\s+")]
     private static partial Regex WhitespaceRegex();
