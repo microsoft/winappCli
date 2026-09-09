@@ -17,7 +17,7 @@
     Version="1.0.0.0" />
 
   <Properties>
-    <DisplayName>{PackageName}</DisplayName>
+    <DisplayName>{DisplayName}</DisplayName>
     <PublisherDisplayName>{PublisherName}</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <uap10:PackageIntegrity>
@@ -38,7 +38,7 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="{PackageName}"
+        DisplayName="{DisplayName}"
         Description="{Description}"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\MedTile.png"
