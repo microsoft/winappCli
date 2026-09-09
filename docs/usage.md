@@ -1469,6 +1469,27 @@ To make this permanent:
 [System.Environment]::SetEnvironmentVariable('WINAPP_CLI_UPDATE_CHECK', '0', 'User')
 ```
 
+### UI workflow identity
+
+`winapp ui` commands that drive the physical desktop always take cooperative turns, so two workflows
+running at once cannot steal each other's focus or dismiss each other's menus. That arbitration needs
+no setup and cannot be switched off.
+
+What is optional is *continuity*. By default each command is a self-contained one-shot that releases
+the desktop as soon as it finishes. To keep the desktop across several commands, give them all the
+same workflow id:
+
+```pwsh
+$env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString()
+```
+
+Use the *same* value for cooperating processes (for example a recording and the clicks it should
+capture) and *different* values for independent workflows. Every command without an id is its own
+one-shot workflow, even when several are launched from one shell, so hosts that start a fresh shell
+per command must inject the same explicit value into each one. The value is opaque, is never treated
+as a credential, and is only ever persisted as a SHA-256 hash. See
+[UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
+
 ### ui
 
 Inspect and interact with running Windows app UIs using UI Automation (UIA).
