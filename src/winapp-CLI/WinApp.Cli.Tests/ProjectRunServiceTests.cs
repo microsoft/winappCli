@@ -3876,7 +3876,7 @@ public class ProjectRunServiceTests
                 return 0;
             },
         };
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information))
         {
             NativeTerminalGateOverrideForTests = () => true,
