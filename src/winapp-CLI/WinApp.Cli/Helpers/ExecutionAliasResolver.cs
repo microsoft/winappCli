@@ -229,8 +229,13 @@ internal static partial class ExecutionAliasResolver
 
         // Family names are already constrained to [-.A-Za-z0-9_], but this value reaches a file name, so
         // anything outside that set is dropped rather than trusted.
+        //
+        // Leading and trailing '.'/'-' are deliberately KEPT: they are valid in an Identity/@Name, so
+        // trimming them maps distinct identities onto one alias — '-contoso_hash' and 'contoso_hash'
+        // would both become 'winapp-contoso_hash.exe', and the second app to register would lose the
+        // alias (and with it a console app's terminal output). The 'winapp-' prefix already guarantees
+        // the file name never starts with '.' or '-', and IsSafeAliasName validates the final result.
         var sanitized = new string([.. packageFamilyName.Where(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '.' or '_')]);
-        sanitized = sanitized.Trim('.', '-', ' ');
 
         if (sanitized.Length == 0)
         {

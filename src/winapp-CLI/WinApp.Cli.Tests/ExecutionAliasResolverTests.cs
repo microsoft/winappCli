@@ -307,4 +307,34 @@ public class ExecutionAliasResolverTests
             Directory.Delete(baseDir, recursive: true);
         }
     }
+    [TestMethod]
+    [DataRow("-contoso_h4sh", "contoso_h4sh", DisplayName = "leading hyphen")]
+    [DataRow(".contoso_h4sh", "contoso_h4sh", DisplayName = "leading period")]
+    [DataRow("contoso_h4sh-", "contoso_h4sh", DisplayName = "trailing hyphen")]
+    public void BuildDefaultAliasName_PunctuationIsSignificant_DistinctIdentitiesGetDistinctAliases(
+        string decorated, string plain)
+    {
+        // '-' and '.' are valid in an Identity/@Name, so these are two different packages that can be
+        // registered side by side. Trimming the punctuation mapped them onto one alias, and Windows gives
+        // an alias to the first claimant — the second app would silently lose it, and with it a console
+        // app's terminal output.
+        var a = ExecutionAliasResolver.BuildDefaultAliasName(decorated);
+        var b = ExecutionAliasResolver.BuildDefaultAliasName(plain);
+
+        Assert.IsNotNull(a);
+        Assert.IsNotNull(b);
+        Assert.AreNotEqual(b, a, "Distinct package identities must not share a generated alias");
+    }
+
+    [TestMethod]
+    public void BuildDefaultAliasName_KeepsThePrefixSoTheFileNameStaysSafe()
+    {
+        // Keeping the punctuation is only safe because the prefix leads: the file name itself never
+        // starts with '.' or '-'.
+        var alias = ExecutionAliasResolver.BuildDefaultAliasName("-contoso_h4sh");
+
+        Assert.IsNotNull(alias);
+        Assert.StartsWith("winapp-", alias);
+        Assert.IsTrue(ExecutionAliasResolver.IsSafeAliasName(alias), $"'{alias}' must still be a safe file name");
+    }
 }
