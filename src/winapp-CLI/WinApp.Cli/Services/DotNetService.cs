@@ -680,7 +680,7 @@ internal partial class DotNetService : IDotNetService
     /// <c>EnsureWindowsAppRuntimeInstalledAsync</c> is the backstop: a genuinely missing runtime fails the
     /// launch with an actionable error rather than silently under-provisioning.
     /// </remarks>
-    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, CancellationToken cancellationToken = default)
+    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, string? configuration = null, CancellationToken cancellationToken = default)
     {
         if (!projectOrFile.Exists)
         {
@@ -701,10 +701,41 @@ internal partial class DotNetService : IDotNetService
         // caller would have to pass null and fall back to globbing the current directory for ANY .csproj,
         // which for a file-based app can only ever find an unrelated project.
         var isSingleFileApp = string.Equals(projectOrFile.Extension, ".cs", StringComparison.OrdinalIgnoreCase);
-        var args = isSingleFileApp
-            ? $"package list --file \"{projectOrFile.FullName}\"{(includeTransitive ? " --include-transitive" : "")}{(applyNoRestore ? " --no-restore" : "")} --format json"
-            : $"list \"{projectOrFile.FullName}\" package{(includeTransitive ? " --include-transitive" : "")}{(applyNoRestore ? " --no-restore" : "")} --format json";
-        var (exitCode, output, _) = await RunDotnetCommandAsync(projectOrFile.Directory!, args, cancellationToken);
+        var argTokens = new List<string>();
+        if (isSingleFileApp)
+        {
+            argTokens.AddRange(["package", "list", "--file", projectOrFile.FullName]);
+        }
+        else
+        {
+            argTokens.AddRange(["list", projectOrFile.FullName, "package"]);
+        }
+
+        if (includeTransitive)
+        {
+            argTokens.Add("--include-transitive");
+        }
+
+        if (applyNoRestore)
+        {
+            argTokens.Add("--no-restore");
+        }
+
+        argTokens.AddRange(["--format", "json"]);
+
+        // `dotnet package list` accepts no -c/--configuration, so the configuration is conveyed as an
+        // MSBuild ENVIRONMENT property instead. Without it the graph is evaluated in the default
+        // configuration: a Directory.Build.props that adds a PackageReference only for Release then makes
+        // `winapp run app.cs -c Release` report a package list that omits it — and with --no-restore the
+        // command fails outright ("project file and project.assets.json are not in sync"), yielding no
+        // list at all. Either way the manifest's framework dependency and runtime provisioning are
+        // decided from the wrong graph.
+        var environment = string.IsNullOrWhiteSpace(configuration)
+            ? null
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Configuration"] = configuration.Trim() };
+
+        var (exitCode, output, _) = await RunDotnetCommandAsync(
+            projectOrFile.Directory!, argTokens, environment, cancellationToken: cancellationToken);
 
         if (exitCode != 0 || string.IsNullOrWhiteSpace(output))
         {

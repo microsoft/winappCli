@@ -22,6 +22,9 @@ internal class FakeMsixService : IMsixService
     /// <summary>Records the <c>executable</c> passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<string?> AddLooseLayoutExecutableCalls { get; } = [];
 
+    /// <summary>Records the <c>configuration</c> passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
+    public List<string?> AddLooseLayoutConfigurationCalls { get; } = [];
+
     /// <summary>Records the <c>ensureExecutionAlias</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<bool> AddLooseLayoutEnsureAliasCalls { get; } = [];
     public List<(string? ProjectFile, string? Architecture, string? Framework, bool NoRestore)> EnsureRuntimeInstalledCalls { get; } = [];
@@ -77,6 +80,7 @@ internal class FakeMsixService : IMsixService
         bool noRestore = false,
         bool selfContained = false,
         bool ensureExecutionAlias = false,
+        string? configuration = null,
         CancellationToken cancellationToken = default)
     {
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
@@ -84,6 +88,7 @@ internal class FakeMsixService : IMsixService
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
         AddLooseLayoutEnsureAliasCalls.Add(ensureExecutionAlias);
+        AddLooseLayoutConfigurationCalls.Add(configuration);
         if (ExceptionToThrow != null)
         {
             throw ExceptionToThrow;

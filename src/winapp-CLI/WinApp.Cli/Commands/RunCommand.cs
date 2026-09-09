@@ -628,7 +628,8 @@ internal partial class RunCommand : Command, IShortDescription
             bool selfContained,
             AliasLaunchDecision aliasDecision,
             CancellationToken cancellationToken,
-            Action? onRegistered = null)
+            Action? onRegistered = null,
+            string? configuration = null)
         {
             uint processId = 0;
             var resolvedUseAlias = aliasDecision.UseAlias;
@@ -731,6 +732,7 @@ internal partial class RunCommand : Command, IShortDescription
                         noRestore,
                         selfContained,
                         effectiveAlias.UseAlias,
+                        configuration,
                         cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;

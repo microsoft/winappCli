@@ -110,7 +110,7 @@ internal partial class MsixService
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
     }
 
-    public async Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, CancellationToken cancellationToken = default)
+    public async Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, string? configuration = null, CancellationToken cancellationToken = default)
     {
         // Validate inputs
         if (!appxManifestPath.Exists)
@@ -174,7 +174,7 @@ internal partial class MsixService
             // A self-contained app carries its own Windows App SDK, so both steps are skipped.
             if (!selfContained)
             {
-                var msbuildPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, cancellationToken);
+                var msbuildPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, configuration, cancellationToken);
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
             }
 
@@ -260,7 +260,7 @@ internal partial class MsixService
         // A self-contained app carries its own Windows App SDK, so skip discovery entirely.
         var dotNetPackageList = selfContained
             ? null
-            : await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, cancellationToken);
+            : await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, configuration, cancellationToken);
 
         // If there is a pri file named after the executable, rename it to resources.pri
         var priFilePath = Path.Combine(outputAppXDirectory.FullName, Path.GetFileNameWithoutExtension(executableMatch.Name) + ".pri");
@@ -595,7 +595,9 @@ internal partial class MsixService
     /// </summary>
     public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
-        var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, cancellationToken);
+        // configuration: null — this unpackaged entry point has no configuration of its own, so it keeps
+        // evaluating the default one, unchanged.
+        var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, configuration: null, cancellationToken);
 
         // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
         // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
@@ -671,11 +673,22 @@ internal partial class MsixService
     /// forwards <c>--no-restore</c> to <c>dotnet list package</c> so a no-restore run can't trigger an
     /// implicit restore during runtime discovery.
     /// </summary>
-    private async Task<DotNetPackageListJson?> ResolveDotNetPackageListAsync(FileInfo? projectFile, string? framework, bool noRestore, CancellationToken cancellationToken)
+    private async Task<DotNetPackageListJson?> ResolveDotNetPackageListAsync(FileInfo? projectFile, string? framework, bool noRestore, string? configuration, CancellationToken cancellationToken)
     {
         var packageList = projectFile is not null
-            ? await dotNetService.GetPackageListAsync(projectFile, noRestore: noRestore, cancellationToken: cancellationToken)
+            ? await dotNetService.GetPackageListAsync(projectFile, noRestore: noRestore, configuration: configuration, cancellationToken: cancellationToken)
             : await FetchDotNetPackageListAsync(cancellationToken);
+
+        // A named project that yields no graph is worth saying out loud: the framework dependency written
+        // into the manifest, and the runtime provisioned for it, are then decided without the app's real
+        // package list. `dotnet package list` fails this way when the project and project.assets.json are
+        // out of sync — for instance under --no-restore after a build in another configuration.
+        if (projectFile is not null && packageList is null)
+        {
+            logger.LogWarning(
+                "{UISymbol} Could not read the package list for '{File}', so its Windows App SDK dependency is inferred without it. If the app fails to activate, re-run without --no-restore.",
+                UiSymbols.Warning, projectFile.Name);
+        }
 
         return FilterPackageListToFramework(packageList, framework);
     }

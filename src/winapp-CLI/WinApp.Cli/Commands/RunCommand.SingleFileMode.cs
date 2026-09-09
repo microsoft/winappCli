@@ -234,7 +234,8 @@ internal partial class RunCommand
                         properties,
                         manifest,
                         outputAppXDirectory,
-                        effectiveLayout)));
+                        effectiveLayout)),
+                configuration: configuration);
         }
 
         /// <summary>
