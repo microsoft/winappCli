@@ -478,6 +478,32 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
+    public async Task ProjectMode_InferredAliasUnavailable_WarnsThatOutputWillNotAppear()
+    {
+        // Plain `winapp run` now promises a console app's output reaches the terminal. When the inferred
+        // alias cannot be used, falling back to AUMID launches it into a process with no console, so it
+        // prints nothing — the exact silent success this feature exists to remove. The run still succeeds,
+        // but a Debug-level line leaves the user with no way to diagnose the missing output.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                null, false, null, "Exe", null), 0);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => null;
+        var command = GetRequiredService<RunCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode, "An inferred alias that cannot be used must not fail the run");
+        var output = System.Text.RegularExpressions.Regex.Replace(
+            $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        StringAssert.Contains(output, "not print to this terminal",
+            "The user has to be told why the console output is missing");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Packaged_NoManifestInOutput_Errors()
     {
         var csproj = CreateCsproj();
@@ -728,6 +754,27 @@ public class RunCommandProjectModeTests : BaseCommandTests
         var doc = System.Text.Json.JsonDocument.Parse(output[jsonStart..(jsonEnd + 1)]);
         Assert.IsTrue(doc.RootElement.TryGetProperty("Error", out var error), "JSON must carry an 'Error' field");
         StringAssert.Contains(error.GetString(), "';'", "Error must explain the ';' packing is not allowed");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_CommaPackedProperty_IsRejectedWithoutEchoingSecret()
+    {
+        var csproj = CreateCsproj();
+        SetUnpackagedOutcome(csproj, CreateTargetDir(withManifest: false), selfContained: false);
+        var command = GetRequiredService<RunCommand>();
+        TestAnsiConsole.Profile.Width = 1000;
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--json", "-p", "PackageCertificatePassword=p@ss,w0rd"]);
+
+        Assert.AreEqual(1, exitCode, "A comma-packed -p must fail");
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        Assert.IsFalse(
+            TestAnsiConsole.Output.Contains("p@ss", StringComparison.Ordinal)
+            || TestAnsiConsole.Output.Contains("w0rd", StringComparison.Ordinal),
+            "the validation error must not echo any part of a possible secret value");
+        StringAssert.Contains(TestAnsiConsole.Output, "cannot pack multiple properties");
     }
 
     #endregion

@@ -63,7 +63,7 @@ steps:
             }
         ]
   - task: EsrpCodeSigning@6
-    displayName: Code Sign ESRP - UI Automation libraries
+    displayName: Code Sign ESRP - managed libraries
     inputs:
       ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
       AppRegistrationClientId: ${{ parameters.signingIdentity.appId }}
@@ -71,13 +71,17 @@ steps:
       AuthAKVName: ${{ parameters.signingIdentity.akvName }}
       AuthCertName: ${{ parameters.signingIdentity.authCertName }}
       AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
-      FolderPath: '$(System.DefaultWorkingDirectory)/src/winapp-CLI/'
-      # Both target frameworks of the base package, plus the recording assembly. Only the assembly
-      # each project actually packs is listed; the ProjectReference copy of the base library sitting
+      FolderPath: '$(System.DefaultWorkingDirectory)/src/'
+      # The managed assemblies packed into the library NuGet packages. Only the assembly each
+      # project actually packs is listed; the ProjectReference copy of the base library sitting
       # in the recording project's output is not shipped, it comes in as a package dependency.
+      # The WinUI analyzer DLL is signed here too so the repack below (-SkipBuild) embeds a signed
+      # copy in Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer; signing the .nupkg alone would not
+      # Authenticode-sign the DLL inside it.
       Pattern: |
-        WinApp.UIAutomation/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.dll
-        WinApp.UIAutomation.Recording/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording.dll
+        winapp-CLI/WinApp.UIAutomation/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.dll
+        winapp-CLI/WinApp.UIAutomation.Recording/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording.dll
+        winapp-Analyzer/Microsoft.WindowsAppSDK.Analyzers/bin/Release/**/Microsoft.WindowsAppSDK.Analyzers.dll
       UseMinimatch: true
       signConfigType: inlineSignParams
       inlineOperation: |
@@ -232,8 +236,9 @@ steps:
     path: '$(Build.ArtifactStagingDirectory)/msix-packages'
     artifactName: msix-packages
 - task: CopyFiles@2
-  # Picks up all three packages: the CLI tools package plus the two UI Automation library
-  # packages (...WinApp.UIAutomation and ...WinApp.UIAutomation.Recording). build-cli.ps1
+  # Picks up all four packages: the CLI tools package, the two UI Automation library packages
+  # (...WinApp.UIAutomation and ...WinApp.UIAutomation.Recording), and the standalone WinUI
+  # analyzer package (...WinUIAnalyzer). The '*.nupkg' glob captures them all; build-cli.ps1
   # verifies the full set exists, and the ESRP NuGet signing step above globs the same folder.
   displayName: Copy Artifacts - NuGet packages
   inputs:

@@ -141,12 +141,12 @@ internal partial class RunCommand : Command, IShortDescription
 
         ArchOption = new Option<string?>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
         };
 
         RuntimeOption = new Option<string?>("--runtime")
         {
-            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, and rejects non-Windows RIDs (e.g. linux-x64); it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too."
+            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too."
         };
         RuntimeOption.Aliases.Add("-r");
 
@@ -168,7 +168,7 @@ internal partial class RunCommand : Command, IShortDescription
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p EnableMyFeature=true). Ignored in folder mode.",
+            Description = "Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode.",
             // ZeroOrMore (not OneOrMore) so a valueless '-p' reaches the handler, which emits a
             // --json-aware error; OneOrMore would raise a plain-text parser error, bypassing --json.
             Arity = ArgumentArity.ZeroOrMore,
@@ -1089,14 +1089,16 @@ internal partial class RunCommand : Command, IShortDescription
         }
 
         /// <summary>
-        /// Launches the app using its execution alias (from the processed manifest in the AppX directory).
-        /// The alias process inherits stdin/stdout/stderr so console apps run inline.
-        /// </summary>
-        /// <summary>
         /// Resolves an alias problem according to how the alias was chosen: an explicit
         /// <c>--with-alias</c> reports <paramref name="reportError"/> and fails the run, while a default
         /// falls back to AUMID activation.
         /// </summary>
+        /// <remarks>
+        /// The fallback is a WARNING, not a debug line. Reaching it means winapp inferred alias launch,
+        /// which it only does for a console app — so falling back to AUMID launches the app into a
+        /// process with no console, and it prints nothing. That is the exact silent-success this feature
+        /// exists to remove, so the run still succeeds but says why the output is missing.
+        /// </remarks>
         private int? FailOrFallBack(bool aliasWasRequested, Action reportError, string reason)
         {
             if (aliasWasRequested)
@@ -1105,7 +1107,9 @@ internal partial class RunCommand : Command, IShortDescription
                 return 1;
             }
 
-            logger.LogDebug("Falling back to AUMID activation: {Reason}.", reason);
+            logger.LogWarning(
+                "{UISymbol} Could not launch via execution alias ({Reason}), so the app was activated by AUMID instead. It will not print to this terminal. Run with --verbose for details.",
+                UiSymbols.Warning, reason);
             return null;
         }
 
@@ -1116,8 +1120,9 @@ internal partial class RunCommand : Command, IShortDescription
         /// </summary>
         /// <param name="aliasWasRequested">
         /// Whether the user asked for alias launch by name. An explicit request that cannot be honored is
-        /// reported as an error; a default one falls back quietly, because a console app that prints
-        /// nothing is a better outcome than a run that refuses to start.
+        /// reported as an error; a default one falls back to AUMID with a warning, because a console app
+        /// that prints nothing is a better outcome than a run that refuses to start — as long as the user
+        /// is told why the output is missing.
         /// </param>
         private async Task<int?> LaunchViaExecutionAliasAsync(
             DirectoryInfo outputAppXDirectory,

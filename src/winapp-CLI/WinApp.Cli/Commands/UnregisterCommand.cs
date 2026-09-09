@@ -36,17 +36,15 @@ internal class UnregisterCommand : Command, IShortDescription
             Description = "Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest.",
             Arity = ArgumentArity.ZeroOrOne
         };
-        InputArgument.AcceptExistingOnly();
 
         ManifestOption = new Option<FileInfo>("--manifest")
         {
             Description = "Path to the Package.appxmanifest (default: auto-detect from current directory)"
         };
-        ManifestOption.AcceptExistingOnly();
 
         ForceOption = new Option<bool>("--force")
         {
-            Description = "Skip the install-location directory check and unregister even if the package was registered from a different project tree. With --prune, also skips the confirmation prompt."
+            Description = "Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt."
         };
 
         PruneOption = new Option<bool>("--prune")
@@ -171,6 +169,21 @@ internal class UnregisterCommand : Command, IShortDescription
             if (MsBuildPropertyValidator.Validate(properties) is { } propertyError)
             {
                 return FailWith(propertyError, isJson);
+            }
+
+            // Existence is checked here rather than with AcceptExistingOnly(), which System.CommandLine
+            // enforces during parsing — before the handler runs, so it prints the plain-text help page and
+            // bypasses the --json contract entirely. A mistyped or already-deleted path is exactly the case
+            // cleanup automation has to parse. RunCommand's input and --manifest dropped that validator for
+            // the same reason.
+            if (input != null && !input.Exists)
+            {
+                return FailWith($"'{input.FullName}' does not exist.", isJson);
+            }
+
+            if (manifest != null && !manifest.Exists)
+            {
+                return FailWith($"'{manifest.FullName}' does not exist.", isJson);
             }
 
             string packageName;

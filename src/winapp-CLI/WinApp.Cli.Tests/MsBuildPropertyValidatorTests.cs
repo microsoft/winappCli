@@ -44,6 +44,26 @@ public class MsBuildPropertyValidatorTests
     }
 
     [TestMethod]
+    public void Validate_CommaPackedProperties_AreRejected()
+    {
+        // MSBuild splits on ',' as well as ';'. A publish-profile value like 'win-arm64,Extra=true' would
+        // otherwise become two properties silently — which is why the escaped form '%2C' exists.
+        var error = MsBuildPropertyValidator.Validate(["PublishProfile=win-arm64,Extra=true"]);
+
+        Assert.IsNotNull(error);
+        StringAssert.Contains(error, "'PublishProfile'");
+        StringAssert.Contains(error, "%2C", "The message should name the escape for a literal ','");
+    }
+
+    [TestMethod]
+    public void Validate_EscapedSeparatorsInAValue_AreAccepted()
+    {
+        // The percent-escaped forms are how a literal separator is carried inside one value.
+        Assert.IsNull(MsBuildPropertyValidator.Validate(["PublishProfile=win-arm64%2CExtra=true"]));
+        Assert.IsNull(MsBuildPropertyValidator.Validate(["DefineConstants=A%3BB"]));
+    }
+
+    [TestMethod]
     public void Validate_PackedPropertyWithNoEquals_NamesTheLeadingSegment()
     {
         // IndexOfAny finds the ';' before any '=', so the name must still be extracted, not throw.

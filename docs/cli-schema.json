@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "0.6.3",
+  "version": "1.0.0",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
@@ -1891,7 +1891,7 @@
       },
       "options": {
         "--arch": {
-          "description": "Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture.",
+          "description": "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture.",
           "hidden": false,
           "valueType": "System.String",
           "hasDefaultValue": false,
@@ -2088,7 +2088,7 @@
           "recursive": false
         },
         "--property": {
-          "description": "Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p EnableMyFeature=true). Ignored in folder mode.",
+          "description": "Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode.",
           "hidden": false,
           "aliases": [
             "-p"
@@ -2118,7 +2118,7 @@
           "recursive": false
         },
         "--runtime": {
-          "description": "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, and rejects non-Windows RIDs (e.g. linux-x64); it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too.",
+          "description": "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too.",
           "hidden": false,
           "aliases": [
             "-r"
@@ -4988,7 +4988,7 @@
           "recursive": false
         },
         "--force": {
-          "description": "Skip the install-location directory check and unregister even if the package was registered from a different project tree. With --prune, also skips the confirmation prompt.",
+          "description": "Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,

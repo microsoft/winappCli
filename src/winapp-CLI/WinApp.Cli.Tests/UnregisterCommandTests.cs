@@ -255,6 +255,31 @@ public class UnregisterCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(false, DisplayName = "missing input path")]
+    [DataRow(true, DisplayName = "missing --manifest path")]
+    public async Task UnregisterCommand_MissingPath_WithJson_EmitsJsonErrorNotHelp(bool viaManifest)
+    {
+        // AcceptExistingOnly() enforces existence during PARSING, before the handler runs, so a missing
+        // path printed the plain-text help page and bypassed --json entirely. A mistyped or already-
+        // deleted path is exactly the case cleanup automation has to parse.
+        var missing = Path.Join(_tempDirectory.FullName, "definitely-missing", "app.cs");
+        var command = GetRequiredService<UnregisterCommand>();
+        string[] args = viaManifest
+            ? ["--manifest", missing, "--json"]
+            : [missing, "--json"];
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+
+        Assert.AreEqual(1, exitCode);
+        var output = TestAnsiConsole.Output.Trim();
+        Assert.IsTrue(output.StartsWith('{'), $"stdout must be the JSON error object, not help text; got: {output}");
+
+        // Strict parsing, the way a caller would.
+        var error = System.Text.Json.JsonDocument.Parse(output).RootElement.GetProperty("Error").GetString();
+        StringAssert.Contains(error, "does not exist");
+    }
+
+    [TestMethod]
     public async Task UnregisterCommand_NoManifest_WithJson_EmitsJsonError()
     {
         // No manifest in the current directory + --json should emit a structured JSON error

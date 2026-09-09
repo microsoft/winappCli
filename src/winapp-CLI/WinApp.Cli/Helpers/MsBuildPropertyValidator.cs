@@ -26,15 +26,15 @@ internal static class MsBuildPropertyValidator
     {
         foreach (var property in properties)
         {
-            // MSBuild splits a -p token on ';' into MULTIPLE properties, which would smuggle a
+            // MSBuild splits a -p token on ';' or ',' into MULTIPLE properties, which would smuggle a
             // dedicated-flag property (e.g. RuntimeIdentifier) past the name-only ForwardableProperties
-            // filter and override the arch winapp conveys via the RID. Reject packing; '%3B' escapes a
-            // literal ';' in a value.
-            if (property.Contains(';'))
+            // filter and override the arch winapp conveys via the RID. Reject packing; '%3B' and '%2C'
+            // escape a literal separator inside one value.
+            if (property.IndexOfAny([';', ',']) >= 0)
             {
-                var name = Describe(property[..property.IndexOfAny(['=', ';'])]);
-                return $"Invalid --property {name}. A single -p cannot pack multiple properties with ';'. " +
-                       "Pass one property per repeatable -p (for example: -p A=1 -p B=2), or escape a literal ';' in a value as '%3B'.";
+                var name = Describe(property[..property.IndexOfAny(['=', ';', ','])]);
+                return $"Invalid --property {name}. A single -p cannot pack multiple properties with ';' or ','. " +
+                       "Pass one property per repeatable -p (for example: -p A=1 -p B=2), or escape a literal separator in a value as '%3B' or '%2C'.";
             }
 
             var separator = property.IndexOf('=');

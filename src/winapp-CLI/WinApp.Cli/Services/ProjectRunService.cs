@@ -35,6 +35,18 @@ internal sealed partial class ProjectRunService(
         // one launched through `dotnet run`, where the NuGet targets forward it — the same documented
         // property must not mean different things depending on how the project was started.
         "WinAppRunUseExecutionAlias",
+        "PublishTrimmed",
+        "PublishAot",
+        "SelfContained",
+        "PublishProfile",
+        "PublishProfileName",
+        "PublishProfileFullPath",
+        "WebPublishProfileFile",
+        "PublishProfileImported",
+        "_PublishProfileRootFolder",
+        "TargetFramework",
+        "Platform",
+        "RuntimeIdentifier",
     ];
 
     /// <summary>
@@ -182,6 +194,12 @@ internal sealed partial class ProjectRunService(
         // arch, so it can't desync a no-<Platforms> reference (MSB3030/PRI252). Threaded into every pass
         // below (restore/build/evaluate) via `options`, keeping them in lock-step.
         options = ResolvePlatformInjection(csproj, options);
+        options = await ResolveRequiredPublishProfileAsync(
+            csproj,
+            options,
+            workingDir,
+            csWinRTMetadata,
+            cancellationToken);
         var buildOptions = options;
 
         // When the target lives in a solution, restore the whole solution's managed projects up front so
@@ -332,19 +350,21 @@ internal sealed partial class ProjectRunService(
             if (!string.IsNullOrEmpty(primaryTargetDir) && !Directory.Exists(primaryTargetDir))
             {
                 // Ordered from "closest to what winapp would have built" to "plain dotnet build".
-                (bool Rid, bool Platform)[] fallbacks =
-                [
-                    (false, true),   // no RID, keep resolved Platform
-                    (false, false),  // no RID, no Platform  → plain `dotnet build` / VS layout
-                    (true, false),   // RID, no Platform
-                ];
+                var fallbacks = new List<(bool Rid, bool Platform, bool PublishProfile)>();
+                if (!string.IsNullOrWhiteSpace(options.Platform))
+                {
+                    fallbacks.Add((false, true, true)); // no RID, keep resolved Platform/profile
+                }
+                fallbacks.Add((false, false, false)); // plain `dotnet build` / VS layout
+                fallbacks.Add((true, false, false));  // RID-only (including older winapp versions)
 
-                foreach (var (includeRid, includePlatform) in fallbacks)
+                foreach (var (includeRid, includePlatform, includePublishProfile) in fallbacks)
                 {
                     var args = BuildEvaluateArguments(
                         csproj, options, csWinRTMetadata,
                         includeRuntimeIdentifier: includeRid,
-                        includePlatform: includePlatform);
+                        includePlatform: includePlatform,
+                        includePublishProfile: includePublishProfile);
                     logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
 
                     var (fallbackExit, fallbackStdout, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
@@ -358,8 +378,8 @@ internal sealed partial class ProjectRunService(
                     if (!string.IsNullOrEmpty(fallbackTargetDir) && Directory.Exists(fallbackTargetDir))
                     {
                         logger.LogDebug(
-                            "{UISymbol} --no-build: '{Primary}' not found; using existing output '{Fallback}' (RID={Rid}, Platform={Platform}).",
-                            UiSymbols.Note, primaryTargetDir, fallbackTargetDir, includeRid, includePlatform);
+                            "{UISymbol} --no-build: '{Primary}' not found; using existing output '{Fallback}' (RID={Rid}, Platform={Platform}, PublishProfile={PublishProfile}).",
+                            UiSymbols.Note, primaryTargetDir, fallbackTargetDir, includeRid, includePlatform, includePublishProfile);
                         props = fallbackProps;
                         break;
                     }
@@ -463,6 +483,13 @@ internal sealed partial class ProjectRunService(
         options = await ResolveEffectiveFrameworkAsync(csproj, options, workingDir, cancellationToken);
         var shimFramework = await ResolveShimFrameworkAsync(csproj, options, workingDir, cancellationToken);
         var csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
+        options = ResolvePlatformInjection(csproj, options);
+        options = await ResolveRequiredPublishProfileAsync(
+            csproj,
+            options,
+            workingDir,
+            csWinRTMetadata,
+            cancellationToken);
 
         // Reuse the exact evaluate pass (same -p/RID/TFM/shim as a real build) so the WindowsPackageType we
         // read matches what the build would see. Evaluate-only — no build is triggered.
@@ -593,7 +620,10 @@ internal sealed partial class ProjectRunService(
             return false;
         }
 
-        if (allManaged)
+        // An inferred PublishProfile belongs only to the selected app. Restoring the whole solution would
+        // pass it to unrelated projects, so restore siblings individually and let the target build restore
+        // itself under the inferred profile.
+        if (allManaged && string.IsNullOrWhiteSpace(options.PublishProfile))
         {
             // Closest to VS: one restore over the whole solution pulls the target and every sibling.
             var args = BuildRestorePassArguments(options.Solution, options);
@@ -627,9 +657,10 @@ internal sealed partial class ProjectRunService(
         DirectoryInfo workingDir,
         CancellationToken cancellationToken)
     {
+        var siblingOptions = options with { PublishProfile = null };
         foreach (var sibling in siblings)
         {
-            var args = BuildRestorePassArguments(sibling, options);
+            var args = BuildRestorePassArguments(sibling, siblingOptions);
             logger.LogDebug("{UISymbol} Restoring solution sibling before build (build-dependency parity): dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
             var (exitCode, _, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
             if (exitCode != 0)
@@ -763,37 +794,39 @@ internal sealed partial class ProjectRunService(
         // Match dotnet's behavior (dedicated flag wins over a same-named -p) but leave a debug trail.
         foreach (var property in options.Properties)
         {
-            var name = property.Split('=', 2)[0].Trim();
-            if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
+            foreach (var segment in PropertySegments(property))
             {
-                logger.LogDebug(
-                    "{UISymbol} -p:{Property} is overridden by the dedicated flag (matches dotnet precedence).",
-                    UiSymbols.Note, property);
-            }
-            else if (name.Equals("TargetFramework", StringComparison.OrdinalIgnoreCase))
-            {
-                // A bare -p:TargetFramework (no --framework) is PROMOTED to the effective framework and
-                // honored, so it's not overridden. It's only overridden when a dedicated --framework
-                // resolved a DIFFERENT TFM — warn just then.
-                var value = property.Split('=', 2).ElementAtOrDefault(1)?.Trim() ?? string.Empty;
-                if (!string.IsNullOrEmpty(options.Framework) &&
-                    !options.Framework.Equals(value, StringComparison.OrdinalIgnoreCase))
+                var name = PropertyName(segment);
+                if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
                 {
                     logger.LogDebug(
-                        "{UISymbol} -p:{Property} is overridden by --framework '{Framework}' (matches dotnet precedence).",
-                        UiSymbols.Note, property, options.Framework);
+                        "{UISymbol} -p:{Property} is overridden by the dedicated flag (matches dotnet precedence).",
+                        UiSymbols.Note, segment);
                 }
-            }
-            else if (name.Equals("Platform", StringComparison.OrdinalIgnoreCase))
-            {
-                // A user -p:Platform is authoritative: it is forwarded as-is and SUPPRESSES winapp's own
-                // conditional Platform injection (ResolvePlatformInjection). The RID still follows --arch, so
-                // an inconsistent pair (e.g. --arch x86 -p:Platform=ARM64) builds a mismatched app — warn so
-                // the divergence isn't silent.
-                logger.LogDebug(
-                    "{UISymbol} -p:{Property} is forwarded as-is; the RuntimeIdentifier still follows --arch, so ensure they are consistent.",
-                    UiSymbols.Note, property);
+                else if (name.Equals("TargetFramework", StringComparison.OrdinalIgnoreCase))
+                {
+                    // A bare -p:TargetFramework (no --framework) is PROMOTED to the effective framework and
+                    // honored, so it's not overridden. It's only overridden when a dedicated --framework
+                    // resolved a DIFFERENT TFM — warn just then.
+                    var value = segment.Split('=', 2).ElementAtOrDefault(1)?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(options.Framework) &&
+                        !options.Framework.Equals(value, StringComparison.OrdinalIgnoreCase))
+                    {
+                        logger.LogDebug(
+                            "{UISymbol} -p:{Property} is overridden by --framework '{Framework}' (matches dotnet precedence).",
+                            UiSymbols.Note, segment, options.Framework);
+                    }
+                }
+                else if (name.Equals("Platform", StringComparison.OrdinalIgnoreCase))
+                {
+                    // A user -p:Platform is authoritative: it is forwarded as-is and SUPPRESSES winapp's own
+                    // conditional Platform injection (ResolvePlatformInjection). The RID still follows --arch,
+                    // so an inconsistent pair builds a mismatched app — warn so the divergence isn't silent.
+                    logger.LogDebug(
+                        "{UISymbol} -p:{Property} is forwarded as-is; the RuntimeIdentifier still follows --arch, so ensure they are consistent.",
+                        UiSymbols.Note, segment);
+                }
             }
         }
     }
