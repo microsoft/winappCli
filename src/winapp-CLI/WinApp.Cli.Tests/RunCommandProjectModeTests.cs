@@ -504,30 +504,27 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task ProjectMode_Packaged_PassesTheBuildInputsToPackageDiscovery()
+    public async Task ProjectMode_Packaged_ReadsThePackageGraphFromTheBuildsAssetsFile()
     {
-        // `dotnet package list` takes no -c, -r or -p, so winapp conveys the build's effective inputs as
-        // MSBuild environment properties. Without them the package graph is evaluated in the DEFAULT
-        // configuration with no RID: a Directory.Build.props that adds Microsoft.WindowsAppSDK only for
-        // Release, or only for win-arm64, then makes `winapp run App.csproj -c Release --arch arm64`
-        // decide the manifest's framework dependency and runtime provisioning from a graph that omits it.
+        // `dotnet package list` re-evaluates the project and takes no -c/-r/-p, and the environment is not
+        // a substitute: MSBuild ranks environment properties BELOW a value the project assigns, while the
+        // build's own -c/-r/-p outrank it. So the only faithful source is project.assets.json — restore's
+        // output for the inputs the build actually ran with. Without it, a PackageReference conditioned on
+        // Configuration, RID, or a user -p is invisible, and the manifest's framework dependency and
+        // runtime provisioning are decided from a graph that does not describe the binary.
         var csproj = CreateCsproj();
         var targetDir = CreateTargetDir(withManifest: true);
+        var assetsFile = Path.Join(targetDir.FullName, "obj", "project.assets.json");
         _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
             new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
-                null, false, null, "WinExe", null,
-                ProjectRunService.BuildEvaluationProperties(
-                    "Release", "win-arm64", targetFramework: null, platform: null, ["MyFeature=on"])),
+                null, false, null, "WinExe", null, assetsFile),
             0);
         var command = GetRequiredService<RunCommand>();
 
-        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release", "--arch", "arm64", "-p", "MyFeature=on"]);
+        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release", "--arch", "arm64"]);
 
-        var evaluated = _fakeMsixService.AddLooseLayoutMsBuildPropertiesCalls.Single();
-        Assert.IsNotNull(evaluated, "Package discovery must be told what the build actually used");
-        Assert.AreEqual("Release", evaluated["Configuration"], "The effective configuration must reach package discovery");
-        Assert.AreEqual("win-arm64", evaluated["RuntimeIdentifier"], "The effective RID must reach package discovery");
-        Assert.AreEqual("on", evaluated["MyFeature"], "User -p properties must reach package discovery");
+        Assert.AreEqual(assetsFile, _fakeMsixService.AddLooseLayoutAssetsFileCalls.Single(),
+            "The build's own assets file must reach package discovery");
     }
 
     [TestMethod]

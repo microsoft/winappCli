@@ -514,33 +514,29 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task SingleFileMode_PassesTheBuildInputsToPackageDiscovery()
+    public async Task SingleFileMode_ReadsThePackageGraphFromTheBuildsAssetsFile()
     {
-        // `dotnet package list --file app.cs` takes no -c, -r or -p, so winapp conveys the build's
-        // effective inputs as MSBuild environment properties. Without them the package graph is evaluated
-        // in the DEFAULT configuration with no RID: a Directory.Build.props that adds
-        // Microsoft.WindowsAppSDK only for Release, or only for win-arm64, then makes
-        // `winapp run app.cs -c Release` decide the manifest's framework dependency and runtime
-        // provisioning from a graph that omits it.
+        // `dotnet package list --file` re-evaluates the app and takes no -c/-r/-p, and the environment is
+        // not a substitute: a `#:property MyFeature=off` in the file OUTRANKS an environment value, while
+        // the build's own -p:MyFeature=on outranks the file. Measured: built that way the package is in
+        // the graph, and the same request made through the environment is not. project.assets.json is
+        // restore's output for the inputs the build ran with, so it is the only faithful source.
         var (singleFile, outputDir) = CreateSingleFileApp();
+        var assetsFile = Path.Join(outputDir.FullName, "obj", "project.assets.json");
         _fakeProjectRunService.SingleFileBuildOutcome = new SingleFileBuildOutcome(
             new SingleFileRunResolution(
                 singleFile, outputDir.FullName, "counter.exe", "arm64", "net10.0-windows10.0.22621.0", false,
                 ProjectPackaging.Packaged, null, null,
                 new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-                ProjectRunService.BuildEvaluationProperties(
-                    "Release", "win-arm64", targetFramework: null, platform: null, ["MyFeature=on"])),
+                assetsFile),
             0);
         var command = GetRequiredService<RunCommand>();
 
-        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach", "-c", "Release", "-p", "MyFeature=on"]);
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach", "-c", "Release"]);
 
         Assert.AreEqual(0, exitCode);
-        var evaluated = _fakeMsixService.AddLooseLayoutMsBuildPropertiesCalls.Single();
-        Assert.IsNotNull(evaluated, "Package discovery must be told what the build actually used");
-        Assert.AreEqual("Release", evaluated["Configuration"], "The effective configuration must reach package discovery");
-        Assert.AreEqual("win-arm64", evaluated["RuntimeIdentifier"], "The effective RID must reach package discovery");
-        Assert.AreEqual("on", evaluated["MyFeature"], "User -p properties must reach package discovery");
+        Assert.AreEqual(assetsFile, _fakeMsixService.AddLooseLayoutAssetsFileCalls.Single(),
+            "The build's own assets file must reach package discovery");
     }
 
     [TestMethod]

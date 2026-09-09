@@ -57,6 +57,11 @@ internal sealed partial class ProjectRunService
         "OutputPath",
         "RunCommand",
         "RunArguments",
+        // The project.assets.json restore wrote for THESE build inputs. Package discovery reads it rather
+        // than re-evaluating the app: `dotnet package list --file` takes no -c/-r/-p, and conveying them
+        // through the environment does not work either, because MSBuild ranks environment properties below
+        // a value the file assigns via #:property while the build's own -c/-r/-p outrank it.
+        "ProjectAssetsFile",
         "AssemblyName",
         "OutputType",
         "WindowsPackageType",
@@ -345,7 +350,7 @@ internal sealed partial class ProjectRunService
                 string.IsNullOrEmpty(runCommand) ? null : runCommand,
                 string.IsNullOrEmpty(runArguments) ? null : runArguments,
                 props,
-                BuildEvaluationProperties(options)),
+                GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null),
             0);
     }
 

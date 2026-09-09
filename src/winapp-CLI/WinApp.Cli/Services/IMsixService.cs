@@ -86,10 +86,10 @@ internal interface IMsixService
     /// pass the evaluated <c>WindowsAppSDKSelfContained</c>; the default preserves the previous behavior
     /// for callers that cannot determine it.
     /// </param>
-    /// <param name="msbuildProperties">
-    /// Effective build inputs (configuration, RID, user <c>-p</c>). Package discovery evaluates the
-    /// project with these so a configuration- or RID-conditional <c>PackageReference</c> is seen; when
-    /// null the default evaluation is used.
+    /// <param name="projectAssetsFile">
+    /// The <c>project.assets.json</c> the build consumed. Package discovery reads the graph from it, so a
+    /// configuration- or RID-conditional <c>PackageReference</c> is seen exactly as the build resolved it;
+    /// when null (or the file is gone) discovery falls back to re-evaluating the project.
     /// </param>
     public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(
         FileInfo appxManifestPath,
@@ -104,7 +104,7 @@ internal interface IMsixService
         bool noRestore = false,
         bool selfContained = false,
         bool ensureExecutionAlias = false,
-        IReadOnlyDictionary<string, string>? msbuildProperties = null,
+        FileInfo? projectAssetsFile = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

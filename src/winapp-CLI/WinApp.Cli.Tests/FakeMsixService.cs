@@ -22,8 +22,8 @@ internal class FakeMsixService : IMsixService
     /// <summary>Records the <c>executable</c> passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<string?> AddLooseLayoutExecutableCalls { get; } = [];
 
-    /// <summary>Records the <c>msbuildProperties</c> passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
-    public List<IReadOnlyDictionary<string, string>?> AddLooseLayoutMsBuildPropertiesCalls { get; } = [];
+    /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
+    public List<string?> AddLooseLayoutAssetsFileCalls { get; } = [];
 
     /// <summary>Records the <c>ensureExecutionAlias</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<bool> AddLooseLayoutEnsureAliasCalls { get; } = [];
@@ -80,7 +80,7 @@ internal class FakeMsixService : IMsixService
         bool noRestore = false,
         bool selfContained = false,
         bool ensureExecutionAlias = false,
-        IReadOnlyDictionary<string, string>? msbuildProperties = null,
+        FileInfo? projectAssetsFile = null,
         CancellationToken cancellationToken = default)
     {
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
@@ -88,7 +88,7 @@ internal class FakeMsixService : IMsixService
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
         AddLooseLayoutEnsureAliasCalls.Add(ensureExecutionAlias);
-        AddLooseLayoutMsBuildPropertiesCalls.Add(msbuildProperties);
+        AddLooseLayoutAssetsFileCalls.Add(projectAssetsFile?.FullName);
         if (ExceptionToThrow != null)
         {
             throw ExceptionToThrow;

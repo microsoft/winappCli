@@ -70,6 +70,7 @@ internal sealed record RunInputResolution(
 /// <param name="Framework">The effective target framework the app was built for (mirrors <c>ProjectRunOptions.Framework</c>); null for a single-targeted project. Threaded into the unpackaged runtime install so the version resolves from the built TFM.</param>
 /// <param name="NoRestore">Mirrors <c>ProjectRunOptions.NoRestore</c>; threaded into the unpackaged <c>dotnet list package</c> discovery so it can't trigger a restore the user skipped.</param>
 /// <param name="RunArguments">Leading launch arguments MSBuild pairs with a non-apphost <see cref="RunCommand"/> (e.g. <c>exec "&lt;app&gt;.dll"</c>); prepended before the user's app args. Null for a plain apphost launch.</param>
+/// <param name="ProjectAssetsFile">The evaluated <c>ProjectAssetsFile</c> — restore's output for the inputs this build ran with. Package discovery reads the graph from it because <c>dotnet package list</c> re-evaluates the project and accepts no <c>-c</c>/<c>-r</c>/<c>-p</c>, and MSBuild ranks environment properties below a value the project assigns, so those inputs cannot be reproduced any other way.</param>
 internal sealed record ProjectRunResolution(
     FileInfo Csproj,
     string TargetDir,
@@ -82,7 +83,7 @@ internal sealed record ProjectRunResolution(
     string? RunArguments = null,
     string? OutputType = null,
     bool? PreferExecutionAlias = null,
-    IReadOnlyDictionary<string, string>? EvaluationProperties = null);
+    string? ProjectAssetsFile = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.
@@ -192,6 +193,7 @@ internal sealed record SingleFileRunOptions(
 /// <param name="RunCommand">The launcher for an unpackaged launch: an apphost <c>.exe</c>, or a bare command (e.g. <c>dotnet</c>) paired with <see cref="RunArguments"/>; null when not produced.</param>
 /// <param name="RunArguments">Leading launch arguments MSBuild pairs with a non-apphost <see cref="RunCommand"/>; prepended before the user's app args.</param>
 /// <param name="Properties">Every evaluated MSBuild property from the <c>--getProperty</c> pass, keyed case-insensitively.</param>
+/// <param name="ProjectAssetsFile">The evaluated <c>ProjectAssetsFile</c> — restore's output for the inputs this build ran with. Package discovery reads the graph from it because <c>dotnet package list --file</c> re-evaluates the app and accepts no <c>-c</c>/<c>-r</c>/<c>-p</c>, and MSBuild ranks environment properties below a value the file assigns via <c>#:property</c>, so those inputs cannot be reproduced any other way.</param>
 internal sealed record SingleFileRunResolution(
     FileInfo SingleFile,
     string OutputDirectory,
@@ -203,7 +205,7 @@ internal sealed record SingleFileRunResolution(
     string? RunCommand,
     string? RunArguments,
     IReadOnlyDictionary<string, string> Properties,
-    IReadOnlyDictionary<string, string>? EvaluationProperties = null);
+    string? ProjectAssetsFile = null);
 
 /// <summary>
 /// Outcome of <see cref="Services.IProjectRunService.BuildAndResolveSingleFileAsync"/>. Mirrors

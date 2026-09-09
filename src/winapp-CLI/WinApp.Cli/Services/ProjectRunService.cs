@@ -26,6 +26,11 @@ internal sealed partial class ProjectRunService(
         "TargetDir",
         "RunCommand",
         "RunArguments",
+        // The project.assets.json restore wrote for THESE build inputs. Package discovery reads it rather
+        // than re-evaluating the project: `dotnet package list` takes no -c/-r/-p, and conveying them
+        // through the environment does not work either, because MSBuild ranks environment properties below
+        // a value the project assigns while the build's own -c/-r/-p outrank it.
+        "ProjectAssetsFile",
         "WindowsPackageType",
         "WindowsAppSDKSelfContained",
         "EnableMsixTooling",
@@ -432,7 +437,7 @@ internal sealed partial class ProjectRunService(
             string.IsNullOrEmpty(runArguments) ? null : runArguments,
             string.IsNullOrEmpty(outputType) ? null : outputType,
             ReadAliasPreference(props),
-            BuildEvaluationProperties(options));
+            GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null);
 
         return new ProjectBuildOutcome(resolution, 0);
     }

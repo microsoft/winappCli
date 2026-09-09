@@ -235,7 +235,7 @@ internal partial class RunCommand
                         manifest,
                         outputAppXDirectory,
                         effectiveLayout)),
-                msbuildProperties: resolution.EvaluationProperties);
+                projectAssetsFile: ToAssetsFile(resolution.ProjectAssetsFile));
         }
 
         /// <summary>

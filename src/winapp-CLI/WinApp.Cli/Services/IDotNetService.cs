@@ -164,11 +164,11 @@ internal interface IDotNetService
     /// </param>
     /// <param name="includeTransitive">When true, includes transitive package references in the output.</param>
     /// <param name="noRestore">When true, pass <c>--no-restore</c> so the query doesn't trigger an implicit restore.</param>
-    /// <param name="msbuildProperties">Effective build inputs (configuration, RID, user <c>-p</c>) to
-    /// evaluate the package graph with. The command has no <c>-c</c>/<c>-r</c>/<c>-p</c>, so these are
-    /// applied as MSBuild environment properties; when null the default evaluation is used.</param>
+    /// <param name="projectAssetsFile">The <c>project.assets.json</c> the build consumed. When it exists,
+    /// the graph is read from it, because that is restore's output for the build's actual inputs; the
+    /// command itself accepts no <c>-c</c>/<c>-r</c>/<c>-p</c> and so cannot reproduce them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, IReadOnlyDictionary<string, string>? msbuildProperties = null, CancellationToken cancellationToken = default);
+    Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, FileInfo? projectAssetsFile = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Ensures the .csproj has <c>&lt;EnableMsixTooling&gt;true&lt;/EnableMsixTooling&gt;</c>.

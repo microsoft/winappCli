@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
@@ -673,18 +674,25 @@ internal partial class DotNetService : IDotNetService
 
     /// <inheritdoc />
     /// <remarks>
-    /// <c>dotnet list package</c> evaluates the project with the default Configuration and no RID/Platform,
-    /// and accepts none of <c>-c</c>/<c>-r</c>/<c>-p:</c> — so a Configuration- or RID-conditional
-    /// <c>PackageReference</c> (rare for the Windows App SDK) isn't captured here. The built TFM is scoped
-    /// downstream by <c>FilterPackageListToFramework</c>, and the runtime presence-gate in
+    /// When the caller knows the <c>project.assets.json</c> the build consumed, the graph is read from it:
+    /// that is restore's output for the build's actual inputs, so it describes the binary that exists.
+    /// Otherwise this falls back to <c>dotnet list package</c>, which re-evaluates with the default
+    /// Configuration and no RID/Platform and accepts none of <c>-c</c>/<c>-r</c>/<c>-p:</c> — so a
+    /// conditional <c>PackageReference</c> (rare for the Windows App SDK) isn't captured. The built TFM is
+    /// scoped downstream by <c>FilterPackageListToFramework</c>, and the runtime presence-gate in
     /// <c>EnsureWindowsAppRuntimeInstalledAsync</c> is the backstop: a genuinely missing runtime fails the
     /// launch with an actionable error rather than silently under-provisioning.
     /// </remarks>
-    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, IReadOnlyDictionary<string, string>? msbuildProperties = null, CancellationToken cancellationToken = default)
+    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, FileInfo? projectAssetsFile = null, CancellationToken cancellationToken = default)
     {
         if (!projectOrFile.Exists)
         {
             return null;
+        }
+
+        if (projectAssetsFile is not null && ProjectAssetsFileReader.TryRead(projectAssetsFile) is { } resolvedFromAssets)
+        {
+            return resolvedFromAssets;
         }
 
         // `--no-restore` on `dotnet list package` is a .NET 10 SDK addition: that SDK made an implicit
@@ -723,19 +731,8 @@ internal partial class DotNetService : IDotNetService
 
         argTokens.AddRange(["--format", "json"]);
 
-        // `dotnet package list` accepts no -c, no -r and no -p, so the build's effective inputs are
-        // conveyed as MSBuild ENVIRONMENT properties instead. Without them the graph is evaluated in the
-        // default configuration with no RID and none of the user's properties: a Directory.Build.props
-        // that adds a PackageReference only for Release, only for win-arm64, or only under a custom flag
-        // is then invisible here — and with --no-restore the command fails outright ("project file and
-        // project.assets.json are not in sync"), yielding no list at all. Either way the manifest's
-        // framework dependency and runtime provisioning are decided from the wrong graph.
-        var environment = msbuildProperties is { Count: > 0 }
-            ? new Dictionary<string, string>(msbuildProperties, StringComparer.OrdinalIgnoreCase)
-            : null;
-
         var (exitCode, output, _) = await RunDotnetCommandAsync(
-            projectOrFile.Directory!, argTokens, environment, cancellationToken: cancellationToken);
+            projectOrFile.Directory!, argTokens, cancellationToken: cancellationToken);
 
         if (exitCode != 0 || string.IsNullOrWhiteSpace(output))
         {

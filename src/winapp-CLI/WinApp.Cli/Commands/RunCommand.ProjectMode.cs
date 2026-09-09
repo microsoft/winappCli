@@ -290,7 +290,7 @@ internal partial class RunCommand
                 targetDir, manifest, outputAppXDirectory, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
-                aliasDecision, cancellationToken, msbuildProperties: resolution.EvaluationProperties);
+                aliasDecision, cancellationToken, projectAssetsFile: ToAssetsFile(resolution.ProjectAssetsFile));
         }
 
         /// <summary>
