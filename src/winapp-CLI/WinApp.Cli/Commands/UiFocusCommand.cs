@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -31,10 +32,17 @@ internal class UiFocusCommand : Command, IShortDescription
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
         IUiSelectorParser selectorParser,
+        ISystemUiQuery systemQuery,
         IAnsiConsole ansiConsole,
-        ILogger<UiFocusCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiFocusCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui focus";
+
+        /// <summary>SetFocus changes the interactive desktop focus and must run exclusively.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.DesktopExclusive;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
@@ -53,6 +61,17 @@ internal class UiFocusCommand : Command, IShortDescription
                 return 1;
             }
 
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            // Preflight rejected a missing selector, so this is non-null by construction.
+            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
@@ -65,7 +84,25 @@ internal class UiFocusCommand : Command, IShortDescription
                     return 1;
                 }
 
-                await uiAutomation.FocusAsync(uiTarget, element, cancellationToken);
+                await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                    if (element is null)
+                    {
+                        UiErrors.ElementNotFound(logger, selectorStr, json);
+                        return 1;
+                    }
+
+                    if (!DesktopTargetValidation.TryConfirmTargetWindow(
+                            systemQuery, element.WindowHandle ?? uiTarget.WindowHandle, uiTarget.ProcessId,
+                            logger, json, "focus", parseResult.InvocationConfiguration.Error))
+                    {
+                        return 1;
+                    }
+
+                    await uiAutomation.FocusAsync(uiTarget, element, cancellationToken);
+                }
+
                 if (json)
                 {
                     var result = new UiFocusResult { ElementId = (element.Selector ?? element.Id ?? ""), Hwnd = uiTarget.WindowHandle };
@@ -84,7 +121,7 @@ internal class UiFocusCommand : Command, IShortDescription
                 UiErrors.StaleElement(logger, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;

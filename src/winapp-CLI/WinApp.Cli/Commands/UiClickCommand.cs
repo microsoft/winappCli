@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -46,12 +47,21 @@ internal class UiClickCommand : Command, IShortDescription
         IUiSelectorParser selectorParser,
         IMouseInput mouseInput,
         IForegroundGuard foregroundGuard,
+        IDesktopForegroundService desktopForeground,
+        ISystemUiQuery systemQuery,
         IAnsiConsole ansiConsole,
-        ILogger<UiClickCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiClickCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
         /// <summary>Cursor-settle pause (ms) before the final confirm read and button-down.</summary>
         private const int CursorSettleMs = 50;
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+
+        protected override string Operation => "ui click";
+
+        /// <summary>A click drives the shared cursor and OS-wide <c>SendInput</c> stream.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.DesktopExclusive;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
@@ -70,6 +80,16 @@ internal class UiClickCommand : Command, IShortDescription
                 return 1;
             }
 
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            // Preflight rejected a missing selector, so this is non-null by construction.
+            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var doubleClick = parseResult.GetValue(DoubleClickOption);
             var rightClick = parseResult.GetValue(RightClickOption);
 
@@ -87,10 +107,6 @@ internal class UiClickCommand : Command, IShortDescription
 
                 var clickType = doubleClick ? "double-click" : rightClick ? "right-click" : "click";
 
-                // Get element center from bounding rect
-                int centerX = (int)(element.X + element.Width / 2.0);
-                int centerY = (int)(element.Y + element.Height / 2.0);
-
                 if (element.Width == 0 || element.Height == 0)
                 {
                     logger.LogError("{Symbol} Element has zero size — cannot click.", UiSymbols.Error);
@@ -98,70 +114,67 @@ internal class UiClickCommand : Command, IShortDescription
                     return 1;
                 }
 
-                // Use the element's own window handle if available, otherwise fall back to session
+                // Use the element's own window handle if available, otherwise fall back to session.
+                // Advisory only — refreshed from the re-resolved element inside the section below.
                 var targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
+                int centerX;
+                int centerY;
 
-                // Bring target window to foreground
-                if (targetHwnd != 0)
+                // Everything that touches the shared desktop — foreground, cursor, SendInput — happens
+                // inside one section, and so does the resolution whose result is acted upon.
+                await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    Windows.Win32.PInvoke.SetForegroundWindow(
-                        new Windows.Win32.Foundation.HWND((nint)targetHwnd));
-                    await Task.Delay(100, cancellationToken); // let window activate
+                    // Re-resolve before anything else so the HWND we foreground and validate is current.
+                    var stable = await GestureTargeting.ResolveStableAsync(
+                        uiAutomation, uiTarget, selector, element,
+                        GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
+                    if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, clickType))
+                    {
+                        return 1;
+                    }
+                    targetHwnd = stable.Element.WindowHandle ?? uiTarget.WindowHandle;
+
+                    if (!DesktopTargetValidation.TryConfirmTargetWindow(
+                            systemQuery, targetHwnd, uiTarget.ProcessId, logger, json, clickType, parseResult.InvocationConfiguration.Error))
+                    {
+                        return 1;
+                    }
+
+                    // Bring target window to foreground
+                    if (targetHwnd != 0)
+                    {
+                        desktopForeground.RequestForeground(targetHwnd);
+                        await Task.Delay(100, cancellationToken); // let window activate
+                    }
+
+                    // Verify the target STILL holds the foreground as the first gate before the OS-wide click.
+                    if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, clickType))
+                    {
+                        return 1;
+                    }
+
+                    // Close the residual re-resolve→button-down race.
+                    mouseInput.MoveCursor(stable.CenterX, stable.CenterY);
+                    await Task.Delay(CursorSettleMs, cancellationToken);
+
+                    var confirmed = await GestureTargeting.ConfirmStillAsync(
+                        uiAutomation, uiTarget, selector, stable.Element, cancellationToken);
+                    if (!UiInjectionReporting.TryReport(confirmed, logger, json, selectorStr, clickType))
+                    {
+                        return 1;
+                    }
+                    centerX = confirmed.CenterX;
+                    centerY = confirmed.CenterY;
+
+                    // Final foreground gate after the awaited confirm read.
+                    if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, clickType))
+                    {
+                        return 1;
+                    }
+
+                    // Perform the click via SendInput — no extra settle, the cursor is already positioned.
+                    mouseInput.Click(centerX, centerY, doubleClick, rightClick, settleMs: 0);
                 }
-
-                // Re-resolve the element just before clicking (N5): foregrounding can restore/animate the
-                // window, so the rect captured above may be stale. Refuse rather than click empty space if
-                // the target is still moving.
-                var stable = await GestureTargeting.ResolveStableAsync(
-                    uiAutomation, uiTarget, selector, element,
-                    GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
-                if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, clickType))
-                {
-                    return 1;
-                }
-                centerX = stable.CenterX;
-                centerY = stable.CenterY;
-
-                // Verify the target STILL holds the foreground as the first gate before the OS-wide click
-                // (F1) — matches drag / scroll --wheel. The re-resolve above awaits UIA reads during which
-                // focus could shift, so we check here, after the awaits. Also yields a clean
-                // no_interactive_desktop error on a locked session instead of a misleading SendInput failure.
-                // (A second, final gate runs below, after the cursor-settle confirm read.)
-                if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, clickType))
-                {
-                    return 1;
-                }
-
-                // Close the residual re-resolve→button-down race (F3/N5): position the cursor, let it
-                // settle, then re-confirm the target hasn't drifted during that settle window before
-                // pressing. ResolveStableAsync can read a continuously-animating target as "settled" by
-                // chance and the element then moves during the ~50 ms cursor settle, landing the click on
-                // empty space yet reporting success. By doing the settle here and a fresh confirm read
-                // immediately before the button-down (which itself uses settleMs: 0), a reported ✅ means
-                // the target was still in place when the button went down.
-                mouseInput.MoveCursor(centerX, centerY);
-                await Task.Delay(CursorSettleMs, cancellationToken);
-
-                var confirmed = await GestureTargeting.ConfirmStillAsync(
-                    uiAutomation, uiTarget, selector, stable.Element, cancellationToken);
-                if (!UiInjectionReporting.TryReport(confirmed, logger, json, selectorStr, clickType))
-                {
-                    return 1;
-                }
-                centerX = confirmed.CenterX;
-                centerY = confirmed.CenterY;
-
-                // Final foreground gate after the awaited confirm read — the true last check before the
-                // OS-wide button-down (M3). Focus could have shifted during the cursor-settle + confirm
-                // read above, which the first gate (before those awaits) couldn't see.
-                if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, clickType))
-                {
-                    return 1;
-                }
-
-                // Perform the click via SendInput — no extra settle, the cursor is already positioned and
-                // the target just confirmed in place.
-                mouseInput.Click(centerX, centerY, doubleClick, rightClick, settleMs: 0);
 
                 var elementId = (element.Selector ?? element.Id ?? "");
 
@@ -192,7 +205,7 @@ internal class UiClickCommand : Command, IShortDescription
                 UiErrors.StaleElement(logger, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;

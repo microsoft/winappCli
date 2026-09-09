@@ -1,0 +1,30 @@
+<!--
+  Scoped to src/winapp-Analyzer/ only. Sets warning-as-error and
+  deterministic-build flags for the analyzer + tests; intentionally NOT
+  placed at the repo root because TreatWarningsAsErrors would break
+  unrelated C# projects in the repo that have their own warning baselines.
+-->
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <RepositoryUrl>https://github.com/microsoft/winappCli</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Authors>Microsoft</Authors>
+    <Company>Microsoft</Company>
+    <Product>Microsoft.WindowsAppSDK.Analyzers</Product>
+    <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/microsoft/winappCli</PackageProjectUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DeterministicSourcePaths Condition="'$(GITHUB_ACTIONS)' == 'true'">true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+</Project>

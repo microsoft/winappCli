@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -40,10 +41,18 @@ internal class UiHoverCommand : Command, IShortDescription
         IUiSelectorParser selectorParser,
         IMouseInput mouseInput,
         IForegroundGuard foregroundGuard,
+        IDesktopForegroundService desktopForeground,
+        ISystemUiQuery systemQuery,
         IAnsiConsole ansiConsole,
-        ILogger<UiHoverCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiHoverCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui hover";
+
+        /// <summary>Hovering moves the shared cursor and holds it there for the dwell.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.DesktopExclusive;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
@@ -70,6 +79,18 @@ internal class UiHoverCommand : Command, IShortDescription
                 return 1;
             }
 
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            // Preflight rejected a missing selector, so this is non-null by construction.
+            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+            var dwellTime = parseResult.GetValue(DwellTimeOption);
+
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
@@ -82,9 +103,6 @@ internal class UiHoverCommand : Command, IShortDescription
                     return 1;
                 }
 
-                int centerX = (int)(element.X + element.Width / 2.0);
-                int centerY = (int)(element.Y + element.Height / 2.0);
-
                 if (element.Width == 0 || element.Height == 0)
                 {
                     logger.LogError("{Symbol} Element has zero size — cannot hover.", UiSymbols.Error);
@@ -94,42 +112,47 @@ internal class UiHoverCommand : Command, IShortDescription
 
                 // Use the element's own window handle if available, otherwise fall back to session
                 var targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
+                int centerX;
+                int centerY;
 
-                // Bring target window to foreground
-                if (targetHwnd != 0)
+                await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    Windows.Win32.PInvoke.SetForegroundWindow(
-                        new Windows.Win32.Foundation.HWND((nint)targetHwnd));
-                    await Task.Delay(100, cancellationToken);
+                    // Re-resolve just before hovering so the captured rect is current after any wait.
+                    var stable = await GestureTargeting.ResolveStableAsync(
+                        uiAutomation, uiTarget, selector, element,
+                        GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
+                    if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "hover"))
+                    {
+                        return 1;
+                    }
+                    targetHwnd = stable.Element.WindowHandle ?? uiTarget.WindowHandle;
+                    centerX = stable.CenterX;
+                    centerY = stable.CenterY;
+
+                    if (!DesktopTargetValidation.TryConfirmTargetWindow(
+                            systemQuery, targetHwnd, uiTarget.ProcessId, logger, json, "hover", parseResult.InvocationConfiguration.Error))
+                    {
+                        return 1;
+                    }
+
+                    // Bring target window to foreground
+                    if (targetHwnd != 0)
+                    {
+                        desktopForeground.RequestForeground(targetHwnd);
+                        await Task.Delay(100, cancellationToken);
+                    }
+
+                    if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "hover"))
+                    {
+                        return 1;
+                    }
+
+                    // Move mouse to element center with a small wiggle to trigger hover detection
+                    mouseInput.Hover(centerX, centerY);
+
+                    // Wait for dwell time to allow hover effects to appear
+                    await Task.Delay(dwellTime, cancellationToken);
                 }
-
-                // Re-resolve just before hovering (N5): foregrounding can restore/animate the window, so
-                // the captured rect may be stale. Refuse rather than hover empty space if it's still moving.
-                var stable = await GestureTargeting.ResolveStableAsync(
-                    uiAutomation, uiTarget, selector, element,
-                    GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
-                if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "hover"))
-                {
-                    return 1;
-                }
-                centerX = stable.CenterX;
-                centerY = stable.CenterY;
-
-                // Verify the target STILL holds the foreground as the final gate before the OS-wide hover
-                // (F1) — matches click / drag / scroll --wheel. Checked here, after the awaited re-resolve,
-                // to close the focus-steal race; also yields a clean no_interactive_desktop error on a
-                // locked session instead of a misleading SendInput failure, and refuses to move the pointer
-                // over whatever window grabbed the foreground.
-                if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "hover"))
-                {
-                    return 1;
-                }
-
-                // Move mouse to element center with a small wiggle to trigger hover detection
-                mouseInput.Hover(centerX, centerY);
-
-                // Wait for dwell time to allow hover effects to appear
-                await Task.Delay(dwellTime, cancellationToken);
 
                 var elementId = element.Selector ?? element.Id ?? "";
 
@@ -160,7 +183,7 @@ internal class UiHoverCommand : Command, IShortDescription
                 UiErrors.StaleElement(logger, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;

@@ -779,15 +779,15 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 **Project-mode options** (ignored in folder mode):
 
 - `-c, --configuration <name>` - Build configuration. Default: `Debug`.
-- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines both the build RID and the architecture of the Windows App Runtime that gets installed.
-- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch`.
+- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build.
+- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch` and can select the required publish profile.
 - `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`).
 - `--project <name-or-path>` - When the input is a solution (`.sln`/`.slnx`) or a directory with multiple runnable app projects, selects which project to launch (by project name or path).
 - `--no-build` - Skip building and run the existing build output (still evaluates output properties).
 - `--no-restore` - Skip restoring the project before building.
-- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeatable (e.g. `-p WindowsPackageType=None`).
+- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value.
 
-**Build output & verbosity:** dependency restore and `dotnet build` output **stream live** to your console, followed by a fast property-evaluation pass. Restore output streams as plain, sanitized lines so authenticated feed URLs do not expose credentials. In an interactive terminal, dotnet's terminal logger shows in-place build progress and elapsed time; redirected build output and CI use plain lines instead. In default and verbose modes, winapp prints each exact `dotnet restore …` or `dotnet build …` invocation first, so package downloads, feed retries, errors, and build warnings remain visible. Verbosity:
+**Build output & verbosity:** dependency restore and `dotnet build` output **stream live** to your console, followed by a fast property-evaluation pass. Restore output streams as plain, sanitized lines so authenticated feed URLs do not expose credentials. In an interactive terminal, dotnet's terminal logger shows in-place build progress and elapsed time when the build does not need to restore; redirected build output and CI use sanitized plain lines instead. In default and verbose modes, winapp prints each sanitized `dotnet restore …` or `dotnet build …` invocation first, so package downloads, feed retries, errors, and build warnings remain visible. Verbosity:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
@@ -1468,6 +1468,27 @@ To make this permanent:
 ```powershell
 [System.Environment]::SetEnvironmentVariable('WINAPP_CLI_UPDATE_CHECK', '0', 'User')
 ```
+
+### UI workflow identity
+
+`winapp ui` commands that drive the physical desktop always take cooperative turns, so two workflows
+running at once cannot steal each other's focus or dismiss each other's menus. That arbitration needs
+no setup and cannot be switched off.
+
+What is optional is *continuity*. By default each command is a self-contained one-shot that releases
+the desktop as soon as it finishes. To keep the desktop across several commands, give them all the
+same workflow id:
+
+```pwsh
+$env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString()
+```
+
+Use the *same* value for cooperating processes (for example a recording and the clicks it should
+capture) and *different* values for independent workflows. Every command without an id is its own
+one-shot workflow, even when several are launched from one shell, so hosts that start a fresh shell
+per command must inject the same explicit value into each one. The value is opaque, is never treated
+as a credential, and is only ever persisted as a SHA-256 hash. See
+[UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
 
 ### ui
 

@@ -7,8 +7,8 @@ namespace WinApp.Cli.Helpers;
 
 /// <summary>
 /// Pure mapping between a target architecture and a .NET runtime identifier (RID). Project mode passes
-/// the RID on the build command line (never written to the csproj) and conveys the target architecture
-/// through it alone — it does not force an MSBuild <c>Platform</c>.
+/// the RID on the build command line (never written to the csproj); project-specific build inputs such as
+/// <c>Platform</c> and <c>PublishProfile</c> are resolved separately by <c>ProjectRunService</c>.
 /// </summary>
 internal static class RunArchHelper
 {

@@ -83,6 +83,7 @@ internal sealed record ProjectRunResolution(
 /// <param name="Solution">The solution the target was resolved from; when set, the build/evaluate passes define <c>$(SolutionDir)</c> and sibling <c>Solution*</c> properties so referencing projects build as they do in VS. Null for a bare <c>.csproj</c>.</param>
 /// <param name="Platform">The MSBuild <c>Platform</c> winapp injects (<c>-p:Platform=…</c>) into project-targeted passes when the target — and its whole <c>ProjectReference</c> closure — declares a <c>&lt;Platforms&gt;</c> that includes the target arch. Solution-scoped restore omits it because configuration-free <c>.slnx</c> files reject an explicit solution Platform. A RESOLVED input (see <c>ResolvePlatformInjection</c>), never user-supplied; null means arch is conveyed by the RID alone (the safe default). Older WindowsAppSDK targets hard-reject the default <c>Platform=AnyCPU</c> for self-contained / packaged builds, so the explicit Platform is what makes those projects build.</param>
 /// <param name="OmitRuntimeIdentifier">Suppresses the injected <c>-r win-&lt;arch&gt;</c> because an effective <c>Platform</c> already conveys the architecture AND the <c>ProjectReference</c> closure splits on <c>RuntimeIdentifier</c> — a combination that otherwise builds the same project twice and fails a packaged build with APPX1101. A RESOLVED input (see <c>ResolvePlatformInjection</c>).</param>
+/// <param name="PublishProfile">The architecture-matching publish profile used when MSIX tooling requires a trimmed build to be self-contained, the profile preserves the project's trimming, target framework, and architecture, and forcing a global <c>Platform</c> would break an AnyCPU project reference. Inferred profiles are scoped to the selected app through the .NET SDK's <c>ProjectToOverrideProjectExtensionsPath</c> property. A RESOLVED input (see <c>ResolveRequiredPublishProfileAsync</c>), never user-supplied.</param>
 internal sealed record ProjectRunOptions(
     string Configuration,
     string Architecture,
@@ -93,7 +94,8 @@ internal sealed record ProjectRunOptions(
     bool Json = false,
     FileInfo? Solution = null,
     string? Platform = null,
-    bool OmitRuntimeIdentifier = false);
+    bool OmitRuntimeIdentifier = false,
+    string? PublishProfile = null);
 
 /// <summary>
 /// The effective build inputs used to classify runnable candidates (multi-<c>.csproj</c> directory or

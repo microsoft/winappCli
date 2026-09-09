@@ -65,7 +65,7 @@ winapp run WinUISolution.sln
 # Same, but only build + register the debug identity without launching (no GUI).
 winapp run WinUISolution.slnx --no-launch
 
-# Point at the directory instead of the .sln explicitly (directory mode finds the .sln).
+# Point at the directory instead of a solution explicitly (directory mode prefers the .slnx migration pair).
 winapp run .
 
 # Explicitly select a specific project.

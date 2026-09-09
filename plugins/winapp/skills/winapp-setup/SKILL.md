@@ -206,11 +206,11 @@ winapp run . -p WindowsPackageType=None
 winapp run . --verbose
 ```
 
-Project mode supports both **packaged** and **unpackaged** WinUI apps, detected from the project's effective `WindowsPackageType` (`MSIX` ⇒ loose-layout register + AUMID launch; `None` ⇒ launch the built `.exe`), and installs the matching-architecture Windows App Runtime before launching. Requires .NET SDK 8.0.100+.
+Project mode supports both **packaged** and **unpackaged** WinUI apps, detected from the project's effective `WindowsPackageType` (`MSIX` ⇒ loose-layout register + AUMID launch; `None` ⇒ launch the built `.exe`), and installs the matching-architecture Windows App Runtime before launching. RID-only remains the default; when the effective configuration requires a self-contained profile, winapp selects the architecture-matching profile without forcing that platform onto referenced `AnyCPU` libraries. Requires .NET SDK 8.0.100+.
 
-- **Build inputs:** `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `-p/--property` (repeatable).
+- **Build inputs:** `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `-p/--property` (repeat for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value).
 - **Packaged-only options:** `--manifest`, `--no-launch`, `--with-alias`, `--clean`, `--unregister-on-exit`, `--output-appx-directory`, `--executable` — rejected for unpackaged apps.
-- **Output:** winapp restores dependencies, builds, and streams both commands' output live (including successful-build warnings). Restore output uses sanitized plain lines; interactive terminals show dotnet's in-place build progress, while redirected build output uses plain lines. `--json` sends invocations and child output to **stderr** so stdout stays valid JSON. `--quiet` suppresses invocations and sends dotnet's quiet restore/build output to **stderr** so stdout stays clean.
+- **Output:** winapp restores dependencies, builds, and streams both commands' output live (including successful-build warnings). Restore output uses sanitized plain lines; interactive terminals show dotnet's in-place build progress when no build-time restore is needed, while other build output uses sanitized plain lines. `--json` sends invocations and child output to **stderr** so stdout stays valid JSON. `--quiet` suppresses invocations and sends dotnet's quiet restore/build output to **stderr** so stdout stays clean.
 
 #### Choosing between `run` and `create-debug-identity`
 

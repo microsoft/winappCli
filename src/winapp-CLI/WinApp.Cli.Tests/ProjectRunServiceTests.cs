@@ -238,6 +238,29 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void RedactSecretsForDisplay_RedactsSecretSegmentOfCommaPackedProperty()
+    {
+        var line = "build -p:A=1,SigningPassword=s3cr3t,B=2";
+
+        var redacted = ProjectRunService.RedactSecretsForDisplay(line);
+
+        StringAssert.Contains(redacted, "A=1,SigningPassword=***,B=2");
+        Assert.IsFalse(redacted.Contains("s3cr3t"));
+    }
+
+    [TestMethod]
+    public void RedactSecretsForDisplay_MasksMalformedSecretContinuation()
+    {
+        var line = "build -p:PackageCertificatePassword=p@ss,w0rd,B=2";
+
+        var redacted = ProjectRunService.RedactSecretsForDisplay(line);
+
+        Assert.IsFalse(redacted.Contains("p@ss"), $"secret prefix should be masked: {redacted}");
+        Assert.IsFalse(redacted.Contains("w0rd"), $"secret continuation should be masked: {redacted}");
+        StringAssert.Contains(redacted, "PackageCertificatePassword=***,***,B=2");
+    }
+
+    [TestMethod]
     public void RedactSecretsForDisplay_MasksQuotedSecretWithSpaces()
     {
         var line = "build \"-p:PackageCertificatePassword=pass word\" -c Debug";
@@ -564,6 +587,37 @@ public class ProjectRunServiceTests
             "conflicting user -p:RuntimeIdentifier must be dropped, not forwarded");
         StringAssert.Contains(args, "-p:Configuration=Debug");
         StringAssert.Contains(args, "-p:RuntimeIdentifier=win-x64");
+    }
+
+    [TestMethod]
+    public void BuildEvaluateArguments_CommaPackedDedicatedProperty_IsDropped()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions(
+            "Debug",
+            "x64",
+            null,
+            NoBuild: false,
+            NoRestore: false,
+            Properties: ["Flavor=Retail,RuntimeIdentifier=win-arm64"]);
+
+        var args = ProjectRunService.BuildEvaluateArguments(csproj, options);
+
+        Assert.IsFalse(
+            args.Contains("Flavor=Retail", StringComparison.Ordinal),
+            "the entire packed token must be dropped when any segment conflicts with a dedicated switch");
+        Assert.IsFalse(args.Contains("RuntimeIdentifier=win-arm64", StringComparison.Ordinal));
+        StringAssert.Contains(args, "-p:RuntimeIdentifier=win-x64");
+    }
+
+    [TestMethod]
+    public void ResolveExplicitFramework_CommaPackedProperty_PromotesTargetFramework()
+    {
+        var framework = ProjectRunService.ResolveExplicitFramework(
+            frameworkOption: null,
+            ["Flavor=Retail,TargetFramework=net10.0-windows10.0.26100.0"]);
+
+        Assert.AreEqual("net10.0-windows10.0.26100.0", framework);
     }
 
     [TestMethod]
@@ -3012,6 +3066,35 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_UserPlatformSolutionRestore_LetsProjectBuildRestoreAgain()
+    {
+        var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false,
+            Properties: ["Platform=x64"], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        var solutionRestore = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+        Assert.IsFalse(solutionRestore.Contains("-p:Platform=", StringComparison.Ordinal),
+            "solution restore must omit the user Platform to avoid MSB4126");
+        var build = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"build {csproj.FullName}", StringComparison.Ordinal));
+        StringAssert.Contains(build, "-p:Platform=x64",
+            "the selected project build must retain the user-supplied Platform");
+        Assert.IsFalse(build.Contains("--no-restore", StringComparison.Ordinal),
+            "the project must restore again because the solution restore did not cover platform-conditioned assets");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_SolutionRestoreInRealTerminal_StreamsRedactedOutput()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
@@ -3476,15 +3559,20 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_BuildFailure_ShortCircuitsBeforeEvaluate()
+    public async Task BuildAndResolveAsync_BuildFailure_ShortCircuitsBeforePostBuildEvaluate()
     {
-        // Change #1: a failed build pass must propagate its exit code and NOT evaluate properties.
+        // A failed build pass must propagate its exit code and skip the post-build evaluate. The
+        // publish-profile preflight still evaluates once before the build.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
-        var evaluated = false;
+        var evaluationCount = 0;
         var dotnet = new FakeDotNetService
         {
             RunDotnetStreamingHandler = (_, _, _) => 7,
-            RunDotnetCommandHandler = _ => { evaluated = true; return (0, PackagedPropertiesJson(), string.Empty); },
+            RunDotnetCommandHandler = _ =>
+            {
+                evaluationCount++;
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
         };
         var service = NewServiceWith(dotnet, LogLevel.Information, out _);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
@@ -3493,7 +3581,7 @@ public class ProjectRunServiceTests
 
         Assert.IsNull(outcome.Resolution, "a failed build must not resolve");
         Assert.AreEqual(7, outcome.ExitCode, "the build exit code must propagate");
-        Assert.IsFalse(evaluated, "a failed build must short-circuit before the evaluate pass");
+        Assert.AreEqual(1, evaluationCount, "a failed build must skip the post-build evaluate");
     }
 
     [TestMethod]
@@ -3762,7 +3850,7 @@ public class ProjectRunServiceTests
         {
             NativeTerminalGateOverrideForTests = () => true, // force the real-TTY / native-terminal branch
         };
-        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: [], Json: false);
 
         var exit = await service.RunBuildPassAsync(csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
 
@@ -3777,6 +3865,38 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task RunBuildPassAsync_RealTerminalWithRestore_StreamsAndRedactsOutput()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetStreamingHandler = (_, onOut, _) =>
+            {
+                onOut?.Invoke("NU1301 https://feed.example/v3/index.json?sig=BUILD_RESTORE_SECRET");
+                return 0;
+            },
+        };
+        var console = new TestConsole();
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information))
+        {
+            NativeTerminalGateOverrideForTests = () => true,
+        };
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
+
+        var exit = await service.RunBuildPassAsync(
+            csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
+
+        Assert.AreEqual(0, exit);
+        Assert.AreEqual(0, dotnet.InheritedCalls.Count,
+            "a build that may restore must not bypass feed credential redaction");
+        Assert.AreEqual(1, dotnet.StreamingCalls.Count);
+        StringAssert.Contains(dotnet.StreamingCalls[0], "-tl:off");
+        StringAssert.Contains(console.Output, "https://feed.example/v3/index.json?<redacted>");
+        Assert.IsFalse(console.Output.Contains("BUILD_RESTORE_SECRET", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     [DoNotParallelize] // redirects the process-wide Console.Error
     public async Task RunBuildPassAsync_Json_KeepsStdoutClean_RoutesInvocationAndOutputToStderr()
     {
@@ -3784,7 +3904,12 @@ public class ProjectRunServiceTests
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var dotnet = new FakeDotNetService
         {
-            RunDotnetStreamingHandler = (_, onOut, onErr) => { onOut?.Invoke("STDOUT-POISON"); onErr?.Invoke("STDERR-POISON"); return 0; },
+            RunDotnetStreamingHandler = (_, onOut, onErr) =>
+            {
+                onOut?.Invoke("STDOUT-POISON https://feed.example/v3/index.json?sig=STDOUT_SECRET");
+                onErr?.Invoke("STDERR-POISON https://feed.example/v3/index.json?sig=STDERR_SECRET");
+                return 0;
+            },
         };
         var console = new TestConsole();
         var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information));
@@ -3809,6 +3934,8 @@ public class ProjectRunServiceTests
         StringAssert.Contains(stderr.ToString(), "dotnet build", "--json must route the invocation to stderr");
         StringAssert.Contains(stderr.ToString(), "STDOUT-POISON", "--json must route build output to stderr");
         StringAssert.Contains(stderr.ToString(), "STDERR-POISON", "--json must route build stderr to stderr");
+        Assert.IsFalse(stderr.ToString().Contains("STDOUT_SECRET", StringComparison.Ordinal));
+        Assert.IsFalse(stderr.ToString().Contains("STDERR_SECRET", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -3820,7 +3947,11 @@ public class ProjectRunServiceTests
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var dotnet = new FakeDotNetService
         {
-            RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke("QUIET-BUILD-LINE"); return 0; },
+            RunDotnetStreamingHandler = (_, onOut, _) =>
+            {
+                onOut?.Invoke("QUIET-BUILD-LINE https://feed.example/v3/index.json?sig=QUIET_SECRET");
+                return 0;
+            },
         };
         var console = new TestConsole();
         var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Warning));
@@ -3844,6 +3975,8 @@ public class ProjectRunServiceTests
         Assert.IsFalse(console.Output.Contains("dotnet build"), "--quiet must not write the invocation to stdout");
         Assert.IsFalse(stderr.ToString().Contains("dotnet build"), "--quiet must suppress the informational invocation");
         StringAssert.Contains(stderr.ToString(), "QUIET-BUILD-LINE", "--quiet must route build output to stderr");
+        StringAssert.Contains(stderr.ToString(), "https://feed.example/v3/index.json?<redacted>");
+        Assert.IsFalse(stderr.ToString().Contains("QUIET_SECRET", StringComparison.Ordinal));
     }
 
     [TestMethod]

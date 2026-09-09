@@ -15,6 +15,8 @@ import { createRequire } from 'node:module';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { tableCell } from './markdown-table-cell.mjs';
+
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 
@@ -31,7 +33,10 @@ const OUTPUT = resolve(NPM_ROOT, '../../docs/npm-usage.md');
 // ---------------------------------------------------------------------------
 // CommonOptions properties — documented once, skipped in per-function tables
 // ---------------------------------------------------------------------------
-const COMMON_OPTION_NAMES = new Set(['quiet', 'verbose', 'cwd']);
+const COMMON_OPTION_NAMES = new Set(['quiet', 'verbose', 'cwd', 'signal', 'workflowId']);
+
+// Rendered wherever a section says which inherited options also apply.
+const COMMON_OPTION_NOTE = '(`quiet`, `verbose`, `cwd`, `signal`, `workflowId`)';
 
 // ---------------------------------------------------------------------------
 // Create TypeScript program from tsconfig.json
@@ -181,12 +186,12 @@ function emitFunction(lines, name, symbol, isCLIWrapper) {
           const propDecl = prop.valueDeclaration || prop.declarations?.[0];
           let pt = typeStr(getSymType(prop));
           pt = pt.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
-          const pdoc = getDoc(prop);
+          const pdoc = tableCell(getDoc(prop));
           const opt = isOptionalDecl(propDecl);
           lines.push(`| \`${prop.getName()}\` | \`${pt}\` | ${opt ? 'No' : 'Yes'} | ${pdoc} |`);
         }
         lines.push('');
-        lines.push('*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*');
+        lines.push(`*Also accepts [CommonOptions](#commonoptions) ${COMMON_OPTION_NOTE}.*`);
         lines.push('');
       }
     }
@@ -205,7 +210,7 @@ function emitFunction(lines, name, symbol, isCLIWrapper) {
         const text = ts.displayPartsToString(t.text || []);
         return text.startsWith(param.getName());
       });
-      const desc = pTag ? paramTagDesc(pTag) : '';
+      const desc = pTag ? tableCell(paramTagDesc(pTag)) : '';
       lines.push(`| \`${param.getName()}\` | \`${pType.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')}\` | ${opt ? 'No' : 'Yes'} | ${desc} |`);
     }
     lines.push('');
@@ -268,7 +273,7 @@ function emitType(lines, name, symbol, external) {
         const propDecl = prop.valueDeclaration || prop.declarations?.[0];
         let pt = typeStr(getSymType(prop));
         pt = pt.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
-        const pdoc = getDoc(prop);
+        const pdoc = tableCell(getDoc(prop));
         const opt = isOptionalDecl(propDecl);
         lines.push(`| \`${prop.getName()}\` | \`${pt}\` | ${opt ? 'No' : 'Yes'} | ${pdoc} |`);
       }
@@ -379,7 +384,7 @@ function generate() {
   // --- CLI command wrappers ---
   L('## CLI command wrappers');
   L();
-  L('These functions wrap native `winapp` CLI commands. All accept [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).');
+  L(`These functions wrap native \`winapp\` CLI commands. All accept [CommonOptions](#commonoptions) ${COMMON_OPTION_NOTE}.`);
   L();
 
   for (const { name, symbol } of cliCommandFns) {

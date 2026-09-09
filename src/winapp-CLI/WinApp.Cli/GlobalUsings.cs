@@ -6,4 +6,4 @@
 // repeated in every command and helper file.
 global using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 global using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;
-
+global using WinApp.Cli.Services.InteractiveDesktop;

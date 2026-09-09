@@ -128,6 +128,100 @@ public partial class UiCommandTests
         Assert.IsTrue(File.Exists(outputPath), "record should have produced an output file");
     }
 
+
+    [TestMethod]
+    public async Task Record_ReleasesDesktopSectionAfterStartedCallback()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _fakeRecording.AfterRecordingStarted = () => started.SetResult();
+        _fakeRecording.WaitAfterRecordingStarted = unblock.Task;
+
+        var outputPath = Path.Combine(_tempDirectory.FullName, "started-release.mp4");
+        var command = GetRequiredService<UiRecordCommand>();
+        var running = ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath, "--json"]);
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        SpinWait.SpinUntil(() => _fakeDesktopLock.OpenDesktopSections == 0, TimeSpan.FromSeconds(5));
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
+
+        unblock.SetResult();
+        Assert.AreEqual(0, await running);
+    }
+
+    [TestMethod]
+    public async Task Record_FailureBeforeStartedCallback_ReleasesDesktopSection()
+    {
+        _fakeRecording.RecordException = new InvalidOperationException("capture failed before first frame");
+
+        var outputPath = Path.Combine(_tempDirectory.FullName, "before-start.mp4");
+        var command = GetRequiredService<UiRecordCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath, "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
+    }
+
+    [TestMethod]
+    public async Task Record_DuplicateStartedCallback_DoesNotReleaseTwiceOrThrow()
+    {
+        _fakeRecording.InvokeRecordingStartedTwice = true;
+
+        var outputPath = Path.Combine(_tempDirectory.FullName, "duplicate-start.mp4");
+        var command = GetRequiredService<UiRecordCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath, "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
+    }
+
+    [TestMethod]
+    public async Task Record_PrintWindowMode_HoldsSectionForWholeRecordingAndWarns()
+    {
+        _fakeWindowCapture.Supported = false;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = "printwindow" };
+        _fakeRecording.BeforeRecordingStarted = () => Assert.AreEqual(1, _fakeDesktopLock.OpenDesktopSections);
+        _fakeRecording.AfterRecordingStarted = () => Assert.AreEqual(1, _fakeDesktopLock.OpenDesktopSections);
+
+        var outputPath = Path.Combine(_tempDirectory.FullName, "printwindow-warning.mp4");
+        var command = GetRequiredService<UiRecordCommand>();
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
+        StringAssert.Contains(ambientOutput, "PrintWindow");
+
+        _fakeDesktopLock.Runs.Clear();
+        _fakeWindowCapture.Supported = false;
+        TestAnsiConsole.Clear(false);
+        outputPath = Path.Combine(_tempDirectory.FullName, "printwindow-warning-json.mp4");
+        exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath, "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        StringAssert.Contains(TestAnsiConsole.Output, "PrintWindow");
+    }
+
+    [TestMethod]
+    public async Task Record_PredictedModeDisagreement_IsSurfacedAsWarning()
+    {
+        _fakeWindowCapture.Supported = false;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = "wgc" };
+
+        var outputPath = Path.Combine(_tempDirectory.FullName, "mode-disagreement.mp4");
+        var command = GetRequiredService<UiRecordCommand>();
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath]);
+
+        Assert.AreEqual(0, exitCode);
+        StringAssert.Contains(ambientOutput, "coordination planned for 'printwindow'");
+    }
+
     [TestMethod]
     public async Task Record_JsonMode_EmitsLivenessEventToStderr_NotToStdout()
     {
