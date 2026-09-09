@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Text;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
@@ -282,7 +283,8 @@ internal sealed partial class ProjectRunService
 
     /// <summary>True when the user passed a <c>-p Name=Value</c> for <paramref name="name"/> (case-insensitive).</summary>
     private static bool UserSpecifiesProperty(IReadOnlyList<string> properties, string name) =>
-        properties.Any(p => p.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase));
+        properties.SelectMany(PropertySegments)
+            .Any(segment => PropertyName(segment).Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Reads the effective value of the user's <c>-p Name=Value</c> for <paramref name="name"/>
@@ -296,14 +298,17 @@ internal sealed partial class ProjectRunService
         var found = false;
         foreach (var property in properties)
         {
-            var equals = property.IndexOf('=');
-            if (equals > 0 && property[..equals].Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+            foreach (var segment in PropertySegments(property))
             {
-                var candidate = property[(equals + 1)..].Trim();
-                if (candidate.Length > 0)
+                var equals = segment.IndexOf('=');
+                if (equals > 0 && segment[..equals].Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
                 {
-                    value = candidate;
-                    found = true;
+                    var candidate = segment[(equals + 1)..].Trim();
+                    if (candidate.Length > 0)
+                    {
+                        value = candidate;
+                        found = true;
+                    }
                 }
             }
         }
@@ -334,17 +339,32 @@ internal sealed partial class ProjectRunService
     /// Configuration/RID/TFM in both the build and evaluate passes.
     /// </summary>
     private static IEnumerable<string> ForwardableProperties(IReadOnlyList<string> properties) =>
-        properties.Where(p => !IsDedicatedFlagProperty(p));
+        properties.Where(property => !IsDedicatedFlagProperty(property));
 
     /// <summary>
     /// True when a <c>Name=Value</c> property names a dedicated-switch property (case-insensitive). Splits
-    /// on ';' too and matches ANY packed segment, so a smuggled <c>RuntimeIdentifier</c>/<c>Configuration</c>/
-    /// <c>TargetFramework</c> in a packed <c>-p</c> can never override the switch winapp sets.
+    /// on both MSBuild property separators and matches ANY packed segment, so a smuggled
+    /// <c>RuntimeIdentifier</c>/<c>Configuration</c>/<c>TargetFramework</c> in a packed <c>-p</c> can never
+    /// override the switch winapp sets.
     /// </summary>
     private static bool IsDedicatedFlagProperty(string property) =>
-        property.Split(';')
-            .Select(segment => segment.Split('=', 2)[0].Trim())
-            .Any(name => DedicatedFlagProperties.Any(d => name.Equals(d, StringComparison.OrdinalIgnoreCase)));
+        PropertySegments(property)
+            .Select(PropertyName)
+            .Any(name => DedicatedFlagProperties.Any(
+                dedicated => name.Equals(dedicated, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Enumerates the properties packed into one <c>-p</c> value. MSBuild accepts both separators; literal
+    /// separator characters in a value must be percent-escaped before they reach this boundary.
+    /// </summary>
+    private static IEnumerable<string> PropertySegments(string property) =>
+        property.Split([';', ','], StringSplitOptions.RemoveEmptyEntries);
+
+    private static string PropertyName(string segment)
+    {
+        var equals = segment.IndexOf('=');
+        return (equals > 0 ? segment[..equals] : segment).Trim();
+    }
 
     /// <summary>Extracts the property name from a <c>-p:Name=Value</c> token (e.g. <c>SolutionDir</c>).</summary>
     private static string SolutionPropertyName(string token)
@@ -458,23 +478,44 @@ internal sealed partial class ProjectRunService
     private static string RedactPropertySegments(string body, out bool changed)
     {
         changed = false;
-        var segments = body.Split(';');
-        for (int i = 0; i < segments.Length; i++)
+        var result = new StringBuilder(body.Length);
+        var segmentStart = 0;
+        var secretContinuation = false;
+        for (int i = 0; i <= body.Length; i++)
         {
-            var equals = segments[i].IndexOf('=', StringComparison.Ordinal);
-            if (equals <= 0)
+            if (i < body.Length && body[i] is not (';' or ','))
             {
                 continue;
             }
 
-            if (IsSecretPropertyName(segments[i][..equals]))
+            var segment = body[segmentStart..i];
+            var equals = segment.IndexOf('=', StringComparison.Ordinal);
+            if (equals > 0 && IsSecretPropertyName(segment[..equals]))
             {
-                segments[i] = segments[i][..equals] + "=***";
+                result.Append(segment[..equals]).Append("=***");
+                changed = true;
+                secretContinuation = true;
+            }
+            else if (equals <= 0 && secretContinuation)
+            {
+                result.Append("***");
                 changed = true;
             }
+            else
+            {
+                result.Append(segment);
+                secretContinuation = false;
+            }
+
+            if (i < body.Length)
+            {
+                result.Append(body[i]);
+            }
+
+            segmentStart = i + 1;
         }
 
-        return changed ? string.Join(';', segments) : body;
+        return changed ? result.ToString() : body;
     }
 
     private static bool IsSecretPropertyName(string name) =>

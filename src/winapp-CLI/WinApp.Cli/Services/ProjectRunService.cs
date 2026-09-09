@@ -765,37 +765,39 @@ internal sealed partial class ProjectRunService(
         // Match dotnet's behavior (dedicated flag wins over a same-named -p) but leave a debug trail.
         foreach (var property in options.Properties)
         {
-            var name = property.Split('=', 2)[0].Trim();
-            if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
+            foreach (var segment in PropertySegments(property))
             {
-                logger.LogDebug(
-                    "{UISymbol} -p:{Property} is overridden by the dedicated flag (matches dotnet precedence).",
-                    UiSymbols.Note, property);
-            }
-            else if (name.Equals("TargetFramework", StringComparison.OrdinalIgnoreCase))
-            {
-                // A bare -p:TargetFramework (no --framework) is PROMOTED to the effective framework and
-                // honored, so it's not overridden. It's only overridden when a dedicated --framework
-                // resolved a DIFFERENT TFM — warn just then.
-                var value = property.Split('=', 2).ElementAtOrDefault(1)?.Trim() ?? string.Empty;
-                if (!string.IsNullOrEmpty(options.Framework) &&
-                    !options.Framework.Equals(value, StringComparison.OrdinalIgnoreCase))
+                var name = PropertyName(segment);
+                if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
                 {
                     logger.LogDebug(
-                        "{UISymbol} -p:{Property} is overridden by --framework '{Framework}' (matches dotnet precedence).",
-                        UiSymbols.Note, property, options.Framework);
+                        "{UISymbol} -p:{Property} is overridden by the dedicated flag (matches dotnet precedence).",
+                        UiSymbols.Note, segment);
                 }
-            }
-            else if (name.Equals("Platform", StringComparison.OrdinalIgnoreCase))
-            {
-                // A user -p:Platform is authoritative: it is forwarded as-is and SUPPRESSES winapp's own
-                // conditional Platform injection (ResolvePlatformInjection). The RID still follows --arch, so
-                // an inconsistent pair (e.g. --arch x86 -p:Platform=ARM64) builds a mismatched app — warn so
-                // the divergence isn't silent.
-                logger.LogDebug(
-                    "{UISymbol} -p:{Property} is forwarded as-is; the RuntimeIdentifier still follows --arch, so ensure they are consistent.",
-                    UiSymbols.Note, property);
+                else if (name.Equals("TargetFramework", StringComparison.OrdinalIgnoreCase))
+                {
+                    // A bare -p:TargetFramework (no --framework) is PROMOTED to the effective framework and
+                    // honored, so it's not overridden. It's only overridden when a dedicated --framework
+                    // resolved a DIFFERENT TFM — warn just then.
+                    var value = segment.Split('=', 2).ElementAtOrDefault(1)?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(options.Framework) &&
+                        !options.Framework.Equals(value, StringComparison.OrdinalIgnoreCase))
+                    {
+                        logger.LogDebug(
+                            "{UISymbol} -p:{Property} is overridden by --framework '{Framework}' (matches dotnet precedence).",
+                            UiSymbols.Note, segment, options.Framework);
+                    }
+                }
+                else if (name.Equals("Platform", StringComparison.OrdinalIgnoreCase))
+                {
+                    // A user -p:Platform is authoritative: it is forwarded as-is and SUPPRESSES winapp's own
+                    // conditional Platform injection (ResolvePlatformInjection). The RID still follows --arch,
+                    // so an inconsistent pair builds a mismatched app — warn so the divergence isn't silent.
+                    logger.LogDebug(
+                        "{UISymbol} -p:{Property} is forwarded as-is; the RuntimeIdentifier still follows --arch, so ensure they are consistent.",
+                        UiSymbols.Note, segment);
+                }
             }
         }
     }

@@ -16,10 +16,11 @@ internal sealed partial class ProjectRunService
 {
     /// <summary>
     /// Resolves a required architecture-specific profile while preserving the established RID-only behavior
-    /// for projects that already build successfully. A profile is required when the effective configuration
-    /// enables trimming without a self-contained deployment; the .NET SDK rejects that combination. NativeAOT
-    /// and already-self-contained projects retain RID-only behavior because their normal build does not need
-    /// the profile. The profile sets Platform locally in the app, so AnyCPU references keep their own Platform.
+    /// for projects that already build successfully. A profile is required when MSIX tooling makes a trimmed,
+    /// framework-dependent build run the SDK's publish-time optimization validation. Plain SDK builds retain
+    /// their configured deployment mode because they do not hit that validation during <c>dotnet build</c>.
+    /// NativeAOT and already-self-contained projects also retain RID-only behavior. The profile sets Platform
+    /// locally in the app, so AnyCPU references keep their own Platform.
     /// </summary>
     private async Task<ProjectRunOptions> ResolveRequiredPublishProfileAsync(
         FileInfo csproj,
@@ -157,6 +158,7 @@ internal sealed partial class ProjectRunService
             || !string.Equals(currentFramework, candidateFramework, StringComparison.OrdinalIgnoreCase)
             || !IsTrue(GetProp(candidateProperties, "PublishProfileImported"))
             || !IsTrue(GetProp(candidateProperties, "SelfContained"))
+            || !IsTrue(GetProp(candidateProperties, "PublishTrimmed"))
             || IsTrue(GetProp(candidateProperties, "PublishAot"))
             || !string.Equals(candidatePlatform, options.Architecture, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(
@@ -182,7 +184,8 @@ internal sealed partial class ProjectRunService
         && !UserSpecifiesProperty(options.Properties, "WebPublishProfileFile");
 
     private static bool RequiresSelfContainedProfile(IReadOnlyDictionary<string, string> properties) =>
-        IsTrue(GetProp(properties, "PublishTrimmed"))
+        IsTrue(GetProp(properties, "EnableMsixTooling"))
+        && IsTrue(GetProp(properties, "PublishTrimmed"))
         && !IsTrue(GetProp(properties, "PublishAot"))
         && !IsTrue(GetProp(properties, "SelfContained"));
 

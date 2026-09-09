@@ -129,6 +129,19 @@ public sealed class ProjectRunServicePublishProfileTests
     }
 
     [TestMethod]
+    public void CommaPackedExplicitPublishProfile_IsNeverOverridden()
+    {
+        var app = WriteApp();
+        WriteProfile("win-arm64.pubxml", "ARM64", "win-arm64");
+
+        var resolved = ResolveProfile(
+            app,
+            Options("arm64", "Flavor=Retail,PublishProfile=custom.pubxml"));
+
+        Assert.IsNull(resolved.PublishProfile);
+    }
+
+    [TestMethod]
     public void LiteralPublishProfile_IsNotReplaced()
     {
         var app = WriteFile("App.csproj", """
@@ -239,6 +252,30 @@ public sealed class ProjectRunServicePublishProfileTests
         var resolved = ResolveProfile(app, Options("arm64"), candidateSelfContained: false);
 
         Assert.IsNull(resolved.PublishProfile);
+    }
+
+    [TestMethod]
+    public void ProfileThatDisablesTrimming_IsNotSelected()
+    {
+        var app = WriteApp();
+        WriteProfile("win-arm64.pubxml", "ARM64", "win-arm64");
+        var candidate = ProfileProperties(
+            app,
+            "win-arm64.pubxml",
+            imported: true,
+            selfContained: true,
+            publishTrimmed: false);
+
+        var resolved = ProjectRunService.ResolvePublishProfileFallback(
+            app,
+            Options("arm64"),
+            ProfileProperties(app, "win-anycpu.pubxml", imported: false, selfContained: false),
+            ProfileProperties(app, "win-arm64.pubxml", imported: true, selfContained: true),
+            candidate);
+
+        Assert.IsNull(
+            resolved.PublishProfile,
+            "an inferred profile must not silently disable trimming");
     }
 
     [TestMethod]
@@ -457,6 +494,29 @@ public sealed class ProjectRunServicePublishProfileTests
         Assert.AreEqual(1, dotnet.StreamingCalls.Count);
         StringAssert.Contains(dotnet.StreamingCalls[0], "-p:PublishProfile=win-arm64.pubxml");
         StringAssert.Contains(dotnet.StringInvocations.Last(), "-p:PublishProfile=win-arm64.pubxml");
+    }
+
+    [TestMethod]
+    public async Task TrimmedFrameworkDependentBuildWithoutMsixTooling_DoesNotActivateProfile()
+    {
+        var app = WriteApp();
+        WriteProfile("win-arm64.pubxml", "ARM64", "win-arm64");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = ProfileEvaluationHandler(
+                app,
+                publishTrimmed: true,
+                enableMsixTooling: false),
+        };
+        var service = NewService(dotnet);
+
+        var outcome = await service.BuildAndResolveAsync(app, Options("arm64"), CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(1, dotnet.StreamingCalls.Count);
+        Assert.IsFalse(
+            dotnet.StreamingCalls[0].Contains("-p:PublishProfile=", StringComparison.Ordinal),
+            "a valid framework-dependent build must not be silently switched to self-contained");
     }
 
     [TestMethod]
@@ -722,6 +782,7 @@ public sealed class ProjectRunServicePublishProfileTests
         bool selfContained,
         bool publishTrimmed = true,
         bool publishAot = false,
+        bool enableMsixTooling = true,
         string targetFramework = "net10.0-windows10.0.26100.0",
         string platform = "ARM64",
         string runtimeIdentifier = "win-arm64")
@@ -737,6 +798,7 @@ public sealed class ProjectRunServicePublishProfileTests
             ["WindowsPackageType"] = "MSIX",
             ["OutputType"] = "WinExe",
             ["WindowsAppSDKSelfContained"] = string.Empty,
+            ["EnableMsixTooling"] = enableMsixTooling.ToString(),
             ["PublishTrimmed"] = publishTrimmed.ToString(),
             ["PublishAot"] = publishAot.ToString(),
             ["SelfContained"] = selfContained.ToString(),
@@ -756,6 +818,7 @@ public sealed class ProjectRunServicePublishProfileTests
         FileInfo app,
         bool publishTrimmed = false,
         bool publishAot = false,
+        bool enableMsixTooling = true,
         string currentProfile = "win-anycpu.pubxml",
         string candidateProfile = "win-arm64.pubxml") =>
         arguments =>
@@ -768,7 +831,8 @@ public sealed class ProjectRunServicePublishProfileTests
                 imported: useCandidate,
                 selfContained: useCandidate,
                 publishTrimmed,
-                publishAot);
+                publishAot,
+                enableMsixTooling);
             return (0, PropertiesJson(properties), string.Empty);
         };
 

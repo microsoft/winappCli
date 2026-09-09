@@ -629,7 +629,7 @@ export interface RunOptions extends CommonOptions {
   outputAppxDirectory?: string;
   /** Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. */
   project?: string;
-  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Ignored in folder mode. */
+  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeat -p for multiple properties; use %3B or %2C for a literal semicolon or comma in a value. Ignored in folder mode. */
   property?: string | string[];
   /** Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. */
   runtime?: string;
