@@ -95,7 +95,13 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
 
     public Func<CancellationToken, Task>? WaitDuringUnregisterByFullNameAsync { get; set; }
 
-    public async Task UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// When false, <see cref="UnregisterByFullNameAsync"/> reports the removal as refused by Windows
+    /// (error text rather than an exception). Defaults to true.
+    /// </summary>
+    public bool FakeUnregisterByFullNameResult { get; set; } = true;
+
+    public async Task<bool> UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default)
     {
         if (UnregisterByFullNameThrows is not null)
         {
@@ -107,7 +113,21 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
             await WaitDuringUnregisterByFullNameAsync(cancellationToken);
         }
         OnUnregisterByFullName?.Invoke(packageFullName, preserveAppData);
+        UnregisterByFullNameTokenCancelled.Add(cancellationToken.IsCancellationRequested);
+        return FakeUnregisterByFullNameResult;
     }
+
+    /// <summary>
+    /// Whether the token handed to each <see cref="UnregisterByFullNameAsync"/> call was already
+    /// cancelled.
+    /// </summary>
+    /// <remarks>
+    /// The real service passes this token to <c>PackageManager.RemovePackageAsync(...).AsTask(token)</c>,
+    /// where an already-cancelled token fails the removal immediately. Recording it is what lets a test
+    /// tell "cleanup ran" from "cleanup ran and could actually succeed" — the difference between honoring
+    /// <c>--unregister-on-exit</c> after Ctrl+C and silently skipping it.
+    /// </remarks>
+    public List<bool> UnregisterByFullNameTokenCancelled { get; } = [];
 
     /// <summary>
     /// When set to a non-null exception, <see cref="InstallPackageAsync"/> throws it
@@ -238,5 +258,18 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
             throw FindDevPackagesThrows;
         }
         return FakeDevPackages;
+    }
+
+    /// <summary>
+    /// When set, <see cref="FindOrphanedDevPackages"/> returns these values. Defaults to empty list.
+    /// </summary>
+    public List<DevPackageInfo> FakeOrphanedDevPackages { get; set; } = [];
+
+    public int FindOrphanedDevPackagesCallCount { get; private set; }
+
+    public List<DevPackageInfo> FindOrphanedDevPackages()
+    {
+        FindOrphanedDevPackagesCallCount++;
+        return FakeOrphanedDevPackages;
     }
 }

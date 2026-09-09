@@ -596,8 +596,10 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
                 projectFile: null,
                 framework: null,
                 noRestore: false,
+                selfContained: false,
+                aliasDecision: RunCommand.Handler.AliasLaunchDecision.Aumid,
                 executionTarget: WindowsSandboxTarget.Default,
-                cancellationToken),
+                cancellationToken: cancellationToken),
             cancellationToken);
 
     /// <summary>Waits up to <paramref name="timeout"/> for a host to start, without throwing.</summary>
@@ -765,6 +767,8 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
                 _console,
                 statusService,
                 projectRunService,
+                null!,
+                null!,
                 new ProjectContextDetector(),
                 orchestrator,
                 runner,

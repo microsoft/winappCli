@@ -132,6 +132,45 @@ public class MsBuildPropertyReaderTests
     }
 
     [TestMethod]
+    [DataRow("true", true)]
+    [DataRow("false", false)]
+    [DataRow("TRUE", true)]
+    [DataRow("False", false)]
+    [DataRow("  true  ", true)]
+    public void ParseOptionalBoolean_ValidValue_IsParsedCaseInsensitively(string value, bool expected)
+    {
+        // Matches what the NuGet targets' '$(Prop)' == 'true' conditions accept, which is case-insensitive.
+        var result = MsBuildPropertyReader.ParseOptionalBoolean(value, out var malformed);
+
+        Assert.AreEqual(expected, result);
+        Assert.IsFalse(malformed);
+    }
+
+    [TestMethod]
+    [DataRow(null, DisplayName = "null")]
+    [DataRow("", DisplayName = "unset property evaluates to an empty string")]
+    [DataRow("   ", DisplayName = "whitespace")]
+    public void ParseOptionalBoolean_Unset_IsNoPreferenceAndNotMalformed(string? value)
+    {
+        Assert.IsNull(MsBuildPropertyReader.ParseOptionalBoolean(value, out var malformed));
+        Assert.IsFalse(malformed, "An undeclared property is not a typo");
+    }
+
+    [TestMethod]
+    [DataRow("ture", DisplayName = "typo")]
+    [DataRow("1", DisplayName = "numeric")]
+    [DataRow("yes", DisplayName = "yes")]
+    [DataRow("on", DisplayName = "on")]
+    public void ParseOptionalBoolean_MalformedValue_IsNoPreferenceAndFlagged(string value)
+    {
+        // Reading these as an explicit false is the bug this guards: the targets forward NO switch for a
+        // value they do not recognize, so a typo would otherwise mean opposite things through `dotnet run`
+        // and through a direct `winapp run`.
+        Assert.IsNull(MsBuildPropertyReader.ParseOptionalBoolean(value, out var malformed));
+        Assert.IsTrue(malformed, "The caller has to be able to report the typo");
+    }
+
+    [TestMethod]
     public void ParseItems_ValidItemsObject_ReturnsIdentitiesPerGroup()
     {
         var stdout = """

@@ -116,7 +116,7 @@ internal partial class RunCommand
             return await LaunchRegisteredApplicationAsync(
                 aumid, packageName, packageFullName, expectedLayout, payload, appArgs, processId,
                 withAlias, debugOutput, unregisterOnExit: false, detach, useSymbols, isJson,
-                targetSelector, cancellationToken);
+                familyName, aliasWasRequested: withAlias, targetSelector, cancellationToken);
         }
 
         /// <summary>

@@ -246,5 +246,102 @@ public class ManifestTemplateServiceTests
             "an empty package name yields the Default ApplicationId fallback");
     }
 
+    [TestMethod]
+    public async Task GenerateCompleteManifest_DisplayNameOverride_ReplacesBothDisplayNames()
+    {
+        // Single-file mode infers a human-readable display name from #:property WinAppDisplayName, which
+        // is independent of the sanitized Identity name.
+        var outDir = new DirectoryInfo(Path.Join(_tempDir.FullName, "displayname"));
+
+        await new ManifestTemplateService().GenerateCompleteManifestAsync(
+            outDir,
+            packageName: "com.contoso.counter",
+            publisherName: "Contoso",
+            version: "1.0.0.0",
+            manifestTemplate: ManifestTemplates.Packaged,
+            description: "counts things",
+            taskContext: CreateTaskContext(),
+            displayName: "Contoso Counter");
+
+        var root = XDocument.Load(Path.Join(outDir.FullName, "Package.appxmanifest")).Root!;
+
+        Assert.AreEqual("com.contoso.counter", root.Element(Ns + "Identity")!.Attribute("Name")!.Value,
+            "the display name must not leak into the identity");
+        Assert.AreEqual("Contoso Counter", root.Element(Ns + "Properties")!.Element(Ns + "DisplayName")!.Value);
+        Assert.AreEqual("Contoso Counter",
+            root.Element(Ns + "Applications")!.Element(Ns + "Application")!
+                .Element(Uap + "VisualElements")!.Attribute("DisplayName")!.Value);
+    }
+
+    [TestMethod]
+    public async Task GenerateCompleteManifest_DisplayNameOverride_IsXmlEscaped()
+    {
+        var outDir = new DirectoryInfo(Path.Join(_tempDir.FullName, "displayname_escape"));
+
+        await new ManifestTemplateService().GenerateCompleteManifestAsync(
+            outDir,
+            packageName: "EscapeApp",
+            publisherName: "Contoso",
+            version: "1.0.0.0",
+            manifestTemplate: ManifestTemplates.Packaged,
+            description: "escaping",
+            taskContext: CreateTaskContext(),
+            displayName: "Tom & Jerry <\"quoted\">");
+
+        // Loading at all proves the document stayed well-formed; the value round-trips decoded.
+        var root = XDocument.Load(Path.Join(outDir.FullName, "Package.appxmanifest")).Root!;
+
+        Assert.AreEqual("Tom & Jerry <\"quoted\">", root.Element(Ns + "Properties")!.Element(Ns + "DisplayName")!.Value);
+    }
+
+    [TestMethod]
+    public async Task GenerateCompleteManifest_ApplicationIdOverride_ReplacesTheDerivedId()
+    {
+        // Single-file mode pins Application/@Id to "App" rather than deriving it from a dotted
+        // reverse-DNS package name, whose sanitization is a needless source of surprise.
+        var outDir = new DirectoryInfo(Path.Join(_tempDir.FullName, "appid"));
+
+        await new ManifestTemplateService().GenerateCompleteManifestAsync(
+            outDir,
+            packageName: "com.contoso.counter",
+            publisherName: "Contoso",
+            version: "1.0.0.0",
+            manifestTemplate: ManifestTemplates.Packaged,
+            description: "fixed id",
+            taskContext: CreateTaskContext(),
+            applicationId: "App");
+
+        var app = XDocument.Load(Path.Join(outDir.FullName, "Package.appxmanifest"))
+            .Root!.Element(Ns + "Applications")!.Element(Ns + "Application")!;
+
+        Assert.AreEqual("App", app.Attribute("Id")!.Value);
+    }
+
+    [TestMethod]
+    public async Task GenerateCompleteManifest_NoOverrides_KeepsThePreExistingDerivations()
+    {
+        // Guards the callers that never pass the new arguments (manifest generate, init, sparse identity):
+        // omitting them must produce exactly what it produced before they existed.
+        var outDir = new DirectoryInfo(Path.Join(_tempDir.FullName, "no_overrides"));
+
+        await new ManifestTemplateService().GenerateCompleteManifestAsync(
+            outDir,
+            packageName: "MyTestApp",
+            publisherName: "Contoso",
+            version: "1.0.0.0",
+            manifestTemplate: ManifestTemplates.Packaged,
+            description: "unchanged",
+            taskContext: CreateTaskContext());
+
+        var root = XDocument.Load(Path.Join(outDir.FullName, "Package.appxmanifest")).Root!;
+        var app = root.Element(Ns + "Applications")!.Element(Ns + "Application")!;
+
+        Assert.AreEqual("MyTestApp", root.Element(Ns + "Properties")!.Element(Ns + "DisplayName")!.Value,
+            "the display name still defaults to the package name");
+        Assert.AreEqual("MyTestApp", app.Element(Uap + "VisualElements")!.Attribute("DisplayName")!.Value);
+        Assert.AreEqual("myTestApp", app.Attribute("Id")!.Value,
+            "the ApplicationId is still camelCased from the package name");
+    }
+
     #endregion
 }

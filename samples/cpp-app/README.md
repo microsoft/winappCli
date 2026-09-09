@@ -42,10 +42,10 @@ cmake --build build --config Debug
 ### Run with Identity (Debug)
 
 ```powershell
-winapp run .\build\Debug --with-alias
+winapp run .\build\Debug
 ```
 This registers a loose layout package (just like a real MSIX install), then launches the app via its execution alias so console output stays in the current terminal.
 
 *Output should show the Package Family Name.*
 
-> **Note:** The `--with-alias` flag requires a `uap5:ExecutionAlias` in the manifest. This sample's `appxmanifest.xml` already includes one. You can add one to an appxmanifest.xml with `winapp manifest add-alias`.
+> **Note:** A console app is launched through an execution alias automatically, so `--with-alias` is only needed to force one for a windowed app. This sample's `appxmanifest.xml` declares its own `uap5:ExecutionAlias`, which winapp uses as-is; otherwise winapp stages one into the AppX layout for you. Add one to an appxmanifest.xml with `winapp manifest add-alias`.

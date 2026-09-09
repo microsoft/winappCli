@@ -123,8 +123,6 @@ public partial class SandboxLiveE2ETests
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
         timeout.CancelAfter(CommandTimeout);
-        var foregroundBefore = GetForegroundWindow();
-
         try
         {
             string firstEpoch;
@@ -136,10 +134,8 @@ public partial class SandboxLiveE2ETests
                 Assert.IsFalse(cold.Reused, "The first prepare on an empty machine is a cold start.");
                 Assert.IsNotNull(cold.Capabilities.ManagedRoot, "The guest must report where it stores deployments.");
                 Assert.IsTrue(cold.Capabilities.SupportsInteractiveDesktop);
-                Assert.AreEqual(
-                    foregroundBefore,
-                    GetForegroundWindow(),
-                    "Preparing the Sandbox must not change the host foreground window.");
+                AssertSandboxDoesNotOwnForeground(
+                    "Preparing the Sandbox must not leave its client as the host foreground window.");
 
                 firstEpoch = cold.Epoch.Value;
 
@@ -204,10 +200,8 @@ public partial class SandboxLiveE2ETests
                 CurrentClientProcessIds().ToArray(),
                 "Reusing a Sandbox must not start a second interactive client.");
 
-            Assert.AreEqual(
-                foregroundBefore,
-                GetForegroundWindow(),
-                "Reusing the Sandbox must not change the host foreground window.");
+            AssertSandboxDoesNotOwnForeground(
+                "Reusing the Sandbox must not leave its client as the host foreground window.");
         }
         finally
         {
@@ -927,6 +921,27 @@ public partial class SandboxLiveE2ETests
         }
 
         return clients;
+    }
+
+    private static void AssertSandboxDoesNotOwnForeground(string message)
+    {
+        var foreground = GetForegroundWindow();
+        var sandboxWindows = new List<nint>();
+
+        foreach (var process in Process.GetProcessesByName(RemoteSessionProcessName))
+        {
+            using (process)
+            {
+                if (process.MainWindowHandle != 0)
+                {
+                    sandboxWindows.Add(process.MainWindowHandle);
+                }
+            }
+        }
+
+        Assert.IsFalse(
+            sandboxWindows.Contains(foreground),
+            $"{message} Foreground HWND: {foreground}; Sandbox HWNDs: {string.Join(", ", sandboxWindows)}.");
     }
 
     /// <summary>

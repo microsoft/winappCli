@@ -584,6 +584,8 @@ public class RunCommandTests : BaseCommandTests
             GetRequiredService<IAnsiConsole>(),
             GetRequiredService<IStatusService>(),
             GetRequiredService<IProjectRunService>(),
+            GetRequiredService<IManifestTemplateService>(),
+            GetRequiredService<IManifestService>(),
             GetRequiredService<IProjectContextDetector>(),
             GetRequiredService<ExecutionTargetOrchestrator>(),
             GetRequiredService<GuestApplicationRunner>(),
@@ -1806,14 +1808,15 @@ public class RunCommandTests : BaseCommandTests
     #region --unregister-on-exit tests
 
     [TestMethod]
-    public async Task RunCommand_UnregisterOnExit_DefaultLaunch_UnregistersOnlyDevPackages()
+    public async Task RunCommand_UnregisterOnExit_RemovesExactlyThePackageTheRunRegistered()
     {
-        // After the launched app exits, dev-mode packages matching the identity name are
-        // unregistered. Non-dev packages are skipped.
+        // Cleanup targets the package this run registered, identified by its full name. Identity NAME is
+        // not enough: the full name carries the publisher hash, so two sideloaded development packages can
+        // share Identity/@Name and still be different packages.
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
-            new DevPackageInfo("OtherPackage_1.0.0.0_x64__prod", "OtherPackage", "1.0.0.0", null, IsDevelopmentMode: false),
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
         ];
         await CreateTestManifestAsync();
         var command = GetRequiredService<RunCommand>();
@@ -1821,11 +1824,132 @@ public class RunCommandTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
 
         Assert.AreEqual(0, exitCode);
-        Assert.AreEqual(1, _fakePackageRegistrationService.FindDevPackagesCalls.Count);
-        Assert.AreEqual("TestPackage", _fakePackageRegistrationService.FindDevPackagesCalls[0]);
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterCalls.Count, "Only the dev-mode package should be unregistered");
-        Assert.AreEqual("TestPackage", _fakePackageRegistrationService.UnregisterCalls[0].PackageName);
-        Assert.IsFalse(_fakePackageRegistrationService.UnregisterCalls[0].PreserveAppData, "unregister-on-exit should not preserve app data");
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count,
+            "The by-name overload removes every package sharing the identity name");
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
+        Assert.AreEqual("TestPackage_1.0.0.0_x64__mine", _fakePackageRegistrationService.UnregisterByFullNameCalls[0].PackageFullName);
+        Assert.IsFalse(_fakePackageRegistrationService.UnregisterByFullNameCalls[0].PreserveAppData, "unregister-on-exit should not preserve app data");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_UnregisterOnExit_OtherPackagesSharingTheIdentityName_AreNotRemoved()
+    {
+        // The dangerous case: a normal store package AND another developer's sideloaded package both
+        // share Identity/@Name with this run's app. Selecting by name removes all three with
+        // preserveAppData: false, uninstalling unrelated apps and deleting their data.
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_2.0.0.0_x64__theirs", "TestPackage", "2.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_9.9.9.9_x64__8wekyb3d8bbwe", "TestPackage", "9.9.9.9", null, IsDevelopmentMode: false),
+        ];
+        await CreateTestManifestAsync();
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
+
+        Assert.AreEqual(0, exitCode);
+        var removed = _fakePackageRegistrationService.UnregisterByFullNameCalls.Select(c => c.PackageFullName).ToList();
+        Assert.AreEqual(1, removed.Count, "Only the package this run registered may be removed");
+        Assert.AreEqual("TestPackage_1.0.0.0_x64__mine", removed[0]);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task RunCommand_UnregisterOnExit_WindowsRefusesRemoval_DoesNotClaimSuccess()
+    {
+        // Windows reports a refused removal as error text rather than an exception, so the bool return is
+        // the only signal. Logging success regardless contradicts the service's own warning under
+        // --verbose and tells the user a registration is gone when it is still there.
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
+        _fakePackageRegistrationService.FakeUnregisterByFullNameResult = false;
+        await CreateTestManifestAsync();
+        var command = GetRequiredService<RunCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Removal is still attempted");
+        var output = System.Text.RegularExpressions.Regex.Replace(
+            $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        StringAssert.Contains(output, "still registered", "A refused removal has to be reported");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task RunCommand_UnregisterOnExit_FullNameUnavailable_RemovesNothingAndSaysSo()
+    {
+        // With no full name there is nothing that identifies the package this run registered, and the
+        // identity name does not: another developer's sideloaded package can share it. Removal passes
+        // preserveAppData: false, so a by-name sweep here would delete their data. Leaving a registration
+        // behind is recoverable; that is not — so it removes nothing and tells the user.
+        _fakeAppLauncherService.FakePackageFullName = null;
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_2.0.0.0_x64__theirs", "TestPackage", "2.0.0.0", null, IsDevelopmentMode: true),
+        ];
+        await CreateTestManifestAsync();
+        var command = GetRequiredService<RunCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count,
+            "Nothing may be removed when the package cannot be identified");
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
+
+        // Collapse whitespace: the console wraps at ~80 columns and would otherwise split the phrase.
+        var output = System.Text.RegularExpressions.Regex.Replace(
+            $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        StringAssert.Contains(output, "left registered", "The broken promise has to be reported");
+        StringAssert.Contains(output, "winapp unregister", "and the user told how to clean up");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_UnregisterOnExit_AfterCancellation_StillRemovesTheRegistration()
+    {
+        // Ctrl+C is the normal way to stop an inline console app, which this command now launches through
+        // an alias by default. --unregister-on-exit is a promise made before the app started, so cleanup
+        // has to survive it: handing the run's already-cancelled token to the removal makes
+        // RemovePackageAsync(...).AsTask(token) fail instantly, and the exception is swallowed as debug
+        // noise — leaving the registration and its alias behind to interfere with the next run.
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+        ];
+        await CreateTestManifestAsync();
+        var outputDir = await CreateProcessedManifestAsync("appx-cancel-cleanup", alias: "winapp-run-test.exe");
+        var aliasProxy = CreateExistingFile("winapp-run-test.exe");
+        var processStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var helperPid = 0;
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
+        handler.ProcessStarter = _ =>
+        {
+            var p = StartHelperProcess("/c ping -n 6 127.0.0.1");
+            helperPid = p.Id;
+            processStarted.SetResult();
+            return p;
+        };
+        var command = GetRequiredService<RunCommand>();
+        var parseResult = command.Parse(
+            [_tempDirectory.FullName, "--with-alias", "--unregister-on-exit", "--output-appx-directory", outputDir.FullName]);
+        using var cts = new CancellationTokenSource();
+
+        var invocation = handler.InvokeAsync(parseResult, cts.Token);
+        await processStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cts.Cancel();
+        await invocation;
+
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count,
+            "The registration promised on exit must still be removed after Ctrl+C");
+        Assert.IsFalse(_fakePackageRegistrationService.UnregisterByFullNameTokenCancelled[0],
+            "Cleanup must run on its own token; the run's token is already cancelled and would fail the removal");
+        TryKillByPid(helperPid);
     }
 
     [TestMethod]
@@ -1856,7 +1980,7 @@ public class RunCommandTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeDebugOutputService.AttachCalls.Count, "The debug loop should run");
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterCalls.Count, "The dev package should be unregistered after the debug loop");
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "The dev package should be unregistered after the debug loop");
     }
 
     #endregion
@@ -1948,6 +2072,53 @@ public class RunCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task RunCommand_WithAlias_OwnerUnreadable_RefusesToLaunch()
+    {
+        // Fail CLOSED. A file exists at the alias path but is not a readable app-exec-link, so its
+        // identity cannot be established. Launching it would start an unknown binary while reporting
+        // that this package was launched — the exact hijack the ownership check exists to prevent.
+        await CreateTestManifestAsync();
+        var outputDir = await CreateProcessedManifestAsync("appx-unknownowner", alias: "winapp-run-test.exe");
+        var aliasProxy = CreateExistingFile("winapp-run-test.exe");
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => null;
+        var started = false;
+        handler.ProcessStarter = _ => { started = true; return null; };
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.IsFalse(started, "An alias whose owner cannot be read must never be launched");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Could not read which package owns");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_WithAlias_OwnedByAnotherPackage_RefusesToLaunch()
+    {
+        // Windows gives an alias to the first package that claims it and silently ignores later claims,
+        // so a proxy that exists may belong to someone else entirely.
+        await CreateTestManifestAsync();
+        var outputDir = await CreateProcessedManifestAsync("appx-otherowner", alias: "winapp-run-test.exe");
+        var aliasProxy = CreateExistingFile("winapp-run-test.exe");
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "com.contoso.someoneelse_8wekyb3d8bbwe";
+        var started = false;
+        handler.ProcessStarter = _ => { started = true; return null; };
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.IsFalse(started, "Launching would have started the other package's app");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "already belongs to package");
+    }
+
+    [TestMethod]
     public async Task RunCommand_WithAlias_UnregisterOnExit_UnregistersAfterAliasPath()
     {
         // --with-alias combined with --unregister-on-exit unregisters dev packages after the
@@ -1964,7 +2135,7 @@ public class RunCommandTests : BaseCommandTests
             [_tempDirectory.FullName, "--with-alias", "--unregister-on-exit", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode, "The alias proxy is missing, so the alias path returns 1");
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterCalls.Count, "Dev package should still be unregistered on exit");
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Dev package should still be unregistered on exit");
     }
 
     [TestMethod]
@@ -1979,6 +2150,7 @@ public class RunCommandTests : BaseCommandTests
         var aliasProxy = CreateExistingFile("winapp-run-test.exe");
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
         Process? started = null;
         handler.ProcessStarter = _ => started = StartHelperProcess("/c exit 7");
         var command = GetRequiredService<RunCommand>();
@@ -1999,6 +2171,7 @@ public class RunCommandTests : BaseCommandTests
         var aliasProxy = CreateExistingFile("winapp-run-test.exe");
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
         handler.ProcessStarter = _ => null;
         var command = GetRequiredService<RunCommand>();
 
@@ -2020,6 +2193,7 @@ public class RunCommandTests : BaseCommandTests
         _fakeDebugOutputService.FakeExitCode = 42;
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
         handler.ProcessStarter = _ => StartHelperProcess("/c exit 0");
         var command = GetRequiredService<RunCommand>();
 
@@ -2042,6 +2216,7 @@ public class RunCommandTests : BaseCommandTests
         _fakeDebugOutputService.FakeExitCode = 7;
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
         handler.ProcessStarter = _ => StartHelperProcess("/c exit 0");
         var command = GetRequiredService<RunCommand>();
         var parseResult = command.Parse([_tempDirectory.FullName, "--with-alias", "--debug-output", "--output-appx-directory", outputDir.FullName]);
@@ -2065,6 +2240,7 @@ public class RunCommandTests : BaseCommandTests
         var aliasProxy = CreateExistingFile("winapp-run-test.exe");
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
         handler.ProcessStarter = _ => throw new InvalidOperationException("boom");
         var command = GetRequiredService<RunCommand>();
 
@@ -2088,6 +2264,7 @@ public class RunCommandTests : BaseCommandTests
         var processStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
         handler.ProcessStarter = _ =>
         {
             var p = StartHelperProcess("/c ping -n 6 127.0.0.1");
@@ -2107,6 +2284,26 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreEqual(-1, exitCode, "Cancellation during the alias wait returns -1");
         Assert.AreEqual(1, _fakeAppLauncherService.TerminateCalls.Count, "The package's processes should be terminated on cancel");
         TryKillByPid(helperPid);
+    }
+
+    [TestMethod]
+    [DataRow(false, true, "WinExe", true, DisplayName = "declared true on a windowed app")]
+    [DataRow(false, true, "Exe", true, DisplayName = "declared true on a console app")]
+    [DataRow(true, null, "WinExe", true, DisplayName = "--with-alias")]
+    [DataRow(false, null, "Exe", false, DisplayName = "inferred from OutputType=Exe")]
+    public void ResolveAliasLaunch_MarksADeclaredPreferenceExplicit(
+        bool withAlias, bool? preferAlias, string outputType, bool expectExplicit)
+    {
+        // An explicit request fails when the alias is owned by another package; an inferred default
+        // degrades to AUMID. The NuGet targets forward WinAppRunUseExecutionAlias=true as --with-alias, so
+        // a declared preference has to be explicit here too — otherwise the same property means different
+        // things through `dotnet run` and through a direct `winapp run`.
+        var decision = RunCommand.Handler.ResolveAliasLaunch(
+            withAlias, withoutAlias: false, noLaunch: false, detach: false, isJson: false,
+            outputType, preferAlias);
+
+        Assert.IsTrue(decision.UseAlias);
+        Assert.AreEqual(expectExplicit, decision.Explicit);
     }
 
     #endregion

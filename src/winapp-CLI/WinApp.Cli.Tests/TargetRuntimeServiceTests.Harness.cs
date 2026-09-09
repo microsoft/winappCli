@@ -324,8 +324,8 @@ public partial class TargetRuntimeServiceTests
         public Task<bool> UnregisterAsync(string packageName, bool preserveAppData = true, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 
-        public Task UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+        public Task<bool> UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
 
         public bool IsPackageInstalled(string namePrefix, string? architecture = null, string? excludeNameSubstring = null) =>
             Present.Keys.Any(key => key.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase));
@@ -334,6 +334,8 @@ public partial class TargetRuntimeServiceTests
             Present.FirstOrDefault(entry => entry.Key.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase)).Value;
 
         public List<DevPackageInfo> FindDevPackages(string packageName) => [];
+
+        public List<DevPackageInfo> FindOrphanedDevPackages() => [];
     }
 
     /// <summary>Runs the real hidden guest verb in place of launching a guest winapp process.</summary>

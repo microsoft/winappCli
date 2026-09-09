@@ -158,17 +158,25 @@ When you run the app, the summary will be printed to the console. From here, you
 
 ## Step 5: Add Required Capability
 
-Before you can use the Phi Silica API, you need to declare the required capability in your app manifest. Open `Package.appxmanifest` and add the `systemAIModels` capability inside the `<Capabilities>` section:
+Before you can use the Phi Silica API, you need to declare the `systemAIModels` capability in your app manifest. It lives in its **own** `systemai` namespace — not `rescap` — so open `Package.appxmanifest`, declare that namespace on `<Package>` and mark it ignorable, then add the capability:
 
 ```xml
-<Capabilities>
-  <rescap:Capability Name="runFullTrust" />
-  <rescap:Capability Name="systemAIModels" />
-</Capabilities>
+<Package
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10"
+  IgnorableNamespaces="rescap systemai">
+  ...
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <systemai:Capability Name="systemAIModels" />
+  </Capabilities>
+</Package>
 ```
 
+It also needs `TargetDeviceFamily/@MaxVersionTested` to be at least `10.0.26226.0`.
+
 > [!TIP]
-> Different Windows APIs require different capabilities. Always check the API documentation to see what capabilities are needed. Common ones include `microphone`, `webcam`, `location`, and `bluetooth`.
+> Different Windows APIs require different capabilities, and they do not all live in the same namespace. Always check the API documentation for both the capability name and the element it belongs in. Common ones include `microphone`, `webcam`, `location`, and `bluetooth`.
 
 ## Step 6: Update Debug Identity
 

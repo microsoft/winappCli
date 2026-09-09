@@ -113,16 +113,16 @@ C++ projects use winapp primarily for SDK projections (CppWinRT headers) and pac
 
 | Framework | Recommended command | Notes |
 |-----------|-------------------|-------|
-| **.NET** | `winapp run .\bin\x64\Debug\<tfm>\win-x64\` | Build with `dotnet build -c Debug -p:Platform=x64` first; GUI apps launch directly; console apps need `--with-alias` |
-| **C++** | `winapp run .\build\Debug --with-alias` | Console apps need `--with-alias` + `uap5:ExecutionAlias` in manifest |
-| **Rust** | `winapp run .\target\debug --with-alias` | Console apps need `--with-alias` + `uap5:ExecutionAlias` in manifest |
+| **.NET** | `winapp run .\bin\x64\Debug\<tfm>\win-x64\` | Build with `dotnet build -c Debug -p:Platform=x64` first; GUI apps launch via AUMID, console apps automatically via an execution alias |
+| **C++** | `winapp run .\build\Debug` | Console apps are detected and launched via an execution alias automatically |
+| **Rust** | `winapp run .\target\debug` | Console apps are detected and launched via an execution alias automatically |
 | **Flutter** | `winapp run .\build\windows\x64\runner\Debug` | GUI app — plain `winapp run` works |
 | **Tauri** | `winapp run .\dist` | Stage exe to `dist/` first (avoids copying entire `target/` tree); GUI app |
 | **Electron** | `npx winapp node add-electron-debug-identity` | Uses Electron-specific identity registration; `winapp run` is **not** recommended for Electron |
 
 **Key rules:**
 - **GUI apps** (Flutter, Tauri, WPF): use `winapp run <build-output>` — launches via AUMID activation
-- **Console apps** (C++, Rust, .NET console): use `winapp run <build-output> --with-alias` — launches via execution alias to preserve stdin/stdout. Requires `uap5:ExecutionAlias` in `Package.appxmanifest`
+- **Console apps** (C++, Rust, .NET console): plain `winapp run <build-output>` — winapp detects a console app from the built binary's PE subsystem and launches it via an execution alias, so stdin/stdout reach your terminal. It stages the required `uap5:ExecutionAlias` into the AppX layout itself, so no manifest edit is needed. Pass `--without-alias` to force AUMID activation instead (the app then prints nothing); `--with-alias` only forces an alias for a *windowed* app
 - **Electron**: different mechanism — uses `npx winapp node add-electron-debug-identity` because `electron.exe` is in `node_modules/`, not your build output
 - **Startup debugging (any framework)**: use `winapp create-debug-identity <exe>` so your IDE can F5-launch the exe with identity from the first instruction
 
