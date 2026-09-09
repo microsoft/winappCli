@@ -453,6 +453,81 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("Exe", null, true, DisplayName = "console app defaults to alias launch")]
+    [DataRow("Exe", false, false, DisplayName = "console app can opt out via the property")]
+    [DataRow("WinExe", null, false, DisplayName = "windowed app defaults to AUMID")]
+    [DataRow("WinExe", true, true, DisplayName = "windowed app can opt in via the property")]
+    public async Task ProjectMode_Packaged_HonorsTheProjectsExecutionAliasPreference(
+        string outputType, bool? preferAlias, bool expectAlias)
+    {
+        // WinAppRunUseExecutionAlias must mean the same thing however the project is launched. Running
+        // the .csproj directly previously ignored it, so the same property behaved differently than it
+        // does through `dotnet run` or in a .cs file.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                null, false, null, outputType, preferAlias), 0);
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(1, _fakeMsixService.AddLooseLayoutEnsureAliasCalls.Count);
+        Assert.AreEqual(expectAlias, _fakeMsixService.AddLooseLayoutEnsureAliasCalls[0],
+            $"OutputType={outputType} with WinAppRunUseExecutionAlias={preferAlias?.ToString() ?? "unset"}");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task ProjectMode_InferredAliasUnavailable_WarnsThatOutputWillNotAppear()
+    {
+        // Plain `winapp run` now promises a console app's output reaches the terminal. When the inferred
+        // alias cannot be used, falling back to AUMID launches it into a process with no console, so it
+        // prints nothing — the exact silent success this feature exists to remove. The run still succeeds,
+        // but a Debug-level line leaves the user with no way to diagnose the missing output.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                null, false, null, "Exe", null), 0);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => null;
+        var command = GetRequiredService<RunCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode, "An inferred alias that cannot be used must not fail the run");
+        var output = System.Text.RegularExpressions.Regex.Replace(
+            $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        StringAssert.Contains(output, "not print to this terminal",
+            "The user has to be told why the console output is missing");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Packaged_ReadsThePackageGraphFromTheBuildsAssetsFile()
+    {
+        // `dotnet package list` re-evaluates the project and takes no -c/-r/-p, and the environment is not
+        // a substitute: MSBuild ranks environment properties BELOW a value the project assigns, while the
+        // build's own -c/-r/-p outrank it. So the only faithful source is project.assets.json — restore's
+        // output for the inputs the build actually ran with. Without it, a PackageReference conditioned on
+        // Configuration, RID, or a user -p is invisible, and the manifest's framework dependency and
+        // runtime provisioning are decided from a graph that does not describe the binary.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        var assetsFile = Path.Join(targetDir.FullName, "obj", "project.assets.json");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
+                null, false, null, "WinExe", null, assetsFile),
+            0);
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release", "--arch", "arm64"]);
+
+        Assert.AreEqual(assetsFile, _fakeMsixService.AddLooseLayoutAssetsFileCalls.Single(),
+            "The build's own assets file must reach package discovery");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Packaged_NoManifestInOutput_Errors()
     {
         var csproj = CreateCsproj();

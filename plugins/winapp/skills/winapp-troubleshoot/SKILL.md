@@ -25,38 +25,41 @@ Use this skill when:
 | "Manifest already exists" | `Package.appxmanifest` already present | Use `winapp manifest generate --if-exists overwrite` or edit manifest directly |
 | `run` / `create-debug-identity` registration error `0x800704EC` | Developer Mode is disabled | Enable it in **Settings → Privacy & security → For developers**, or `Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -Value 1`, then retry |
 | `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` (or `winapp unregister --force` if the package was registered from a different project tree), then retry |
+| App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
 
 ## Command selection guide
 
 ```
-Does the project have a Package.appxmanifest?
-├─ No → Do you want full setup (manifest + config + optional SDKs)?
-│       ├─ Yes → winapp init (adds Windows platform files to existing project)
-│       └─ No, just a manifest → winapp manifest generate
-└─ Yes
-   ├─ Has winapp.yaml, cloned/pulled but .winapp/ folder missing?
-   │  └─ winapp restore
-   ├─ Want newer SDK versions?
-   │  └─ winapp update
-   ├─ Need a dev certificate?
-   │  └─ winapp cert generate (then winapp cert install for trust)
-   ├─ Need package identity for debugging? (see [Debugging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/debugging.md))
-   │  ├─ Exe is in your build output folder? (most frameworks)
-   │  │  └─ winapp run <build-output-dir>
-   │  └─ Exe is separate from app code? (Electron, sparse testing)
-   │     └─ winapp create-debug-identity <exe>
-   ├─ Ready to create MSIX installer?
-   │  └─ winapp package <build-output> --cert ./devcert.pfx
-   ├─ Need to sign an existing file?
-   │  └─ winapp sign <file> <cert>
-   ├─ Need to update app icons?
-   │  └─ winapp manifest update-assets ./logo.png
-   ├─ Need to run SDK tools directly?
-   │  └─ winapp tool <toolname> <args>
-   ├─ Need to publish to Microsoft Store?
-   │  └─ winapp store <args> (passthrough to Store Developer CLI)
-   └─ Need the .winapp directory path for build scripts?
-      └─ winapp get-winapp-path (or --global for shared cache)
+Is the app a single .cs file (.NET file-based app)?
+├─ Yes → winapp run <file>.cs  (builds it and generates the manifest for you)
+└─ No → Does the project have a Package.appxmanifest?
+   ├─ No → Do you want full setup (manifest + config + optional SDKs)?
+   │       ├─ Yes → winapp init (adds Windows platform files to existing project)
+   │       └─ No, just a manifest → winapp manifest generate
+   └─ Yes
+      ├─ Has winapp.yaml, cloned/pulled but .winapp/ folder missing?
+      │  └─ winapp restore
+      ├─ Want newer SDK versions?
+      │  └─ winapp update
+      ├─ Need a dev certificate?
+      │  └─ winapp cert generate (then winapp cert install for trust)
+      ├─ Need package identity for debugging? (see [Debugging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/debugging.md))
+      │  ├─ Exe is in your build output folder? (most frameworks)
+      │  │  └─ winapp run <build-output-dir>
+      │  └─ Exe is separate from app code? (Electron, sparse testing)
+      │     └─ winapp create-debug-identity <exe>
+      ├─ Ready to create MSIX installer?
+      │  └─ winapp package <build-output> --cert ./devcert.pfx
+      ├─ Need to sign an existing file?
+      │  └─ winapp sign <file> <cert>
+      ├─ Need to update app icons?
+      │  └─ winapp manifest update-assets ./logo.png
+      ├─ Need to run SDK tools directly?
+      │  └─ winapp tool <toolname> <args>
+      ├─ Need to publish to Microsoft Store?
+      │  └─ winapp store <args> (passthrough to Store Developer CLI)
+      └─ Need the .winapp directory path for build scripts?
+         └─ winapp get-winapp-path (or --global for shared cache)
 ```
 
 **Important notes:**
@@ -70,14 +73,15 @@ Does the project have a Package.appxmanifest?
 
 | Goal | Command | Key detail |
 |------|---------|------------|
-| Run with identity (most common) | `winapp run .\build\Debug` | Registers loose layout + launches; add `--with-alias` for console apps |
+| Run with identity (most common) | `winapp run .\build\Debug` | Registers loose layout + launches; a console app gets an execution alias automatically |
 | Attach debugger to running app | `winapp run .\build\Debug` → attach to PID | Misses startup code |
 | Register identity, launch manually | `winapp run .\build\Debug --no-launch` | Launch via `start shell:AppsFolder\<AUMID>` or execution alias — **not** the exe directly |
 | F5 startup debugging (IDE launches exe) | `winapp create-debug-identity .\bin\myapp.exe` | Exe has identity regardless of how it's launched; best for debugging activation/startup code |
 | Capture OutputDebugString + crash dump | `winapp run .\build\Debug --debug-output` | On crash, writes minidump and shows exception type, message, and faulting methods. **Blocks other debuggers** — use `--no-launch` if you need VS Code/WinDbg |
 | Run and auto-clean | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | Launch and detach (CI) | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| Clean up stale registration | `winapp unregister` | Removes dev-mode packages for the current project |
+| Clean up stale registration | `winapp unregister` | Removes dev-mode packages for the current project (pass a `.cs` for a file-based app: `winapp unregister counter.cs`) |
+| Start menu entry does nothing when clicked | `winapp unregister --prune` | The package is registered but its files were deleted, so activation silently fails. Prune removes every dev registration whose files are gone |
 
 > **Visual Studio users:** If you have a packaging project, VS already handles identity and debugging from F5 — you likely don't need winapp for debugging. These workflows are for VS Code, terminal, and frameworks VS doesn't natively package.
 
@@ -95,8 +99,8 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert generate` | Nothing (or `Package.appxmanifest` for publisher) | `devcert.pfx` |
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
-| `run` | Build output folder + `Package.appxmanifest` | Registers loose layout package, launches app |
-| `unregister` | `Package.appxmanifest` (auto-detect or `--manifest`) | Removes dev-mode package registrations |
+| `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.sln`; **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
+| `unregister` | A `.cs` file-based app, **or** `Package.appxmanifest` (auto-detect or `--manifest`) | Removes dev-mode package registrations |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |
 | `create-external-catalog` | Directory with executables | `CodeIntegrityExternal.cat` |

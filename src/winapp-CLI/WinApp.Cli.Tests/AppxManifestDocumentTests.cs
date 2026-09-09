@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
@@ -531,6 +532,71 @@ public class AppxManifestDocumentTests
 
         var result = doc.ToXml();
         Assert.AreEqual(1, CountOccurrences(result, "runFullTrust"));
+    }
+
+    [TestMethod]
+    [DataRow("uap5", "http://schemas.microsoft.com/appx/manifest/uap/windows10/5", DisplayName = "uap5 form")]
+    [DataRow("desktop", "http://schemas.microsoft.com/appx/manifest/desktop/windows10", DisplayName = "legacy desktop form")]
+    public void GetExecutionAliases_FindsBothDeclarationNamespaces(string prefix, string ns)
+    {
+        // Both are valid. Reading only the uap5 form would treat an authored desktop:ExecutionAlias as
+        // "no alias declared", so winapp would stage a second generated one instead of using the command
+        // name the author chose — and could fail an explicit --with-alias on that generated name.
+        var xml = $"""
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:{prefix}="{ns}">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <{prefix}:Extension Category="windows.appExecutionAlias">
+                      <{prefix}:AppExecutionAlias>
+                        <{prefix}:ExecutionAlias Alias="tool.exe" />
+                      </{prefix}:AppExecutionAlias>
+                    </{prefix}:Extension>
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """;
+
+        var aliases = AppxManifestDocument.Parse(xml).GetExecutionAliases();
+
+        Assert.AreEqual(1, aliases.Count);
+        Assert.AreEqual("tool.exe", aliases[0]);
+    }
+
+    [TestMethod]
+    public void GetExecutionAliases_NoneDeclared_ReturnsEmpty()
+    {
+        var xml = """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Applications><Application Id="App" /></Applications>
+            </Package>
+            """;
+
+        Assert.AreEqual(0, AppxManifestDocument.Parse(xml).GetExecutionAliases().Count);
+    }
+
+    [TestMethod]
+    public void EnsureCapability_TypedOverload_SkipsADuplicateSpelledDifferently()
+    {
+        // Two entries for one capability is a schema violation whatever the casing, and the sparse-manifest
+        // check in MsixService already matches case-insensitively — these must not disagree.
+        var xml = """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+              <Capabilities>
+                <rescap:Capability Name="RunFullTrust" />
+              </Capabilities>
+            </Package>
+            """;
+        var doc = AppxManifestDocument.Parse(xml);
+
+        doc.EnsureCapability(new AppxCapability(
+            "runFullTrust", "Capability", "rescap", AppxManifestDocument.RescapNs));
+
+        var result = doc.ToXml();
+        Assert.AreEqual(1, CountOccurrences(result.ToLowerInvariant(), "runfulltrust"));
     }
 
     [TestMethod]

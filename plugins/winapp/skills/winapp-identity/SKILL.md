@@ -91,7 +91,7 @@ After running, launch your exe normally — Windows will recognize it as having 
 | **Simulates MSIX install** | Yes — closest to production behavior | No — sparse identity only |
 | **Files stay in place** | Copied to an AppX layout directory | Yes — exe stays at its original path |
 | **Debugger-friendly** | Attach to PID after launch, or use `--no-launch` then launch via alias | Launch directly from your IDE's debugger — the exe has identity regardless |
-| **Console app support** | `--with-alias` keeps stdin/stdout in terminal | Run exe directly in terminal |
+| **Console app support** | Launched through an execution alias automatically, so stdin/stdout stay in this terminal | Run exe directly in terminal |
 | **Best for** | Most frameworks (.NET, C++, Rust, Flutter, Tauri) | Electron, or when you need full IDE debugger control (F5 startup debugging) |
 
 ### When to use which
@@ -99,8 +99,8 @@ After running, launch your exe normally — Windows will recognize it as having 
 **Default to `winapp run`** for most development — it simulates a real MSIX install with full identity, capabilities, and file associations:
 
 ```powershell
-winapp run .\build\output          # GUI apps
-winapp run .\build\output --with-alias   # console apps (preserves stdin/stdout)
+winapp run .\build\output          # GUI and console apps alike; a console app
+                                   # gets an execution alias automatically
 ```
 
 **Use `create-debug-identity` when:**
@@ -117,14 +117,14 @@ winapp create-debug-identity .\bin\Debug\myapp.exe
 
 | Scenario | Command | Notes |
 |----------|---------|-------|
-| **Just run with identity** | `winapp run .\build\Debug` | Simplest workflow; add `--with-alias` for console apps |
+| **Just run with identity** | `winapp run .\build\Debug` | Simplest workflow; a console app gets an execution alias automatically |
 | **Attach debugger to running app** | `winapp run .\build\Debug`, then attach to PID | Misses startup code |
 | **Register identity, launch via AUMID** | `winapp run .\build\Debug --no-launch` | Launch with `start shell:AppsFolder\<AUMID>` or the execution alias (not the exe directly) |
 | **F5 startup debugging** | `winapp create-debug-identity .\bin\myapp.exe` | IDE controls process from first instruction; best for debugging activation/startup code |
 | **Capture debug output** | `winapp run .\build\Debug --debug-output` | Captures `OutputDebugString`; on crash, writes minidump and analyzes managed exceptions automatically. **Blocks other debuggers** (one debugger per process) |
 | **Run and auto-clean** | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | **Launch and detach (CI)** | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| **Clean up stale registration** | `winapp unregister` | Removes dev packages for the current project (auto-detects from manifest) |
+| **Clean up stale registration** | `winapp unregister` | Removes dev packages for the current project (auto-detects from manifest; pass a `.cs` for a file-based app) |
 
 > **Using Visual Studio with a packaging project?** VS already handles identity, AUMID activation, and debugger attachment from F5. These workflows are most useful for VS Code, terminal-based development, and frameworks VS doesn't natively package (Rust, Flutter, Tauri, Electron, C++).
 

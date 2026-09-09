@@ -211,6 +211,181 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>
+    /// Builds the arguments for the single-file BUILD pass: <c>dotnet build &lt;file&gt;.cs</c>.
+    /// <para>
+    /// No <c>-p:Platform</c> is ever injected — a file-based app accepts <c>Platform</c> but ignores it
+    /// for RID selection. A <c>-r win-&lt;arch&gt;</c> IS injected when
+    /// <see cref="SingleFileRunOptions.InjectedRuntimeIdentifier"/> is set, which is what lets a plain
+    /// <c>winapp run app.cs</c> build a self-contained Windows App SDK app instead of failing as
+    /// <c>AnyCPU</c>. That is safe because <see cref="BuildSingleFileEvaluateArguments"/> emits the SAME
+    /// set from the same options, so the evaluate reads back the RID-qualified directory this pass wrote
+    /// rather than the two disagreeing about where the app is.
+    /// </para>
+    /// </summary>
+    internal static string BuildSingleFileBuildPassArguments(
+        FileInfo singleFile,
+        SingleFileRunOptions options,
+        string verbosity,
+        bool nativeTerminal = false)
+    {
+        var tokens = new List<string>
+        {
+            "build",
+            singleFile.FullName,
+            "-c",
+            options.Configuration,
+        };
+
+        AppendSingleFileRuntimeIdentifier(tokens, options);
+
+        if (options.NoRestore)
+        {
+            tokens.Add("--no-restore");
+        }
+
+        tokens.Add("-v");
+        tokens.Add(verbosity);
+
+        // Same terminal-logger regime as the .csproj build pass: pin -tl:off when winapp redirects the
+        // output, omit it on a real TTY so dotnet's native live display renders.
+        if (!nativeTerminal)
+        {
+            tokens.Add("-tl:off");
+        }
+
+        // Reserve Configuration, which winapp owns via -c, plus RuntimeIdentifier whenever a RID is being
+        // injected — MSBuild is last-wins and these -p tokens are emitted AFTER -r, so forwarding a
+        // conflicting RuntimeIdentifier would silently override the architecture winapp resolved.
+        // TargetFramework is deliberately NOT reserved: single-file mode rejects --framework, so -p is the
+        // only way to express it, and reusing project mode's wider filter would drop it from both passes
+        // and silently ignore what the user asked for.
+        foreach (var property in SingleFileForwardableProperties(options.Properties, options.InjectedRuntimeIdentifier is not null))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Builds the arguments for the single-file EVALUATE pass.
+    /// <para>
+    /// This uses <c>dotnet build … --getProperty:…</c> rather than <c>dotnet msbuild</c> — which the
+    /// <c>.csproj</c> evaluate pass uses — because MSBuild has no <c>.cs</c> project loader and rejects a
+    /// file-based app with <c>MSB4025: The project file could not be loaded</c>. The virtual-project
+    /// synthesis only exists inside the <c>dotnet build</c>/<c>dotnet run</c> CLI path. Passing
+    /// <c>--getProperty</c> makes the invocation evaluate WITHOUT building, so this stays cheap.
+    /// </para>
+    /// Fed the SAME Configuration, injected RID, and user <c>-p</c> as the build pass so the properties it
+    /// reads describe the output that was actually written.
+    /// </summary>
+    internal static string BuildSingleFileEvaluateArguments(FileInfo singleFile, SingleFileRunOptions options, bool includeRuntimeIdentifier = true)
+    {
+        var tokens = new List<string>
+        {
+            "build",
+            singleFile.FullName,
+            "-c",
+            options.Configuration,
+        };
+
+        if (includeRuntimeIdentifier)
+        {
+            AppendSingleFileRuntimeIdentifier(tokens, options);
+        }
+
+        // Same reservation as the build pass, so both passes agree on the RID.
+        foreach (var property in SingleFileForwardableProperties(options.Properties, includeRuntimeIdentifier && options.InjectedRuntimeIdentifier is not null))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        foreach (var name in SingleFileRequestedProperties)
+        {
+            tokens.Add($"--getProperty:{name}");
+        }
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Builds a cheap, side-effect-free probe that reads ONE evaluated property from a file-based app.
+    /// Deliberately omits the injected RuntimeIdentifier, since the probe exists to discover whether the
+    /// app declares one of its own.
+    /// </summary>
+    internal static string BuildSingleFileProbeArguments(FileInfo singleFile, SingleFileRunOptions options, string propertyName)
+    {
+        var tokens = new List<string>
+        {
+            "build",
+            singleFile.FullName,
+            "-c",
+            options.Configuration,
+        };
+
+        // No ridInjected filter here on purpose: the probe omits -r entirely, so a user
+        // -p:RuntimeIdentifier is exactly what it needs to see to answer "does the app declare one?".
+        foreach (var property in SingleFileForwardableProperties(options.Properties))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        tokens.Add($"--getProperty:{propertyName}");
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Conveys the target architecture to a single-file pass as <c>-r win-&lt;arch&gt;</c>, matching what
+    /// project mode injects. Both single-file passes call this with the same options, so the evaluate
+    /// reads back the same RID-qualified output directory the build wrote. No-op when the app declares
+    /// its own <c>RuntimeIdentifier</c> (see <c>ResolveSingleFileRuntimeIdentifierAsync</c>).
+    /// </summary>
+    private static void AppendSingleFileRuntimeIdentifier(List<string> tokens, SingleFileRunOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.InjectedRuntimeIdentifier))
+        {
+            return;
+        }
+
+        tokens.Add("-r");
+        tokens.Add(options.InjectedRuntimeIdentifier);
+    }
+
+    /// <summary>
+    /// The user <c>-p</c> properties a single-file pass forwards.
+    /// </summary>
+    /// <remarks>
+    /// <c>Configuration</c> is always filtered because <c>-c</c> already sets it.
+    /// <para>
+    /// <c>RuntimeIdentifier</c> is filtered ONLY when a RID is being injected. MSBuild is last-wins and
+    /// the forwarded <c>-p</c> is emitted after <c>-r</c>, so leaving it in would let
+    /// <c>--arch x64 -p RuntimeIdentifier=win-arm64</c> build arm64 while winapp provisions an x64
+    /// Windows App Runtime — a silently mismatched app. This mirrors project mode's dedicated-flag
+    /// precedence. When NO RID is injected the property is forwarded untouched, because that is exactly
+    /// the case where the user owns the choice (see <c>ResolveSingleFileRuntimeIdentifierAsync</c>).
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// The MSBuild property names a single <c>-p</c> token sets, trimmed.
+    /// </summary>
+    /// <remarks>
+    /// Shared so every decision keyed on "does the user set property X?" parses the token identically.
+    /// They previously diverged: the RID-injection check used a raw <c>StartsWith</c> while this filter
+    /// trimmed, so <c>-p " RuntimeIdentifier=win-arm64"</c> was invisible to the first (winapp injected
+    /// the host RID over it) and visible to the second (which then dropped the user's value) — the app
+    /// built for the wrong architecture.
+    /// </remarks>
+    internal static IEnumerable<string> PropertyNames(string property) =>
+        property.Split(';').Select(segment => segment.Split('=', 2)[0].Trim());
+
+    private static IEnumerable<string> SingleFileForwardableProperties(IReadOnlyList<string> properties, bool ridInjected = false) =>
+        properties.Where(p => !PropertyNames(p)
+            .Any(name => name.Equals("Configuration", StringComparison.OrdinalIgnoreCase)
+                || (ridInjected && name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))));
+
+
+    /// <summary>
     /// Appends the <c>Solution*</c> MSBuild properties a solution build normally sets — most importantly
     /// <c>$(SolutionDir)</c> — when the target was resolved from a solution, so projects referencing them
     /// build as they do under <c>dotnet build &lt;sln&gt;</c> / VS. No-op for a bare <c>.csproj</c>.
@@ -474,6 +649,17 @@ internal sealed partial class ProjectRunService
 
         return anyChanged ? WindowsCommandLine.JoinArguments(redacted) ?? commandLine : commandLine;
     }
+
+    /// <summary>
+    /// Masks a secret-looking value in a single <c>Name=Value</c> MSBuild property, using the same policy
+    /// as <see cref="RedactSecretsForDisplay"/>.
+    /// </summary>
+    /// <remarks>
+    /// For a property echoed on its own rather than inside a command line — a <c>-p</c> value repeated back
+    /// in guidance, say — where the <c>-p:</c> token prefix that drives the command-line form is absent.
+    /// </remarks>
+    internal static string RedactSecretPropertyForDisplay(string property) =>
+        RedactPropertySegments(property, out _);
 
     private static string RedactPropertySegments(string body, out bool changed)
     {

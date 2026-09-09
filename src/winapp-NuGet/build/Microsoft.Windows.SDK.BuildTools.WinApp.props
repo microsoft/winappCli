@@ -38,10 +38,14 @@
     <!--
       When true, launch the app using its execution alias instead of AUMID activation.
       The app runs in the current terminal with inherited stdin/stdout/stderr.
-      Requires a uap5:ExecutionAlias in the appxmanifest.xml.
-      Useful for console applications that need interactive terminal I/O.
+
+      Deliberately left EMPTY: winapp infers this from the built binary's subsystem, and treats its own
+      inference as a default, so an alias that turns out to be unavailable degrades to AUMID rather than
+      failing the run. Forwarding the inferred case from here would spell it as an explicit request and
+      make that same situation an error.
+
+      Set it to true or false to decide it yourself.
     -->
-    <WinAppRunUseExecutionAlias Condition="'$(WinAppRunUseExecutionAlias)' == ''">false</WinAppRunUseExecutionAlias>
 
     <!--
       When true, only register the package identity without launching the application.
