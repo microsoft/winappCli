@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -28,9 +29,15 @@ internal class UiGetFocusedCommand : Command, IShortDescription
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
         IAnsiConsole ansiConsole,
-        ILogger<UiGetFocusedCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiGetFocusedCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui get-focused";
+
+        /// <summary>Reading which element has focus never changes it, so no turn is claimed.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.Observe;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
@@ -41,6 +48,15 @@ internal class UiGetFocusedCommand : Command, IShortDescription
                 UiErrors.MissingApp(logger, json);
                 return 1;
             }
+
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
 
             try
             {
@@ -80,7 +96,7 @@ internal class UiGetFocusedCommand : Command, IShortDescription
                 UiErrors.StaleElement(logger, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;

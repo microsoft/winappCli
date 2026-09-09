@@ -3,6 +3,14 @@
 Record a Windows app window — or one element's region — to an H.264 MP4, with optional timestamped
 JPEG frames for evidence. This is the recording engine behind `winapp ui record`.
 
+> **This package does not coordinate with other automation on the desktop.** The `winapp` CLI layers
+> cooperative desktop turns on top of this engine — holding the desktop while a recording starts, and
+> for the whole recording when the host falls back to PrintWindow capture. That arbitration lives in
+> the CLI, not here. Code calling these APIs directly does not participate in it: it is outside that
+> guarantee and is responsible for serializing itself against any other automation running at the
+> same time, or for running on a desktop nothing else is driving. This matters most for
+> `RecordOptions.CaptureScreen`, where anything another workflow does lands in the video.
+
 ```console
 dotnet add package Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording
 dotnet add package Microsoft.Extensions.DependencyInjection

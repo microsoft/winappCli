@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -103,10 +104,18 @@ internal class UiTouchCommand : Command, IShortDescription
         IUiSelectorParser selectorParser,
         IPointerInput pointerInput,
         IForegroundGuard foregroundGuard,
+        IDesktopForegroundService desktopForeground,
+        ISystemUiQuery systemQuery,
         IAnsiConsole ansiConsole,
-        ILogger<UiTouchCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiTouchCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui touch";
+
+        /// <summary>Synthetic touch injection is OS-wide and lands wherever the desktop points.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.DesktopExclusive;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
@@ -148,12 +157,12 @@ internal class UiTouchCommand : Command, IShortDescription
 
             if (holdMs > MaxDelayMs)
             {
-                return RejectInvalidArguments($"--hold-ms must be {MaxDelayMs} ms or less (60 seconds). Got '{holdMs}'.");
+                return RejectInvalidArguments(parseResult, json, $"--hold-ms must be {MaxDelayMs} ms or less (60 seconds). Got '{holdMs}'.");
             }
 
             if (durationMs > MaxDelayMs)
             {
-                return RejectInvalidArguments($"--duration-ms must be {MaxDelayMs} ms or less (60 seconds). Got '{durationMs}'.");
+                return RejectInvalidArguments(parseResult, json, $"--duration-ms must be {MaxDelayMs} ms or less (60 seconds). Got '{durationMs}'.");
             }
 
             // Validate --direction value up front.
@@ -171,22 +180,22 @@ internal class UiTouchCommand : Command, IShortDescription
 
             if (toPointWasSupplied && !isSwipe)
             {
-                return RejectInvalidArguments($"--to-point is only valid with --gesture swipe (got {gestureStr}).");
+                return RejectInvalidArguments(parseResult, json, $"--to-point is only valid with --gesture swipe (got {gestureStr}).");
             }
 
             if (directionWasSupplied && !isSwipe)
             {
-                return RejectInvalidArguments($"--direction is only valid with --gesture swipe (got {gestureStr}).");
+                return RejectInvalidArguments(parseResult, json, $"--direction is only valid with --gesture swipe (got {gestureStr}).");
             }
 
             if (distanceWasSupplied && isStationaryGesture)
             {
-                return RejectInvalidArguments($"--distance is only valid with --gesture swipe, pinch, or stretch (got {gestureStr}).");
+                return RejectInvalidArguments(parseResult, json, $"--distance is only valid with --gesture swipe, pinch, or stretch (got {gestureStr}).");
             }
 
             if (durationWasSupplied && isStationaryGesture)
             {
-                return RejectInvalidArguments($"--duration-ms is only valid with moving gestures: swipe, pinch, or stretch (got {gestureStr}).");
+                return RejectInvalidArguments(parseResult, json, $"--duration-ms is only valid with moving gestures: swipe, pinch, or stretch (got {gestureStr}).");
             }
 
             // Long-press with no explicit --hold-ms defaults to 500 ms (a real long-press).
@@ -220,7 +229,7 @@ internal class UiTouchCommand : Command, IShortDescription
 
             if (fingersWasSupplied && gesture is TouchGesture.Pinch or TouchGesture.Stretch && fingers != 2)
             {
-                return RejectInvalidArguments($"--fingers must be 2 with --gesture {gestureStr}; pinch/stretch always use 2 contacts.");
+                return RejectInvalidArguments(parseResult, json, $"--fingers must be 2 with --gesture {gestureStr}; pinch/stretch always use 2 contacts.");
             }
 
             // Parse an explicit start point up front (mutually independent of selector resolution).
@@ -277,45 +286,100 @@ internal class UiTouchCommand : Command, IShortDescription
                 return 1;
             }
 
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+            var gestureStr = parseResult.GetValue(GestureOption) ?? "tap";
+            var atStr = parseResult.GetValue(AtOption);
+            var toStr = parseResult.GetValue(ToPointOption);
+            var distance = parseResult.GetValue(DistanceOption);
+            var direction = parseResult.GetValue(DirectionOption);
+            var holdMs = parseResult.GetValue(HoldOption);
+            var durationMs = parseResult.GetValue(DurationOption);
+            var fingers = parseResult.GetValue(FingersOption);
+
+            _ = Gestures.TryGetValue(gestureStr, out var gesture);
+
+            if (gesture is TouchGesture.LongPress
+                && (parseResult.GetResult(HoldOption)?.Tokens.Count ?? 0) == 0)
+            {
+                holdMs = 500;
+            }
+
+            PointerPoint? at = null;
+            if (!string.IsNullOrWhiteSpace(atStr))
+            {
+                _ = PointerGesturePlanner.TryParsePoint(atStr, out var atPoint);
+                at = atPoint;
+            }
+
+            PointerPoint? to = null;
+            if (!string.IsNullOrWhiteSpace(toStr))
+            {
+                _ = PointerGesturePlanner.TryParsePoint(toStr, out var toPoint);
+                to = toPoint;
+            }
+
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
 
-                var target = await PointerCommandSupport.ResolvePointAsync(
-                    uiAutomation, selectorParser, uiTarget, selectorStr, at, atStr,
-                    "touch", "touch point", logger, json, cancellationToken);
-                if (!target.Ok)
+                long targetHwnd;
+                PointerPoint start;
+                string? targetLabel;
+                IReadOnlyList<IReadOnlyList<PointerPoint>> contactPaths;
+                IReadOnlyList<PointerPoint> points;
+                int effectiveFingers;
+                PointerCommandSupport.InjectionPreparation prep;
+
+                await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    return 1;
-                }
+                    var target = await PointerCommandSupport.ResolvePointAsync(
+                        uiAutomation, selectorParser, uiTarget, selectorStr, at, atStr,
+                        "touch", "touch point", logger, json, cancellationToken);
+                    if (!target.Ok)
+                    {
+                        return 1;
+                    }
 
-                var targetHwnd = target.TargetHwnd;
-                var start = target.Point;
-                var targetLabel = target.TargetLabel;
+                    targetHwnd = target.TargetHwnd;
+                    start = target.Point;
+                    targetLabel = target.TargetLabel;
 
-                if (at is not null)
-                {
-                    await PointerCommandSupport.SetForegroundAsync(targetHwnd, cancellationToken);
-                }
+                    if (!DesktopTargetValidation.TryConfirmTargetWindow(
+                            systemQuery, targetHwnd, uiTarget.ProcessId, logger, json, "touch",
+                            parseResult.InvocationConfiguration.Error))
+                    {
+                        return 1;
+                    }
 
-                var (contactPaths, points, effectiveFingers) =
-                    PointerGesturePlanner.PlanTouch(gesture, start, to, distance, fingers, direction);
+                    await PointerCommandSupport.SetForegroundAsync(desktopForeground, targetHwnd, cancellationToken);
 
-                var prep = PointerCommandSupport.TryPrepareInjection(
-                    uiAutomation, foregroundGuard, targetHwnd, points, "touch", "touch", logger, json);
-                if (!prep.Ok)
-                {
-                    return 1;
-                }
+                    (contactPaths, points, effectiveFingers) =
+                        PointerGesturePlanner.PlanTouch(gesture, start, to, distance, fingers, direction);
 
-                // M8: narrow the injection_unsupported catch to only the actual injection call so that
-                // pre-injection failures (element not found, etc.) are NOT mis-classified as
-                // injection_unsupported. Session resolution failures surface as missing_app (outer catch).
-                if (!PointerCommandSupport.TryInject(
-                    () => pointerInput.Touch(gesture, contactPaths, holdMs, durationMs),
-                    logger, json, parseResult.InvocationConfiguration.Error))
-                {
-                    return 1;
+                    prep = PointerCommandSupport.TryPrepareInjection(
+                        uiAutomation, foregroundGuard, targetHwnd, points, "touch", "touch", logger, json);
+                    if (!prep.Ok)
+                    {
+                        return 1;
+                    }
+
+                    // M8: narrow the injection_unsupported catch to only the actual injection call so that
+                    // pre-injection failures (element not found, etc.) are NOT mis-classified as
+                    // injection_unsupported. Session resolution failures surface as missing_app (outer catch).
+                    if (!PointerCommandSupport.TryInject(
+                        () => pointerInput.Touch(gesture, contactPaths, holdMs, durationMs),
+                        logger, json, parseResult.InvocationConfiguration.Error))
+                    {
+                        return 1;
+                    }
                 }
 
                 // id27/id28: synthetic touch injection can report success without actually reaching the
@@ -390,19 +454,20 @@ internal class UiTouchCommand : Command, IShortDescription
                     errorOut: parseResult.InvocationConfiguration.Error);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
 
-            int RejectInvalidArguments(string message)
-            {
-                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
-                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message,
-                    errorOut: parseResult.InvocationConfiguration.Error);
-                return 1;
-            }
+        }
+
+        private int RejectInvalidArguments(ParseResult parseResult, bool json, string message)
+        {
+            logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+            UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message,
+                errorOut: parseResult.InvocationConfiguration.Error);
+            return 1;
         }
     }
 }

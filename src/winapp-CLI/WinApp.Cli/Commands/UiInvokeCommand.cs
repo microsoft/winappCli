@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -32,10 +33,17 @@ internal class UiInvokeCommand : Command, IShortDescription
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
         IUiSelectorParser selectorParser,
+        ISystemUiQuery systemQuery,
         IAnsiConsole ansiConsole,
-        ILogger<UiInvokeCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiInvokeCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui invoke";
+
+        /// <summary>InvokePattern and related actions can mutate UI and must run as a desktop turn.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.DesktopExclusive;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
@@ -54,6 +62,17 @@ internal class UiInvokeCommand : Command, IShortDescription
                 return 1;
             }
 
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            // Preflight rejected a missing selector, so this is non-null by construction.
+            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
@@ -67,37 +86,61 @@ internal class UiInvokeCommand : Command, IShortDescription
                 }
 
                 string pattern;
-                try
+                UiElement invokedElement = element;
+
+                await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    pattern = await uiAutomation.InvokeAsync(uiTarget, element, cancellationToken);
-                }
-                catch (InvalidOperationException) when (element.InvokableAncestor is { } ancestor)
-                {
-                    // Element isn't invokable but has an invokable ancestor — invoke that instead
-                    pattern = await uiAutomation.InvokeAsync(uiTarget, ancestor, cancellationToken);
-                    if (json)
+                    element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                    if (element is null)
                     {
-                        var result = new UiInvokeResult { ElementId = ancestor.Selector ?? ancestor.Id ?? "", Pattern = pattern, Hwnd = uiTarget.WindowHandle };
-                        ansiConsole.Profile.Out.Writer.WriteLine(
-                            JsonSerializer.Serialize(result, UiJsonContext.Default.UiInvokeResult));
+                        UiErrors.ElementNotFound(logger, selectorStr, json);
+                        return 1;
                     }
-                    else
+
+                    if (!DesktopTargetValidation.TryConfirmTargetWindow(
+                            systemQuery, element.WindowHandle ?? uiTarget.WindowHandle, uiTarget.ProcessId,
+                            logger, json, "invoke", parseResult.InvocationConfiguration.Error))
                     {
-                        logger.LogInformation("Invoked ancestor {Selector} \"{Name}\" via {Pattern} (matched text element was not invokable)",
-                            ancestor.Selector ?? ancestor.Id, ancestor.Name, pattern);
+                        return 1;
                     }
-                    return 0;
+
+                    try
+                    {
+                        pattern = await uiAutomation.InvokeAsync(uiTarget, element, cancellationToken);
+                        invokedElement = element;
+                    }
+                    catch (InvalidOperationException) when (element.InvokableAncestor is { } ancestor)
+                    {
+                        // Element isn't invokable but has an invokable ancestor — invoke that instead
+                        if (!DesktopTargetValidation.TryConfirmTargetWindow(
+                                systemQuery, ancestor.WindowHandle ?? uiTarget.WindowHandle, uiTarget.ProcessId,
+                                logger, json, "invoke", parseResult.InvocationConfiguration.Error))
+                        {
+                            return 1;
+                        }
+
+                        pattern = await uiAutomation.InvokeAsync(uiTarget, ancestor, cancellationToken);
+                        invokedElement = ancestor;
+                    }
                 }
 
                 if (json)
                 {
-                    var result = new UiInvokeResult { ElementId = (element.Selector ?? element.Id ?? ""), Pattern = pattern, Hwnd = uiTarget.WindowHandle };
+                    var result = new UiInvokeResult { ElementId = (invokedElement.Selector ?? invokedElement.Id ?? ""), Pattern = pattern, Hwnd = uiTarget.WindowHandle };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiInvokeResult));
                 }
                 else
                 {
-                    logger.LogInformation("Invoked {ElementId} via {Pattern}", (element.Selector ?? element.Id ?? ""), pattern);
+                    if (ReferenceEquals(invokedElement, element))
+                    {
+                        logger.LogInformation("Invoked {ElementId} via {Pattern}", (element.Selector ?? element.Id ?? ""), pattern);
+                    }
+                    else
+                    {
+                        logger.LogInformation("Invoked ancestor {Selector} \"{Name}\" via {Pattern} (matched text element was not invokable)",
+                            invokedElement.Selector ?? invokedElement.Id, invokedElement.Name, pattern);
+                    }
                 }
 
                 return 0;
@@ -108,7 +151,7 @@ internal class UiInvokeCommand : Command, IShortDescription
                 UiErrors.StaleElement(logger, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;
