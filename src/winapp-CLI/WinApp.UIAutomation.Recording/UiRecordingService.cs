@@ -101,7 +101,12 @@ internal sealed partial class UiRecordingService(
             // whichever window is really in front and the caller would get a perfectly playable MP4 of
             // the wrong app. Verify after the activation delay and before any frame is captured. Capture
             // safety, not coordination: it says nothing about who else may be driving the desktop.
-            if (!ForegroundGuard.ForegroundBelongsTo((long)rootHwnd))
+            //
+            // The capture predicate, not the injection one: a modal dialog the target owns is part of
+            // its UI and is sitting on the pixels being recorded, which is the reason to record the
+            // screen rather than the window. An unrelated foreground window is still refused, and a
+            // refusal still produces no artifact.
+            if (!ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
             {
                 throw new ForegroundLostException(
                     "The target window is not in the foreground, so a screen recording would capture " +
@@ -291,7 +296,10 @@ internal sealed partial class UiRecordingService(
             // It deliberately sits above the encoder rather than next to the first frame read: creating
             // the encoder creates OutputPath, so refusing after that point would leave an empty MP4 and
             // break the "no artifact on refusal" contract the CLI states for foreground_not_target.
-            if (options.CaptureScreen && !ForegroundGuard.ForegroundBelongsTo((long)rootHwnd))
+            //
+            // Same capture predicate as the first check — the two must agree, or a modal dialog the
+            // target owns would pass one and fail the other.
+            if (options.CaptureScreen && !ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
             {
                 throw new ForegroundLostException(
                     "The target window lost the foreground while the recording was being prepared, so a " +

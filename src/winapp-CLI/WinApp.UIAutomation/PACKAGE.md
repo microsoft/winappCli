@@ -95,6 +95,15 @@ Run this on a dedicated interactive desktop rather than the one you are working 
 injection does nothing useful over a disconnected RDP session, where there is no live desktop to
 receive it.
 
+`ForegroundGuard` exposes the two checks these paths need, and they are deliberately different:
+
+- `ForegroundBelongsTo(hwnd)` — the strict one, for input. It accepts only the target window or the
+  top-level root that owns it, because a dialog in front would swallow your keystrokes.
+- `ForegroundIsCapturableFor(hwnd)` — the capture one, for screen capture and screen recording. It
+  also accepts a foreground window whose owner chain reaches the target, because a modal dialog the
+  target owns is part of that app's UI and is sitting on the pixels you asked for. An unrelated
+  window is still refused, so you never get a picture of somebody else's app labelled as yours.
+
 ## Requirements
 
 Windows 10 version 1809 or later for synthetic pen and touch injection; other features work on

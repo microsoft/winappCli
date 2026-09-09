@@ -139,8 +139,83 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
 
         EnsureRestrictedDirectory(LockDirectory);
         EnsureRestrictedDirectory(ParticipantsDirectory);
+        EnsureTrustedStateFiles();
         _directoriesVerified = true;
     }
+
+    /// <summary>
+    /// Discards any of this session's state or lock files that another identity can still reach.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Runs on <em>both</em> paths — a directory that had to be repaired and one that was already
+    /// current-user-only — because securing a directory does not secure what is already inside it. An
+    /// explicit ACE on a child survives a protected DACL being written to its parent, so a file
+    /// seeded before the directory was locked down stays writable by whoever seeded it. That is true
+    /// however the directory came to be secure, including by a build of this feature that predates
+    /// this check.
+    /// </para>
+    /// <para>
+    /// Scoped to these three files, which is what keeps it off the latency budget: three ACL reads
+    /// once per process, against roughly five milliseconds for a full sweep of a deep participants
+    /// directory. They are the ones whose <em>content or lock state</em> is trusted — the scheduler
+    /// document, the transaction lock, and the desktop lock — so a foreign grant on any of them lets
+    /// another user mint an owner, block every transaction, or hold the desktop.
+    /// </para>
+    /// <para>
+    /// Leases are deliberately not swept here. A lease is inert on its own: liveness is only consulted
+    /// for participants named in the state document, so a seeded lease for a process that appears
+    /// nowhere in state is never opened. Its one reachable effect is to make corruption recovery
+    /// refuse to reset state, which fails closed rather than open. Leases seeded before a repair are
+    /// still discarded by <see cref="DiscardUntrustedArtifacts"/>, and the participants directory's own
+    /// DACL stops new ones appearing.
+    /// </para>
+    /// </remarks>
+    private void EnsureTrustedStateFiles()
+    {
+        var currentUser = WindowsIdentity.GetCurrent().User;
+        if (currentUser is null)
+        {
+            return;
+        }
+
+        foreach (var path in new[] { StatePath, StateLockPath, ActiveLockPath })
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (IsCurrentUserOnly(file.GetAccessControl(), currentUser, requireProtected: false))
+                {
+                    continue;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Its permissions cannot even be read, which is not a file to trust either.
+                throw UntrustedArtifact(path, ex.Message);
+            }
+
+            try
+            {
+                file.Delete();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw UntrustedArtifact(path, ex.Message);
+            }
+        }
+    }
+
+    private static UiCoordinationException UntrustedArtifact(string path, string reason)
+        => new(
+            UiCoordinationErrorCodes.Unavailable,
+            $"The UI coordination file '{path}' is reachable by another user and could not be replaced: {reason}",
+            "Close any winapp process using this directory and delete its contents, or point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns.");
 
     private static string ResolveLockDirectory()
     {
@@ -231,6 +306,28 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
     /// Re-applies the current-user-only DACL when the existing one is inherited or grants any other
     /// identity. A no-op in the overwhelmingly common case, so the per-process check stays cheap.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Together with <see cref="DiscardUntrustedArtifacts"/> this establishes the invariant the rest
+    /// of coordination relies on: <em>after this returns, no coordination artifact in the directory is
+    /// reachable by another user.</em>
+    /// </para>
+    /// <para>
+    /// The steady-state case is covered by that invariant rather than by re-checking every file on
+    /// every command. A foreign-owned or foreign-granted child cannot appear in a directory that is
+    /// already current-user-only: creating a file there needs write access to the directory, which
+    /// only this user has, and re-permissioning an existing file needs <c>WRITE_DAC</c> on it, which
+    /// only its owner — this user — has. So the only way such a child exists is that it predates the
+    /// directory being secured, and that is exactly the moment this method hands to
+    /// <see cref="DiscardUntrustedArtifacts"/>, which removes it or fails closed. By induction every
+    /// directory that reaches the "already secure" fast path was made secure by a pass that had
+    /// already cleared it, or was created empty by us.
+    /// </para>
+    /// <para>
+    /// That is what keeps the normal path free: one DACL read per directory per process, and no
+    /// per-file work at all.
+    /// </para>
+    /// </remarks>
     private static void RepairAccessRulesIfNeeded(DirectoryInfo directoryInfo)
     {
         var currentUser = WindowsIdentity.GetCurrent().User;
@@ -263,6 +360,15 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
                     $"The UI coordination directory '{directoryInfo.FullName}' is still owned or reachable by another user after repair.",
                     "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use the default location under %LOCALAPPDATA%.");
             }
+
+            // Repairing the directory does NOT repair what was already inside it. An explicit ACE on a
+            // child file survives a protected DACL being written to its parent — inheritance changes
+            // only propagate inherited ACEs — so a file placed here before the repair stays writable by
+            // whoever placed it, and coordination would keep reading and trusting it.
+            //
+            // Only reached when the directory actually needed repair, which for the default location
+            // under %LOCALAPPDATA% is the first run and never again.
+            DiscardUntrustedArtifacts(directoryInfo);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or PrivilegeNotHeldException or InvalidOperationException)
         {
@@ -276,16 +382,98 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
     }
 
     /// <summary>
-    /// Whether <paramref name="security"/> describes a directory only the current user can reach or
+    /// Deletes the coordination artifacts already inside a directory whose permissions were just
+    /// repaired, and refuses to continue if any of them survive.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called only after a repair, because only then can the directory have held files written under
+    /// somebody else's permissions. A file keeps its own explicit ACEs when its parent's DACL is
+    /// replaced — inheritance changes propagate only inherited ACEs — so "the directory is now
+    /// current-user-only" says nothing about what is already in it. An <c>Everyone</c> grant placed on
+    /// a pre-seeded <c>state.json</c> or <c>active.lock</c> survives, and coordination would go on
+    /// reading and trusting a file another user can still rewrite.
+    /// </para>
+    /// <para>
+    /// Everything here is reconstructible — state is rebuilt fresh, locks are just handles, leases are
+    /// <c>DeleteOnClose</c> — so discarding is safe. A file that will <em>not</em> go is a different
+    /// matter: it is held open by a process in a namespace that was just proven untrusted, which is
+    /// not liveness evidence worth acting on. That fails closed rather than being accepted, because
+    /// coordinating through storage a third party can tamper with is worse than not running.
+    /// </para>
+    /// <para>
+    /// Scoped to this feature's own file-name shapes and to the top level of the directory. A
+    /// <c>WINAPP_UI_LOCK_DIRECTORY</c> override may point at a path holding unrelated files; those are
+    /// never read, so they are not a trust question, and deleting them would be destroying data that
+    /// was not ours to touch.
+    /// </para>
+    /// </remarks>
+    private static void DiscardUntrustedArtifacts(DirectoryInfo directoryInfo)
+    {
+        foreach (var pattern in s_coordinationArtifactPatterns)
+        {
+            FileInfo[] artifacts;
+            try
+            {
+                artifacts = directoryInfo.GetFiles(pattern, SearchOption.TopDirectoryOnly);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw new UiCoordinationException(
+                    UiCoordinationErrorCodes.Unavailable,
+                    $"The UI coordination directory '{directoryInfo.FullName}' could not be inspected after its permissions were repaired: {ex.Message}",
+                    "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use the default location under %LOCALAPPDATA%.");
+            }
+
+            foreach (var artifact in artifacts)
+            {
+                try
+                {
+                    artifact.Delete();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    throw new UiCoordinationException(
+                        UiCoordinationErrorCodes.Unavailable,
+                        $"The UI coordination file '{artifact.FullName}' predates this directory being secured and could not be removed: {ex.Message}",
+                        "Close any winapp process using this directory and delete its contents, or point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns.");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// File-name shapes this feature writes: the per-session state and lock files, their publish
+    /// temporaries and quarantined copies, and participant leases. Everything else in the directory
+    /// belongs to somebody else and is left alone.
+    /// </summary>
+    private static readonly string[] s_coordinationArtifactPatterns =
+    [
+        $"{FilePrefix}*",
+        "state.corrupt-*",
+    ];
+
+    /// <summary>
+    /// Whether <paramref name="security"/> describes an object only the current user can reach or
     /// re-permission.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Owner is checked as well as the DACL because the owner of an object implicitly holds
     /// <c>WRITE_DAC</c>: a foreign owner can rewrite even a protected, current-user-only DACL and grant
     /// itself access at any time. That matters most for a <c>WINAPP_UI_LOCK_DIRECTORY</c> override under
     /// a shared path, where another user may have created the directory first.
+    /// </para>
+    /// <para>
+    /// <paramref name="requireProtected"/> is what differs between a directory and a file inside it. A
+    /// directory has to reject inherited rules outright, because it may hang under a shared parent that
+    /// grants other users. A file inside an already-verified directory legitimately inherits from it,
+    /// so for files the question is only whether any rule — inherited or explicit — names somebody
+    /// else, which the loop below answers either way.
+    /// </para>
     /// </remarks>
-    internal static bool IsCurrentUserOnly(DirectorySecurity security, SecurityIdentifier currentUser)
+    internal static bool IsCurrentUserOnly(
+        FileSystemSecurity security, SecurityIdentifier currentUser, bool requireProtected = true)
     {
         if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner
             || owner != currentUser)
@@ -293,7 +481,7 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
             return false;
         }
 
-        if (!security.AreAccessRulesProtected)
+        if (requireProtected && !security.AreAccessRulesProtected)
         {
             // Inherited rules can grant anyone the parent grants, which for a shared override directory
             // includes other users.
