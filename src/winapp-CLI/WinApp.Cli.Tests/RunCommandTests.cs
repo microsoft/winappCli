@@ -1743,28 +1743,34 @@ public class RunCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RunCommand_UnregisterOnExit_FullNameUnavailable_FallsBackToVettedDevPackages()
+    [DoNotParallelize]
+    public async Task RunCommand_UnregisterOnExit_FullNameUnavailable_RemovesNothingAndSaysSo()
     {
-        // Windows could not report the full name. The by-name sweep is the only option left, so it still
-        // has to skip non-development packages and remove each survivor by ITS full name rather than
-        // calling the by-name overload.
+        // With no full name there is nothing that identifies the package this run registered, and the
+        // identity name does not: another developer's sideloaded package can share it. Removal passes
+        // preserveAppData: false, so a by-name sweep here would delete their data. Leaving a registration
+        // behind is recoverable; that is not — so it removes nothing and tells the user.
         _fakeAppLauncherService.FakePackageFullName = null;
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
-            new DevPackageInfo("TestPackage_9.9.9.9_x64__8wekyb3d8bbwe", "TestPackage", "9.9.9.9", null, IsDevelopmentMode: false),
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_2.0.0.0_x64__theirs", "TestPackage", "2.0.0.0", null, IsDevelopmentMode: true),
         ];
         await CreateTestManifestAsync();
         var command = GetRequiredService<RunCommand>();
 
-        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
 
         Assert.AreEqual(0, exitCode);
-        Assert.AreEqual("TestPackage", _fakePackageRegistrationService.FindDevPackagesCalls.Single());
-        var removed = _fakePackageRegistrationService.UnregisterByFullNameCalls.Select(c => c.PackageFullName).ToList();
-        Assert.AreEqual(1, removed.Count, "The non-development package must be skipped");
-        Assert.AreEqual("TestPackage_1.0.0.0_x64__dev", removed[0]);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count,
+            "Nothing may be removed when the package cannot be identified");
         Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
+
+        // Collapse whitespace: the console wraps at ~80 columns and would otherwise split the phrase.
+        var output = System.Text.RegularExpressions.Regex.Replace(
+            $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        StringAssert.Contains(output, "left registered", "The broken promise has to be reported");
+        StringAssert.Contains(output, "winapp unregister", "and the user told how to clean up");
     }
 
     [TestMethod]

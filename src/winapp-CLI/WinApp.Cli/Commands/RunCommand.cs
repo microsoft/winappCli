@@ -942,39 +942,31 @@ internal partial class RunCommand : Command, IShortDescription
         /// leaving the registration and its alias behind to interfere with the next run.
         /// </para>
         /// <para>
-        /// <paramref name="packageFullName"/> is the package this run actually registered, so it is
-        /// removed directly. Identity NAME is not enough to identify it: two sideloaded development
-        /// packages can share <c>Identity/@Name</c> under different publishers, and removal here passes
-        /// <c>preserveAppData: false</c>, so selecting by name would uninstall the other developer's app
-        /// and delete its data. The by-name sweep is only a fallback for when Windows could not report the
-        /// full name, and even then it removes each vetted package by ITS full name rather than calling the
-        /// by-name overload, which would also take the non-development packages the loop skips.
+        /// Only the exact package this run registered is removed. Identity NAME cannot identify it: the
+        /// full name carries the publisher hash, so two sideloaded development packages can share
+        /// <c>Identity/@Name</c> and still be different packages. Removal passes
+        /// <c>preserveAppData: false</c>, so sweeping by name would uninstall another developer's app and
+        /// delete its data. When Windows cannot report the full name there is nothing to identify, so this
+        /// says so and removes nothing rather than guessing — leaving a registration behind is recoverable,
+        /// deleting someone else's data is not.
         /// </para>
         /// </remarks>
         private async Task UnregisterDevPackageAsync(string packageName, string? packageFullName)
         {
+            if (string.IsNullOrEmpty(packageFullName))
+            {
+                logger.LogWarning(
+                    "{UISymbol} Could not determine which package '{PackageName}' registered, so it was left registered. Remove it with 'winapp unregister'.",
+                    UiSymbols.Warning, packageName);
+                return;
+            }
+
             using var cleanupCts = new CancellationTokenSource(UnregisterOnExitTimeout);
 
             try
             {
-                if (!string.IsNullOrEmpty(packageFullName))
-                {
-                    await packageRegistrationService.UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cleanupCts.Token);
-                    logger.LogDebug("Unregistered package {FullName} on exit.", packageFullName);
-                    return;
-                }
-
-                var packages = packageRegistrationService.FindDevPackages(packageName);
-                foreach (var pkg in packages)
-                {
-                    if (!pkg.IsDevelopmentMode)
-                    {
-                        continue;
-                    }
-
-                    await packageRegistrationService.UnregisterByFullNameAsync(pkg.FullName, preserveAppData: false, cleanupCts.Token);
-                    logger.LogDebug("Unregistered package {FullName} on exit.", pkg.FullName);
-                }
+                await packageRegistrationService.UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cleanupCts.Token);
+                logger.LogDebug("Unregistered package {FullName} on exit.", packageFullName);
             }
             catch (Exception ex)
             {
