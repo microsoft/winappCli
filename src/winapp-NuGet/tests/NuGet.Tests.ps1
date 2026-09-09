@@ -416,8 +416,10 @@ $preCompiledItem  <Import Project="$($script:propsPath)" />
             $items | Should -Contain 'MainWindow.g.cs'
         }
 
-        It "Adds nothing when EnableWinUIDesignTimeGeneratedXamlCompileItems is false" {
-            # WinUI's own opt-out switch; one setting has to disable both targets.
+        It "Adds nothing from this target when EnableWinUIDesignTimeGeneratedXamlCompileItems is false" {
+            # Scoped to this target on purpose. WinUI's 2.x servicing build gates its own
+            # target on the same switch, but its 3.0 build ships that target ungated, so
+            # setting this to false cannot be promised to suppress the platform's items.
             $items = Get-DesignTimeCompileItems -CaseName 'dt-optout' `
                 -ExtraProps '    <EnableWinUIDesignTimeGeneratedXamlCompileItems>false</EnableWinUIDesignTimeGeneratedXamlCompileItems>'
 

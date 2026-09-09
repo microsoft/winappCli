@@ -160,8 +160,11 @@
     here mirror WinUI's exactly, and Exclude ends with @(Compile), so whichever of
     the two targets runs second contributes nothing regardless of import order.
 
-    EnableWinUIDesignTimeGeneratedXamlCompileItems=false is WinUI's opt-out switch
-    for this behavior; it is honored here too so one setting disables both.
+    EnableWinUIDesignTimeGeneratedXamlCompileItems=false turns this target off. The
+    name is WinUI's, deliberately: their 2.x servicing build gates their target on it
+    too, so on that build one setting disables both. Their 3.0 build ships the target
+    ungated, so there this switch only turns off the winapp fallback and the platform
+    still contributes its items. Nothing here tries to suppress the platform's target.
   -->
   <PropertyGroup Condition="'$(DesignTimeBuild)' == 'true' And '$(UseWinUI)' == 'true' And '$(XamlCompilerPropsAndTargetsDirectory)' != '' And Exists('$(XamlCompilerPropsAndTargetsDirectory)Microsoft.WinUI.targets')">
     <!--
