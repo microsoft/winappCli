@@ -279,6 +279,139 @@ public sealed class NuGetResolverTests
         return appProject;
     }
 
+    /// <summary>Writes an App.csproj that targets <paramref name="targetFramework"/>.</summary>
+    private string WriteApp(string itemGroupBody, string targetFramework)
+    {
+        string appDir = Path.Combine(_dir, "App");
+        Directory.CreateDirectory(appDir);
+        string appProject = Path.Combine(appDir, "App.csproj");
+        File.WriteAllText(appProject, $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>{targetFramework}</TargetFramework>
+              </PropertyGroup>
+              <ItemGroup>
+            {itemGroupBody}
+              </ItemGroup>
+            </Project>
+            """);
+        return appProject;
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_SemicolonSeparatedInclude_IndexesEveryProjectNamed()
+    {
+        // MSBuild treats an Include as an item list. Reading the whole value as one path
+        // finds no file, so both libraries go unindexed and every type in them answers
+        // "does not exist" for code sitting in the caller's own solution.
+        WriteReferencedLibrary("Alpha", "Alpha.dll");
+        WriteReferencedLibrary("Beta", "Beta.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\Alpha\Alpha.csproj;..\Beta\Beta.csproj" />
+            """);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        CollectionAssert.AreEquivalent(
+            new[] { "Alpha.dll", "Beta.dll" },
+            packages.SelectMany(p => p.WinMdFiles).Select(Path.GetFileName).ToList(),
+            "both projects named by one Include are on the compile surface");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_MultiTargetedLibrary_PicksTheReferencingProjectsFramework()
+    {
+        // A multi-targeted library builds every TFM in one command, so the newest write
+        // time picks an arbitrary one. A net8.0 app handed the net8.0-windows build is
+        // told that Windows-only types on it exist, and the code it writes will not
+        // compile.
+        string libDir = Path.Combine(_dir, "Multi");
+        Directory.CreateDirectory(libDir);
+        File.WriteAllText(Path.Combine(libDir, "Multi.csproj"), "<Project />");
+
+        string neutral = Path.Combine(libDir, "bin", "Debug", "net8.0");
+        string windows = Path.Combine(libDir, "bin", "Debug", "net8.0-windows10.0.19041.0");
+        Directory.CreateDirectory(neutral);
+        Directory.CreateDirectory(windows);
+        File.WriteAllText(Path.Combine(neutral, "Multi.dll"), "neutral");
+        File.WriteAllText(Path.Combine(windows, "Multi.dll"), "windows");
+        // The wrong one is the newest, which is what the timestamp rule would pick.
+        File.SetLastWriteTimeUtc(Path.Combine(neutral, "Multi.dll"), DateTime.UtcNow.AddHours(-1));
+        File.SetLastWriteTimeUtc(Path.Combine(windows, "Multi.dll"), DateTime.UtcNow);
+
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\Multi\Multi.csproj" />
+            """, "net8.0");
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        string selected = packages.SelectMany(p => p.WinMdFiles).Single();
+        Assert.AreEqual(
+            "neutral",
+            File.ReadAllText(selected),
+            "a net8.0 project cannot compile against a net8.0-windows build");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_TransitivelyReferencedProject_IsIndexed()
+    {
+        // App -> Middle -> Leaf. C# exposes Leaf's public types to App, so answering
+        // "does not exist" for them is wrong about the caller's own solution. The project
+        // file names only Middle; restore output is what records the full closure.
+        WriteReferencedLibrary("Middle", "Middle.dll");
+        WriteReferencedLibrary("Leaf", "Leaf.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\Middle\Middle.csproj" />
+            """);
+        WriteAssetsWithProjectLibraries(appProject, "../Middle/Middle.csproj", "../Leaf/Leaf.csproj");
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        CollectionAssert.AreEquivalent(
+            new[] { "Middle.dll", "Leaf.dll" },
+            packages.SelectMany(p => p.WinMdFiles).Select(Path.GetFileName).ToList(),
+            "a transitively referenced project is on the compile surface");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_TransitiveClosureNamingABuildOnlyReference_StaysExcluded()
+    {
+        // Restore records an analyzer project like any other, so reading the closure must
+        // not undo the build-only filter and start confirming types the app cannot call.
+        WriteReferencedLibrary("GenOnly", "GenOnly.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\GenOnly\GenOnly.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+            """);
+        WriteAssetsWithProjectLibraries(appProject, "../GenOnly/GenOnly.csproj");
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(0, packages.Count, "restore output must not reinstate a build-only reference");
+    }
+
+    /// <summary>
+    /// Writes a project.assets.json next to <paramref name="appProject"/> listing the given
+    /// project-relative paths as <c>"type": "project"</c> libraries, the way restore records
+    /// a project's full project-reference closure.
+    /// </summary>
+    private static void WriteAssetsWithProjectLibraries(string appProject, params string[] relativePaths)
+    {
+        string objDir = Path.Combine(Path.GetDirectoryName(appProject)!, "obj");
+        Directory.CreateDirectory(objDir);
+        string libraries = string.Join(",\n", relativePaths.Select((path, index) => $$"""
+                "Lib{{index}}/1.0.0": { "type": "project", "path": "{{path}}", "msbuildProject": "{{path}}" }
+            """));
+        File.WriteAllText(Path.Combine(objDir, "project.assets.json"), $$"""
+            {
+              "version": 3,
+              "libraries": {
+            {{libraries}}
+              },
+              "project": { "restore": { "projectPath": "{{appProject.Replace("\\", "\\\\")}}" } }
+            }
+            """);
+    }
+
     [TestMethod]
     public void FindProjectAssetsJson_SeveralUnderOneObjTree_PicksTheOneRestoredForThisProject()
     {
@@ -759,6 +892,92 @@ public sealed class NuGetResolverTests
         CollectionAssert.AreEquivalent(
             ScannedRuntimeWinmd,
             packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+    }
+
+    [TestMethod]
+    public void FindPackagesFromAssets_DirectlyReferencedSystemPackage_IsIndexed()
+    {
+        // The id prefix alone cannot say what belongs to the framework. A project that
+        // writes <PackageReference Include="System.Contoso" /> can call every type in it,
+        // but the prefix filter drops it, so each of those types answers "does not exist"
+        // — the one answer that stops an agent from writing code that would compile.
+        string packageRoot = Path.Combine(_dir, "packages");
+        foreach (string id in new[] { "system.contoso", "system.transitive" })
+        {
+            string metadata = Path.Combine(packageRoot, id, "1.0.0", "metadata");
+            Directory.CreateDirectory(metadata);
+            File.WriteAllText(Path.Combine(metadata, "Contoso.Runtime.winmd"), "x");
+        }
+
+        string path = WriteAssets(JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object> { [packageRoot] = new { } },
+            libraries = new Dictionary<string, object>
+            {
+                ["System.Contoso/1.0.0"] = new { type = "package", path = "system.contoso/1.0.0" },
+                ["System.Transitive/1.0.0"] = new { type = "package", path = "system.transitive/1.0.0" },
+            },
+            project = new
+            {
+                frameworks = new Dictionary<string, object>
+                {
+                    ["net8.0"] = new
+                    {
+                        dependencies = new Dictionary<string, object>
+                        {
+                            ["System.Contoso"] = new { target = "Package" },
+                        },
+                    },
+                },
+            },
+        }));
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
+
+        Assert.AreEqual(1, packages.Count, "only the package the project asked for by name is indexed");
+        Assert.AreEqual("System.Contoso", packages[0].Id);
+    }
+
+    [TestMethod]
+    public void FindPackagesFromAssets_JunctionedPackageDirectory_IsNotProbed()
+    {
+        // The package folder itself is checked, but the id/version directory beneath it is
+        // named by the same repo-controlled file. A junction committed there is followed by
+        // every probe below, so `winapp find-api refresh` on a fresh clone reads from
+        // wherever it points.
+        string packageRoot = Path.Combine(_dir, "packages");
+        Directory.CreateDirectory(packageRoot);
+
+        string outside = Path.Combine(_dir, "Elsewhere", "metadata");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "Contoso.Runtime.winmd"), "x");
+
+        string link = Path.Combine(packageRoot, "contoso.runtime");
+        if (!TryCreateJunction(link, Path.Combine(_dir, "Elsewhere")))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            string path = WriteAssets(JsonSerializer.Serialize(new
+            {
+                packageFolders = new Dictionary<string, object> { [packageRoot] = new { } },
+                libraries = new Dictionary<string, object>
+                {
+                    ["Contoso.Runtime/2.0.0"] = new { type = "package", path = "contoso.runtime" },
+                },
+            }));
+
+            Assert.AreEqual(
+                0,
+                NuGetResolver.FindPackagesFromAssets(path, projectDir: _dir).Count,
+                "a redirected package directory must not be probed or read");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
     }
 
     [TestMethod]

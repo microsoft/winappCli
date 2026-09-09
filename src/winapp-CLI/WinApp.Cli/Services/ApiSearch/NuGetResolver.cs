@@ -451,38 +451,71 @@ internal static partial class NuGetResolver
         {
             XDocument doc = XDocument.Load(projectFile);
             XNamespace ns = doc.Root?.Name.Namespace ?? XNamespace.None;
-            var references = doc.Descendants(ns + "ProjectReference")
+            string projectDir = Path.GetDirectoryName(projectFile)!;
+
+            // Resolved paths, so the two sources below agree on identity: the same project
+            // is spelled `..\Lib\Lib.csproj` in a project file and `../Lib/Lib.csproj` in
+            // restore output.
+            var buildOnly = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var references = new List<string>();
+
+            foreach (XElement element in doc.Descendants(ns + "ProjectReference"))
+            {
+                string? include = element.Attribute("Include")?.Value;
+                if (include is null)
+                {
+                    continue;
+                }
                 // An analyzer or source-generator reference builds a .dll into the referenced
                 // project's bin like any other, but the referencing project cannot call into
                 // it — indexing it answers "yes, that API exists" for code that will not
                 // compile. MSBuild marks these with OutputItemType="Analyzer" or
                 // ReferenceOutputAssembly="false".
-                .Where(e => !ProjectReferenceMetadata.IsBuildOnly(e))
-                .Select(e => e.Attribute("Include")?.Value)
-                .Where(v => v != null)
-                .Select(v => v!)
-                .ToList();
+                bool isBuildOnly = ProjectReferenceMetadata.IsBuildOnly(element);
+                // One Include may name several projects, semicolon-separated. Treating the
+                // whole value as a single path finds no file, so every project it names goes
+                // unindexed and their types all answer "does not exist".
+                foreach (string part in include.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!TryResolveProjectReference(projectDir, part, out string resolved))
+                    {
+                        continue;
+                    }
+                    if (isBuildOnly)
+                    {
+                        buildOnly.Add(resolved);
+                    }
+                    else if (seen.Add(resolved))
+                    {
+                        references.Add(resolved);
+                    }
+                }
+            }
+
+            // A project file names only what this project references directly, but C#
+            // exposes a transitively referenced project's public types to the compiler too:
+            // App -> Middle -> Leaf lets App call Leaf. Indexing only the direct references
+            // answers "does not exist" for every type in Leaf. Restore output already holds
+            // the full closure, so it costs one file read rather than a graph walk.
+            foreach (string relative in ReadTransitiveProjectReferences(projectDir, projectFile))
+            {
+                if (TryResolveProjectReference(projectDir, relative, out string resolved)
+                    && !buildOnly.Contains(resolved)
+                    && seen.Add(resolved))
+                {
+                    references.Add(resolved);
+                }
+            }
+
             if (references.Count == 0)
             {
                 return packages;
             }
 
-            string projectDir = Path.GetDirectoryName(projectFile)!;
-            foreach (string reference in references)
+            List<string> referencingFrameworks = ReadTargetFrameworks(projectFile);
+            foreach (string fullPath in references)
             {
-                // A rooted `Include` discards projectDir and could name any location,
-                // including a share; a relative one may still be redirected onto a share
-                // by a checked-in symlink. Both are settled before File.Exists, which
-                // would authenticate to whatever host answers.
-                if (Path.IsPathRooted(reference))
-                {
-                    continue;
-                }
-                string fullPath = Path.GetFullPath(Path.Combine(projectDir, reference));
-                if (PathSafety.CrossesReparsePoint(fullPath, projectDir) || !File.Exists(fullPath))
-                {
-                    continue;
-                }
                 string refDir = Path.GetDirectoryName(fullPath)!;
                 string refName = Path.GetFileNameWithoutExtension(fullPath);
                 string binDir = Path.Combine(refDir, "bin");
@@ -508,13 +541,18 @@ internal static partial class NuGetResolver
                 string outputName = ReadAssemblyName(fullPath) ?? refName;
                 winmds.AddRange(GetFilesNoReparse(binDir, outputName + ".dll"));
 
-                // Newest wins per file name. `bin` accumulates every configuration and
-                // target framework ever built, so first-found means directory enumeration
-                // order decides which surface is indexed and a stale Debug build can hide
-                // types that exist in the Release one built minutes ago.
+                // Newest wins per file name, but only among outputs built for the same target
+                // framework the referencing project compiles against. `bin` accumulates every
+                // configuration and every TFM ever built, and a multi-targeted library builds
+                // them all in one command — so timestamps alone pick an arbitrary TFM, and a
+                // `net8.0` build can answer a question asked by a `net8.0-windows` app about
+                // an API that only exists under Windows.
                 winmds = winmds
                     .GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                    .Select(group => group.OrderByDescending(LastWriteOrMin).First())
+                    .Select(group => group
+                        .OrderByDescending(file => ScoreTargetFramework(file, referencingFrameworks))
+                        .ThenByDescending(LastWriteOrMin)
+                        .First())
                     .ToList();
                 if (winmds.Count > 0)
                 {
@@ -584,6 +622,80 @@ internal static partial class NuGetResolver
     /// <c>winapp.yaml</c> alone. Null when the project has never been restored, which
     /// is what tells callers there is nothing to index yet.
     /// </summary>
+    /// <summary>
+    /// Resolves a project reference path against the referencing project's directory,
+    /// rejecting anything that leaves repo-controlled disk.
+    /// </summary>
+    /// <remarks>
+    /// A rooted path discards the project directory and could name any location, including
+    /// a share; a relative one may still be redirected onto a share by a checked-in
+    /// symlink. Both are settled before <see cref="File.Exists(string)"/>, which would
+    /// authenticate to whatever host answers.
+    /// </remarks>
+    private static bool TryResolveProjectReference(string projectDir, string reference, out string fullPath)
+    {
+        fullPath = string.Empty;
+        if (Path.IsPathRooted(reference))
+        {
+            return false;
+        }
+        string candidate = Path.GetFullPath(Path.Combine(projectDir, reference.Replace('/', Path.DirectorySeparatorChar)));
+        if (PathSafety.CrossesReparsePoint(candidate, projectDir) || !File.Exists(candidate))
+        {
+            return false;
+        }
+        fullPath = candidate;
+        return true;
+    }
+
+    /// <summary>
+    /// Every project in the referencing project's restore graph — direct and transitive —
+    /// as paths relative to its directory, from the <c>"type": "project"</c> entries in
+    /// <c>project.assets.json</c>. Empty when restore has not run, leaving the project
+    /// file's direct references as the only source.
+    /// </summary>
+    private static List<string> ReadTransitiveProjectReferences(string projectDir, string projectFile)
+    {
+        var results = new List<string>();
+        if (FindProjectAssetsJson(projectDir, projectFile) is not string assetsPath)
+        {
+            return results;
+        }
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(assetsPath));
+            if (!doc.RootElement.TryGetProperty("libraries", out var librariesEl)
+                || librariesEl.ValueKind != JsonValueKind.Object)
+            {
+                return results;
+            }
+            foreach (JsonProperty library in librariesEl.EnumerateObject())
+            {
+                if (library.Value.ValueKind != JsonValueKind.Object
+                    || !library.Value.TryGetProperty("type", out var typeEl)
+                    || !string.Equals(typeEl.GetString(), "project", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                // msbuildProject names the project file; path can name a directory for
+                // some project styles, so it is only the fallback.
+                string? relative = library.Value.TryGetProperty("msbuildProject", out var msbuildEl)
+                    ? msbuildEl.GetString()
+                    : library.Value.TryGetProperty("path", out var pathEl) ? pathEl.GetString() : null;
+                if (!string.IsNullOrEmpty(relative))
+                {
+                    results.Add(relative);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or JsonException or InvalidOperationException)
+        {
+            // Unreadable restore output falls back to the project file's direct references.
+        }
+        return results;
+    }
+
     internal static string? FindRestoreOutput(string projectDir)
     {
         string? assetsPath = FindProjectAssetsJson(projectDir);
@@ -761,6 +873,8 @@ internal static partial class NuGetResolver
                     .Select(folder => folder.Name));
             }
 
+            HashSet<string> directDependencies = ReadDirectDependencies(root);
+
             if (!root.TryGetProperty("libraries", out var librariesEl))
             {
                 return packages;
@@ -821,7 +935,13 @@ internal static partial class NuGetResolver
                 }
                 string id = library.Name.Substring(0, slash);
                 string version = library.Name.Substring(slash + 1);
-                if (IsFrameworkPackage(id) || !library.Value.TryGetProperty("path", out var pathEl))
+                // A package the project asked for by name is on its compile surface no matter
+                // what the id looks like. Without this, a PackageReference to System.Text.Json
+                // or Microsoft.CodeAnalysis.CSharp is filtered out as if it were part of the
+                // framework, and every type in it answers "not found" — the one answer that
+                // stops an agent from writing code that would have compiled.
+                if ((IsFrameworkPackage(id) && !directDependencies.Contains(id))
+                    || !library.Value.TryGetProperty("path", out var pathEl))
                 {
                     continue;
                 }
@@ -835,7 +955,12 @@ internal static partial class NuGetResolver
                 bool hasSelectedAssets = compileByLibrary.TryGetValue(library.Name, out var selectedAssets);
                 var packageDirs = packageFolders
                     .Select(packageFolder => TryResolveUnderRoot(packageFolder, relativePath, out string dir) ? dir : null)
-                    .Where(dir => dir != null && Directory.Exists(dir))
+                    // Containment settles the *name*; this settles the *route*. The package
+                    // folder was checked, but the id/version directory beneath it is named by
+                    // the same repo-controlled file, and a junction there is followed by every
+                    // probe below — including the scan, whose reparse pruning cannot help when
+                    // the junction is the directory it starts from.
+                    .Where(dir => dir != null && IsProbeablePath(dir, probeRoot) && Directory.Exists(dir))
                     .Select(dir => dir!)
                     .ToList();
                 if (hasSelectedAssets)
@@ -844,7 +969,7 @@ internal static partial class NuGetResolver
                     {
                         files.AddRange(selectedAssets!
                             .Select(asset => TryResolveUnderRoot(packageDir, asset.Replace('/', Path.DirectorySeparatorChar), out string assetPath) ? assetPath : null)
-                            .Where(assetPath => assetPath != null && File.Exists(assetPath))
+                            .Where(assetPath => assetPath != null && IsProbeablePath(assetPath, probeRoot) && File.Exists(assetPath))
                             .Select(assetPath => assetPath!));
                     }
                 }
@@ -883,6 +1008,37 @@ internal static partial class NuGetResolver
                 "APIs from the rest will report as not found. Re-run 'dotnet restore' and then 'winapp find-api refresh'.");
         }
         return packages;
+    }
+
+    /// <summary>
+    /// The package ids the project itself names, from <c>project.frameworks.*.dependencies</c>.
+    /// The union across every target framework, because a package named under any of them was
+    /// asked for deliberately, and the Windows-target filter above already drops libraries the
+    /// selected target does not build.
+    /// </summary>
+    private static HashSet<string> ReadDirectDependencies(JsonElement root)
+    {
+        var direct = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!root.TryGetProperty("project", out var projectEl)
+            || !projectEl.TryGetProperty("frameworks", out var frameworksEl)
+            || frameworksEl.ValueKind != JsonValueKind.Object)
+        {
+            return direct;
+        }
+        foreach (JsonProperty framework in frameworksEl.EnumerateObject())
+        {
+            if (framework.Value.ValueKind != JsonValueKind.Object
+                || !framework.Value.TryGetProperty("dependencies", out var dependenciesEl)
+                || dependenciesEl.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+            foreach (JsonProperty dependency in dependenciesEl.EnumerateObject())
+            {
+                direct.Add(dependency.Name);
+            }
+        }
+        return direct;
     }
 
     internal static bool IsFrameworkPackage(string packageId)
@@ -1005,6 +1161,10 @@ internal static partial class NuGetResolver
                 return packages;
             }
             string? solutionPackages = FindSolutionPackagesFolder(projectDir);
+            // The tree that owns the `packages` folder, so the check below walks the
+            // id.version directory beneath it rather than the folder itself: a global
+            // NuGet cache a developer junctioned onto another volume must keep working.
+            string? packagesRoot = solutionPackages is null ? null : Path.GetDirectoryName(solutionPackages);
             string globalPackages = GetNuGetPackagesDir();
             foreach (XElement entry in entries)
             {
@@ -1017,12 +1177,14 @@ internal static partial class NuGetResolver
                 var files = new List<string>();
                 if (solutionPackages != null
                     && TryResolveUnderRoot(solutionPackages, id + "." + version, out string solutionDir)
+                    && IsProbeablePath(solutionDir, packagesRoot ?? projectDir)
                     && Directory.Exists(solutionDir))
                 {
                     files.AddRange(GetFilesNoReparse(solutionDir, "*.winmd"));
                 }
                 if (files.Count == 0 && Directory.Exists(globalPackages)
                     && TryResolveUnderRoot(globalPackages, Path.Combine(id.ToLowerInvariant(), version), out string globalDir)
+                    && IsProbeablePath(globalDir, projectDir)
                     && Directory.Exists(globalDir))
                 {
                     files.AddRange(GetFilesNoReparse(globalDir, "*.winmd"));
@@ -1213,6 +1375,117 @@ internal static partial class NuGetResolver
         }
         return suffix;
     }
+
+    /// <summary>
+    /// The target framework monikers a project declares, from <c>&lt;TargetFramework&gt;</c>
+    /// or <c>&lt;TargetFrameworks&gt;</c>. Empty for a project that declares none — a C++
+    /// project, or one whose monikers come from a props file — which simply means no
+    /// output can be preferred over another on framework grounds.
+    /// </summary>
+    private static List<string> ReadTargetFrameworks(string projectFile)
+    {
+        try
+        {
+            XDocument doc = XDocument.Load(projectFile);
+            return doc.Descendants()
+                .Where(e => e.Name.LocalName is "TargetFramework" or "TargetFrameworks")
+                .SelectMany(e => e.Value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
+        {
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// How well a built output's target framework folder suits a project that compiles
+    /// against <paramref name="frameworks"/>. Higher is better; <c>-1</c> means the output
+    /// targets a platform the referencing project does not, so it cannot be consumed at all.
+    /// </summary>
+    /// <remarks>
+    /// A deliberately small subset of NuGet's compatibility rules, covering what actually
+    /// separates the outputs sitting side by side in one <c>bin</c> tree: an exact moniker,
+    /// a platform-neutral build (usable by anything on the same base framework), the same
+    /// platform at a different platform version, and a foreign platform. Anything this
+    /// cannot identify scores 0 and is left to the timestamp, which is the behavior a
+    /// single-target project has always had.
+    /// </remarks>
+    private static int ScoreTargetFramework(string filePath, List<string> frameworks)
+    {
+        if (frameworks.Count == 0 || FindTargetFrameworkFolder(filePath) is not string candidate)
+        {
+            return 0;
+        }
+        if (frameworks.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+        {
+            return 3;
+        }
+
+        (string candidateBase, string candidatePlatform) = SplitMoniker(candidate);
+        bool baseMatches = false;
+        foreach (string framework in frameworks)
+        {
+            (string frameworkBase, string frameworkPlatform) = SplitMoniker(framework);
+            if (!string.Equals(candidateBase, frameworkBase, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            baseMatches = true;
+            if (candidatePlatform.Length == 0)
+            {
+                return 2;
+            }
+            if (string.Equals(candidatePlatform, frameworkPlatform, StringComparison.OrdinalIgnoreCase))
+            {
+                return 1;
+            }
+        }
+        // A platform-specific output the referencing project cannot compile against: a
+        // net8.0 app referencing a library's net8.0-windows build would be told that
+        // every Windows-only type on it exists.
+        return candidatePlatform.Length > 0 && baseMatches ? -1 : 0;
+    }
+
+    /// <summary>
+    /// The innermost directory of a path that names a target framework, or null when none
+    /// does. MSBuild writes each target framework to its own
+    /// <c>bin\&lt;configuration&gt;\&lt;tfm&gt;</c> folder.
+    /// </summary>
+    private static string? FindTargetFrameworkFolder(string filePath)
+    {
+        for (DirectoryInfo? dir = Directory.GetParent(filePath); dir is not null; dir = dir.Parent)
+        {
+            if (TargetFrameworkFolder.IsMatch(dir.Name))
+            {
+                return dir.Name;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Splits a target framework moniker into its base framework and platform name,
+    /// discarding the platform version: <c>net8.0-windows10.0.19041.0</c> becomes
+    /// <c>("net8.0", "windows")</c>, <c>net8.0</c> becomes <c>("net8.0", "")</c>.
+    /// </summary>
+    private static (string Base, string Platform) SplitMoniker(string moniker)
+    {
+        int dash = moniker.IndexOf('-');
+        if (dash < 0)
+        {
+            return (moniker, string.Empty);
+        }
+        string platform = moniker[(dash + 1)..];
+        int digit = platform.AsSpan().IndexOfAnyInRange('0', '9');
+        return (moniker[..dash], digit < 0 ? platform : platform[..digit]);
+    }
+
+    private static readonly Regex TargetFrameworkFolder = TargetFrameworkFolderRegex();
+
+    [GeneratedRegex(@"^net(standard|coreapp)?\d", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex TargetFrameworkFolderRegex();
 
     /// <summary>
     /// Recursively enumerates files without descending through a reparse point (a junction
