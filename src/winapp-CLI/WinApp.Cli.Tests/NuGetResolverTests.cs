@@ -19,6 +19,7 @@ public sealed class NuGetResolverTests
     private static readonly string[] ScannedRuntimeWinmd = ["Contoso.Runtime.winmd"];
     private static readonly string[] AlphaAndBetaOutputs = ["Alpha.dll", "Beta.dll"];
     private static readonly string[] MiddleAndLeafOutputs = ["Middle.dll", "Leaf.dll"];
+    private static readonly string[] SystemContosoAndTransitiveIds = ["System.Contoso", "System.Transitive"];
 
     private string _dir = null!;
 
@@ -897,12 +898,16 @@ public sealed class NuGetResolverTests
     }
 
     [TestMethod]
-    public void FindPackagesFromAssets_DirectlyReferencedSystemPackage_IsIndexed()
+    public void FindPackagesFromAssets_SystemPrefixedPackage_IsIndexedEvenWhenTransitive()
     {
         // The id prefix alone cannot say what belongs to the framework. A project that
         // writes <PackageReference Include="System.Contoso" /> can call every type in it,
         // but the prefix filter drops it, so each of those types answers "does not exist"
         // — the one answer that stops an agent from writing code that would compile.
+        // The same is true of a package that only arrives transitively (e.g.
+        // System.Transitive/1.0.0 pulled in by another dependency): PackageReference
+        // compile assets flow transitively, so it must be indexed too even though the
+        // project never names it directly.
         string packageRoot = Path.Combine(_dir, "packages");
         foreach (string id in new[] { "system.contoso", "system.transitive" })
         {
@@ -936,8 +941,10 @@ public sealed class NuGetResolverTests
 
         List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path);
 
-        Assert.AreEqual(1, packages.Count, "only the package the project asked for by name is indexed");
-        Assert.AreEqual("System.Contoso", packages[0].Id);
+        CollectionAssert.AreEquivalent(
+            SystemContosoAndTransitiveIds,
+            packages.Select(p => p.Id).ToArray(),
+            "both the directly referenced and transitive System.* packages are indexed");
     }
 
     [TestMethod]

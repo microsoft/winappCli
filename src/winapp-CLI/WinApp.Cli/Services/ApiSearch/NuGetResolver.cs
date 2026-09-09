@@ -873,8 +873,6 @@ internal static partial class NuGetResolver
                     .Select(folder => folder.Name));
             }
 
-            HashSet<string> directDependencies = ReadDirectDependencies(root);
-
             if (!root.TryGetProperty("libraries", out var librariesEl))
             {
                 return packages;
@@ -935,13 +933,13 @@ internal static partial class NuGetResolver
                 }
                 string id = library.Name.Substring(0, slash);
                 string version = library.Name.Substring(slash + 1);
-                // A package the project asked for by name is on its compile surface no matter
-                // what the id looks like. Without this, a PackageReference to System.Text.Json
-                // or Microsoft.CodeAnalysis.CSharp is filtered out as if it were part of the
-                // framework, and every type in it answers "not found" — the one answer that
-                // stops an agent from writing code that would have compiled.
-                if ((IsFrameworkPackage(id) && !directDependencies.Contains(id))
-                    || !library.Value.TryGetProperty("path", out var pathEl))
+                // PackageReference compile assets flow transitively, and the
+                // librariesInSelectedTarget/compileByLibrary filtering above already limits
+                // entries to what the selected target actually builds. Gating further on
+                // whether the id looks like a framework package would exclude a transitive
+                // dependency (e.g. System.Transitive) that the project can genuinely compile
+                // against, so no additional id-based filtering happens here.
+                if (!library.Value.TryGetProperty("path", out var pathEl))
                 {
                     continue;
                 }
@@ -1008,37 +1006,6 @@ internal static partial class NuGetResolver
                 "APIs from the rest will report as not found. Re-run 'dotnet restore' and then 'winapp find-api refresh'.");
         }
         return packages;
-    }
-
-    /// <summary>
-    /// The package ids the project itself names, from <c>project.frameworks.*.dependencies</c>.
-    /// The union across every target framework, because a package named under any of them was
-    /// asked for deliberately, and the Windows-target filter above already drops libraries the
-    /// selected target does not build.
-    /// </summary>
-    private static HashSet<string> ReadDirectDependencies(JsonElement root)
-    {
-        var direct = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!root.TryGetProperty("project", out var projectEl)
-            || !projectEl.TryGetProperty("frameworks", out var frameworksEl)
-            || frameworksEl.ValueKind != JsonValueKind.Object)
-        {
-            return direct;
-        }
-        foreach (JsonProperty framework in frameworksEl.EnumerateObject())
-        {
-            if (framework.Value.ValueKind != JsonValueKind.Object
-                || !framework.Value.TryGetProperty("dependencies", out var dependenciesEl)
-                || dependenciesEl.ValueKind != JsonValueKind.Object)
-            {
-                continue;
-            }
-            foreach (JsonProperty dependency in dependenciesEl.EnumerateObject())
-            {
-                direct.Add(dependency.Name);
-            }
-        }
-        return direct;
     }
 
     internal static bool IsFrameworkPackage(string packageId)
