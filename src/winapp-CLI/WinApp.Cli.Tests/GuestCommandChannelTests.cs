@@ -97,7 +97,7 @@ public class GuestCommandChannelTests : IDisposable
             Executable = "winapp.exe",
             Arguments = ["ui", "send-keys", "--text", "hello world \u2014 \U0001F600", "--app", "My App"],
             WorkingDirectory = @"C:\Work",
-            Environment = new Dictionary<string, string> { ["WINAPP_UI_OWNER_ID"] = "token" },
+            Environment = new Dictionary<string, string> { ["WINAPP_UI_WORKFLOW_ID"] = "token" },
         };
 
         var pending = _channel.ExecuteAsync(request, callbacks: null, TestContext.CancellationTokenSource.Token);
@@ -109,7 +109,7 @@ public class GuestCommandChannelTests : IDisposable
         // both quoting bugs and injection.
         CollectionAssert.AreEqual(request.Arguments, sent.Exec!.Arguments);
         Assert.AreEqual(@"C:\Work", sent.Exec.WorkingDirectory);
-        Assert.AreEqual("token", sent.Exec.Environment!["WINAPP_UI_OWNER_ID"]);
+        Assert.AreEqual("token", sent.Exec.Environment!["WINAPP_UI_WORKFLOW_ID"]);
 
         PeerReply(new GuestMessage { Type = GuestMessageTypes.ExecCompleted, OperationId = sent.OperationId, ExitCode = 0 });
         await pending;

@@ -501,6 +501,19 @@ So inspection keeps working in exactly the state where input must be refused. wi
 as `sandbox_input_not_ready` rather than reporting input it did not deliver. Reconnecting with
 `wsb connect` restores the same guest session, the same running applications, and both capabilities.
 
+### Coordinating UI workflows in the Sandbox
+
+`winapp ui ... --on sandbox` uses the same cooperative-turn rules as local UI automation, but the
+queue and desktop lock live inside the Sandbox. Commands on the host desktop and commands on the
+Sandbox desktop therefore do not block each other.
+
+Set `WINAPP_UI_WORKFLOW_ID` on every cooperating host invocation. winapp derives an opaque,
+target- and generation-specific token and forwards it as the guest command's
+`WINAPP_UI_WORKFLOW_ID`; the raw host value never enters the Sandbox. Commands with the same value
+share continuity in the guest, so a recording can overlap the clicks or value changes it is
+recording. Commands with different values queue as independent workflows. With no value, each
+routed command is an anonymous one-shot and releases its turn immediately when it finishes.
+
 ## Shared runtimes
 
 Before anything is deployed, winapp works out what the app needs at runtime and makes sure the

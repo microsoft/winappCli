@@ -205,7 +205,7 @@ internal class TargetExecCommand : Command, IShortDescription
 
                     // Forwarded so a script run through exec can invoke the target's own 'winapp ui'
                     // commands without losing its workflow ownership.
-                    Environment = GuestOwnerContext.WithOwner(
+                    Environment = GuestOwnerContext.WithWorkflow(
                         environment: null,
                         GuestOwnerContext.ResolveGuestToken(target.Reference.StateKey, target.Epoch.Value)),
                 };

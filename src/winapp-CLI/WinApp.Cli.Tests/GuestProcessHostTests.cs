@@ -125,10 +125,10 @@ public class GuestProcessHostTests
         var request = new GuestExecRequest
         {
             Executable = CommandInterpreter,
-            Arguments = ["/c", "echo owner=%WINAPP_UI_OWNER_ID%"],
+            Arguments = ["/c", "echo workflow=%WINAPP_UI_WORKFLOW_ID%"],
 
             // This is how the forwarded Cooperative UI Turns owner context reaches guest children.
-            Environment = new Dictionary<string, string> { ["WINAPP_UI_OWNER_ID"] = "token-123" },
+            Environment = new Dictionary<string, string> { ["WINAPP_UI_WORKFLOW_ID"] = "token-123" },
         };
 
         var output = new StringBuilder();
@@ -144,7 +144,7 @@ public class GuestProcessHostTests
         {
             await host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
 
-            StringAssert.Contains(output.ToString(), "owner=token-123", StringComparison.Ordinal);
+            StringAssert.Contains(output.ToString(), "workflow=token-123", StringComparison.Ordinal);
         }
     }
 

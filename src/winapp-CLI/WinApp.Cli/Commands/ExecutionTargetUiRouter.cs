@@ -192,7 +192,7 @@ internal sealed class ExecutionTargetUiRouter(
                 GuestPaths.Resolve(target.Capabilities, operationScope),
                 Path.GetFullPath);
 
-            var owner = GuestOwnerContext.WithOwner(
+            var owner = GuestOwnerContext.WithWorkflow(
                 environment: null,
                 GuestOwnerContext.ResolveGuestToken(
                     target.Reference.StateKey, target.Epoch.Value));

@@ -330,7 +330,7 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                     {
                         UseGuestWinapp = true,
                         Arguments = ["ui", "list-windows", "--json"],
-                        Environment = GuestOwnerContext.WithOwner(
+                        Environment = GuestOwnerContext.WithWorkflow(
                             environment: null,
                             GuestOwnerContext.ResolveGuestToken(
                                 target.Reference.StateKey, target.Epoch.Value)),

@@ -286,6 +286,7 @@ public partial class SandboxLiveE2ETests
         var artifacts = TestPaths.TempRoot(nameof(PackagedFrameworkDependentWinUi_RunsAndAutomatesEndToEnd));
         var screenshot = TestPaths.Under(artifacts, "sandbox.png");
         var recording = TestPaths.Under(artifacts, "sandbox.mp4");
+        var coordinationRecording = TestPaths.Under(artifacts, "sandbox-coordination.mp4");
         Directory.CreateDirectory(artifacts);
 
         var architecture = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
@@ -333,6 +334,68 @@ public partial class SandboxLiveE2ETests
                     ],
                     timeout.Token),
                 "guest UI postcondition");
+
+            var workflowA = $"sandbox-workflow-a-{Guid.NewGuid():N}";
+            var workflowB = $"sandbox-workflow-b-{Guid.NewGuid():N}";
+            var recordingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var workflowEnvironmentA = new Dictionary<string, string>
+            {
+                [GuestOwnerContext.WorkflowVariable] = workflowA,
+            };
+            var workflowEnvironmentB = new Dictionary<string, string>
+            {
+                [GuestOwnerContext.WorkflowVariable] = workflowB,
+            };
+
+            var coordinatedRecording = RunCliAsync(
+                [
+                    "ui", "record", "--on", "sandbox", "-a", "winui-app", "--duration-sec", "8",
+                    "-o", coordinationRecording, "--json",
+                ],
+                timeout.Token,
+                environment: workflowEnvironmentA,
+                standardErrorMarker: "recording-started",
+                markerObserved: recordingStarted);
+
+            await recordingStarted.Task.WaitAsync(TimeSpan.FromSeconds(30), timeout.Token);
+
+            var foreignWorkflow = RunCliAsync(
+                ["ui", "set-value", "--on", "sandbox", "TextInput", "Workflow B", "-a", "winui-app"],
+                timeout.Token,
+                environment: workflowEnvironmentB);
+
+            var sameWorkflow = await RunCliAsync(
+                    ["ui", "set-value", "--on", "sandbox", "TextInput", "Workflow A", "-a", "winui-app"],
+                    timeout.Token,
+                    environment: workflowEnvironmentA)
+                .WaitAsync(TimeSpan.FromSeconds(5), timeout.Token);
+
+            AssertCommandSucceeded(sameWorkflow, "same-workflow command during guest recording");
+            Assert.IsFalse(
+                coordinatedRecording.IsCompleted,
+                "The same-workflow command must complete while the guest recording still holds its shared turn.");
+            Assert.IsFalse(
+                foreignWorkflow.IsCompleted,
+                "A different workflow must remain queued while the guest recording owns the turn.");
+
+            AssertCommandSucceeded(await coordinatedRecording, "coordinated guest recording");
+
+            AssertCommandSucceeded(
+                await RunCliAsync(
+                    ["ui", "yield", "--on", "sandbox", "--json"],
+                    timeout.Token,
+                    environment: workflowEnvironmentA),
+                "guest workflow yield");
+
+            AssertCommandSucceeded(
+                await foreignWorkflow.WaitAsync(TimeSpan.FromSeconds(10), timeout.Token),
+                "foreign workflow after guest turn release");
+
+            var finalValue = await RunCliAsync(
+                ["ui", "get-value", "--on", "sandbox", "TextInput", "-a", "winui-app"],
+                timeout.Token);
+            AssertCommandSucceeded(finalValue, "guest coordination postcondition");
+            StringAssert.Contains(finalValue.StandardOutput, "Workflow B");
 
             var captured = await RunCliAsync(
                 ["ui", "screenshot", "--on", "sandbox", "-a", "winui-app", "-o", screenshot, "--json"],
@@ -637,7 +700,10 @@ public partial class SandboxLiveE2ETests
     private static async Task<ProcessRunResult> RunCliAsync(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken,
-        string? standardInput = null)
+        string? standardInput = null,
+        IReadOnlyDictionary<string, string>? environment = null,
+        string? standardErrorMarker = null,
+        TaskCompletionSource? markerObserved = null)
     {
         var captureRoot = Path.Join(Path.GetTempPath(), "winapp-live-capture");
         Directory.CreateDirectory(captureRoot);
@@ -676,12 +742,30 @@ public partial class SandboxLiveE2ETests
         startInfo.ArgumentList.Add("/d");
         startInfo.ArgumentList.Add("/c");
         startInfo.ArgumentList.Add(scriptPath);
+        if (environment is not null)
+        {
+            foreach (var (name, value) in environment)
+            {
+                startInfo.Environment[name] = value;
+            }
+        }
 
         try
         {
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException("Could not start the live-test winapp binary.");
+
+            var markerTask = standardErrorMarker is null || markerObserved is null
+                ? Task.CompletedTask
+                : ObserveFileMarkerAsync(
+                    errorPath,
+                    standardErrorMarker,
+                    markerObserved,
+                    process,
+                    cancellationToken);
+
             await process.WaitForExitAsync(cancellationToken);
+            await markerTask;
             await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
 
             return new ProcessRunResult(
@@ -696,6 +780,34 @@ public partial class SandboxLiveE2ETests
             TryDeleteFile(inputPath);
             TryDeleteFile(scriptPath);
         }
+    }
+
+    private static async Task ObserveFileMarkerAsync(
+        string path,
+        string marker,
+        TaskCompletionSource observed,
+        Process process,
+        CancellationToken cancellationToken)
+    {
+        while (!process.HasExited)
+        {
+            if (ReadSharedText(path).Contains(marker, StringComparison.Ordinal))
+            {
+                observed.TrySetResult();
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+        }
+
+        if (ReadSharedText(path).Contains(marker, StringComparison.Ordinal))
+        {
+            observed.TrySetResult();
+            return;
+        }
+
+        observed.TrySetException(new InvalidOperationException(
+            $"The command exited before writing '{marker}' to stderr."));
     }
 
     private static string ReadSharedText(string path)

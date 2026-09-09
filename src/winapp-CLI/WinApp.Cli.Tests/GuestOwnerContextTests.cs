@@ -21,26 +21,26 @@ public class GuestOwnerContextTests
     private const string TargetId = "sandbox-default-6b0d287c0c51bc40";
     private const string Epoch = "sandbox-1:nonce-a";
 
-    private static Dictionary<string, string?> WithOwnerVariable(string? value) =>
-        new() { [GuestOwnerContext.OwnerVariable] = value };
+    private static Dictionary<string, string?> WithWorkflowVariable(string? value) =>
+        new() { [GuestOwnerContext.WorkflowVariable] = value };
 
-    private static Dictionary<string, string?> NoOwnerVariable() => [];
+    private static Dictionary<string, string?> NoWorkflowVariable() => [];
 
     [TestMethod]
     public void ExplicitOwner_TakesPrecedence()
     {
-        Assert.AreEqual("workflow-7", GuestOwnerContext.ResolveHostOwner(WithOwnerVariable("workflow-7")));
+        Assert.AreEqual("workflow-7", GuestOwnerContext.ResolveHostOwner(WithWorkflowVariable("workflow-7")));
     }
 
     [TestMethod]
     public void ExplicitOwner_IsPreservedExactly()
     {
-        Assert.AreEqual("workflow-7", GuestOwnerContext.ResolveHostOwner(WithOwnerVariable("workflow-7")));
+        Assert.AreEqual("workflow-7", GuestOwnerContext.ResolveHostOwner(WithWorkflowVariable("workflow-7")));
 
         // Not trimmed. Whitespace is significant to the guest's own resolver, so normalizing it here
         // would make two values that are distinct locally into one workflow in the guest -- the
         // exact divergence forwarding exists to prevent.
-        Assert.AreEqual("  workflow-7  ", GuestOwnerContext.ResolveHostOwner(WithOwnerVariable("  workflow-7  ")));
+        Assert.AreEqual("  workflow-7  ", GuestOwnerContext.ResolveHostOwner(WithWorkflowVariable("  workflow-7  ")));
     }
 
     [TestMethod]
@@ -51,43 +51,35 @@ public class GuestOwnerContextTests
         // Truncating would silently merge two distinct long owners into one workflow, so an
         // oversized value is refused instead.
         Assert.ThrowsExactly<WinApp.Cli.ExecutionTargets.Abstractions.ExecutionTargetException>(
-            () => GuestOwnerContext.ResolveHostOwner(WithOwnerVariable(oversized)));
+            () => GuestOwnerContext.ResolveHostOwner(WithWorkflowVariable(oversized)));
     }
 
     [TestMethod]
-    public void NoExplicitOwner_FallsBackToParentOrAnonymous()
+    public void NoExplicitWorkflow_IsAlwaysAnonymous()
     {
-        var resolved = GuestOwnerContext.ResolveHostOwner(WithOwnerVariable(null));
+        var resolved = GuestOwnerContext.ResolveHostOwner(WithWorkflowVariable(null));
 
         Assert.IsFalse(string.IsNullOrWhiteSpace(resolved));
-
-        // Either shape is correct depending on whether this process's parent is still observable;
-        // what matters is that neither is empty and neither is the raw variable.
-        Assert.IsTrue(
-            resolved.StartsWith("parent:", StringComparison.Ordinal) ||
-            resolved.StartsWith("anonymous:", StringComparison.Ordinal),
-            $"Unexpected fallback owner shape: {resolved}");
+        StringAssert.StartsWith(resolved, "anonymous:");
     }
 
     [TestMethod]
     public void Anonymous_OwnersAreUniquePerInvocation()
     {
-        var blank = NoOwnerVariable();
-
-        // Two invocations with no owner must not accidentally cooperate. Resolution can only be
-        // compared when the parent fallback is unavailable, so compare derived tokens instead: for
-        // a parent-derived owner they are equal by design, which is also correct.
+        var blank = NoWorkflowVariable();
         var first = GuestOwnerContext.ResolveHostOwner(blank);
         var second = GuestOwnerContext.ResolveHostOwner(blank);
 
-        if (first.StartsWith("anonymous:", StringComparison.Ordinal))
-        {
-            Assert.AreNotEqual(first, second);
-        }
-        else
-        {
-            Assert.AreEqual(first, second, "A parent-derived owner must be stable across invocations.");
-        }
+        Assert.AreNotEqual(first, second);
+    }
+
+    [TestMethod]
+    public void IllFormedWorkflow_IsRefusedBeforeForwarding()
+    {
+        var illFormed = new string(['\ud800']);
+
+        Assert.ThrowsExactly<WinApp.Cli.ExecutionTargets.Abstractions.ExecutionTargetException>(
+            () => GuestOwnerContext.ResolveHostOwner(WithWorkflowVariable(illFormed)));
     }
 
     [TestMethod]
@@ -142,25 +134,25 @@ public class GuestOwnerContextTests
     }
 
     [TestMethod]
-    public void WithOwner_SetsTheVariableTheGuestAlreadyReads()
+    public void WithWorkflow_SetsTheVariableTheGuestAlreadyReads()
     {
         var token = GuestOwnerContext.DeriveGuestToken("workflow-a", TargetId, Epoch);
-        var environment = GuestOwnerContext.WithOwner(
+        var environment = GuestOwnerContext.WithWorkflow(
             new Dictionary<string, string> { ["EXISTING"] = "kept" },
             token);
 
         // The guest agent sets the ordinary variable, so guest-side owner resolution and scheduling
         // stay completely unchanged.
-        Assert.AreEqual(token, environment[GuestOwnerContext.OwnerVariable]);
+        Assert.AreEqual(token, environment[GuestOwnerContext.WorkflowVariable]);
         Assert.AreEqual("kept", environment["EXISTING"]);
     }
 
     [TestMethod]
-    public void WithOwner_AcceptsNoExistingEnvironment()
+    public void WithWorkflow_AcceptsNoExistingEnvironment()
     {
-        var environment = GuestOwnerContext.WithOwner(environment: null, "gt1_abc");
+        var environment = GuestOwnerContext.WithWorkflow(environment: null, "gt1_abc");
 
         Assert.AreEqual(1, environment.Count);
-        Assert.AreEqual("gt1_abc", environment[GuestOwnerContext.OwnerVariable]);
+        Assert.AreEqual("gt1_abc", environment[GuestOwnerContext.WorkflowVariable]);
     }
 }

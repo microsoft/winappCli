@@ -230,19 +230,19 @@ public class ExecutionTargetReviewRegressionTests
             Padded,
             GuestOwnerContext.ResolveHostOwner(new Dictionary<string, string?>
             {
-                [GuestOwnerContext.OwnerVariable] = Padded,
+                [GuestOwnerContext.WorkflowVariable] = Padded,
             }));
     }
 
     [TestMethod]
     public void BlankExplicitOwner_IsRefusedRatherThanIgnored()
     {
-        // Falling back to the parent-derived owner would silently group this command with every
-        // other command under the same parent, which is not what the caller asked for.
+        // Treating a blank explicit ID as absent would silently turn a scripting mistake into an
+        // unrelated anonymous one-shot instead of reporting it.
         var failure = Assert.ThrowsExactly<ExecutionTargetException>(
             () => GuestOwnerContext.ResolveHostOwner(new Dictionary<string, string?>
             {
-                [GuestOwnerContext.OwnerVariable] = "   ",
+                [GuestOwnerContext.WorkflowVariable] = "   ",
             }));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
@@ -256,7 +256,7 @@ public class ExecutionTargetReviewRegressionTests
         var failure = Assert.ThrowsExactly<ExecutionTargetException>(
             () => GuestOwnerContext.ResolveHostOwner(new Dictionary<string, string?>
             {
-                [GuestOwnerContext.OwnerVariable] = oversized,
+                [GuestOwnerContext.WorkflowVariable] = oversized,
             }));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
@@ -276,7 +276,7 @@ public class ExecutionTargetReviewRegressionTests
             exact,
             GuestOwnerContext.ResolveHostOwner(new Dictionary<string, string?>
             {
-                [GuestOwnerContext.OwnerVariable] = exact,
+                [GuestOwnerContext.WorkflowVariable] = exact,
             }));
     }
 

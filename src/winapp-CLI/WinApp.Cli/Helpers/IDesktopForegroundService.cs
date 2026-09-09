@@ -48,6 +48,9 @@ internal interface IDesktopForegroundService
 
     /// <summary>Restores a minimized window so it can be captured or interacted with.</summary>
     void Restore(long hwnd);
+
+    /// <summary>Shows a window without requesting activation or foreground ownership.</summary>
+    void ShowWithoutActivation(long hwnd);
 }
 
 /// <summary>Production <see cref="IDesktopForegroundService"/> over the Win32 window APIs.</summary>
@@ -83,5 +86,17 @@ internal sealed class DesktopForegroundService : IDesktopForegroundService
         Windows.Win32.PInvoke.ShowWindow(
             new Windows.Win32.Foundation.HWND((nint)hwnd),
             Windows.Win32.UI.WindowsAndMessaging.SHOW_WINDOW_CMD.SW_RESTORE);
+    }
+
+    public void ShowWithoutActivation(long hwnd)
+    {
+        if (hwnd == 0)
+        {
+            return;
+        }
+
+        Windows.Win32.PInvoke.ShowWindow(
+            new Windows.Win32.Foundation.HWND((nint)hwnd),
+            Windows.Win32.UI.WindowsAndMessaging.SHOW_WINDOW_CMD.SW_SHOWNOACTIVATE);
     }
 }

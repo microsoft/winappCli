@@ -420,7 +420,7 @@ internal partial class RunCommand
                 // block every other run against this build output for as long as the app stays open.
                 layoutLease?.Dispose();
 
-                var ownerEnvironment = GuestOwnerContext.WithOwner(
+                var ownerEnvironment = GuestOwnerContext.WithWorkflow(
                     environment: null,
                     GuestOwnerContext.ResolveGuestToken(
                         target.Reference.StateKey, target.Epoch.Value));

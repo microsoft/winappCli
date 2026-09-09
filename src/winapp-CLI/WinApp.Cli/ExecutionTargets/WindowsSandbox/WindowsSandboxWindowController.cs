@@ -493,11 +493,13 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         }
     }
 
-    private static void PlaceOffScreen(
+    private static unsafe void PlaceOffScreen(
         HWND window,
         HWND previousForeground,
         IDesktopForegroundService foregroundService)
     {
+        foregroundService.ShowWithoutActivation((long)window.Value);
+
         var virtualLeft = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_XVIRTUALSCREEN);
         var virtualTop = PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_YVIRTUALSCREEN);
         var offScreenX = virtualLeft - 32_000;
@@ -545,7 +547,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             for (var attempt = 0; attempt < 10; attempt++)
             {
                 foregroundService.RequestForeground((long)previousForeground.Value);
-                if (foregroundService.IsForeground((long)previousForeground.Value))
+                if (PInvoke.GetForegroundWindow() == previousForeground)
                 {
                     return;
                 }
