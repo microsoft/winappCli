@@ -358,6 +358,20 @@ $extraProps  </PropertyGroup>
             $args | Should -Not -Match ' --without-alias'
         }
 
+        It "Drops the alias-launch switch when a launch switch already excludes it" {
+            # WinAppRunNoLaunch and WinAppRunDetach describe launches an alias cannot express. winapp
+            # resolves that by letting the launch switch win over a declared preference, so forwarding
+            # both would instead hit the CLI's mutual-exclusion check and fail a run that works when
+            # invoked directly - the same property meaning different things per invocation path.
+            $noLaunch = Get-ComputedRunArgs -CaseName 'run-alias-true-nolaunch' -WinAppRunUseExecutionAlias 'true' -WinAppRunNoLaunch
+            $detach = Get-ComputedRunArgs -CaseName 'run-alias-true-detach' -WinAppRunUseExecutionAlias 'true' -WinAppRunDetach
+
+            $noLaunch | Should -Match ' --no-launch'
+            $noLaunch | Should -Not -Match ' --with-alias'
+            $detach | Should -Match ' --detach'
+            $detach | Should -Not -Match ' --with-alias'
+        }
+
         It "Maps WinAppRunUseExecutionAlias=false to --without-alias, even for a console app" {
             $args = Get-ComputedRunArgs -CaseName 'run-alias-false' -WinAppRunUseExecutionAlias 'false' -OutputType 'Exe'
 

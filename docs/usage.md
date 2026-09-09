@@ -1082,7 +1082,9 @@ winapp unregister counter.cs
 > `counter-a1b2c3d4` — so two `counter.cs` files in different folders are different apps and keep their
 > own settings and `LocalState`. The hash is derived from the path, so it survives edits and re-runs and
 > only changes if you move the file. Set `#:property WinAppPackageName=<name>` to choose a stable
-> identity yourself; it is then used exactly as written. Either way the Start menu and Settings show
+> identity yourself; it is normalized to what `Identity/@Name` allows — characters outside
+> `[-.A-Za-z0-9]` are dropped, names shorter than 3 characters are padded with `1`, and the result is
+> capped at 50 characters, so `My App` registers as `MyApp`. Either way the Start menu and Settings show
 > your `WinAppDisplayName` (default: the file name), not the identity. Identity is always scoped to your
 > user account, so it never collides with another user on the same machine.
 

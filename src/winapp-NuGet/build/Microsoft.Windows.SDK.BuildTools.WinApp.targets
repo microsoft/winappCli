@@ -235,8 +235,14 @@
         built binary's PE subsystem and treats its own inference as a default: an alias that turns out to
         be unavailable degrades to AUMID instead of failing the run. Forwarding the inferred case here
         would spell it as an explicit request and make that same situation an error.
+
+        WinAppRunNoLaunch and WinAppRunDetach each describe a launch an alias cannot express, and winapp
+        resolves that by letting the launch switch win over a declared preference. Forwarding the
+        alias-launch switch alongside them would instead hit the CLI's mutual-exclusion check and fail the
+        run, so the same project would behave differently through 'dotnet run' than through 'winapp run'.
+        The opt-out switch asks for the AUMID activation both of those already use, so it stays.
       -->
-      <_WinAppRunArgs Condition="'$(WinAppRunUseExecutionAlias)' == 'true'">$(_WinAppRunArgs) --with-alias</_WinAppRunArgs>
+      <_WinAppRunArgs Condition="'$(WinAppRunUseExecutionAlias)' == 'true' and '$(WinAppRunNoLaunch)' != 'true' and '$(WinAppRunDetach)' != 'true'">$(_WinAppRunArgs) --with-alias</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunUseExecutionAlias)' == 'false'">$(_WinAppRunArgs) --without-alias</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunNoLaunch)' == 'true'">$(_WinAppRunArgs) --no-launch</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunDebugOutput)' == 'true'">$(_WinAppRunArgs) --debug-output</_WinAppRunArgs>
