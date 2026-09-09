@@ -285,6 +285,11 @@ internal partial class MsixService(
     /// </param>
     /// <param name="framework">Project mode: the built target framework, used to narrow the package list.</param>
     /// <param name="noRestore">Project mode: forward <c>--no-restore</c> to package-list discovery.</param>
+    /// <param name="packageGraph">
+    /// Project mode: the built project's evaluated <c>project.assets.json</c> (+ RID) so the Windows App SDK
+    /// dependency is read from the graph that was actually built. When null, package discovery falls back to
+    /// <c>dotnet package list</c>, which re-evaluates with the default configuration/RID (folder mode).
+    /// </param>
     /// <param name="targetArch">
     /// Project mode: the target architecture (<c>x64</c>/<c>arm64</c>/<c>x86</c>) for self-contained runtime
     /// staging and activation-manifest embedding. When null the host architecture is used (folder mode).
@@ -315,6 +320,7 @@ internal partial class MsixService(
         FileInfo? projectFile = null,
         string? framework = null,
         bool noRestore = false,
+        PackageGraphSource? packageGraph = null,
         string? targetArch = null,
         bool runtimeAlreadyBundled = false,
         CancellationToken cancellationToken = default)
@@ -387,9 +393,10 @@ internal partial class MsixService(
 
         // Update manifest content to ensure it's either referencing Windows App SDK or is self-contained
         // Fetch dotnet package list once for all downstream operations. In project mode a resolved
-        // projectFile drives this (with framework/no-restore); folder mode falls back to the cwd probe.
-        // No pre-resolved package graph is available at this entry point, so pass null to resolve it here.
-        var dotNetPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph: null, cancellationToken);
+        // projectFile drives this (with framework/no-restore), and packageGraph — the build's evaluated
+        // project.assets.json — makes discovery read the graph that was actually built (correct
+        // configuration/RID/TFM) instead of re-evaluating with defaults; folder mode falls back to the cwd probe.
+        var dotNetPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
 
         // Determine executable path for ProcessorArchitecture auto-detection, and detect whether
         // this is a sparse (AllowExternalContent) manifest so the rewrite applies sparse

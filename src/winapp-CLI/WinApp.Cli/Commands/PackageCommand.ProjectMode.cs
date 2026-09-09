@@ -200,6 +200,14 @@ internal partial class PackageCommand
                     $"{UiSymbols.Info} '{csproj.Name}' is already built self-contained; --self-contained is redundant and the runtime will not be re-bundled.");
             }
 
+            // Read the Windows App SDK dependency from the graph this build actually produced (its evaluated
+            // project.assets.json + RID). Without it, package discovery re-runs `dotnet package list`, which
+            // re-evaluates with the default configuration/RID and can pick the wrong graph for a project with
+            // configuration/RID-conditional package references. Mirrors `winapp run` project mode.
+            var packageGraph = string.IsNullOrWhiteSpace(resolution.ProjectAssetsFile)
+                ? null
+                : new PackageGraphSource(new FileInfo(resolution.ProjectAssetsFile), resolution.ProjectAssetsRuntimeIdentifier);
+
             return await statusService.ExecuteWithStatusAsync("Creating MSIX package...", async (taskContext, ct) =>
             {
                 try
@@ -212,6 +220,7 @@ internal partial class PackageCommand
                         projectFile: csproj,
                         framework: resolution.Framework,
                         noRestore: resolution.NoRestore,
+                        packageGraph: packageGraph,
                         targetArch: resolution.Architecture,
                         runtimeAlreadyBundled: runtimeAlreadyBundled,
                         cancellationToken: ct);

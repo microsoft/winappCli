@@ -617,6 +617,44 @@ public class MsixServiceRuntimeTests : BaseCommandTests
             () => InvokeEmbedActivationManifestAsync(exe, deployment, appxManifest, null));
     }
 
+    [TestMethod]
+    public void CollectNativeFragmentDllNames_SelectsSuppliedArchitectureNotHost()
+    {
+        // A component fragment that ships DISTINCT native DLLs for two architectures. The embed path
+        // reads only the win-<architecture>\native directory for the architecture it is given, so a
+        // regression that ignored the supplied target arch (and used the host's) would pick the wrong DLLs.
+        var fragmentDir = _tempDirectory.CreateSubdirectory($"frag_{Guid.NewGuid():N}");
+        var fragmentFile = new FileInfo(Path.Join(fragmentDir.FullName, "package.appxfragment"));
+        File.WriteAllText(fragmentFile.FullName, "<fragment/>");
+
+        var x64Native = Directory.CreateDirectory(Path.Join(fragmentDir.FullName, "win-x64", "native"));
+        File.WriteAllText(Path.Join(x64Native.FullName, "x64only.dll"), "x");
+        var arm64Native = Directory.CreateDirectory(Path.Join(fragmentDir.FullName, "win-arm64", "native"));
+        File.WriteAllText(Path.Join(arm64Native.FullName, "arm64only.dll"), "x");
+
+        // Asserted both ways so the result follows the supplied architecture regardless of the host arch.
+        var arm64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "arm64");
+        CollectionAssert.Contains(arm64, "arm64only.dll");
+        CollectionAssert.DoesNotContain(arm64, "x64only.dll");
+
+        var x64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "x64");
+        CollectionAssert.Contains(x64, "x64only.dll");
+        CollectionAssert.DoesNotContain(x64, "arm64only.dll");
+    }
+
+    [TestMethod]
+    public void CollectNativeFragmentDllNames_NoMatchingArchDirectory_ReturnsEmpty()
+    {
+        var fragmentDir = _tempDirectory.CreateSubdirectory($"frag_{Guid.NewGuid():N}");
+        var fragmentFile = new FileInfo(Path.Join(fragmentDir.FullName, "package.appxfragment"));
+        File.WriteAllText(fragmentFile.FullName, "<fragment/>");
+        var x64Native = Directory.CreateDirectory(Path.Join(fragmentDir.FullName, "win-x64", "native"));
+        File.WriteAllText(Path.Join(x64Native.FullName, "x64only.dll"), "x");
+
+        // A fragment with no win-arm64\native directory contributes nothing for arm64.
+        Assert.AreEqual(0, MsixService.CollectNativeFragmentDllNames([fragmentFile], "arm64").Count);
+    }
+
     // ---- MsixService.cs: resource-language & signing guards -------------------------
 
     [TestMethod]

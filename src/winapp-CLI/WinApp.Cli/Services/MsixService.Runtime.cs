@@ -162,11 +162,7 @@ internal partial class MsixService
 
             // Combine all DLL file names from deployment dir and fragment native dirs
             var allDllFiles = new List<string>(winAppSDKDeploymentDir.EnumerateFiles("*.dll").Select(di => di.Name));
-            allDllFiles.AddRange(appxFragments
-                .Select(fragment => Path.Combine(fragment.DirectoryName!, $"win-{architecture}\\native"))
-                .Where(Directory.Exists)
-                .SelectMany(dir => Directory.EnumerateFiles(dir, "*.dll"))
-                .Select(Path.GetFileName)!);
+            allDllFiles.AddRange(CollectNativeFragmentDllNames(appxFragments, architecture));
 
             // Single pass: process all AppX manifests (auto-detects Package vs Fragment root)
             AppendAppManifestFromAppx(
@@ -208,6 +204,20 @@ internal partial class MsixService
             .Where(f => f.Exists);
         return appxFragments;
     }
+
+    /// <summary>
+    /// Collects the native DLL file names each component fragment ships for a specific architecture, reading
+    /// only that fragment's <c>win-&lt;architecture&gt;\native</c> directory. Isolated (and internal) so the
+    /// architecture selection is directly testable: passing the target architecture must return that
+    /// architecture's DLLs, never the host's. A fragment with no matching directory contributes nothing.
+    /// </summary>
+    internal static List<string> CollectNativeFragmentDllNames(IEnumerable<FileInfo> fragments, string architecture) =>
+        fragments
+            .Select(fragment => Path.Combine(fragment.DirectoryName!, $"win-{architecture}", "native"))
+            .Where(Directory.Exists)
+            .SelectMany(dir => Directory.EnumerateFiles(dir, "*.dll"))
+            .Select(Path.GetFileName)
+            .ToList()!;
 
     /// <summary>
     /// Collects all user NuGet packages from .csproj or winapp.yaml.

@@ -364,17 +364,6 @@ winapp pack ./MyApp.csproj --no-build
 
 The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
 
-
-
-- Validates and processes Package.appxmanifest files
-- Resolves `$placeholder$` tokens in the manifest (see [Manifest placeholders](#manifest-placeholders) below)
-- Ensures proper framework dependencies
-- Updates side-by-side manifests with registrations
-- Automatically discovers and bundles any non-image files referenced in the manifest (e.g., AppExtension `manifest.json`, config files) from the manifest directory or input folder if they are missing from staging
-- Automatically discovers third-party WinRT components and registers their activatable classes (see [WinRT component discovery](#winrt-component-discovery) below)
-- Handles self-contained WinAppSDK deployment
-- Signs package if certificate provided
-
 #### Sparse identity packages
 
 When the input is a **sparse `appxmanifest.xml` file** (one declaring `<uap10:AllowExternalContent>true</uap10:AllowExternalContent>` under `<Properties>`) rather than a folder, `winapp pack` builds an **identity-only** `.msix` — it packages just the manifest, with no application binaries or assets. This is step 2 of the [sparse packaging workflow](guides/sparse.md).

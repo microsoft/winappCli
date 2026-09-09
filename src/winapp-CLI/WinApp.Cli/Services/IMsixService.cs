@@ -26,6 +26,7 @@ internal interface IMsixService
         FileInfo? projectFile = null,
         string? framework = null,
         bool noRestore = false,
+        PackageGraphSource? packageGraph = null,
         string? targetArch = null,
         bool runtimeAlreadyBundled = false,
         CancellationToken cancellationToken = default);

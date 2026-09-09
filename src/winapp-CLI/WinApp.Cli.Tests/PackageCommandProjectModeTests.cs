@@ -97,6 +97,44 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_ThreadsPackageGraphFromBuiltAssets()
+    {
+        // The build's evaluated project.assets.json + RID must reach packaging as a PackageGraphSource so the
+        // Windows App SDK dependency is read from the graph that was actually built, not re-evaluated with
+        // default configuration/RID (which can pick the wrong graph for conditional package references).
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        var assetsPath = Path.Join(targetDir.FullName, "project.assets.json");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
+                ProjectAssetsFile: assetsPath, ProjectAssetsRuntimeIdentifier: "win-arm64"), 0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        var graph = _fakeMsixService.LastCreatePackageArgs!.PackageGraph;
+        Assert.IsNotNull(graph, "A built assets file must be threaded as a PackageGraphSource");
+        Assert.AreEqual(assetsPath, graph!.AssetsFile.FullName);
+        Assert.AreEqual("win-arm64", graph.RuntimeIdentifier);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_NoAssetsFile_ThreadsNullPackageGraph()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir); // resolution has no ProjectAssetsFile
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsNull(_fakeMsixService.LastCreatePackageArgs!.PackageGraph,
+            "With no evaluated assets file, packaging must fall back to null (cwd/dotnet package list)");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_ForwardsBuildOptions()
     {
         var csproj = CreateCsproj();
