@@ -239,6 +239,61 @@ public class InteractiveDesktopPathsHardeningTests
     }
 
     [TestMethod]
+    public void AStateFileWithAdministratorsAndSystemAcesIsKept()
+    {
+        // Half of the CI regression this check caused, in the half reproducible without elevation.
+        // Administrators and SYSTEM can already take ownership of anything, so their presence is not a
+        // boundary this can defend and must not read as hostile. (The other half is a file *owned* by
+        // BUILTIN\Administrators, which Windows assigns by default under an elevated process; setting
+        // that owner needs SeRestorePrivilege, so it is covered by the same carve-out and exercised by
+        // the elevated CI lane rather than arranged here.)
+        var paths = new InteractiveDesktopPaths(new ProcessInspector());
+        paths.EnsureDirectories();
+
+        File.WriteAllText(paths.StatePath, "{\"version\":1}");
+        var file = new FileInfo(paths.StatePath);
+        var acl = file.GetAccessControl();
+        acl.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            FileSystemRights.FullControl,
+            AccessControlType.Allow));
+        acl.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+            FileSystemRights.FullControl,
+            AccessControlType.Allow));
+        file.SetAccessControl(acl);
+
+        new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories();
+
+        Assert.IsTrue(File.Exists(paths.StatePath),
+            "an Administrators/SYSTEM ACE is not another standard user and must not discard live state");
+    }
+
+    [TestMethod]
+    public void AStateFileGrantedToAnotherStandardUserIsStillDiscarded()
+    {
+        // The boundary that does matter, and the one the Administrators carve-out must not widen:
+        // an ACE naming an ordinary account that is not this user.
+        var paths = new InteractiveDesktopPaths(new ProcessInspector());
+        paths.EnsureDirectories();
+
+        File.WriteAllText(paths.StatePath, "{\"version\":1}");
+        var file = new FileInfo(paths.StatePath);
+        var acl = file.GetAccessControl();
+        // Guests is a well-known group, but not a privileged one — it stands in for any other account.
+        acl.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinGuestsSid, null),
+            FileSystemRights.FullControl,
+            AccessControlType.Allow));
+        file.SetAccessControl(acl);
+
+        new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories();
+
+        Assert.IsFalse(File.Exists(paths.StatePath),
+            "a grant to any non-privileged identity other than this user is still untrusted");
+    }
+
+    [TestMethod]
     public void AnAlreadySecuredDirectoryKeepsItsContents()
     {
         // The steady state, and the case that must not become destructive: a second winapp process

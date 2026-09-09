@@ -189,7 +189,7 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
 
             try
             {
-                if (IsCurrentUserOnly(file.GetAccessControl(), currentUser, requireProtected: false))
+                if (IsFileReachableOnlyByThisUser(file.GetAccessControl(), currentUser))
                 {
                     continue;
                 }
@@ -454,26 +454,64 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
     ];
 
     /// <summary>
+    /// Whether a coordination <em>file</em> can only be written by this user or by an identity that
+    /// already outranks the protection entirely.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately not the directory rule. We create directories and set their owner explicitly, so
+    /// requiring the owner to be exactly this user is both achievable and meaningful there. Files are
+    /// created by ordinary I/O and inherit the system's default owner, which on an elevated process is
+    /// <c>BUILTIN\Administrators</c> rather than the running user. Applying the directory rule to files
+    /// deleted a perfectly good state document on every command in exactly that configuration.
+    /// </para>
+    /// <para>
+    /// SYSTEM and Administrators are excluded from the check because they are not a boundary this can
+    /// defend: either can already take ownership of any file and grant themselves whatever they like.
+    /// Treating their presence as hostile buys no security and costs a false positive that destroys
+    /// live state. The identity that matters is another <em>standard</em> user, and any ACE naming one
+    /// still fails this.
+    /// </para>
+    /// </remarks>
+    private static bool IsFileReachableOnlyByThisUser(FileSecurity security, SecurityIdentifier currentUser)
+    {
+        if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner
+            || !IsSelfOrPrivileged(owner, currentUser))
+        {
+            return false;
+        }
+
+        foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+        {
+            if (rule.IdentityReference is not SecurityIdentifier sid || !IsSelfOrPrivileged(sid, currentUser))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsSelfOrPrivileged(SecurityIdentifier sid, SecurityIdentifier currentUser)
+        => sid == currentUser
+            || sid.IsWellKnown(WellKnownSidType.LocalSystemSid)
+            || sid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid);
+
+    /// <summary>
     /// Whether <paramref name="security"/> describes an object only the current user can reach or
     /// re-permission.
     /// </summary>
     /// <remarks>
-    /// <para>
     /// Owner is checked as well as the DACL because the owner of an object implicitly holds
     /// <c>WRITE_DAC</c>: a foreign owner can rewrite even a protected, current-user-only DACL and grant
     /// itself access at any time. That matters most for a <c>WINAPP_UI_LOCK_DIRECTORY</c> override under
     /// a shared path, where another user may have created the directory first.
-    /// </para>
     /// <para>
-    /// <paramref name="requireProtected"/> is what differs between a directory and a file inside it. A
-    /// directory has to reject inherited rules outright, because it may hang under a shared parent that
-    /// grants other users. A file inside an already-verified directory legitimately inherits from it,
-    /// so for files the question is only whether any rule — inherited or explicit — names somebody
-    /// else, which the loop below answers either way.
+    /// This is the strict <em>directory</em> rule. Files use
+    /// <see cref="IsFileReachableOnlyByThisUser"/>, which differs for reasons documented there.
     /// </para>
     /// </remarks>
-    internal static bool IsCurrentUserOnly(
-        FileSystemSecurity security, SecurityIdentifier currentUser, bool requireProtected = true)
+    internal static bool IsCurrentUserOnly(FileSystemSecurity security, SecurityIdentifier currentUser)
     {
         if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner
             || owner != currentUser)
@@ -481,7 +519,7 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
             return false;
         }
 
-        if (requireProtected && !security.AreAccessRulesProtected)
+        if (!security.AreAccessRulesProtected)
         {
             // Inherited rules can grant anyone the parent grants, which for a shared override directory
             // includes other users.
