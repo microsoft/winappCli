@@ -412,6 +412,11 @@ internal sealed class ApiMetadataService(
     /// simply treating "no manifest" as stale: a project that legitimately produces no
     /// manifest — one that resolves no metadata packages at all — would otherwise be
     /// missing forever and re-index the whole solution on every query.
+    ///
+    /// The solution file's own timestamp is the second trigger, because adding an
+    /// already-restored project changes membership without touching that project's
+    /// restore output — its <c>project.assets.json</c> can be older than the manifest
+    /// written for a sibling, leaving the new project invisible to every query.
     /// </summary>
     private static bool HasRestoredProjectMissingFromIndex(string solutionDir, List<ProjectManifest> indexed)
     {
@@ -430,6 +435,9 @@ internal sealed class ApiMetadataService(
             .DefaultIfEmpty(DateTime.MinValue)
             .Max();
 
+        bool membershipChanged = ApiCacheBuilder.FindSolutionFileInDir(solutionDir) is { } solutionFile
+            && File.GetLastWriteTimeUtc(solutionFile) > lastIndexed;
+
         foreach (string projectFile in ApiCacheBuilder.DiscoverProjectFiles(solutionDir, scan: false))
         {
             string dir = Path.GetFullPath(Path.GetDirectoryName(projectFile)!).TrimEnd(Path.DirectorySeparatorChar);
@@ -438,7 +446,11 @@ internal sealed class ApiMetadataService(
                 continue;
             }
             string? restoreOutput = NuGetResolver.FindRestoreOutput(dir);
-            if (restoreOutput is not null && File.GetLastWriteTimeUtc(restoreOutput) > lastIndexed)
+            if (restoreOutput is null)
+            {
+                continue;
+            }
+            if (membershipChanged || File.GetLastWriteTimeUtc(restoreOutput) > lastIndexed)
             {
                 return true;
             }
