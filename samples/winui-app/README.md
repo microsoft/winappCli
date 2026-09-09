@@ -50,6 +50,11 @@ winapp run .\bin\x64\Debug\net10.0-windows10.0.26100.0\win-x64 --detach --json
 ## Testing with winapp ui
 
 ```powershell
+# Optional: set once per logical UI workflow so these commands are treated as one workflow and can
+# overlap with each other. Collision arbitration against other workflows is always on either way;
+# this only adds continuity across commands. Unset, each command runs as a standalone one-shot.
+$env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString()
+
 # Inspect the UI tree
 winapp ui inspect -a winui-app
 

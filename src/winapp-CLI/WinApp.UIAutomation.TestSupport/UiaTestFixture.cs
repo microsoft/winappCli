@@ -62,6 +62,13 @@ public sealed class UiaTestFixture : IDisposable
     public TrackBar Slider { get; private set; } = null!;
     public TabControl Tabs { get; private set; } = null!;
     public MenuStrip Menu { get; private set; } = null!;
+
+    /// <summary>
+    /// The "File" menu. Its drop-down is genuine transient UI: Windows dismisses it when another
+    /// window takes the foreground, which is what makes it a faithful subject for the cooperative-turn
+    /// acceptance tests (issue #764 §18.3).
+    /// </summary>
+    public ToolStripMenuItem FileMenu { get; private set; } = null!;
     public TreeView Tree { get; private set; } = null!;
     public Panel HScrollPanel { get; private set; } = null!;
     public NumericUpDown Spinner { get; private set; } = null!;
@@ -505,9 +512,10 @@ public sealed class UiaTestFixture : IDisposable
         };
 
         Menu = new MenuStrip { Name = "menuMain", AccessibleName = "Main Menu" };
-        var fileMenu = new ToolStripMenuItem("File") { Name = "menuFile" };
-        fileMenu.DropDownItems.Add(new ToolStripMenuItem("Open") { Name = "menuOpen" });
-        Menu.Items.Add(fileMenu);
+        // AccessibleName (not Name) is what UIA exposes, so an external winapp.exe can select this item.
+        FileMenu = new ToolStripMenuItem("File") { Name = "menuFile", AccessibleName = "File Menu" };
+        FileMenu.DropDownItems.Add(new ToolStripMenuItem("Open") { Name = "menuOpen", AccessibleName = "Open Item" });
+        Menu.Items.Add(FileMenu);
 
         DupButton = new Button
         {
@@ -645,6 +653,70 @@ public sealed class UiaTestFixture : IDisposable
 
     /// <summary>Native window handle of a hosted control (read on the UI thread).</summary>
     public nint HandleOf(Control control) => OnUiThread(() => control.Handle);
+
+    /// <summary>
+    /// Opens the File drop-down, producing real transient UI on the desktop, and waits for it to be
+    /// shown. Used by the cooperative-turn acceptance tests (issue #764 §18.3).
+    /// </summary>
+    /// <remarks>
+    /// A drop-down only appears on an active window, and under load the activation that
+    /// <c>ShowDropDown</c> relies on can be dropped. Forcing the foreground and retrying keeps this
+    /// setup step deterministic, so a coordination test never fails for an unrelated reason. Throws
+    /// rather than returning quietly: a test that proceeds without its transient UI would assert
+    /// nothing meaningful.
+    /// </remarks>
+    public void OpenFileMenu()
+    {
+        var deadline = Environment.TickCount64 + 8000;
+        while (Environment.TickCount64 < deadline)
+        {
+            DesktopTestHelpers.ForceForeground(Hwnd);
+            OnUiThread(() =>
+            {
+                Form.Activate();
+                Form.BringToFront();
+                FileMenu.ShowDropDown();
+            });
+
+            // ShowDropDown posts the popup; give the menu window a moment to actually appear so a test
+            // never asserts against a drop-down that has been requested but not yet realized.
+            var attemptDeadline = Environment.TickCount64 + 1000;
+            while (Environment.TickCount64 < attemptDeadline)
+            {
+                if (IsFileMenuOpen)
+                {
+                    return;
+                }
+
+                Thread.Sleep(25);
+            }
+        }
+
+        throw new TimeoutException(
+            "The File drop-down did not open within 8s, so the fixture never presented the transient UI under test.");
+    }
+
+    /// <summary>Whether the File drop-down is currently displayed.</summary>
+    public bool IsFileMenuOpen => OnUiThread(() => FileMenu.DropDown.Visible);
+
+    /// <summary>
+    /// Closes the File drop-down and leaves menu mode.
+    /// </summary>
+    /// <remarks>
+    /// An open drop-down puts the thread into Windows menu mode, which captures keyboard input for the
+    /// whole desktop. Disposing the form without closing it can leave that capture behind and silently
+    /// swallow input in whatever runs next, so tests that open the menu must close it.
+    /// </remarks>
+    public void CloseFileMenu()
+    {
+        OnUiThread(() =>
+        {
+            FileMenu.DropDown.Close();
+            // Explicitly leave menu mode; closing only the drop-down can leave the strip focused.
+            Menu.Items.OfType<ToolStripMenuItem>().ToList().ForEach(item => item.DropDown.Close());
+            Form.Focus();
+        });
+    }
 
     /// <summary>Screen-space center point of a hosted control (read on the UI thread).</summary>
     public (int X, int Y) ScreenCenterOf(Control control) => OnUiThread(() =>

@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <RootNamespace>Microsoft.WindowsAppSDK.Analyzers</RootNamespace>
+    <AssemblyName>Microsoft.WindowsAppSDK.Analyzers</AssemblyName>
+
+    <!--
+      Packing is driven by scripts/package-nuget.ps1 (GeneratePackageOnBuild stays
+      off so ordinary solution builds don't pack). The package is published
+      standalone as Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer. The PackageId
+      differs from the AssemblyName on purpose: the assembly identity (and the
+      WUIxxxx rule IDs) stay stable while the package rides winappCli's own
+      Microsoft.Windows.SDK.BuildTools.* namespace.
+    -->
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageId>Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer</PackageId>
+    <Description>Roslyn analyzers for WinUI 3 / Windows App SDK apps. Catches UWP→WinUI compatibility issues, runtime pitfalls, MVVM regressions, and interop bugs at build time.</Description>
+    <PackageTags>winui;winui3;windowsappsdk;analyzers;roslyn</PackageTags>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <!--
+      No symbol package: this is an analyzer packed via analyzers/ (IncludeBuildOutput
+      is false, so there is no library PDB to ship). The repo-wide IncludeSymbols=true
+      would otherwise emit an empty .snupkg and fail packing with NU5017.
+    -->
+    <IncludeSymbols>false</IncludeSymbols>
+
+    <!--
+      Suppressed analyzer self-checks:
+      RS1032  Message punctuation rules — our messages contain code samples with periods/braces.
+      RS1030  Compilation.GetSemanticModel — needed for cross-file XAML→code-behind correlation.
+      CA1310  StringComparison — our string compares are over symbol display strings, ordinal is fine implicitly.
+      NU1701  TFM mismatch from Microsoft.CodeAnalysis.Testing transitive — only affects test project.
+      (RS2008 release tracking is now satisfied by AnalyzerReleases.{Shipped,Unshipped}.md below.)
+    -->
+    <NoWarn>$(NoWarn);RS1032;RS1030;CA1310;NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Reference the OLDEST Roslyn we must run on, not the newest. The CLI documents .NET SDK
+      8.0.100+ for project-mode run (docs/guides/dotnet.md), whose compiler is Roslyn 4.8;
+      an analyzer that references a newer Microsoft.CodeAnalysis is skipped by that compiler
+      (CS9057), so pinning 4.8.0 keeps .NET 8 users receiving diagnostics. The rules use only
+      stable analyzer/SyntaxKind APIs, so 4.8 is sufficient.
+    -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Package-root content (also satisfies NuGet's non-empty-package check, NU5017). -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="" Visible="false" />
+    <None Include="..\icon.png" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
+
+  <!-- Analyzer release tracking (satisfies RS2008; validated by Microsoft.CodeAnalysis.Analyzers). -->
+  <ItemGroup>
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+
+  <!--
+    Pack the analyzer DLL and targets into the correct NuGet folders (only effective
+    when packing). NuGet auto-imports build/$(PackageId).targets and
+    buildTransitive/$(PackageId).targets, so the file is renamed to match PackageId
+    on pack even though the on-disk name tracks the assembly.
+  -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="Microsoft.WindowsAppSDK.Analyzers.targets" Pack="true" PackagePath="buildTransitive/$(PackageId).targets" Visible="false" />
+    <None Include="Microsoft.WindowsAppSDK.Analyzers.targets" Pack="true" PackagePath="build/$(PackageId).targets" Visible="false" />
+  </ItemGroup>
+
+</Project>

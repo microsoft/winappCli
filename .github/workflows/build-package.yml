@@ -164,6 +164,19 @@ jobs:
         $platform = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
         .\scripts\test-e2e-winui-ui.ps1 -WinAppPath "artifacts/cli/win-$platform/winapp.exe"
 
+    # Gated cooperative desktop-turn coverage (issue #764). Runs here, on the interactive lane, because
+    # it drives real winapp.exe processes against a real foreground window.
+    - name: Run UI coordination multiprocess and real-app tests
+      run: .\scripts\test-ui-coordination.ps1
+
+    - name: Upload UI coordination test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ui-coordination-test-results
+        path: artifacts/TestResults/ui-coordination/
+        if-no-files-found: warn
+
     - name: Upload screenshots
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

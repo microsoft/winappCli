@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -46,13 +47,17 @@ internal partial class UiInspectCommand : Command, IShortDescription
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
         IAnsiConsole ansiConsole,
-        ILogger<UiInspectCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiInspectCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui inspect";
+
+        /// <summary>Walking the UIA tree is a background-safe read.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.Observe;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-
-            var selector = parseResult.GetValue(SharedUiOptions.SelectorArgument);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
 
@@ -61,6 +66,17 @@ internal partial class UiInspectCommand : Command, IShortDescription
                 UiErrors.MissingApp(logger, json);
                 return 1;
             }
+
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+
+            var selector = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var depth = parseResult.GetRequiredValue(SharedUiOptions.DepthOption);
             var depthExplicit = parseResult.GetResult(SharedUiOptions.DepthOption)?.Implicit == false;
             var ancestors = parseResult.GetValue(AncestorsOption);
@@ -260,7 +276,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
                 UiErrors.StaleElement(logger, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;

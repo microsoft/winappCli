@@ -1,0 +1,48 @@
+<Project>
+  <!--
+    Graceful self-deactivation (coordination contract).
+
+    If the Windows App SDK itself later ships these WinUI analyzers, a project that
+    references both this package and that SDK would see every WUIxxxx diagnostic
+    twice. To hand off cleanly without a coordinated release between the two
+    packages, the Windows App SDK's build logic sets:
+
+        <WindowsAppSDKProvidesWinUIAnalyzer>true</WindowsAppSDKProvidesWinUIAnalyzer>
+
+    When that property is 'true', this package stands down: it drops its own
+    analyzer assembly from @(Analyzer) and skips the XAML AdditionalFiles target
+    below, so only the Windows App SDK's copy runs. A consumer can also set the
+    property themselves to force this package off.
+
+    The check runs inside a target (BeforeTargets="CoreCompile"), NOT at static
+    property evaluation, because import order between two independent NuGet
+    packages is not guaranteed. Evaluating late guarantees the Windows App SDK's
+    targets have already had their chance to set the property. The two targets are
+    mutually exclusive by condition, so their relative order does not matter.
+
+    To turn the analyzer off manually without this contract, use NuGet's built-in
+    opt-out on the PackageReference instead: ExcludeAssets="analyzers".
+  -->
+  <Target Name="WindowsAppSDKAnalyzersStandDownIfSuperseded"
+          BeforeTargets="CoreCompile"
+          Condition="'$(WindowsAppSDKProvidesWinUIAnalyzer)' == 'true'">
+    <ItemGroup>
+      <Analyzer Remove="@(Analyzer->WithMetadataValue('Filename','Microsoft.WindowsAppSDK.Analyzers'))" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Auto-inject XAML files as AdditionalFiles so the WinUI analyzer can inspect them.
+    Runs before CoreCompile so .xaml files surface in AnalyzerOptions.AdditionalFiles
+    inside the rule analyzers. Skipped when the Windows App SDK supersedes this
+    package (see the stand-down contract above).
+  -->
+  <Target Name="WindowsAppSDKAnalyzersInjectXamlFiles"
+          BeforeTargets="CoreCompile"
+          Condition="'$(WindowsAppSDKProvidesWinUIAnalyzer)' != 'true'">
+    <ItemGroup>
+      <AdditionalFiles Include="@(Page)" Condition="'%(Extension)' == '.xaml'" />
+      <AdditionalFiles Include="@(ApplicationDefinition)" Condition="'%(Extension)' == '.xaml'" />
+    </ItemGroup>
+  </Target>
+</Project>
