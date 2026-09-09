@@ -314,6 +314,42 @@ public sealed class ApiMetadataServiceTests
     private static readonly List<string> SampleCaveats = ["Runtime metadata was excluded; some APIs may be missing."];
 
     [TestMethod]
+    public void Query_IndexWithCaveats_QualifiesAFailedLookupToo()
+    {
+        // "Type not found" is the answer a caller acts on hardest — an agent takes it as
+        // proof the API does not exist and writes different code. A failure carries no
+        // payload, so the caveat that would have said "runtime metadata was excluded" is
+        // dropped exactly when it changes the meaning of the answer.
+        WriteProjectFile(_currentDir, "Alpha");
+        WriteManifest("Alpha", _currentDir, caveats: SampleCaveats);
+        WriteSdkManifest();
+
+        var result = CreateService().Members("Contoso.Missing", new ApiRequestScope(null, null));
+
+        Assert.AreNotEqual(ApiQueryOutcome.Ok, result.Outcome, "the type is absent from the index");
+        StringAssert.Contains(
+            result.Message,
+            SampleCaveats[0],
+            "a not-found answer must say the index was incomplete");
+    }
+
+    [TestMethod]
+    public void QueryBatch_IndexWithCaveats_QualifiesEachFailedLookup()
+    {
+        // Batch mode is what an agent uses to check several types at once, so a dropped
+        // caveat there is dropped across every answer in the run.
+        WriteProjectFile(_currentDir, "Alpha");
+        WriteManifest("Alpha", _currentDir, caveats: SampleCaveats);
+        WriteSdkManifest();
+
+        var results = CreateService().MembersBatch(["Contoso.Missing"], new ApiRequestScope(null, null));
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreNotEqual(ApiQueryOutcome.Ok, results[0].Result.Outcome);
+        StringAssert.Contains(results[0].Result.Message, SampleCaveats[0]);
+    }
+
+    [TestMethod]
     public void Query_SdkScope_ReportsSdkNameAndNoProjectDir()
     {
         // The SDK scope has no project directory; it must be null rather than the

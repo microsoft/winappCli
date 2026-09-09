@@ -27,6 +27,30 @@ internal readonly record struct ApiQueryResult<T>(ApiQueryOutcome Outcome, strin
     public static ApiQueryResult<T> InvalidInput(string message) => new(ApiQueryOutcome.InvalidInput, message, null);
     public static ApiQueryResult<T> NotFound(string message) => new(ApiQueryOutcome.NotFound, message, null);
     public static ApiQueryResult<T> NotAnEnum(string message) => new(ApiQueryOutcome.NotAnEnum, message, null);
+
+    /// <summary>
+    /// Qualifies a failed answer with what the answering index could not cover.
+    /// </summary>
+    /// <remarks>
+    /// A successful answer carries its caveats on the payload, but a failure has no payload
+    /// to carry them — so they would be dropped on exactly the answer most likely to be
+    /// acted on destructively. "Type not found" from an index that only covered one of four
+    /// target frameworks reads as proof the API does not exist, and the caller deletes
+    /// working code or refuses to generate it.
+    /// </remarks>
+    public ApiQueryResult<T> WithCaveats(List<string>? caveats)
+    {
+        if (IsOk || caveats is not { Count: > 0 })
+        {
+            return this;
+        }
+        string qualified = Message ?? string.Empty;
+        foreach (string caveat in caveats)
+        {
+            qualified += "\n\u26a0 " + caveat;
+        }
+        return this with { Message = qualified };
+    }
 }
 
 /// <summary>

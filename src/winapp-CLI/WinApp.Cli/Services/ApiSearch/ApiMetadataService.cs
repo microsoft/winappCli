@@ -256,7 +256,11 @@ internal sealed class ApiMetadataService(
         {
             StampScope(scoped, resolved);
         }
-        return result;
+
+        // A failure has no payload to stamp, so its caveats are attached to the message
+        // instead — otherwise the one answer a caller acts on hardest ("not found") is the
+        // one that never says the index was partial.
+        return result.WithCaveats(resolved.Manifest.Caveats);
     }
 
     /// <summary>
@@ -293,12 +297,15 @@ internal sealed class ApiMetadataService(
         }
 
         var results = query(cacheDir, resolved.Manifest);
-        foreach ((_, ApiQueryResult<T> result) in results)
+        for (int i = 0; i < results.Count; i++)
         {
+            (string key, ApiQueryResult<T> result) = results[i];
             if (result.Data is IApiScopedOutput scoped)
             {
                 StampScope(scoped, resolved);
+                continue;
             }
+            results[i] = (key, result.WithCaveats(resolved.Manifest.Caveats));
         }
         return results;
     }
