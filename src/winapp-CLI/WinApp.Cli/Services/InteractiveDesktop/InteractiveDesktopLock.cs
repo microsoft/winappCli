@@ -184,7 +184,9 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
 
         // Normalization alone can already have released this turn — the grace may have lapsed while the
         // caller was getting here — and can promote a waiter. Either way the result must be published.
-        var changed = _scheduler.Normalize(state, CreateProbe()) | read.RecoveredFromCorruption;
+        // `||` is safe despite Normalize's side effects: it is the LEFT operand, so it always runs.
+        // The right side is a plain flag read from the state we already have.
+        var changed = _scheduler.Normalize(state, CreateProbe()) || read.RecoveredFromCorruption;
 
         var result = UiYieldResult.NothingHeld;
         if (InteractiveDesktopScheduler.IsCurrentOwner(state, owner))
