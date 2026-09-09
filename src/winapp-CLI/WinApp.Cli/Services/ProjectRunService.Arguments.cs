@@ -366,9 +366,21 @@ internal sealed partial class ProjectRunService
     /// the case where the user owns the choice (see <c>ResolveSingleFileRuntimeIdentifierAsync</c>).
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The MSBuild property names a single <c>-p</c> token sets, trimmed.
+    /// </summary>
+    /// <remarks>
+    /// Shared so every decision keyed on "does the user set property X?" parses the token identically.
+    /// They previously diverged: the RID-injection check used a raw <c>StartsWith</c> while this filter
+    /// trimmed, so <c>-p " RuntimeIdentifier=win-arm64"</c> was invisible to the first (winapp injected
+    /// the host RID over it) and visible to the second (which then dropped the user's value) — the app
+    /// built for the wrong architecture.
+    /// </remarks>
+    internal static IEnumerable<string> PropertyNames(string property) =>
+        property.Split(';').Select(segment => segment.Split('=', 2)[0].Trim());
+
     private static IEnumerable<string> SingleFileForwardableProperties(IReadOnlyList<string> properties, bool ridInjected = false) =>
-        properties.Where(p => !p.Split(';')
-            .Select(segment => segment.Split('=', 2)[0].Trim())
+        properties.Where(p => !PropertyNames(p)
             .Any(name => name.Equals("Configuration", StringComparison.OrdinalIgnoreCase)
                 || (ridInjected && name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))));
 

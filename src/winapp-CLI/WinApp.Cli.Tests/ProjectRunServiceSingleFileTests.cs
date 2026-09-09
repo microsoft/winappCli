@@ -226,6 +226,46 @@ public class ProjectRunServiceSingleFileTests : IDisposable
     }
 
     [TestMethod]
+    [DataRow("RuntimeIdentifier=win-arm64", DisplayName = "plain")]
+    [DataRow(" RuntimeIdentifier=win-arm64", DisplayName = "leading space")]
+    [DataRow("RuntimeIdentifier =win-arm64", DisplayName = "space before '='")]
+    public async Task UserRuntimeIdentifierProperty_IsNeverOverriddenByAnInjectedRid(string property)
+    {
+        // A user -p:RuntimeIdentifier is theirs to own. The injection check and the forwarding filter
+        // parsed the token differently: the check used a raw StartsWith while the filter trimmed, so a
+        // padded name was invisible to the check (winapp injected the host RID) and visible to the filter
+        // (which then dropped the user's value) — the app silently built for the wrong architecture.
+        var singleFile = WriteSingleFile();
+        var output = _tempDir.CreateSubdirectory("bin").CreateSubdirectory("debug");
+        File.WriteAllText(Path.Join(output.FullName, "counter.exe"), "exe");
+
+        var evaluated = "{\"Properties\": {\"TargetDir\": \"" + output.FullName.Replace("\\", "\\\\") +
+            "\", \"AssemblyName\": \"counter\", \"RuntimeIdentifier\": \"\", \"WindowsPackageType\": \"MSIX\", \"OutputType\": \"Exe\"}}";
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, evaluated, string.Empty),
+            RunDotnetArgumentListHandler = _ => (0, evaluated, string.Empty),
+        };
+        var service = new ProjectRunService(
+            dotnet,
+            new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, dotnet),
+            new FakeCsWinRTMetadataShimService(),
+            _testConsole,
+            NullLogger<ProjectRunService>.Instance);
+        var options = new SingleFileRunOptions("Debug", "x64", ArchitectureIsExplicit: false, NoBuild: false, NoRestore: false, [property]);
+
+        await service.BuildAndResolveSingleFileAsync(singleFile, options, TestContext.CancellationToken);
+
+        var invocations = dotnet.StringInvocations
+            .Concat(dotnet.ArgumentListInvocations.Select(a => string.Join(' ', a)))
+            .ToList();
+        Assert.IsFalse(invocations.Any(a => a.Contains("-r win-x64", StringComparison.OrdinalIgnoreCase)),
+            "winapp must not inject a RID over the user's own RuntimeIdentifier property");
+        Assert.IsTrue(invocations.Any(a => a.Contains("win-arm64", StringComparison.OrdinalIgnoreCase)),
+            "The user's RuntimeIdentifier must reach the build");
+    }
+
+    [TestMethod]
     public async Task NoBuild_InferredArchitecture_FallsBackToAPlainBuildOutput()
     {
         // winapp injects -r win-<arch>, which adds a path segment, so `dotnet build app.cs` followed by

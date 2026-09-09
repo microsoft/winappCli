@@ -143,8 +143,10 @@ internal sealed partial class ProjectRunService
             return options with { InjectedRuntimeIdentifier = requested };
         }
 
-        // A user -p:RuntimeIdentifier is theirs to own; never inject over it.
-        if (options.Properties.Any(p => p.StartsWith("RuntimeIdentifier=", StringComparison.OrdinalIgnoreCase)))
+        // A user -p:RuntimeIdentifier is theirs to own; never inject over it. Parsed through the same
+        // helper the forwarding filter uses, so a padded name like ' RuntimeIdentifier=win-arm64' cannot
+        // be invisible here and visible there — which silently dropped the user's override.
+        if (options.Properties.Any(p => PropertyNames(p).Any(name => name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))))
         {
             return options with { InjectedRuntimeIdentifier = null };
         }
