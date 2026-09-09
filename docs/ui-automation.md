@@ -31,6 +31,21 @@ winapp ui invoke Close -a notepad
 winapp ui screenshot -a notepad
 ```
 
+## Running UI automation in Windows Sandbox
+
+To keep automation off your desktop, add `--on sandbox` to the run and UI commands:
+
+```powershell
+winapp run . --on sandbox
+winapp ui inspect --on sandbox -a MyApp
+winapp ui invoke --on sandbox SubmitButton -a MyApp
+```
+
+App names, PIDs, and window handles are interpreted inside the selected Sandbox. Commands from
+different workflows coordinate on the Sandbox desktop, while the host desktop remains a separate
+coordination domain. See [Windows Sandbox execution](sandbox-execution.md) for setup, lifecycle,
+artifact copy-back, and recovery guidance.
+
 ## Coordinating concurrent UI workflows
 
 Windows has only one foreground window, one keyboard focus, one cursor, and one input stream. When

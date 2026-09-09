@@ -7,8 +7,7 @@ Build on your machine, then run and automate the app inside a persistent Windows
 
 > [!NOTE]
 > This feature is in development. `winapp run --on sandbox`, `winapp unregister --on sandbox`,
-> `winapp ui ... --on sandbox`, `winapp target exec sandbox`, and `winapp target push sandbox` work. This page
-> documents the behaviour and its failure modes so they are reviewable alongside the code.
+> `winapp ui ... --on sandbox`, `winapp target exec sandbox`, and `winapp target push sandbox` work.
 
 ## Why
 
@@ -76,11 +75,8 @@ It is **not** proof against a co-resident guest process that replaces a verified
 link in the moment between that final check and the open. Closing that race requires
 handle-relative, no-follow file opens on every component, which v1 does not implement.
 
-That residual race is accepted deliberately, and it is consistent with the trust model above rather
-than an exception to it: a guest process able to win it can already terminate the agent, edit the
-deployment directly, or interfere with the application, because everything in the Sandbox runs as
-the same user. It is not the weakest link. Workflows that must be isolated from one another need
-separate machines.
+A co-resident guest process can still replace a verified component during that final race. Workflows
+that must be isolated from one another need separate machines.
 
 ## Running an app
 
@@ -277,7 +273,7 @@ runs, and forwarded whole to guest winapp — so the host performs no UI Automat
 capture, or input injection. That is the point: a Sandbox workflow cannot steal your focus, move your
 cursor, or type into your windows.
 
-A string app target can opt in by prefix instead:
+App names, PIDs, and window handles are interpreted inside the target selected by `--on sandbox`:
 
 ```powershell
 winapp ui inspect --on sandbox -a MyApp

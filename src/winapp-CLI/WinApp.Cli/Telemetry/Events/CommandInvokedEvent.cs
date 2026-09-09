@@ -63,6 +63,24 @@ internal class CommandInvokedEvent : EventBase
                     ? target!.Kind
                     : InvalidTargetKind;
             }
+
+            foreach (var argument in command.Children.OfType<ArgumentResult>())
+            {
+                if (!string.Equals(argument.Argument.Name, "target", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (argument.Errors.Any())
+                {
+                    return InvalidTargetKind;
+                }
+
+                return ExecutionTargetSelector.TryParse(
+                    argument.GetValueOrDefault<string?>(), out var target, out _)
+                    ? target!.Kind
+                    : InvalidTargetKind;
+            }
         }
 
         return ExecutionTargetRef.LocalKind;

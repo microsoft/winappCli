@@ -305,6 +305,10 @@ internal static class Program
         {
             EmitFindUiJsonError($"{message} {advice}");
         }
+        else if (effectiveJson && IsTargetDescendant(parsedArgs))
+        {
+            TargetOutput.RejectCommandLine($"{message} {advice}");
+        }
         else
         {
             Console.Error.WriteLine(message);

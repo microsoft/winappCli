@@ -379,9 +379,8 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
 
 The host performs no UI Automation, window discovery, capture, or input injection, so the workflow
 cannot steal focus, move the cursor, or type into the wrong window. `-o` files are copied back to the
-host path given and verified before they are published. A string app target can opt in by prefix
-instead — `--on sandbox -a MyApp` — while a numeric `--window` needs the flag, because a handle carries no
-scope of its own.
+host path given and verified before they are published. App names, PIDs, and window handles are all
+interpreted inside the execution target selected by `--on sandbox`.
 
 Use the `winapp-sandbox` skill for prerequisites, lifecycle, and error codes.
 

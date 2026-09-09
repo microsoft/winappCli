@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Telemetry.Events;
 
@@ -44,20 +45,22 @@ public class TargetTelemetryTests : BaseCommandTests
     [TestMethod]
     public void TargetExec_RecordsNeitherTheCommandNorItsArgumentsNorPaths()
     {
-        var context = CreateContextFor(
+        var (context, targetKind) = CreateEventFor(
             "target", "exec", "sandbox", "--cwd", @"C:\Customers\Contoso",
             "--", "dotnet", "run", "--token", "s3cr3t-value");
 
         AssertNothingSensitive(context);
+        Assert.AreEqual(ExecutionTargetRef.SandboxKind, targetKind);
     }
 
     [TestMethod]
     public void TargetPush_RecordsNeitherEndpointNorFileName()
     {
-        var context = CreateContextFor(
+        var (context, targetKind) = CreateEventFor(
             "target", "push", "sandbox", @"C:\Customers\Contoso\secret-file.txt", @"Guest\Results");
 
         AssertNothingSensitive(context);
+        Assert.AreEqual(ExecutionTargetRef.SandboxKind, targetKind);
     }
 
     /// <summary>
@@ -66,10 +69,11 @@ public class TargetTelemetryTests : BaseCommandTests
     [TestMethod]
     public void Run_RecordsNeitherApplicationArgumentsNorPaths()
     {
-        var context = CreateContextFor(
+        var (context, targetKind) = CreateEventFor(
             "run", @"C:\Customers\Contoso", "--on", "sandbox", "--args", "--token s3cr3t-value");
 
         AssertNothingSensitive(context);
+        Assert.AreEqual(ExecutionTargetRef.SandboxKind, targetKind);
     }
 
     private static void AssertNothingSensitive(string context)
@@ -83,11 +87,12 @@ public class TargetTelemetryTests : BaseCommandTests
         }
     }
 
-    private string CreateContextFor(params string[] arguments)
+    private (string Context, string TargetKind) CreateEventFor(params string[] arguments)
     {
         var root = GetRequiredService<WinAppRootCommand>();
         var parseResult = root.Parse(arguments, WinAppParserConfiguration.Default);
+        var telemetryEvent = new CommandInvokedEvent(parseResult.CommandResult, DateTime.UtcNow);
 
-        return CommandInvokedEvent.CreateContext(parseResult.CommandResult.Children);
+        return (telemetryEvent.Context, telemetryEvent.ExecutionTargetKind);
     }
 }

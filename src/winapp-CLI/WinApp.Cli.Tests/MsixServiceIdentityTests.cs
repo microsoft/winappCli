@@ -872,11 +872,11 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     /// <summary>
-    /// Every safety rule here is phrased as "inside the layout". A link in the layout's own path makes
-    /// that phrase name a different tree, so such a path is refused rather than reasoned about.
+    /// A linked layout root makes pruning unsafe, but additive publication remains safe: the caller
+    /// named that path and winapp leaves everything the recipe does not own in place.
     /// </summary>
     [TestMethod]
-    public async Task CopyFilesFromRecipeAsync_LayoutRootIsAJunction_IsRefused()
+    public async Task CopyFilesFromRecipeAsync_LayoutRootIsAJunction_FallsBackToAdditive()
     {
         var srcDir = _tempDirectory.CreateSubdirectory("recipe-src");
         var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "AppxManifest.xml"));
@@ -895,12 +895,12 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         try
         {
-            var failure = await CaptureCopyFailureAsync(
+            await InvokeCopyFilesFromRecipeAsync(
                 new FileInfo(WriteRecipe(srcManifest)), new DirectoryInfo(layoutPath));
 
-            Assert.IsInstanceOfType<InvalidOperationException>(failure, "A layout root that is a junction must be refused");
-            StringAssert.Contains(failure!.Message, "junction", StringComparison.OrdinalIgnoreCase);
-            Assert.IsTrue(File.Exists(precious), "Nothing in the junction's target may be touched");
+            Assert.IsTrue(File.Exists(precious), "Existing content behind the junction must not be pruned");
+            Assert.IsTrue(File.Exists(Path.Combine(real.FullName, "appxmanifest.xml")),
+                "The requested layout must still be materialized.");
         }
         finally
         {
@@ -916,7 +916,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task CopyFilesFromRecipeAsync_LayoutParentIsAJunction_IsRefused()
+    public async Task CopyFilesFromRecipeAsync_LayoutParentIsAJunction_FallsBackToAdditive()
     {
         var srcDir = _tempDirectory.CreateSubdirectory("recipe-src");
         var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "AppxManifest.xml"));
@@ -936,12 +936,14 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         try
         {
-            var failure = await CaptureCopyFailureAsync(
+            await InvokeCopyFilesFromRecipeAsync(
                 new FileInfo(WriteRecipe(srcManifest)), new DirectoryInfo(Path.Combine(parentLink, "AppX")));
 
-            Assert.IsInstanceOfType<InvalidOperationException>(failure, "A layout reached through a junctioned parent must be refused");
-            Assert.IsTrue(File.Exists(precious), "Nothing behind the junction may be touched");
+            Assert.IsTrue(File.Exists(precious), "Existing content behind the junction must not be pruned");
+            Assert.IsTrue(File.Exists(Path.Combine(layoutInsideReal.FullName, "appxmanifest.xml")),
+                "The requested layout must still be materialized.");
         }
+
         finally
         {
             try
@@ -953,6 +955,36 @@ public class MsixServiceIdentityTests : BaseCommandTests
                 // Best-effort cleanup; the temp root is removed anyway.
             }
         }
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_UnchangedDestinationSymlink_IsRefused()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("unchanged-link-src");
+        var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        var source = new FileInfo(Path.Combine(srcDir.FullName, "payload.dll"));
+        await File.WriteAllTextAsync(source.FullName, "same-bytes", TestContext.CancellationToken);
+
+        var outside = _tempDirectory.CreateSubdirectory("unchanged-link-outside");
+        var target = new FileInfo(Path.Combine(outside.FullName, "payload.dll"));
+        await File.WriteAllTextAsync(target.FullName, "same-bytes", TestContext.CancellationToken);
+        target.LastWriteTimeUtc = source.LastWriteTimeUtc;
+
+        var outputDir = _tempDirectory.CreateSubdirectory("unchanged-link-layout");
+        var link = Path.Combine(outputDir.FullName, "payload.dll");
+        if (!TryCreateFileSymbolicLink(link, target.FullName))
+        {
+            Assert.Inconclusive("Could not create a file symbolic link on this machine (needs Developer Mode).");
+            return;
+        }
+
+        var failure = await CaptureCopyFailureAsync(
+            new FileInfo(WriteRecipe(srcManifest, (source.FullName, "payload.dll"))),
+            new DirectoryInfo(outputDir.FullName));
+
+        Assert.IsInstanceOfType<InvalidOperationException>(failure);
+        StringAssert.Contains(failure!.Message, "symbolic link", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -2941,4 +2973,3 @@ internal sealed class ScriptedMtBuildToolsService : IBuildToolsService
         return _inner.RunBuildToolAsync(tool, arguments, taskContext, printErrors, toolPathOverride, environment, workingDirectory, cancellationToken);
     }
 }
-

@@ -658,17 +658,21 @@ internal partial class MsixService
         LayoutReconciliation reconciliation,
         CancellationToken cancellationToken)
     {
-        // A `None` layout is a staging directory winapp just created, commonly under the system temp
-        // directory, which on some machines is reached through a junction. Nothing there is pruned,
-        // so the link checks that make deletion safe would only reject a legitimate path.
-        var enforceRealPaths = reconciliation != LayoutReconciliation.None;
-
-        if (enforceRealPaths)
+        // A linked ancestor makes destructive reconciliation unsafe, but it does not make additive
+        // publication unsafe: the caller intentionally named that resolved path, and no existing
+        // content is removed. Fall back rather than rejecting common junction-backed source trees.
+        if (reconciliation == LayoutReconciliation.Exact &&
+            FindReparsePointComponent(outputDir.FullName) is { } linkedAncestor)
         {
-            // Validated before anything is created, so a layout path that is refused never gets a
-            // directory created for it as a side effect.
-            EnsureLayoutPathHasNoReparsePoint(outputDir);
+            taskContext.AddDebugMessage(
+                $"{UiSymbols.Warning} Layout path '{outputDir.FullName}' is reached through the link " +
+                $"'{linkedAncestor.FullName}'; leaving files the recipe does not list in place.");
+            reconciliation = LayoutReconciliation.Additive;
         }
+
+        // A `None` layout is a staging directory winapp just created. Additive and downgraded Exact
+        // layouts still validate every destination below the root, but never delete existing files.
+        var enforceRealPaths = reconciliation != LayoutReconciliation.None;
 
         string recipeContent;
         try
@@ -703,12 +707,6 @@ internal partial class MsixService
             outputDir.Refresh();
         }
 
-        if (enforceRealPaths)
-        {
-            // Re-checked after Create: the path may have been swapped for a link since the first check.
-            EnsureLayoutPathHasNoReparsePoint(outputDir);
-        }
-
         var desired = CopyRecipeEntries(entries, outputDir, enforceRealPaths, out var copied, out var skipped);
 
         if (reconciliation != LayoutReconciliation.Exact)
@@ -718,7 +716,8 @@ internal partial class MsixService
             return;
         }
 
-        // Re-checked immediately before the destructive phase, for the same reason as above.
+        // Re-check immediately before deletion. If the path changed to include a link while files
+        // were copied, fail closed rather than pruning through it.
         EnsureLayoutPathHasNoReparsePoint(outputDir);
 
         var (removed, unremovable) = PruneLayout(outputDir, desired, taskContext);
@@ -774,6 +773,13 @@ internal partial class MsixService
             var destPath = Path.Combine(outputDir.FullName, entry.PackagePath);
             var destFile = new FileInfo(destPath);
 
+            if (enforceRealPaths)
+            {
+                // Must precede the unchanged-file fast path: an existing file symlink can have the
+                // same size and timestamp as its target and must not be accepted as valid payload.
+                EnsureDestinationIsInsideLayout(outputDir, destPath);
+            }
+
             // Skip unchanged files (same size and timestamp)
             if (destFile.Exists)
             {
@@ -789,6 +795,7 @@ internal partial class MsixService
 
             if (enforceRealPaths)
             {
+                // Re-check after creating parent directories to catch a concurrent link swap.
                 EnsureDestinationIsInsideLayout(outputDir, destPath);
             }
 
