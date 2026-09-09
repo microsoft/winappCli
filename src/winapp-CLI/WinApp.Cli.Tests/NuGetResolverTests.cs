@@ -17,6 +17,8 @@ public sealed class NuGetResolverTests
 {
     private static readonly string[] SelectedWinmdOnly = ["Contoso.winmd"];
     private static readonly string[] ScannedRuntimeWinmd = ["Contoso.Runtime.winmd"];
+    private static readonly string[] AlphaAndBetaOutputs = ["Alpha.dll", "Beta.dll"];
+    private static readonly string[] MiddleAndLeafOutputs = ["Middle.dll", "Leaf.dll"];
 
     private string _dir = null!;
 
@@ -313,7 +315,7 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
 
         CollectionAssert.AreEquivalent(
-            new[] { "Alpha.dll", "Beta.dll" },
+            AlphaAndBetaOutputs,
             packages.SelectMany(p => p.WinMdFiles).Select(Path.GetFileName).ToList(),
             "both projects named by one Include are on the compile surface");
     }
@@ -368,7 +370,7 @@ public sealed class NuGetResolverTests
         List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
 
         CollectionAssert.AreEquivalent(
-            new[] { "Middle.dll", "Leaf.dll" },
+            MiddleAndLeafOutputs,
             packages.SelectMany(p => p.WinMdFiles).Select(Path.GetFileName).ToList(),
             "a transitively referenced project is on the compile surface");
     }
