@@ -340,21 +340,22 @@ internal static class WinMdParser
         return interfaces;
     }
 
-    private static string GetTypeDefName(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        TypeDefinition typeDef = reader.GetTypeDefinition(handle);
-        string ns = reader.GetString(typeDef.Namespace);
-        string name = reader.GetString(typeDef.Name);
-        return string.IsNullOrEmpty(ns) ? name : ns + "." + name;
-    }
+    /// <summary>
+    /// Names a defined supertype exactly as the index records it. A nested type carries no
+    /// namespace of its own, so reading namespace + name spells <c>Outer.Base</c> as a bare
+    /// <c>Base</c> — a name <see cref="ApiQueryEngine"/> matches against no indexed type,
+    /// which silently drops every member inherited through it.
+    /// </summary>
+    private static string GetTypeDefName(MetadataReader reader, TypeDefinitionHandle handle) =>
+        BuildFullTypeName(reader, reader.GetTypeDefinition(handle));
 
-    private static string GetTypeRefName(MetadataReader reader, TypeReferenceHandle handle)
-    {
-        TypeReference typeRef = reader.GetTypeReference(handle);
-        string ns = reader.GetString(typeRef.Namespace);
-        string name = reader.GetString(typeRef.Name);
-        return string.IsNullOrEmpty(ns) ? name : ns + "." + name;
-    }
+    /// <summary>
+    /// Names a referenced supertype the way <see cref="BuildFullTypeName"/> names a defined
+    /// one; a reference to a nested type reaches its parent through
+    /// <see cref="TypeReference.ResolutionScope"/> rather than its namespace.
+    /// </summary>
+    private static string GetTypeRefName(MetadataReader reader, TypeReferenceHandle handle) =>
+        SimpleTypeProvider.BuildReferenceName(reader, handle, depth: 0);
 
     private static List<WinMdMemberInfo> ParseMembers(
         MetadataReader reader,

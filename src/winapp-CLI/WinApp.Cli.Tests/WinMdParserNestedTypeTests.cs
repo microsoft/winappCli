@@ -41,8 +41,12 @@ public class WinMdParserNestedTypeTests
         }
     }
 
-    /// <summary>A type to emit: its namespace, its name, the outer type it nests in, and whether it is publicly visible.</summary>
-    private sealed record TypeSpec(string Namespace, string Name, string? DeclaredIn = null, bool IsPublic = true);
+    /// <summary>
+    /// A type to emit: its namespace, its name, the outer type it nests in, whether it is
+    /// publicly visible, and the key of an already-listed type it extends (defaulting to
+    /// <c>System.Object</c>).
+    /// </summary>
+    private sealed record TypeSpec(string Namespace, string Name, string? DeclaredIn = null, bool IsPublic = true, string? Extends = null);
 
     /// <summary>
     /// Writes a minimal but valid .winmd containing the given types. Nested types are
@@ -77,11 +81,14 @@ public class WinMdParserNestedTypeTests
             TypeAttributes visibility = nested
                 ? (spec.IsPublic ? TypeAttributes.NestedPublic : TypeAttributes.NestedAssembly)
                 : (spec.IsPublic ? TypeAttributes.Public : TypeAttributes.NotPublic);
+            EntityHandle extends = spec.Extends is not null && handles.TryGetValue(spec.Extends, out TypeDefinitionHandle baseHandle)
+                ? baseHandle
+                : objectTypeRef;
             TypeDefinitionHandle handle = metadata.AddTypeDefinition(
                 visibility | TypeAttributes.Class,
                 metadata.GetOrAddString(nested ? string.Empty : spec.Namespace),
                 metadata.GetOrAddString(spec.Name),
-                objectTypeRef,
+                extends,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
             handles[Key(spec)] = handle;
@@ -243,6 +250,29 @@ public class WinMdParserNestedTypeTests
 
         Assert.AreEqual("Their.Space.Outer", provider.GetTypeFromReference(reader, outerRef, 0));
         Assert.AreEqual("Their.Space.Outer.Inner", provider.GetTypeFromReference(reader, innerRef, 0));
+    }
+
+    [TestMethod]
+    public void ParseFile_BaseTypeIsANestedType_IsQualifiedThroughItsDeclaringType()
+    {
+        // The index records the nested base as 'My.Space.Outer.Base', but a base-type
+        // handle read from its own namespace and name records only 'Base'. The two
+        // spellings never meet: ResolveSupertype matches on the *full* base name, so the
+        // supertype resolves to nothing and every inherited member vanishes.
+        string path = WriteWinmd(
+            "NestedBase.winmd",
+            new TypeSpec("My.Space", "Outer"),
+            new TypeSpec("", "Base", DeclaredIn: "Outer"),
+            new TypeSpec("My.Space", "Derived", Extends: "Outer+Base"));
+
+        WinMdParser.WinMdParseResult result = WinMdParser.ParseFile(path);
+
+        Assert.IsNull(result.Error);
+        var derived = result.Types.Single(t => t.Name == "Derived");
+        Assert.AreEqual(
+            "My.Space.Outer.Base",
+            derived.BaseType,
+            "the base must be spelled the way the index records the nested type, or its members are unreachable");
     }
 
     private static readonly string[] ExpectedAnonymousUnionNames =
