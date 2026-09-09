@@ -16,7 +16,7 @@ Many Windows APIs (push notifications, background tasks, share target, startup t
 | **Files stay in place** | Copied to an AppX layout directory | Yes — exe stays at its original path |
 | **Identity scope** | Entire folder contents (exe, DLLs, assets) | Single executable |
 | **Debugger-friendly** | Attach to PID after launch, or use `--no-launch` then launch via alias | Launch directly from your IDE's debugger — the exe has identity regardless |
-| **Console app support** | `--with-alias` keeps stdin/stdout in terminal | Run exe directly in terminal |
+| **Console app support** | Launched through an execution alias automatically, so stdin/stdout stay in this terminal | Run exe directly in terminal |
 | **Best for** | Most frameworks (.NET, C++, Rust, Flutter, Tauri) | Electron, or when you need full IDE debugger control (F5) |
 
 ## When to use which
@@ -55,10 +55,10 @@ winapp run .\build\Debug
 
 Winapp registers the folder as a loose layout package and launches the app. Identity-requiring APIs work immediately. This covers the majority of development and testing scenarios.
 
-For **console apps** that need stdin/stdout in the current terminal, add `--with-alias`:
+For **console apps** nothing extra is needed: winapp detects a console app and launches it through an execution alias, so stdin/stdout reach this terminal. Pass `--without-alias` to force AUMID activation instead, and `--with-alias` to force an alias for a *windowed* app:
 
 ```powershell
-winapp run .\build\Debug --with-alias
+winapp run .\build\Debug --without-alias
 ```
 
 ### Scenario B: Attach a debugger to a running app

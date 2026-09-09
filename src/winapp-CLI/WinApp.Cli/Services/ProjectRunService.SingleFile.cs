@@ -344,7 +344,8 @@ internal sealed partial class ProjectRunService
                 packaging,
                 string.IsNullOrEmpty(runCommand) ? null : runCommand,
                 string.IsNullOrEmpty(runArguments) ? null : runArguments,
-                props),
+                props,
+                BuildEvaluationProperties(options)),
             0);
     }
 

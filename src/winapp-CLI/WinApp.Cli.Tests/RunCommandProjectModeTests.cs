@@ -504,25 +504,30 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task ProjectMode_Packaged_PassesTheConfigurationToPackageDiscovery()
+    public async Task ProjectMode_Packaged_PassesTheBuildInputsToPackageDiscovery()
     {
-        // `dotnet package list` takes no -c, so winapp conveys the configuration as an MSBuild
-        // environment property. Without it the package graph is evaluated in the DEFAULT configuration:
-        // a Directory.Build.props that adds Microsoft.WindowsAppSDK only for Release then makes
-        // `winapp run App.csproj -c Release` decide the manifest's framework dependency and runtime
-        // provisioning from a graph that omits it. (With --no-restore the command fails outright, so no
-        // graph is produced at all.)
+        // `dotnet package list` takes no -c, -r or -p, so winapp conveys the build's effective inputs as
+        // MSBuild environment properties. Without them the package graph is evaluated in the DEFAULT
+        // configuration with no RID: a Directory.Build.props that adds Microsoft.WindowsAppSDK only for
+        // Release, or only for win-arm64, then makes `winapp run App.csproj -c Release --arch arm64`
+        // decide the manifest's framework dependency and runtime provisioning from a graph that omits it.
         var csproj = CreateCsproj();
         var targetDir = CreateTargetDir(withManifest: true);
         _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
-            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
-                null, false, null, "WinExe", null), 0);
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
+                null, false, null, "WinExe", null,
+                ProjectRunService.BuildEvaluationProperties(
+                    "Release", "win-arm64", targetFramework: null, platform: null, ["MyFeature=on"])),
+            0);
         var command = GetRequiredService<RunCommand>();
 
-        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release"]);
+        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release", "--arch", "arm64", "-p", "MyFeature=on"]);
 
-        Assert.AreEqual("Release", _fakeMsixService.AddLooseLayoutConfigurationCalls.Single(),
-            "The effective configuration must reach package discovery");
+        var evaluated = _fakeMsixService.AddLooseLayoutMsBuildPropertiesCalls.Single();
+        Assert.IsNotNull(evaluated, "Package discovery must be told what the build actually used");
+        Assert.AreEqual("Release", evaluated["Configuration"], "The effective configuration must reach package discovery");
+        Assert.AreEqual("win-arm64", evaluated["RuntimeIdentifier"], "The effective RID must reach package discovery");
+        Assert.AreEqual("on", evaluated["MyFeature"], "User -p properties must reach package discovery");
     }
 
     [TestMethod]

@@ -86,10 +86,10 @@ internal interface IMsixService
     /// pass the evaluated <c>WindowsAppSDKSelfContained</c>; the default preserves the previous behavior
     /// for callers that cannot determine it.
     /// </param>
-    /// <param name="configuration">
-    /// Build configuration the app was built in. Package discovery evaluates the project in this
-    /// configuration so a configuration-conditional <c>PackageReference</c> is seen; when null the
-    /// default configuration is evaluated.
+    /// <param name="msbuildProperties">
+    /// Effective build inputs (configuration, RID, user <c>-p</c>). Package discovery evaluates the
+    /// project with these so a configuration- or RID-conditional <c>PackageReference</c> is seen; when
+    /// null the default evaluation is used.
     /// </param>
     public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(
         FileInfo appxManifestPath,
@@ -104,7 +104,7 @@ internal interface IMsixService
         bool noRestore = false,
         bool selfContained = false,
         bool ensureExecutionAlias = false,
-        string? configuration = null,
+        IReadOnlyDictionary<string, string>? msbuildProperties = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

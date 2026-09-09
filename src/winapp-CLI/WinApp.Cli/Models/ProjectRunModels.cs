@@ -81,7 +81,8 @@ internal sealed record ProjectRunResolution(
     bool NoRestore = false,
     string? RunArguments = null,
     string? OutputType = null,
-    bool? PreferExecutionAlias = null);
+    bool? PreferExecutionAlias = null,
+    IReadOnlyDictionary<string, string>? EvaluationProperties = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.
@@ -201,7 +202,8 @@ internal sealed record SingleFileRunResolution(
     ProjectPackaging Packaging,
     string? RunCommand,
     string? RunArguments,
-    IReadOnlyDictionary<string, string> Properties);
+    IReadOnlyDictionary<string, string> Properties,
+    IReadOnlyDictionary<string, string>? EvaluationProperties = null);
 
 /// <summary>
 /// Outcome of <see cref="Services.IProjectRunService.BuildAndResolveSingleFileAsync"/>. Mirrors

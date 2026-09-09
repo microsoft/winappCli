@@ -73,7 +73,7 @@ Is the app a single .cs file (.NET file-based app)?
 
 | Goal | Command | Key detail |
 |------|---------|------------|
-| Run with identity (most common) | `winapp run .\build\Debug` | Registers loose layout + launches; add `--with-alias` for console apps |
+| Run with identity (most common) | `winapp run .\build\Debug` | Registers loose layout + launches; a console app gets an execution alias automatically |
 | Attach debugger to running app | `winapp run .\build\Debug` → attach to PID | Misses startup code |
 | Register identity, launch manually | `winapp run .\build\Debug --no-launch` | Launch via `start shell:AppsFolder\<AUMID>` or execution alias — **not** the exe directly |
 | F5 startup debugging (IDE launches exe) | `winapp create-debug-identity .\bin\myapp.exe` | Exe has identity regardless of how it's launched; best for debugging activation/startup code |

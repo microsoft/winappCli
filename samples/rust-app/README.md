@@ -41,7 +41,7 @@ To run the application packaged with `winapp run`:
    ```
 2. Run packaged using `winapp run`:
    ```powershell
-   winapp run .\target\debug --with-alias
+   winapp run .\target\debug
    ```
    This registers a loose layout package (just like a real MSIX install), then launches the app via its execution alias so console output stays in the current terminal.
 

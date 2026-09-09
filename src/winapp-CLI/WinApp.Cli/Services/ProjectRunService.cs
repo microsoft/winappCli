@@ -431,7 +431,8 @@ internal sealed partial class ProjectRunService(
             options.NoRestore,
             string.IsNullOrEmpty(runArguments) ? null : runArguments,
             string.IsNullOrEmpty(outputType) ? null : outputType,
-            ReadAliasPreference(props));
+            ReadAliasPreference(props),
+            BuildEvaluationProperties(options));
 
         return new ProjectBuildOutcome(resolution, 0);
     }

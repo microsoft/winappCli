@@ -235,7 +235,7 @@ internal partial class RunCommand
                         manifest,
                         outputAppXDirectory,
                         effectiveLayout)),
-                configuration: configuration);
+                msbuildProperties: resolution.EvaluationProperties);
         }
 
         /// <summary>

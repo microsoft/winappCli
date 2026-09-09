@@ -191,18 +191,19 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the <c>noRestore</c> flag from the most recent <see cref="GetPackageListAsync"/> call.</summary>
     public bool? LastGetPackageListNoRestore { get; private set; }
 
-    /// <summary>The <c>configuration</c> passed to the most recent <see cref="GetPackageListAsync"/> call.</summary>
+    /// <summary>The <c>msbuildProperties</c> passed to the most recent <see cref="GetPackageListAsync"/> call.</summary>
     /// <remarks>
-    /// Recorded because the command takes no <c>-c</c>: winapp conveys the configuration as an MSBuild
-    /// environment property, and without it the package graph is evaluated in the default configuration.
+    /// Recorded because the command takes no <c>-c</c>/<c>-r</c>/<c>-p</c>: winapp conveys the build's
+    /// effective inputs as MSBuild environment properties, and without them the package graph is
+    /// evaluated in the default configuration with no RID and none of the user's properties.
     /// </remarks>
-    public string? LastGetPackageListConfiguration { get; private set; }
+    public IReadOnlyDictionary<string, string>? LastGetPackageListMsBuildProperties { get; private set; }
 
-    public Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo csprojFile, bool includeTransitive = true, bool noRestore = false, string? configuration = null, CancellationToken cancellationToken = default)
+    public Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo csprojFile, bool includeTransitive = true, bool noRestore = false, IReadOnlyDictionary<string, string>? msbuildProperties = null, CancellationToken cancellationToken = default)
     {
         GetPackageListCallCount++;
         LastGetPackageListNoRestore = noRestore;
-        LastGetPackageListConfiguration = configuration;
+        LastGetPackageListMsBuildProperties = msbuildProperties;
 
         if (ThrowOnGetPackageList)
         {

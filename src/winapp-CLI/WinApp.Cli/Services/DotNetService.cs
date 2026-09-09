@@ -680,7 +680,7 @@ internal partial class DotNetService : IDotNetService
     /// <c>EnsureWindowsAppRuntimeInstalledAsync</c> is the backstop: a genuinely missing runtime fails the
     /// launch with an actionable error rather than silently under-provisioning.
     /// </remarks>
-    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, string? configuration = null, CancellationToken cancellationToken = default)
+    public async Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, IReadOnlyDictionary<string, string>? msbuildProperties = null, CancellationToken cancellationToken = default)
     {
         if (!projectOrFile.Exists)
         {
@@ -723,16 +723,16 @@ internal partial class DotNetService : IDotNetService
 
         argTokens.AddRange(["--format", "json"]);
 
-        // `dotnet package list` accepts no -c/--configuration, so the configuration is conveyed as an
-        // MSBuild ENVIRONMENT property instead. Without it the graph is evaluated in the default
-        // configuration: a Directory.Build.props that adds a PackageReference only for Release then makes
-        // `winapp run app.cs -c Release` report a package list that omits it — and with --no-restore the
-        // command fails outright ("project file and project.assets.json are not in sync"), yielding no
-        // list at all. Either way the manifest's framework dependency and runtime provisioning are
-        // decided from the wrong graph.
-        var environment = string.IsNullOrWhiteSpace(configuration)
-            ? null
-            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Configuration"] = configuration.Trim() };
+        // `dotnet package list` accepts no -c, no -r and no -p, so the build's effective inputs are
+        // conveyed as MSBuild ENVIRONMENT properties instead. Without them the graph is evaluated in the
+        // default configuration with no RID and none of the user's properties: a Directory.Build.props
+        // that adds a PackageReference only for Release, only for win-arm64, or only under a custom flag
+        // is then invisible here — and with --no-restore the command fails outright ("project file and
+        // project.assets.json are not in sync"), yielding no list at all. Either way the manifest's
+        // framework dependency and runtime provisioning are decided from the wrong graph.
+        var environment = msbuildProperties is { Count: > 0 }
+            ? new Dictionary<string, string>(msbuildProperties, StringComparer.OrdinalIgnoreCase)
+            : null;
 
         var (exitCode, output, _) = await RunDotnetCommandAsync(
             projectOrFile.Directory!, argTokens, environment, cancellationToken: cancellationToken);
