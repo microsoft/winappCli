@@ -103,7 +103,7 @@ This command will:
 - Create `Package.appxmanifest` and `Assets` folder for your app identity
 
 > [!NOTE]
-> Unlike native/C++ projects, the .NET flow does **not** create a `winapp.yaml` file. NuGet packages are managed directly via your `.csproj`. Use `dotnet restore` to restore packages after cloning.
+> Unlike native/C++ projects, the .NET flow does **not** create a `winapp.yaml` file. NuGet packages are managed directly via your `.csproj`. After cloning, run `winapp restore` or `dotnet restore`.
 
 You can open `Package.appxmanifest` to further customize properties like the display name, publisher, and capabilities.
 
@@ -206,7 +206,7 @@ winapp run .\bin\Debug\net10.0-windows10.0.26100.0
 
 Project mode supports both **packaged** and **unpackaged** WinUI apps — it detects which from the project's `WindowsPackageType` and installs the matching-architecture Windows App Runtime automatically. To force an unpackaged run of a packaged project, add `-p WindowsPackageType=None`.
 
-**Multi-project apps** (an app referencing class libraries) build correctly: winapp negotiates each project reference's platform automatically, so referencing an `AnyCPU`/`netstandard2.0` library doesn't fail with `CS0006` "metadata file could not be found".
+**Multi-project apps** (an app referencing class libraries) build correctly: winapp keeps `AnyCPU`/`netstandard2.0` references on their compatible platform instead of forcing the app's architecture across the graph. RID-only remains the default; when the effective configuration requires a self-contained profile (for example, a trimmed Release build), winapp selects the matching profile without changing referenced libraries' platforms.
 
 The `dotnet build` output streams live, with the exact invocation printed first. Add `--verbose` for winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
 

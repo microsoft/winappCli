@@ -25,7 +25,7 @@ public class UiSessionServiceTests
     }
 
     [TestMethod]
-    public void UiSessionInfo_IsExplicitWindow_DefaultsToFalse()
+    public void UiTarget_IsExplicitWindow_DefaultsToFalse()
     {
         var info = new UiTarget();
         Assert.IsFalse(info.IsExplicitWindow);

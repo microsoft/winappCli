@@ -13,6 +13,7 @@ using System.Text.Json.Serialization;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
@@ -134,12 +135,12 @@ internal partial class RunCommand : Command, IShortDescription
 
         ArchOption = new Option<string?>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Default: the current process architecture."
         };
 
         RuntimeOption = new Option<string?>("--runtime")
         {
-            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, and rejects non-Windows RIDs (e.g. linux-x64); it overrides --arch. Ignored in folder mode."
+            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode."
         };
         RuntimeOption.Aliases.Add("-r");
 
@@ -161,7 +162,7 @@ internal partial class RunCommand : Command, IShortDescription
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Ignored in folder mode.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode.",
             // ZeroOrMore (not OneOrMore) so a valueless '-p' reaches the handler, which emits a
             // --json-aware error; OneOrMore would raise a plain-text parser error, bypassing --json.
             Arity = ArgumentArity.ZeroOrMore,
@@ -210,6 +211,7 @@ internal partial class RunCommand : Command, IShortDescription
         IAnsiConsole ansiConsole,
         IStatusService statusService,
         IProjectRunService projectRunService,
+        IProjectContextDetector projectContextDetector,
         ILogger<RunCommand> logger) : AsynchronousCommandLineAction
     {
         // Test seams for the execution-alias launch path. They isolate the two operating-system
@@ -431,6 +433,26 @@ internal partial class RunCommand : Command, IShortDescription
             {
                 return Fail(ex.Message, isJson);
             }
+
+            ProjectContextEvent.Log("run", () =>
+                string.Equals(
+                    parseResult.GetValue(WinAppRootCommand.CallerOption),
+                    "nuget-package",
+                    StringComparison.Ordinal)
+                    ? projectContextDetector.CreateNuGetContext(
+                        parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption))
+                    : inputResolution.Mode == WinAppRunMode.Project
+                        ? projectContextDetector.DetectProject(inputResolution.Csproj!) with
+                        {
+                            ExecutionMode = ProjectExecutionMode.Project,
+                        }
+                        : projectContextDetector.DetectDirectory(
+                            inputResolution.ProjectDirectory,
+                            ProjectTargetKind.BuildOutput) with
+                        {
+                            Packaging = ProjectContextPackaging.Packaged,
+                            ExecutionMode = ProjectExecutionMode.Folder,
+                        });
 
             if (inputResolution.Mode == WinAppRunMode.Project)
             {

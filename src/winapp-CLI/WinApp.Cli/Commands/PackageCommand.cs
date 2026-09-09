@@ -8,6 +8,7 @@ using System.CommandLine.Invocation;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
@@ -166,6 +167,7 @@ internal partial class PackageCommand : Command, IShortDescription
         IMsixService msixService,
         IStatusService statusService,
         IProjectRunService projectRunService,
+        IProjectContextDetector projectContextDetector,
         ICurrentDirectoryProvider currentDirectoryProvider,
         IAnsiConsole ansiConsole,
         ILogger<PackageCommand> logger) : AsynchronousCommandLineAction
@@ -270,12 +272,43 @@ internal partial class PackageCommand : Command, IShortDescription
                 return await RunProjectModeAsync(parseResult, new FileInfo(inputFolders[0].FullName), cancellationToken);
             }
 
-            // folder) and it declares AllowExternalContent, build an identity-only .msix from
-            // just the manifest — no input folder or app binaries required.
+            FileInfo? candidateManifest = null;
+            var manifestKind = ManifestInputKind.NotManifestName;
+            string? manifestError = null;
             if (inputFolders.Length == 1 && File.Exists(inputFolders[0].FullName))
             {
-                var candidateManifest = new FileInfo(inputFolders[0].FullName);
-                var (manifestKind, manifestError) = await ClassifyManifestInputAsync(candidateManifest, cancellationToken);
+                candidateManifest = new FileInfo(inputFolders[0].FullName);
+                (manifestKind, manifestError) = await ClassifyManifestInputAsync(candidateManifest, cancellationToken);
+            }
+
+            var contextDirectories = inputFolders
+                .Select(input => File.Exists(input.FullName)
+                    ? new FileInfo(input.FullName).Directory
+                    : input)
+                .Where(directory => directory is not null)
+                .Cast<DirectoryInfo>()
+                .ToList();
+            if (manifestPath?.Directory is not null)
+            {
+                contextDirectories.Insert(0, manifestPath.Directory);
+            }
+
+            ProjectContextEvent.Log(
+                "package",
+                () => projectContextDetector.DetectDirectories(
+                        contextDirectories,
+                        candidateManifest is not null ? ProjectTargetKind.Manifest : ProjectTargetKind.BuildOutput) with
+                {
+                    Packaging = manifestKind == ManifestInputKind.Sparse
+                        ? ProjectContextPackaging.Sparse
+                        : ProjectContextPackaging.Packaged,
+                });
+
+            // Sparse identity packaging: when a single manifest FILE is passed (instead of a
+            // folder) and it declares AllowExternalContent, build an identity-only .msix from
+            // just the manifest — no input folder or app binaries required.
+            if (candidateManifest is not null)
+            {
                 if (manifestKind == ManifestInputKind.Sparse)
                 {
                     // Identity-only packaging builds the .msix from just the manifest, so options that

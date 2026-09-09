@@ -1,21 +1,61 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.Xml;
+using NuGet.Common;
+using NuGet.Protocol;
+using NuGet.Protocol.Core.Types;
+using NuGet.Versioning;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
 
 [TestClass]
-public partial class NugetServiceTests : BaseCommandTests
+public class NugetServiceTests : BaseCommandTests
 {
+    /// <summary>
+    /// The live NuGet v3 source these integration tests resolve against. Defaults to nuget.org.
+    /// Environments that cannot reach it — the network-isolated ADO pipeline, and Microsoft corporate
+    /// machines — point this at an internal mirror of nuget.org via <c>WINAPP_TEST_NUGET_SOURCE</c>.
+    /// </summary>
+    private static string LiveSource =>
+        Environment.GetEnvironmentVariable("WINAPP_TEST_NUGET_SOURCE") is { Length: > 0 } source
+            ? source
+            : "https://api.nuget.org/v3/index.json";
+
     private INugetService _nugetService = null!;
 
     [TestInitialize]
     public void Setup()
     {
+        // Root these live tests at an isolated nuget.config so they never inherit the machine/user config.
+        // BaseCommandTests roots the NuGet provider at a temp dir but writes no config there, so NuGet still
+        // merges the user/machine nuget.config — on a machine that clears the live source, disables it via
+        // <disabledPackageSources>, or maps packages to a private feed (exactly the scenario this migration
+        // enables) these assertions would then fail environmentally. Clearing the inherited sources,
+        // disabled-sources and mapping and re-adding only the live source makes them hermetic. The provider's
+        // Settings are evaluated lazily on first use, so writing the file here (before any test body runs) is
+        // sufficient.
+        File.WriteAllText(
+            Path.Join(_tempDirectory.FullName, "nuget.config"),
+            $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="live" value="{LiveSource}" />
+              </packageSources>
+              <disabledPackageSources>
+                <clear />
+              </disabledPackageSources>
+              <packageSourceMapping>
+                <clear />
+                <packageSource key="live">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
         _nugetService = GetRequiredService<INugetService>();
     }
 
@@ -98,7 +138,8 @@ public partial class NugetServiceTests : BaseCommandTests
         // Assert
         Assert.IsNotNull(result);
         Assert.IsNotEmpty(result, "Should have dependencies");
-        // Version ranges are returned as-is (e.g., "[8.0.0, )" or "8.0.0")
+        // Each dependency value is a concrete version that satisfies the declared range (the lowest listed
+        // satisfying version), never a raw range
         foreach (var dep in result)
         {
             Assert.IsFalse(string.IsNullOrEmpty(dep.Value), $"Dependency {dep.Key} should have a version");
@@ -185,9 +226,9 @@ public partial class NugetServiceTests : BaseCommandTests
         // Act
         var latestVersion = await _nugetService.GetLatestVersionAsync(packageName, SdkInstallMode.Stable, TestContext.CancellationToken);
 
-        // Also get the flat container versions (which include unlisted) to verify filtering is happening
-        var allVersions = await GetFlatContainerVersionsAsync(packageName, TestContext.CancellationToken);
-        var listedVersions = await GetListedVersionsFromRegistrationAsync(packageName, TestContext.CancellationToken);
+        // Also get every version the feed exposes (including unlisted) to verify filtering is happening
+        var allVersions = await GetAllFeedVersionsAsync(packageName, TestContext.CancellationToken);
+        var listedVersions = await GetListedVersionsAsync(packageName, TestContext.CancellationToken);
 
         // Assert
         Assert.IsNotNull(latestVersion);
@@ -225,512 +266,57 @@ public partial class NugetServiceTests : BaseCommandTests
     }
 
     /// <summary>
-    /// Checks whether a specific version is listed on NuGet by querying the registration API.
+    /// Checks whether a specific version is listed on the configured live feed.
     /// </summary>
     private static async Task<bool> IsVersionListedAsync(string packageName, string version, CancellationToken cancellationToken)
     {
-        var url = $"{NugetService.RegistrationIndex}/{packageName.ToLowerInvariant()}/index.json";
-        using var resp = await NugetService.SendHttpGetAsync(url, cancellationToken);
-        resp.EnsureSuccessStatusCode();
-        using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-
-        if (!doc.RootElement.TryGetProperty("items", out var pages))
-        {
-            return false;
-        }
-
-        foreach (var page in pages.EnumerateArray())
-        {
-            JsonElement leafItems;
-            if (page.TryGetProperty("items", out var inlineItems) && inlineItems.ValueKind == JsonValueKind.Array)
-            {
-                leafItems = inlineItems;
-            }
-            else
-            {
-                if (!page.TryGetProperty("@id", out var pageIdElem))
-                {
-                    continue;
-                }
-
-                var pageUrl = pageIdElem.GetString();
-                if (string.IsNullOrEmpty(pageUrl))
-                {
-                    continue;
-                }
-
-                using var pageResp = await NugetService.SendHttpGetAsync(pageUrl, cancellationToken);
-                pageResp.EnsureSuccessStatusCode();
-                using var pageStream = await pageResp.Content.ReadAsStreamAsync(cancellationToken);
-                using var pageDoc = await JsonDocument.ParseAsync(pageStream, cancellationToken: cancellationToken);
-
-                if (!pageDoc.RootElement.TryGetProperty("items", out var fetchedItems))
-                {
-                    continue;
-                }
-
-                leafItems = fetchedItems;
-            }
-
-            foreach (var leaf in leafItems.EnumerateArray())
-            {
-                if (!leaf.TryGetProperty("catalogEntry", out var entry))
-                {
-                    continue;
-                }
-
-                if (entry.TryGetProperty("version", out var vProp) &&
-                    string.Equals(vProp.GetString(), version, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Default to listed=true if property is missing
-                    if (entry.TryGetProperty("listed", out var listedProp))
-                    {
-                        return listedProp.GetBoolean();
-                    }
-
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        var listed = await GetListedVersionsAsync(packageName, cancellationToken);
+        return listed.Contains(NuGetVersion.Parse(version).ToNormalizedString());
     }
 
     /// <summary>
-    /// Gets all versions (including unlisted) from the flat container API.
+    /// Gets every version the feed exposes, including unlisted ones. The flat-container
+    /// (PackageBaseAddress) resource behind <see cref="FindPackageByIdResource"/> enumerates the raw
+    /// package folder and therefore carries no listed/unlisted flag, which is exactly what makes it
+    /// usable as the "all versions" side of the unlisted-filtering assertions.
     /// </summary>
-    private static async Task<HashSet<string>> GetFlatContainerVersionsAsync(string packageName, CancellationToken cancellationToken)
+    private static async Task<HashSet<string>> GetAllFeedVersionsAsync(string packageName, CancellationToken cancellationToken)
     {
-        var url = $"{NugetService.FlatIndex}/{packageName.ToLowerInvariant()}/index.json";
-        using var resp = await NugetService.SendHttpGetAsync(url, cancellationToken);
-        resp.EnsureSuccessStatusCode();
-        using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-
-        var versions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (doc.RootElement.TryGetProperty("versions", out var arr))
-        {
-            foreach (var el in arr.EnumerateArray())
-            {
-                var v = el.GetString();
-                if (!string.IsNullOrWhiteSpace(v))
-                {
-                    versions.Add(v);
-                }
-            }
-        }
-
-        return versions;
+        var resource = await CreateLiveRepository().GetResourceAsync<FindPackageByIdResource>(cancellationToken);
+        Assert.IsNotNull(resource, $"Source '{LiveSource}' exposes no PackageBaseAddress (flat container) resource");
+        using var cache = new SourceCacheContext();
+        var versions = await resource.GetAllVersionsAsync(packageName, cache, NullLogger.Instance, cancellationToken);
+        return [.. versions.Select(v => v.ToNormalizedString())];
     }
 
     /// <summary>
-    /// Gets only listed versions from the registration API.
+    /// Gets only the listed versions, from the registration-backed metadata resource.
     /// </summary>
-    private static async Task<HashSet<string>> GetListedVersionsFromRegistrationAsync(string packageName, CancellationToken cancellationToken)
+    private static async Task<HashSet<string>> GetListedVersionsAsync(string packageName, CancellationToken cancellationToken)
     {
-        var url = $"{NugetService.RegistrationIndex}/{packageName.ToLowerInvariant()}/index.json";
-        using var resp = await NugetService.SendHttpGetAsync(url, cancellationToken);
-        resp.EnsureSuccessStatusCode();
-        using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-
-        var versions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!doc.RootElement.TryGetProperty("items", out var pages))
-        {
-            return versions;
-        }
-
-        foreach (var page in pages.EnumerateArray())
-        {
-            JsonElement leafItems;
-            if (page.TryGetProperty("items", out var inlineItems) && inlineItems.ValueKind == JsonValueKind.Array)
-            {
-                leafItems = inlineItems;
-            }
-            else
-            {
-                if (!page.TryGetProperty("@id", out var pageIdElem))
-                {
-                    continue;
-                }
-
-                var pageUrl = pageIdElem.GetString();
-                if (string.IsNullOrEmpty(pageUrl))
-                {
-                    continue;
-                }
-
-                using var pageResp = await NugetService.SendHttpGetAsync(pageUrl, cancellationToken);
-                pageResp.EnsureSuccessStatusCode();
-                using var pageStream = await pageResp.Content.ReadAsStreamAsync(cancellationToken);
-                using var pageDoc = await JsonDocument.ParseAsync(pageStream, cancellationToken: cancellationToken);
-
-                if (!pageDoc.RootElement.TryGetProperty("items", out var fetchedItems))
-                {
-                    continue;
-                }
-
-                leafItems = fetchedItems;
-            }
-
-            foreach (var leaf in leafItems.EnumerateArray())
-            {
-                if (!leaf.TryGetProperty("catalogEntry", out var entry))
-                {
-                    continue;
-                }
-
-                if (entry.TryGetProperty("listed", out var listedProp) && !listedProp.GetBoolean())
-                {
-                    continue;
-                }
-
-                if (entry.TryGetProperty("version", out var vProp))
-                {
-                    var v = vProp.GetString();
-                    if (!string.IsNullOrWhiteSpace(v))
-                    {
-                        versions.Add(v);
-                    }
-                }
-            }
-        }
-
-        return versions;
+        var resource = await CreateLiveRepository().GetResourceAsync<PackageMetadataResource>(cancellationToken);
+        Assert.IsNotNull(resource, $"Source '{LiveSource}' exposes no registration (package metadata) resource");
+        using var cache = new SourceCacheContext();
+        var metadata = await resource.GetMetadataAsync(
+            packageName,
+            includePrerelease: true,
+            includeUnlisted: false,
+            cache,
+            NullLogger.Instance,
+            cancellationToken);
+        return [.. metadata.Select(m => m.Identity.Version.ToNormalizedString())];
     }
 
-    #endregion
-
-    #region NuSpec XML Parsing Tests
-
-    [TestMethod]
-    public void ParseNuspecDependencies_WithNamespace_ParsesCorrectly()
+    /// <summary>
+    /// Builds a repository for <see cref="LiveSource"/>, the same feed <see cref="Setup"/> writes into the
+    /// test-local nuget.config, so these assertions verify the service against the feed it actually queried.
+    /// </summary>
+    private static SourceRepository CreateLiveRepository()
     {
-        // Arrange - nuspec with default namespace (typical NuGet format)
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <group targetFramework=""net8.0"">
-        <dependency id=""Dependency.One"" version=""1.0.0"" />
-        <dependency id=""Dependency.Two"" version=""2.0.0"" />
-      </group>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.HasCount(2, result);
-        Assert.IsTrue(result.ContainsKey("Dependency.One"));
-        Assert.IsTrue(result.ContainsKey("Dependency.Two"));
-        Assert.AreEqual("1.0.0", result["Dependency.One"]);
-        Assert.AreEqual("2.0.0", result["Dependency.Two"]);
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_WithoutNamespace_ParsesCorrectly()
-    {
-        // Arrange - nuspec without namespace
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package>
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <dependency id=""Dependency.One"" version=""1.0.0"" />
-      <dependency id=""Dependency.Two"" version=""2.0.0"" />
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.HasCount(2, result);
-        Assert.IsTrue(result.ContainsKey("Dependency.One"));
-        Assert.IsTrue(result.ContainsKey("Dependency.Two"));
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_NoDependencies_ReturnsEmpty()
-    {
-        // Arrange - nuspec with no dependencies element
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.IsEmpty(result);
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_EmptyDependenciesElement_ReturnsEmpty()
-    {
-        // Arrange
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.IsEmpty(result);
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_MultipleTargetFrameworkGroups_ReturnsAllDependencies()
-    {
-        // Arrange - nuspec with multiple target framework groups
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <group targetFramework=""net6.0"">
-        <dependency id=""Net6.Dependency"" version=""1.0.0"" />
-      </group>
-      <group targetFramework=""net8.0"">
-        <dependency id=""Net8.Dependency"" version=""2.0.0"" />
-      </group>
-      <group targetFramework=""netstandard2.0"">
-        <dependency id=""NetStandard.Dependency"" version=""3.0.0"" />
-      </group>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert - The implementation returns all dependencies from all groups
-        Assert.HasCount(3, result);
-        Assert.IsTrue(result.ContainsKey("Net6.Dependency"));
-        Assert.IsTrue(result.ContainsKey("Net8.Dependency"));
-        Assert.IsTrue(result.ContainsKey("NetStandard.Dependency"));
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_WithVersionRanges_RemovesBrackets()
-    {
-        // Arrange - nuspec with version ranges
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <group targetFramework=""net8.0"">
-        <dependency id=""ExactVersion"" version=""1.0.0"" />
-        <dependency id=""MinVersion"" version=""[1.0.0, )"" />
-        <dependency id=""RangeVersion"" version=""[1.0.0, 2.0.0)"" />
-        <dependency id=""MaxVersion"" version=""(, 2.0.0]"" />
-      </group>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert - brackets and parentheses should be stripped
-        Assert.HasCount(4, result);
-        Assert.AreEqual("1.0.0", result["ExactVersion"]);
-        Assert.AreEqual("1.0.0, ", result["MinVersion"]);
-        Assert.AreEqual("1.0.0, 2.0.0", result["RangeVersion"]);
-        Assert.AreEqual(", 2.0.0", result["MaxVersion"]);
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_DuplicateDependencies_FirstOneWins()
-    {
-        // Arrange - same dependency in multiple groups (TryAdd behavior)
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <group targetFramework=""net6.0"">
-        <dependency id=""SharedDependency"" version=""1.0.0"" />
-      </group>
-      <group targetFramework=""net8.0"">
-        <dependency id=""SharedDependency"" version=""2.0.0"" />
-      </group>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert - TryAdd keeps the first value
-        Assert.HasCount(1, result);
-        Assert.AreEqual("1.0.0", result["SharedDependency"]);
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_MissingIdAttribute_SkipsDependency()
-    {
-        // Arrange - dependency without id attribute
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <group targetFramework=""net8.0"">
-        <dependency version=""1.0.0"" />
-        <dependency id=""ValidDependency"" version=""2.0.0"" />
-      </group>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.HasCount(1, result);
-        Assert.IsTrue(result.ContainsKey("ValidDependency"));
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_MissingVersionAttribute_SkipsDependency()
-    {
-        // Arrange - dependency without version attribute
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <group targetFramework=""net8.0"">
-        <dependency id=""NoVersion"" />
-        <dependency id=""ValidDependency"" version=""2.0.0"" />
-      </group>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.HasCount(1, result);
-        Assert.IsTrue(result.ContainsKey("ValidDependency"));
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_EmptyIdOrVersion_SkipsDependency()
-    {
-        // Arrange - dependency with empty id or version
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <group targetFramework=""net8.0"">
-        <dependency id="""" version=""1.0.0"" />
-        <dependency id=""EmptyVersion"" version="""" />
-        <dependency id=""ValidDependency"" version=""2.0.0"" />
-      </group>
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.HasCount(1, result);
-        Assert.IsTrue(result.ContainsKey("ValidDependency"));
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_MalformedXml_ThrowsException()
-    {
-        // Arrange - malformed XML
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package>
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0
-  </metadata>
-</package>";
-
-        // Act & Assert
-        Assert.ThrowsExactly<XmlException>(() => ParseNuspecDependenciesFromXml(nuspecXml));
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_FlatDependenciesWithoutGroups_ParsesCorrectly()
-    {
-        // Arrange - older nuspec format with flat dependencies (no groups)
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <dependency id=""Dependency.One"" version=""1.0.0"" />
-      <dependency id=""Dependency.Two"" version=""2.0.0"" />
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.HasCount(2, result);
-        Assert.IsTrue(result.ContainsKey("Dependency.One"));
-        Assert.IsTrue(result.ContainsKey("Dependency.Two"));
-    }
-
-    [TestMethod]
-    public void ParseNuspecDependencies_DifferentNamespaceVersions_ParsesCorrectly()
-    {
-        // Arrange - nuspec with 2010 namespace (older format)
-        var nuspecXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<package xmlns=""http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd"">
-  <metadata>
-    <id>TestPackage</id>
-    <version>1.0.0</version>
-    <dependencies>
-      <dependency id=""OldFormatDep"" version=""1.0.0"" />
-    </dependencies>
-  </metadata>
-</package>";
-
-        // Act
-        var result = ParseNuspecDependenciesFromXml(nuspecXml);
-
-        // Assert
-        Assert.HasCount(1, result);
-        Assert.IsTrue(result.ContainsKey("OldFormatDep"));
+        // The live source may be an authenticated internal mirror, so the credential service has to be
+        // configured before the repository builds its HTTP resources.
+        NugetSourceProvider.EnsureCredentialService();
+        return Repository.Factory.GetCoreV3(LiveSource);
     }
 
     #endregion
@@ -755,19 +341,39 @@ public partial class NugetServiceTests : BaseCommandTests
     [TestMethod]
     public void CompareVersions_WithPrereleaseTags_ComparesCorrectly()
     {
-        // The implementation splits on both '.' and '-' and compares parts numerically
-        // Non-numeric parts (like "preview1") are treated as 0
+        // Uses NuGet SemVer 2.0 ordering: numbered prerelease tags order by their number, and a stable
+        // release outranks its own prerelease. (The previous numeric-only split treated all of these as
+        // equal, which made "latest" selection for preview/experimental channels non-deterministic.)
 
-        // "1.0.0-preview1" splits to ["1", "0", "0", "preview1"] 
-        // "1.0.0-preview2" splits to ["1", "0", "0", "preview2"]
-        // "preview1" and "preview2" both parse to 0, so they compare as equal
-        Assert.AreEqual(0, NugetService.CompareVersions("1.0.0-preview1", "1.0.0-preview2"));
+        // 1.0.0-preview1 < 1.0.0-preview2
+        Assert.IsLessThan(0, NugetService.CompareVersions("1.0.0-preview1", "1.0.0-preview2"));
+        Assert.IsGreaterThan(0, NugetService.CompareVersions("1.0.0-preview2", "1.0.0-preview1"));
 
-        // Non-prerelease version without suffix vs with suffix
-        // "1.0.0" splits to ["1", "0", "0"]
-        // "1.0.0-preview" splits to ["1", "0", "0", "preview"] 
-        // At index 3: 0 vs 0 (both default to 0), so they're equal
-        Assert.AreEqual(0, NugetService.CompareVersions("1.0.0", "1.0.0-preview"));
+        // A stable release is greater than its prerelease of the same version.
+        Assert.IsGreaterThan(0, NugetService.CompareVersions("1.0.0", "1.0.0-preview"));
+        Assert.IsLessThan(0, NugetService.CompareVersions("1.0.0-preview", "1.0.0"));
+    }
+
+    [TestMethod]
+    public void CompareVersions_NonNuGetVersionInputs_FallsBackToNumericSegmentComparison()
+    {
+        // When either input is not a parseable NuGet version, CompareVersions cannot defer to NuGetVersion and
+        // falls back to a numeric-segment comparison that parses each non-numeric segment as 0. These inputs
+        // (an "x" revision) force that fallback so the branch that real "latest" selection never reaches with
+        // clean feed data is still exercised.
+
+        // Differing numeric segments: 1.2.x -> [1,2,0] vs 1.3.x -> [1,3,0].
+        Assert.IsLessThan(0, NugetService.CompareVersions("1.2.x", "1.3.x"));
+        Assert.IsGreaterThan(0, NugetService.CompareVersions("1.3.x", "1.2.x"));
+
+        // A longer numeric run outranks a shorter one when the shared segments tie: 1.2.x.5 vs 1.2.x.
+        Assert.IsGreaterThan(0, NugetService.CompareVersions("1.2.x.5", "1.2.x"));
+
+        // Two non-version strings whose numeric segments all tie (non-numeric -> 0) compare equal.
+        Assert.AreEqual(0, NugetService.CompareVersions("x.y", "z.w"));
+
+        // Only one side unparseable still routes through the fallback (both-parse gate fails).
+        Assert.IsLessThan(0, NugetService.CompareVersions("1.0.0", "2.0.x"));
     }
 
     #endregion
@@ -799,50 +405,6 @@ public partial class NugetServiceTests : BaseCommandTests
         var actual = NugetService.ParseMinimumVersion(input);
         Assert.AreEqual(expected, actual, $"ParseMinimumVersion(\"{input}\")");
     }
-
-    #endregion
-
-    #region Helper Methods
-
-    /// <summary>
-    /// Parses nuspec XML content using the same logic as NugetService.GetPackageDependenciesAsync
-    /// </summary>
-    private static Dictionary<string, string> ParseNuspecDependenciesFromXml(string nuspecXml)
-    {
-        var dependencies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        var doc = new XmlDocument();
-        doc.LoadXml(nuspecXml);
-
-        // The nuspec uses a default namespace; we need a namespace manager
-        var nsMgr = new XmlNamespaceManager(doc.NameTable);
-        var ns = doc.DocumentElement?.NamespaceURI ?? string.Empty;
-        if (!string.IsNullOrEmpty(ns))
-        {
-            nsMgr.AddNamespace("ns", ns);
-        }
-
-        var prefix = string.IsNullOrEmpty(ns) ? "" : "ns:";
-        var depNodes = doc.SelectNodes($"//{prefix}dependency", nsMgr);
-        if (depNodes != null)
-        {
-            foreach (XmlNode node in depNodes)
-            {
-                var depId = node.Attributes?["id"]?.Value;
-                var depVersion = node.Attributes?["version"]?.Value;
-                if (!string.IsNullOrEmpty(depId) && !string.IsNullOrEmpty(depVersion))
-                {
-                    var cleanedVersion = BracketsAndParenthesesRegex().Replace(depVersion, "");
-                    dependencies.TryAdd(depId, cleanedVersion);
-                }
-            }
-        }
-
-        return dependencies;
-    }
-
-    [GeneratedRegex(@"[\[\]\(\)]")]
-    private static partial Regex BracketsAndParenthesesRegex();
 
     #endregion
 }

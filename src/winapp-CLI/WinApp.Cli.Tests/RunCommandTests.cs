@@ -516,6 +516,7 @@ public class RunCommandTests : BaseCommandTests
             GetRequiredService<IAnsiConsole>(),
             GetRequiredService<IStatusService>(),
             GetRequiredService<IProjectRunService>(),
+            GetRequiredService<IProjectContextDetector>(),
             GetRequiredService<ILogger<RunCommand>>());
 
         // Act
@@ -1970,19 +1971,24 @@ public class RunCommandTests : BaseCommandTests
         var outputDir = await CreateProcessedManifestAsync("appx-cancel", alias: "winapp-run-test.exe");
         var aliasProxy = CreateExistingFile("winapp-run-test.exe");
         var helperPid = 0;
+        var processStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ProcessStarter = _ =>
         {
             var p = StartHelperProcess("/c ping -n 6 127.0.0.1");
             helperPid = p.Id;
+            processStarted.SetResult();
             return p;
         };
         var command = GetRequiredService<RunCommand>();
         var parseResult = command.Parse([_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(750));
+        using var cts = new CancellationTokenSource();
 
-        var exitCode = await handler.InvokeAsync(parseResult, cts.Token);
+        var invocation = handler.InvokeAsync(parseResult, cts.Token);
+        await processStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cts.Cancel();
+        var exitCode = await invocation;
 
         Assert.AreEqual(-1, exitCode, "Cancellation during the alias wait returns -1");
         Assert.AreEqual(1, _fakeAppLauncherService.TerminateCalls.Count, "The package's processes should be terminated on cancel");

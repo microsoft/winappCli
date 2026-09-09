@@ -48,12 +48,6 @@ internal static class PointerCommandSupport
 
         long targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
 
-        if (targetHwnd != 0)
-        {
-            Windows.Win32.PInvoke.SetForegroundWindow(new Windows.Win32.Foundation.HWND((nint)targetHwnd));
-            await Task.Delay(100, cancellationToken);
-        }
-
         var stable = await GestureTargeting.ResolveStableAsync(
             uiAutomation, uiTarget, selector, element,
             GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
@@ -65,11 +59,12 @@ internal static class PointerCommandSupport
         return new ResolvedPoint(true, new PointerPoint(stable.CenterX, stable.CenterY), targetHwnd, selectorStr);
     }
 
-    public static async Task SetForegroundAsync(long targetHwnd, CancellationToken cancellationToken)
+    public static async Task SetForegroundAsync(
+        IDesktopForegroundService desktopForeground, long targetHwnd, CancellationToken cancellationToken)
     {
         if (targetHwnd != 0)
         {
-            Windows.Win32.PInvoke.SetForegroundWindow(new Windows.Win32.Foundation.HWND((nint)targetHwnd));
+            desktopForeground.RequestForeground(targetHwnd);
             await Task.Delay(100, cancellationToken);
         }
     }

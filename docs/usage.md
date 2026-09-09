@@ -29,7 +29,7 @@ winapp init [base-directory] [options]
 
 **Options:**
 
-- `--config-dir <path>` - Directory to read/store configuration (default: current directory)
+- `--config-dir <path>` - Directory to read/store configuration (default: the selected project directory, or current directory if no project is detected)
 - `--setup-sdks` - SDK installation mode: 'stable' (default), 'preview', 'experimental', or 'none' (skip SDK installation)
 - `--ignore-config`, `--no-config` - Don't use configuration file for version management
 - `--no-gitignore` - Don't update .gitignore file
@@ -220,12 +220,16 @@ winapp new --use-defaults --name MyApp --json
 Restore packages and regenerate files based on existing `winapp.yaml` configuration.
 
 ```bash
-winapp restore [options]
+winapp restore [base-directory] [options]
 ```
+
+**Arguments:**
+
+- `base-directory` - Directory to restore (default: current directory). Also selects where `winapp.yaml` and `nuget.config` are read from unless `--config-dir` overrides it.
 
 **Options:**
 
-- `--config-dir <path>` - Directory containing winapp.yaml (default: current directory)
+- `--config-dir <path>` - Directory containing winapp.yaml (default: base-directory)
 
 **What it does:**
 
@@ -235,14 +239,34 @@ winapp restore [options]
 - Stores shareable files in the global cache directory
 
 > [!NOTE]
-> For .NET projects initialized with `winapp init`, there is no `winapp.yaml`. Use `dotnet restore` to restore NuGet packages instead.
+> For .NET projects there is no `winapp.yaml` — the SDK versions live as `PackageReference` entries in the `.csproj` — so `winapp restore` runs `dotnet restore` for you.
 
 **Examples:**
 
 ```bash
 # Restore from winapp.yaml in current directory
 winapp restore
+
+# Restore a specific project directory (reads ./my-project/winapp.yaml)
+winapp restore ./my-project
 ```
+
+**Custom and private NuGet feeds:**
+
+`winapp init`, `restore`, and `update` download the Windows SDK and Windows App SDK packages through NuGet, honoring your standard [`nuget.config`](https://learn.microsoft.com/nuget/reference/nuget-config-file) hierarchy. Private feeds and mirrors, feed credentials (including credential providers), and a custom `globalPackagesFolder` all work as they do for `dotnet restore`. To restore exclusively from your own mirror, `<clear />` the inherited sources and add just yours:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="contoso" value="https://pkgs.dev.azure.com/contoso/_packaging/winsdk-mirror/nuget/v3/index.json" />
+  </packageSources>
+</configuration>
+```
+
+> [!NOTE]
+> For native projects winapp resolves `nuget.config` from the directory it operates on: the `init`/`restore` directory argument, `--config-dir` when given, otherwise the current directory. For **.NET projects** the sources come from the project's own `nuget.config` hierarchy instead, because that is what `dotnet add package` and `dotnet restore` use, so put a private feed's config in the project directory or an ancestor. A `--config-dir` outside that hierarchy is reported and ignored rather than silently selecting versions the project cannot restore. Run these commands only against directories you trust, the same caution that applies to `dotnet restore`. When several sources are configured, use [Package Source Mapping](https://learn.microsoft.com/nuget/consume-packages/package-source-mapping) to pin each package to a feed.
 
 ---
 
@@ -790,13 +814,13 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 **Project-mode options** (ignored in folder mode):
 
 - `-c, --configuration <name>` - Build configuration. Default: `Debug`.
-- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines both the build RID and the architecture of the Windows App Runtime that gets installed.
-- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch`.
+- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build.
+- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch` and can select the required publish profile.
 - `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`).
 - `--project <name-or-path>` - When the input is a solution (`.sln`/`.slnx`) or a directory with multiple runnable app projects, selects which project to launch (by project name or path).
 - `--no-build` - Skip building and run the existing build output (still evaluates output properties).
 - `--no-restore` - Skip restoring the project before building.
-- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeatable (e.g. `-p WindowsPackageType=None`).
+- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value.
 
 **Build output & verbosity:** the project is built in two steps — a `dotnet build` whose output **streams live** to your console, followed by a fast property-evaluation pass. winapp prints the exact `dotnet build …` invocation before the output, and streams warnings even on a successful build. Verbosity:
 
@@ -1479,6 +1503,27 @@ To make this permanent:
 ```powershell
 [System.Environment]::SetEnvironmentVariable('WINAPP_CLI_UPDATE_CHECK', '0', 'User')
 ```
+
+### UI workflow identity
+
+`winapp ui` commands that drive the physical desktop always take cooperative turns, so two workflows
+running at once cannot steal each other's focus or dismiss each other's menus. That arbitration needs
+no setup and cannot be switched off.
+
+What is optional is *continuity*. By default each command is a self-contained one-shot that releases
+the desktop as soon as it finishes. To keep the desktop across several commands, give them all the
+same workflow id:
+
+```pwsh
+$env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString()
+```
+
+Use the *same* value for cooperating processes (for example a recording and the clicks it should
+capture) and *different* values for independent workflows. Every command without an id is its own
+one-shot workflow, even when several are launched from one shell, so hosts that start a fresh shell
+per command must inject the same explicit value into each one. The value is opaque, is never treated
+as a credential, and is only ever persisted as a SHA-256 hash. See
+[UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
 
 ### ui
 

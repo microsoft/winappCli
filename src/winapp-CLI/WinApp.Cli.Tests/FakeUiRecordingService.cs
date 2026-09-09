@@ -23,6 +23,14 @@ internal sealed class FakeUiRecordingService : IUiRecordingService
 
     public bool? RecordingStartedFrameArtifactsActiveOverride { get; set; }
 
+    public Action? BeforeRecordingStarted { get; set; }
+
+    public Action? AfterRecordingStarted { get; set; }
+
+    public bool InvokeRecordingStartedTwice { get; set; }
+
+    public Task? WaitAfterRecordingStarted { get; set; }
+
     public async Task<RecordCaptureResult> RecordAsync(UiTarget uiTarget, string? elementId, RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
     {
         LastRecordOptions = options;
@@ -54,9 +62,19 @@ internal sealed class FakeUiRecordingService : IUiRecordingService
                 TotalBytes = 64,
             };
         }
-        onRecordingStarted?.Invoke(
-            RecordingStartedFrameArtifactsActiveOverride
-            ?? (options.FramesDirectory is not null));
+        BeforeRecordingStarted?.Invoke();
+        var frameArtifactsActive = RecordingStartedFrameArtifactsActiveOverride
+            ?? (options.FramesDirectory is not null);
+        onRecordingStarted?.Invoke(frameArtifactsActive);
+        if (InvokeRecordingStartedTwice)
+        {
+            onRecordingStarted?.Invoke(frameArtifactsActive);
+        }
+        AfterRecordingStarted?.Invoke();
+        if (WaitAfterRecordingStarted is { } wait)
+        {
+            await wait.ConfigureAwait(false);
+        }
         if (RecordExceptionAfterStarted is not null)
         {
             throw RecordExceptionAfterStarted;

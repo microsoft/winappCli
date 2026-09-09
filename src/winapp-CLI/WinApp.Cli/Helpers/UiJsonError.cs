@@ -36,11 +36,16 @@ internal static class UiJsonError
     /// <c>parseResult.InvocationConfiguration.Error</c> from a command handler so test harnesses
     /// that set <c>InvocationConfiguration.Error</c> to a capturing writer can inspect the output.
     /// </param>
+    /// <param name="coordination">
+    /// Optional desktop-coordination detail (wait duration, queue position) attached to cancellation and
+    /// other coordination errors.
+    /// </param>
     public static void Emit(bool json, string code, string message,
                             string? selector = null, string? details = null,
                             TextWriter? errorOut = null,
                             string? recoveryHint = null,
-                            UiPartialOutputInfo? partialOutput = null)
+                            UiPartialOutputInfo? partialOutput = null,
+                            UiCoordinationInfo? coordination = null)
     {
         if (!json) { return; }
 
@@ -54,6 +59,7 @@ internal static class UiJsonError
                 Details = details,
                 RecoveryHint = recoveryHint,
                 PartialOutput = partialOutput,
+                Coordination = coordination,
             },
         };
         var payload = JsonSerializer.Serialize(result, UiJsonLineContext.Default.UiErrorResult);

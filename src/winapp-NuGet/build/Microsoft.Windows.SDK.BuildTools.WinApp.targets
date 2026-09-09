@@ -132,18 +132,80 @@
   </ItemGroup>
 
   <!--
-    Design-time build support:
-    When DesignTimeBuild is true, include all .cs files in the obj folder to enable features like IntelliSense and XAML designer.
-    This is necessary because the targets may generate source files in the obj directory that need to be included during design-time builds
-    Also, there is a bug in C# DevKit where generated files in obj are not included during design-time builds, so we need to explicitly include them here.
+    ============================================================================
+    Design-time build support: generated XAML code-behind
+    ============================================================================
+    Problem: outside Visual Studio (e.g. VS Code / C# Dev Kit), design-time XAML
+    markup compilation never runs, so the language service can't see the
+    generated code-behind (InitializeComponent, etc.) and reports false
+    "red squiggle" diagnostics.
     https://github.com/microsoft/vscode-dotnettools/issues/1018
+
+    Fix: on non-VS design-time builds, add the generated code-behind
+    (*.g.cs / *.g.i.cs) from the intermediate output to @(Compile).
+
+    Safeguards: excludes files that are already compiled by other means — Roslyn
+    source-generator output, intermediate XAML, the SDK's AssemblyInfo /
+    AssemblyAttributes / GlobalUsings files, and anything already in @(Compile) —
+    so the compilation never sees a duplicate (CS0101 / CS0111 / CS0579).
+
+    Limitation: this only re-surfaces files from a prior real build; it does not
+    regenerate them, so a fresh or cleaned project still shows squiggles until it
+    has been built once.
+
+    WinUI ships this same fix as its own IncludeGeneratedXamlCompileItemsForDesignTime
+    target. When the referenced WinUI version has it, that target owns the job and
+    this one stands down (see _WinAppWinUIProvidesDesignTimeXamlCompileItems below).
+    Detection is only an optimization, not the safety net: the Include and Exclude
+    here mirror WinUI's exactly, and Exclude ends with @(Compile), so whichever of
+    the two targets runs second contributes nothing regardless of import order.
+
+    EnableWinUIDesignTimeGeneratedXamlCompileItems=false turns this target off. The
+    name is WinUI's, deliberately: their 2.x servicing build gates their target on it
+    too, so on that build one setting disables both. Their 3.0 build ships the target
+    ungated, so there this switch only turns off the winapp fallback and the platform
+    still contributes its items. Nothing here tries to suppress the platform's target.
   -->
-  <ItemGroup Condition="'$(DesignTimeBuild)' == 'true' AND '$(UseWinUI)' == 'true' AND '$(_WinAppRunSupportActive)' == 'true'">
-    <Compile Include="$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\**\*.cs">
-      <AutoGen>True</AutoGen>
-      <Visible>False</Visible>
-    </Compile>
-  </ItemGroup>
+  <PropertyGroup Condition="'$(DesignTimeBuild)' == 'true' And '$(UseWinUI)' == 'true' And '$(XamlCompilerPropsAndTargetsDirectory)' != '' And Exists('$(XamlCompilerPropsAndTargetsDirectory)Microsoft.WinUI.targets')">
+    <!--
+      MSBuild has no "is this target defined" test, so probe the file that ships
+      the target. $(XamlCompilerPropsAndTargetsDirectory) is set by WinUI's own
+      Microsoft.WinUI.props, so it resolves for both direct and transitive WinUI
+      references and needs no version comparison — a servicing branch that
+      cherry-picks the target is detected the same as a newer feature release.
+    -->
+    <_WinAppWinUITargetsText>$([System.IO.File]::ReadAllText('$(XamlCompilerPropsAndTargetsDirectory)Microsoft.WinUI.targets'))</_WinAppWinUITargetsText>
+    <_WinAppWinUIProvidesDesignTimeXamlCompileItems Condition="'$(_WinAppWinUITargetsText)' != ''">$(_WinAppWinUITargetsText.Contains('IncludeGeneratedXamlCompileItemsForDesignTime'))</_WinAppWinUIProvidesDesignTimeXamlCompileItems>
+    <!-- Don't keep the whole file contents alive in a property. -->
+    <_WinAppWinUITargetsText />
+  </PropertyGroup>
+
+  <Target Name="_WinAppIncludeGeneratedXamlCompileItemsForDesignTime"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DesignTimeBuild)' == 'true'
+                     And '$(UseWinUI)' == 'true'
+                     And '$(_WinAppRunSupportActive)' == 'true'
+                     And '$(_WinAppWinUIProvidesDesignTimeXamlCompileItems)' != 'true'
+                     And '$(EnableWinUIDesignTimeGeneratedXamlCompileItems)' != 'false'
+                     And '$(UsingMicrosoftNETSdk)' == 'true'
+                     And '$(BuildingInsideVisualStudio)' != 'true'
+                     And Exists('$(IntermediateOutputPath)')">
+    <PropertyGroup>
+      <!--
+        Exclude Roslyn source-generator output, which the generators already add to
+        the compilation. Only build the glob when the path property is set;
+        otherwise a bare '**\*.cs' would exclude everything.
+      -->
+      <_WinAppDesignTimeCompilerGeneratedExclude Condition="'$(CompilerGeneratedFilesOutputPath)' != ''">$(CompilerGeneratedFilesOutputPath)\**\*.cs;</_WinAppDesignTimeCompilerGeneratedExclude>
+    </PropertyGroup>
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)**\*.g.cs;$(IntermediateOutputPath)**\*.g.i.cs"
+               Exclude="$(_WinAppDesignTimeCompilerGeneratedExclude)$(IntermediateOutputPath)generated\**;$(IntermediateOutputPath)intermediatexaml\**;$(IntermediateOutputPath)**\*.AssemblyInfo.g.cs;$(IntermediateOutputPath)**\*.AssemblyAttributes.g.cs;$(IntermediateOutputPath)**\*.GlobalUsings.g.cs;@(Compile)">
+        <AutoGen>True</AutoGen>
+        <Visible>false</Visible>
+      </Compile>
+    </ItemGroup>
+  </Target>
 
   <!--
     Temporary: Include this for non-WinUI projects as well, to ensure appxmanifest is included 
@@ -215,6 +277,16 @@
       <_WinAppManifestPathArg>$(WinAppManifestPath.TrimEnd('\'))</_WinAppManifestPathArg>
       <_WinAppLooseLayoutPathArg>$(WinAppLooseLayoutPath.TrimEnd('\'))</_WinAppLooseLayoutPathArg>
       <_WinAppInputFolderArg>$(OutputPath.TrimEnd('\'))</_WinAppInputFolderArg>
+      <!--
+        Pass only an allow-listed framework category derived from evaluated MSBuild properties.
+        The CLI never receives the project path/name for telemetry. MAUI is last because it is the
+        highest-level app model and may use WinUI in its Windows head.
+      -->
+      <_WinAppProjectFramework>other-dotnet</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseWindowsForms)' == 'true'">winforms</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseWPF)' == 'true'">wpf</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseWinUI)' == 'true'">winui</_WinAppProjectFramework>
+      <_WinAppProjectFramework Condition="'$(UseMaui)' == 'true'">maui</_WinAppProjectFramework>
       <!-- Build command with input-folder positional argument -->
       <_WinAppRunArgs>run "$(_WinAppInputFolderArg)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppManifestPathArg)' != ''">$(_WinAppRunArgs) --manifest "$(_WinAppManifestPathArg)"</_WinAppRunArgs>
@@ -228,6 +300,7 @@
       <_WinAppRunArgs Condition="'$(WinAppRunClean)' == 'true'">$(_WinAppRunArgs) --clean</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunSymbols)' == 'true'">$(_WinAppRunArgs) --symbols</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunExecutable)' != ''">$(_WinAppRunArgs) --executable "$(WinAppRunExecutable)"</_WinAppRunArgs>
+      <_WinAppRunArgs>$(_WinAppRunArgs) --project-framework $(_WinAppProjectFramework)</_WinAppRunArgs>
       <_WinAppRunArgs>$(_WinAppRunArgs) --caller nuget-package</_WinAppRunArgs>
       <!--
         WinAppRunArgs is appended last so it lands after every property-derived switch,

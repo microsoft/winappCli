@@ -3,8 +3,10 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Tests;
 
@@ -22,6 +24,9 @@ public partial class UiCommandTests : BaseCommandTests
     private FakeOwnedWindowFinder _fakeWindowFinder = null!;
     private FakeSystemUiQuery _fakeSystemQuery = null!;
     private FakePollDelay _fakePollDelay = null!;
+    private FakeInteractiveDesktopLock _fakeDesktopLock = null!;
+    private FakeDesktopForegroundService _fakeDesktopForeground = null!;
+    private FakeWindowCapture _fakeWindowCapture = null!;
 
     private void AssertJsonErrorCode(string expectedCode)
         => AssertJsonErrorCodeIn(ConsoleStdErr.ToString(), expectedCode);
@@ -45,8 +50,11 @@ public partial class UiCommandTests : BaseCommandTests
         _fakeForeground = new FakeForegroundGuard();
         _fakePointer = new FakePointerInput();
         _fakeWindowFinder = new FakeOwnedWindowFinder();
-        _fakeSystemQuery = new FakeSystemUiQuery();
+        _fakeSystemQuery = new FakeSystemUiQuery { ProcessIdForWindowResult = 1234 };
         _fakePollDelay = new FakePollDelay();
+        _fakeDesktopLock = new FakeInteractiveDesktopLock();
+        _fakeDesktopForeground = new FakeDesktopForegroundService();
+        _fakeWindowCapture = new FakeWindowCapture();
         return services
             .AddSingleton<IUiAutomation>(_fakeUia)
             .AddSingleton<IUiRecordingService>(_fakeRecording)
@@ -57,7 +65,10 @@ public partial class UiCommandTests : BaseCommandTests
             .AddSingleton<IPointerInput>(_fakePointer)
             .AddSingleton<IOwnedWindowFinder>(_fakeWindowFinder)
             .AddSingleton<ISystemUiQuery>(_fakeSystemQuery)
-            .AddSingleton<IPollDelay>(_fakePollDelay);
+            .AddSingleton<IPollDelay>(_fakePollDelay)
+            .AddSingleton<IInteractiveDesktopLock>(_fakeDesktopLock)
+            .AddSingleton<IDesktopForegroundService>(_fakeDesktopForeground)
+            .AddSingleton<IWindowCapture>(_fakeWindowCapture);
     }
 
     [TestMethod]

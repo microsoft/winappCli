@@ -87,6 +87,13 @@
     <PackageReference Include="System.Drawing.Common" />
     <PackageReference Include="Microsoft.Diagnostics.Runtime" />
     <PackageReference Include="Microsoft.Diagnostics.Runtime.Utilities" />
+    <!-- NuGet client libraries: let winapp honor the user's nuget.config (custom/private package
+         sources, credentials, globalPackagesFolder) when restoring SDK packages. -->
+    <PackageReference Include="NuGet.Protocol" />
+    <PackageReference Include="NuGet.Packaging" />
+    <PackageReference Include="NuGet.Configuration" />
+    <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="NuGet.Credentials" />
     <!-- Native debugging engine bits (dbgeng/dbghelp/dbgcore/dbgmodel/msdia140 + symsrv) used by the
          WinUI triage pass. Restore-only: nothing is bundled into the AOT/single-file output (the
          packages ship native DLLs under content/<arch>/ which PackageReference does not auto-consume,
@@ -114,6 +121,15 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>WinApp.Cli.SnapshotBaker</_Parameter1>
     </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Make the NuGet client libraries AOT/trim-safe: use the System.Text.Json source-generated
+         deserializer and let the linker trim the reflection-based Newtonsoft.Json path entirely.
+         https://github.com/NuGet/NuGet.Client/blob/dev/docs/aot-compatibility.md -->
+    <RuntimeHostConfigurationOption Include="NuGet.UseSystemTextJsonDeserialization"
+                                    Value="true"
+                                    Trim="true" />
   </ItemGroup>
 
 </Project>

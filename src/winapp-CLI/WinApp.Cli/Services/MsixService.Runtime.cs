@@ -239,7 +239,7 @@ internal partial class MsixService
             }
             catch (Exception ex)
             {
-                taskContext.AddDebugMessage($"{UiSymbols.Warning} Could not retrieve package list from .csproj: {ex.Message}");
+                taskContext.AddDebugMessage($"{UiSymbols.Warning} Could not retrieve package list from .csproj: {NugetErrorMessage.Redact(ex.Message)}");
             }
         }
 
@@ -653,7 +653,7 @@ internal partial class MsixService
         }
         catch (Exception ex)
         {
-            taskContext.AddDebugMessage($"{UiSymbols.Warning} Error getting Windows App SDK dependency info: {ex.Message}");
+            taskContext.AddDebugMessage($"{UiSymbols.Warning} Error getting Windows App SDK dependency info: {NugetErrorMessage.Redact(ex.Message)}");
             return null;
         }
     }
@@ -789,7 +789,7 @@ internal partial class MsixService
         }
         catch (Exception ex)
         {
-            taskContext.AddDebugMessage($"{UiSymbols.Warning} {BuildToolsService.WINAPP_SDK_PACKAGE} v{mainVersion} not found in package source: {ex.Message}");
+            taskContext.AddDebugMessage($"{UiSymbols.Warning} {BuildToolsService.WINAPP_SDK_PACKAGE} v{mainVersion} not found in package source: {NugetErrorMessage.Redact(ex.Message)}");
         }
 
         return (null, null);

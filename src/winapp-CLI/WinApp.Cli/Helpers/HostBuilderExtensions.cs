@@ -9,6 +9,7 @@ using System.Diagnostics.CodeAnalysis;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.Controls;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Helpers;
 
@@ -23,6 +24,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IConfigService, ConfigService>()
             .AddSingleton<ICppWinrtService, CppWinrtService>()
             .AddSingleton<IDotNetService, DotNetService>()
+            .AddSingleton<IDotNetProjectRestoreService, DotNetProjectRestoreService>()
             .AddSingleton<IDevModeService, DevModeService>()
             .AddSingleton<IDirectoryPackagesService, DirectoryPackagesService>()
             .AddSingleton<IManifestTemplateService, ManifestTemplateService>()
@@ -32,6 +34,8 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IBundleService, BundleService>()
             .AddSingleton<IBundleValidationService, BundleValidationService>()
             .AddSingleton<IPriService, PriService>()
+            .AddSingleton<NugetSourceProvider>()
+            .AddSingleton<NugetPackageDownloader>()
             .AddSingleton<INugetService, NugetService>()
             .AddSingleton<IPackageInstallationService, PackageInstallationService>()
             .AddSingleton<IPackageLayoutService, PackageLayoutService>()
@@ -39,6 +43,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IWinmdService, WinmdService>()
             .AddSingleton<IWinmdsLockfileService, WinmdsLockfileService>()
             .AddSingleton<IProjectDetectionService, ProjectDetectionService>()
+            .AddSingleton<IProjectContextDetector, ProjectContextDetector>()
             .AddSingleton<ICsWinRTMetadataShimService, CsWinRTMetadataShimService>()
             .AddSingleton<IProjectRunService, ProjectRunService>()
             .AddSingleton<ITemplateCacheReader, TemplateCacheReader>()
@@ -65,6 +70,15 @@ internal static class StoreHostBuilderExtensions
             // UI Automation services (from the Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation package)
             .AddWinAppUiAutomation()
             .AddWinAppUiRecording()
+            .AddSingleton<IProcessInspector, ProcessInspector>()
+            .AddSingleton<IMonotonicClock, TickCountClock>()
+            .AddSingleton<IInteractiveDesktopPaths, InteractiveDesktopPaths>()
+            .AddSingleton<IParticipantRegistry, ParticipantRegistry>()
+            .AddSingleton<IParticipantSignals, ParticipantSignals>()
+            .AddSingleton<IInteractiveDesktopStateStore, InteractiveDesktopStateStore>()
+            .AddSingleton<IUiOwnerResolver, UiOwnerResolver>()
+            .AddSingleton<IInteractiveDesktopLock, InteractiveDesktopLock>()
+            .AddSingleton<IDesktopForegroundService, DesktopForegroundService>()
             .AddSingleton<IControlsSearchService, ControlsSearchService>();
     }
 
@@ -119,6 +133,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiWaitForCommand, UiWaitForCommand.Handler>()
                 .UseCommandHandler<UiListWindowsCommand, UiListWindowsCommand.Handler>()
                 .UseCommandHandler<UiGetFocusedCommand, UiGetFocusedCommand.Handler>()
+                .UseCommandHandler<UiYieldCommand, UiYieldCommand.Handler>()
                 .ConfigureCommand<CompleteCommand>();
     }
 

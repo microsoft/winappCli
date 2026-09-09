@@ -324,6 +324,9 @@ internal sealed class FakeSignToolNugetService(DirectoryInfo cacheDir) : INugetS
 
     public DirectoryInfo GetNuGetPackageDir(string packageName, string version)
         => throw new NotImplementedException();
+
+    public bool IsPackageInstalled(string packageName, string version)
+        => throw new NotImplementedException();
 }
 
 internal sealed class FakeSignToolWinappDirectoryService(DirectoryInfo globalDir) : IWinappDirectoryService
