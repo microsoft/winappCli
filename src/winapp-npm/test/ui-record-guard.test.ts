@@ -168,6 +168,7 @@ test('_uiRecordWithCapture: calls capture with correct args and returns result',
     fps: 15,
     output: 'rec.mp4',
     cwd: 'C:\\work',
+    workflowId: 'wf-forwarded',
   };
 
   const result = await _uiRecordWithCapture(opts, mockCapture as Parameters<typeof _uiRecordWithCapture>[1]);
@@ -184,14 +185,83 @@ test('_uiRecordWithCapture: calls capture with correct args and returns result',
   assert.ok(dIdx >= 0, '--duration-sec must be in args');
   assert.equal(capturedArgs[0][dIdx + 1], '5');
 
-  // cwd is forwarded
-  assert.deepEqual(capturedOpts[0], { cwd: 'C:\\work' });
+  // cwd and workflowId are forwarded
+  assert.deepEqual(capturedOpts[0], { cwd: 'C:\\work', workflowId: 'wf-forwarded' });
 
   // Result is correctly mapped
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout, '{"frames":30}');
   assert.equal(result.stderr, '');
 });
+
+test('_uiRecordWithCapture: workflowId reaches the CLI child environment', async () => {
+  // A recording is the one long-running ui command, so it is the one most likely to be running while
+  // its workflow also clicks. Dropping workflowId here made the recording an anonymous one-shot, which
+  // blocks every other command for its whole duration instead of overlapping with its own workflow.
+  const capturedOpts: unknown[] = [];
+  async function mockCapture(_args: string[], opts: unknown) {
+    capturedOpts.push(opts);
+    return { exitCode: 0, stdout: '', stderr: '' };
+  }
+
+  await _uiRecordWithCapture(
+    { durationSec: 3, workflowId: 'wf-only' },
+    mockCapture as Parameters<typeof _uiRecordWithCapture>[1]
+  );
+
+  assert.deepEqual(
+    capturedOpts[0],
+    { workflowId: 'wf-only' },
+    'workflowId must be forwarded even when no other capture option is set'
+  );
+});
+
+test('_uiRecordWithCapture: an empty workflowId is forwarded, not silently dropped', async () => {
+  // An empty string is a scripting mistake — an unset variable that expanded to "" — and the CLI
+  // rejects it with invalid_ui_workflow_id so the caller finds out. Testing it for truthiness instead
+  // of for undefined swallowed that mistake here and ran the recording as an anonymous one-shot, so
+  // the same bad input failed loudly through the generated wrappers and passed quietly through this
+  // one. Forwarding keeps a single answer for a single input.
+  const capturedOpts: unknown[] = [];
+  async function mockCapture(_args: string[], opts: unknown) {
+    capturedOpts.push(opts);
+    return { exitCode: 0, stdout: '', stderr: '' };
+  }
+
+  await _uiRecordWithCapture(
+    { durationSec: 3, workflowId: '' },
+    mockCapture as Parameters<typeof _uiRecordWithCapture>[1]
+  );
+
+  assert.deepEqual(
+    capturedOpts[0],
+    { workflowId: '' },
+    'an empty workflowId must reach the CLI so it can reject it'
+  );
+});
+
+test('_uiRecordWithCapture: an omitted workflowId is still omitted', async () => {
+  // The other half of the contract: only `undefined` means "no opinion", and it must leave any
+  // inherited WINAPP_UI_WORKFLOW_ID in the environment alone.
+  const capturedOpts: unknown[] = [];
+  async function mockCapture(_args: string[], opts: unknown) {
+    capturedOpts.push(opts);
+    return { exitCode: 0, stdout: '', stderr: '' };
+  }
+
+  await _uiRecordWithCapture(
+    { durationSec: 3 },
+    mockCapture as Parameters<typeof _uiRecordWithCapture>[1]
+  );
+
+  assert.deepEqual(capturedOpts[0], {}, 'no workflowId key at all when the caller omitted it');
+});
+
+// The public uiRecord differs from _uiRecordWithCapture only in that it spawns the CLI instead of
+// taking an injected capture function — the forwarding line above is the same one. It is not
+// exercised end-to-end here because the compiled tests run from dist-test/, where the package's own
+// binary resolution (dist/../bin) does not find the built CLI. _uiRecordWithCapture exists for
+// exactly this reason, and the environment half of the contract is covered in workflow-id.test.ts.
 
 test('_uiRecordWithCapture: no cwd → empty capture options', async () => {
   const capturedOpts: unknown[] = [];

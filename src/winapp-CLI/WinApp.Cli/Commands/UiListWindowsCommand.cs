@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -53,9 +54,18 @@ internal class UiListWindowsCommand : Command, IShortDescription
     public class Handler(
         IUiAutomation uiAutomation,
         IAnsiConsole ansiConsole,
-        ILogger<UiListWindowsCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiListWindowsCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui list-windows";
+
+        /// <summary>Enumerating windows is a read-only Win32/UIA query.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.Observe;
+
+        /// <summary>Nothing to validate locally: <c>--app</c> is optional for this command.</summary>
+        protected override int? Preflight(ParseResult parseResult) => null;
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
@@ -171,7 +181,7 @@ internal class UiListWindowsCommand : Command, IShortDescription
                 logger.LogInformation("Found {Count} windows", displayedCount);
                 return 0;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;

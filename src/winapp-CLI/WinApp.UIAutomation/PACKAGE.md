@@ -3,6 +3,13 @@
 Inspect and drive any running Windows desktop app from code — the UI Automation engine behind the
 `winapp ui` commands, packaged as a library.
 
+> **This package does not coordinate with other automation on the desktop.** The `winapp` CLI layers
+> cooperative desktop turns on top of this engine so concurrent `winapp ui` workflows cannot steal
+> each other's focus or dismiss each other's menus. That arbitration lives in the CLI, not here.
+> Code calling these APIs directly does not participate in it: it drives the desktop immediately, so
+> if you run it alongside `winapp ui`, or alongside another copy of itself, you are responsible for
+> serializing the two — or for running on a dedicated interactive desktop, as described below.
+
 ```console
 dotnet add package Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation
 dotnet add package Microsoft.Extensions.DependencyInjection
@@ -87,6 +94,15 @@ input goes there instead of your app.
 Run this on a dedicated interactive desktop rather than the one you are working on, and note that
 injection does nothing useful over a disconnected RDP session, where there is no live desktop to
 receive it.
+
+`ForegroundGuard` exposes the two checks these paths need, and they are deliberately different:
+
+- `ForegroundBelongsTo(hwnd)` — the strict one, for input. It accepts only the target window or the
+  top-level root that owns it, because a dialog in front would swallow your keystrokes.
+- `ForegroundIsCapturableFor(hwnd)` — the capture one, for screen capture and screen recording. It
+  also accepts a foreground window whose owner chain reaches the target, because a modal dialog the
+  target owns is part of that app's UI and is sitting on the pixels you asked for. An unrelated
+  window is still refused, so you never get a picture of somebody else's app labelled as yours.
 
 ## Requirements
 
