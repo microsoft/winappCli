@@ -110,6 +110,28 @@ public sealed class ApiCachePathsTests
         }
     }
 
+    [TestMethod]
+    public void TryCombineContained_MalformedSegment_ReturnsFalseInsteadOfThrowing()
+    {
+        // A package id read from project.assets.json is untrusted, and one that cannot be
+        // a path at all — an embedded NUL, say — must be reported as unsafe like any other
+        // rejected segment. Letting normalization throw aborts indexing, so a single bad
+        // entry makes every later find-api query fail.
+        string root = Path.Combine(Path.GetTempPath(), "ApiCachePathsTests_Malformed");
+
+        Assert.IsFalse(ApiCachePaths.TryCombineContained(root, ["Bad\0Id"], out string combined));
+        Assert.AreEqual(string.Empty, combined);
+    }
+
+    [TestMethod]
+    public void TryPackageCacheDir_MalformedPackageId_SkipsThePackage()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "ApiCachePathsTests_Malformed");
+
+        Assert.IsFalse(ApiCachePaths.TryPackageCacheDir(root, "Bad\0Id", "1.0.0", "0a1b2c3d", out string dir));
+        Assert.AreEqual(string.Empty, dir);
+    }
+
     private static void WriteNamespace(string typesDir, string ns, string typeName)
     {
         var types = new List<WinMdTypeInfo>

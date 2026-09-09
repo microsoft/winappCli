@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Text;
 using System.Text.Json;
 
 namespace WinApp.Cli.Services.ApiSearch;
@@ -933,28 +934,84 @@ internal static class ApiQueryEngine
     /// generic is written in: the metadata form <c>IAsyncOperation`1</c> and the source
     /// form <c>IAsyncOperation&lt;StorageFile&gt;</c>. The arity is <c>null</c> when the
     /// caller did not state one (<c>IAsyncOperation</c>), which means "any arity".
+    /// <para>
+    /// A nested generic states its arguments on the segment that declares them —
+    /// <c>Dictionary&lt;TKey, TValue&gt;.KeyCollection</c> — so every segment is read, not
+    /// just a trailing argument list. Reading only the tail leaves the arguments inside
+    /// the base name, and the indexed spelling then matches no query but itself.
+    /// </para>
     /// </summary>
     private static (string BaseName, int? Arity) SplitGenericName(string typeName)
     {
-        int tick = typeName.IndexOf('`');
+        var baseName = new StringBuilder(typeName.Length);
+        int total = 0;
+        bool stated = false;
+        int depth = 0;
+        int segmentStart = 0;
+        for (int i = 0; i <= typeName.Length; i++)
+        {
+            if (i < typeName.Length)
+            {
+                switch (typeName[i])
+                {
+                    case '<':
+                        depth++;
+                        continue;
+                    case '>':
+                        depth--;
+                        continue;
+                    default:
+                        if (depth > 0 || typeName[i] != '.')
+                        {
+                            continue;
+                        }
+                        break;
+                }
+            }
+            else if (depth > 0)
+            {
+                // An unterminated '<' is not a generic list; treat the name as written.
+                return (typeName, null);
+            }
+
+            (string segmentBase, int? segmentArity) = SplitGenericSegment(typeName[segmentStart..i]);
+            if (baseName.Length > 0)
+            {
+                baseName.Append('.');
+            }
+            baseName.Append(segmentBase);
+            if (segmentArity is int arity)
+            {
+                stated = true;
+                total += arity;
+            }
+            segmentStart = i + 1;
+        }
+        return (baseName.ToString(), stated ? total : null);
+    }
+
+    /// <summary>Base name and stated arity of one dot-separated name segment.</summary>
+    private static (string BaseName, int? Arity) SplitGenericSegment(string segment)
+    {
+        int tick = segment.IndexOf('`');
         if (tick >= 0)
         {
-            return int.TryParse(typeName.AsSpan(tick + 1), out int arity)
-                ? (typeName[..tick], arity)
-                : (typeName[..tick], null);
+            return int.TryParse(segment.AsSpan(tick + 1), out int arity)
+                ? (segment[..tick], arity)
+                : (segment[..tick], null);
         }
 
-        int open = typeName.IndexOf('<');
-        if (open < 0 || !typeName.EndsWith('>'))
+        int open = segment.IndexOf('<');
+        if (open < 0 || !segment.EndsWith('>'))
         {
-            return (typeName, null);
+            return (segment, null);
         }
 
         // Count only top-level arguments, so Foo<Bar<A, B>> reads as arity 1, not 2.
         int depth = 0, args = 1;
-        for (int i = open; i < typeName.Length; i++)
+        for (int i = open; i < segment.Length; i++)
         {
-            switch (typeName[i])
+            switch (segment[i])
             {
                 case '<':
                     depth++;
@@ -967,7 +1024,7 @@ internal static class ApiQueryEngine
                     break;
             }
         }
-        return (typeName[..open], args);
+        return (segment[..open], args);
     }
 
     /// <summary>

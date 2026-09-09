@@ -246,8 +246,11 @@ internal static class WinMdParser
     /// documentation for the type.
     /// <para>
     /// <see cref="TypeDefinition.GetGenericParameters"/> includes parameters inherited
-    /// from enclosing types, so removing every suffix and appending the full list also
-    /// names a generic nested inside a generic correctly.
+    /// from enclosing types, and each name segment states how many of them it owns, so
+    /// the parameters are handed out per segment. Stripping every suffix and appending
+    /// the whole list once instead spells <c>Dictionary`2.KeyCollection</c> as
+    /// <c>Dictionary.KeyCollection&lt;TKey, TValue&gt;</c>, which is not a name any
+    /// caller can compile or look up.
     /// </para>
     /// </remarks>
     internal static string ToSourceGenericName(string metadataName, ImmutableArray<string> genericParameterNames)
@@ -256,30 +259,74 @@ internal static class WinMdParser
         {
             return metadataName;
         }
+        return ApplyGenericArguments(metadataName, genericParameterNames, "<", ", ", ">");
+    }
 
-        var builder = new System.Text.StringBuilder(metadataName.Length);
-        for (int i = 0; i < metadataName.Length; i++)
+    /// <summary>
+    /// Renders <paramref name="metadataName"/> with <paramref name="arguments"/> attached
+    /// to the name segments that declare them, dropping the arity suffixes.
+    /// <para>
+    /// Generic arguments are listed outermost first, and a nested segment's suffix counts
+    /// only the parameters that segment itself introduces, so the arguments are assigned
+    /// from the last segment backwards: <c>Outer`1.Inner`1</c> with <c>A, B</c> renders as
+    /// <c>Outer&lt;A&gt;.Inner&lt;B&gt;</c>. When no segment states an arity — a nested
+    /// type that adds no parameters of its own, whose name carries no suffix at all — the
+    /// arguments go on the last segment, which is where the caller wrote them.
+    /// </para>
+    /// </summary>
+    internal static string ApplyGenericArguments(
+        string metadataName,
+        IReadOnlyList<string> arguments,
+        string open,
+        string separator,
+        string close)
+    {
+        string[] segments = metadataName.Split('.');
+        var arities = new int[segments.Length];
+        int declared = 0;
+        for (int i = 0; i < segments.Length; i++)
         {
-            if (metadataName[i] != '`')
+            int tick = segments[i].IndexOf('`');
+            if (tick < 0)
             {
-                builder.Append(metadataName[i]);
                 continue;
             }
-            // Skip the suffix digits; the arity they encode is restated by the
-            // parameter list appended below.
-            i++;
-            while (i < metadataName.Length && char.IsAsciiDigit(metadataName[i]))
+            int end = tick + 1;
+            while (end < segments[i].Length && char.IsAsciiDigit(segments[i][end]))
             {
-                i++;
+                end++;
             }
-            i--;
+            _ = int.TryParse(segments[i].AsSpan(tick + 1, end - tick - 1), out arities[i]);
+            declared += arities[i];
+            segments[i] = segments[i][..tick] + segments[i][end..];
         }
 
-        if (genericParameterNames.Length == 0)
+        var rendered = new string[segments.Length];
+        int remaining = arguments.Count;
+        for (int i = segments.Length - 1; i >= 0; i--)
         {
-            return builder.ToString();
+            int take = declared == 0 && i == segments.Length - 1
+                ? remaining
+                : Math.Min(arities[i], remaining);
+            if (take <= 0)
+            {
+                rendered[i] = segments[i];
+                continue;
+            }
+            remaining -= take;
+            var builder = new System.Text.StringBuilder(segments[i]);
+            builder.Append(open);
+            for (int a = 0; a < take; a++)
+            {
+                if (a > 0)
+                {
+                    builder.Append(separator);
+                }
+                builder.Append(arguments[remaining + a]);
+            }
+            rendered[i] = builder.Append(close).ToString();
         }
-        return builder.Append('<').AppendJoin(", ", genericParameterNames).Append('>').ToString();
+        return string.Join('.', rendered);
     }
 
     /// <summary>

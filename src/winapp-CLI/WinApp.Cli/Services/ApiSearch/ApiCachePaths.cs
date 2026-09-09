@@ -24,7 +24,7 @@ internal static class ApiCachePaths
     /// records the version a cache was written with, and the builder refuses to
     /// reuse a package whose recorded version is not this one.
     /// </summary>
-    internal const int CacheFormatVersion = 8;
+    internal const int CacheFormatVersion = 9;
 
     /// <summary>
     /// File name of the machine-wide "SDK scope" manifest, written as a sibling of
@@ -114,14 +114,33 @@ internal static class ApiCachePaths
     /// Returns <see langword="false"/> (and an empty path) when the segments
     /// would escape the root, guarding against traversal via untrusted package
     /// Id/Version values used as directory names.
+    /// <para>
+    /// A segment can also be malformed rather than merely escaping — a package id
+    /// carrying an embedded NUL, say — which makes normalization throw. That is the
+    /// same answer as "unsafe", so it is reported the same way: one bad entry in a
+    /// <c>project.assets.json</c> skips its package instead of aborting indexing and
+    /// failing every later query.
+    /// </para>
     /// </summary>
     internal static bool TryCombineContained(string root, string[] segments, out string combined)
     {
-        string rootFull = Path.GetFullPath(root);
-        var all = new string[segments.Length + 1];
-        all[0] = rootFull;
-        Array.Copy(segments, 0, all, 1, segments.Length);
-        combined = Path.GetFullPath(Path.Combine(all));
+        combined = string.Empty;
+        string rootFull;
+        string candidate;
+        try
+        {
+            rootFull = Path.GetFullPath(root);
+            var all = new string[segments.Length + 1];
+            all[0] = rootFull;
+            Array.Copy(segments, 0, all, 1, segments.Length);
+            candidate = Path.GetFullPath(Path.Combine(all));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException
+            or NotSupportedException or IOException or System.Security.SecurityException)
+        {
+            return false;
+        }
+        combined = candidate;
 
         string prefix = rootFull.EndsWith(Path.DirectorySeparatorChar)
             ? rootFull

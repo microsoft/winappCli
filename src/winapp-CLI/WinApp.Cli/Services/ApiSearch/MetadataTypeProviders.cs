@@ -94,16 +94,11 @@ internal sealed class SimpleTypeProvider : ISignatureTypeProvider<string, object
 
     public string GetPinnedType(string elementType) => elementType;
 
-    public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-    {
-        string text = genericType;
-        int num = text.IndexOf('`');
-        if (num >= 0)
-        {
-            text = text.Substring(0, num);
-        }
-        return text + "<" + string.Join(", ", typeArguments) + ">";
-    }
+    public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments) =>
+        // A nested generic is named 'Dictionary`2.KeyCollection', so truncating at the
+        // first suffix would drop everything after it; the arguments belong to the
+        // segment that declares them. See WinMdParser.ApplyGenericArguments.
+        WinMdParser.ApplyGenericArguments(genericType, typeArguments, "<", ", ", ">");
 
     public string GetGenericMethodParameter(object? genericContext, int index) =>
             genericContext is GenericNameContext ctx && index < ctx.MethodParameters.Length
@@ -185,16 +180,11 @@ internal sealed class DocIdTypeProvider : ISignatureTypeProvider<string, object?
 
     public string GetPinnedType(string elementType) => elementType;
 
-    public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-    {
-        string text = genericType;
-        int tick = text.IndexOf('`');
-        if (tick >= 0)
-        {
-            text = text.Substring(0, tick);
-        }
-        return text + "{" + string.Join(",", typeArguments) + "}";
-    }
+    public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments) =>
+        // A doc ID spells a nested generic as 'Dictionary{TKey,TValue}.KeyCollection', so
+        // the arguments attach to the segment that declares them rather than replacing
+        // everything after the first arity suffix.
+        WinMdParser.ApplyGenericArguments(genericType, typeArguments, "{", ",", "}");
 
     public string GetGenericMethodParameter(object? genericContext, int index) => "``" + index.ToString(CultureInfo.InvariantCulture);
 
