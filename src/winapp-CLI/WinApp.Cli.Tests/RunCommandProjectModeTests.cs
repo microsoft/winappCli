@@ -705,6 +705,27 @@ public class RunCommandProjectModeTests : BaseCommandTests
         StringAssert.Contains(error.GetString(), "';'", "Error must explain the ';' packing is not allowed");
     }
 
+    [TestMethod]
+    public async Task ProjectMode_CommaPackedProperty_IsRejectedWithoutEchoingSecret()
+    {
+        var csproj = CreateCsproj();
+        SetUnpackagedOutcome(csproj, CreateTargetDir(withManifest: false), selfContained: false);
+        var command = GetRequiredService<RunCommand>();
+        TestAnsiConsole.Profile.Width = 1000;
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--json", "-p", "PackageCertificatePassword=p@ss,w0rd"]);
+
+        Assert.AreEqual(1, exitCode, "A comma-packed -p must fail");
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        Assert.IsFalse(
+            TestAnsiConsole.Output.Contains("p@ss", StringComparison.Ordinal)
+            || TestAnsiConsole.Output.Contains("w0rd", StringComparison.Ordinal),
+            "the validation error must not echo any part of a possible secret value");
+        StringAssert.Contains(TestAnsiConsole.Output, "cannot pack multiple properties");
+    }
+
     #endregion
 
     #region Folder mode (regression)

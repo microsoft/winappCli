@@ -779,13 +779,13 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 **Project-mode options** (ignored in folder mode):
 
 - `-c, --configuration <name>` - Build configuration. Default: `Debug`.
-- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines both the build RID and the architecture of the Windows App Runtime that gets installed.
-- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch`.
+- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build.
+- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch` and can select the required publish profile.
 - `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`).
 - `--project <name-or-path>` - When the input is a solution (`.sln`/`.slnx`) or a directory with multiple runnable app projects, selects which project to launch (by project name or path).
 - `--no-build` - Skip building and run the existing build output (still evaluates output properties).
 - `--no-restore` - Skip restoring the project before building.
-- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeatable (e.g. `-p WindowsPackageType=None`).
+- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value.
 
 **Build output & verbosity:** the project is built in two steps — a `dotnet build` whose output **streams live** to your console, followed by a fast property-evaluation pass. winapp prints the exact `dotnet build …` invocation before the output, and streams warnings even on a successful build. Verbosity:
 
