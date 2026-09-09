@@ -12,14 +12,22 @@ Before starting this guide, make sure you've:
 
 ## Step 1: Add the AI capability
 
-Phi Silica requires the `systemAIModels` restricted capability. Add it to `Package.appxmanifest` inside `<Capabilities>`:
+Phi Silica requires the `systemAIModels` capability. It lives in its **own** `systemai` namespace — not `rescap` — so declare that namespace on `<Package>` and mark it ignorable, then add the capability:
 
 ```xml
-<Capabilities>
-  <rescap:Capability Name="runFullTrust" />
-  <rescap:Capability Name="systemAIModels" />
-</Capabilities>
+<Package
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10"
+  IgnorableNamespaces="rescap systemai">
+  ...
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <systemai:Capability Name="systemAIModels" />
+  </Capabilities>
+</Package>
 ```
+
+It also needs `TargetDeviceFamily/@MaxVersionTested` to be at least `10.0.26226.0`.
 
 After changing the manifest, refresh debug identity:
 

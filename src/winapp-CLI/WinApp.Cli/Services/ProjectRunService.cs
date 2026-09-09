@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -25,11 +26,20 @@ internal sealed partial class ProjectRunService(
         "TargetDir",
         "RunCommand",
         "RunArguments",
+        // The project.assets.json restore wrote for THESE build inputs. Package discovery reads it rather
+        // than re-evaluating the project: `dotnet package list` takes no -c/-r/-p, and conveying them
+        // through the environment does not work either, because MSBuild ranks environment properties below
+        // a value the project assigns while the build's own -c/-r/-p outrank it.
+        "ProjectAssetsFile",
         "WindowsPackageType",
         "WindowsAppSDKSelfContained",
         "EnableMsixTooling",
         "_WinAppRunSupportActive",
         "OutputType",
+        // The app's own launch preference. Read here so a .csproj run directly gets the same behavior as
+        // one launched through `dotnet run`, where the NuGet targets forward it — the same documented
+        // property must not mean different things depending on how the project was started.
+        "WinAppRunUseExecutionAlias",
         "PublishTrimmed",
         "PublishAot",
         "SelfContained",
@@ -63,11 +73,31 @@ internal sealed partial class ProjectRunService(
     internal Func<bool>? NativeTerminalGateOverrideForTests { get; set; }
 
     /// <inheritdoc />
-    public async Task<string?> CheckSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
-    {
-        const string upgradeHint =
-            "Running csproj requires .NET SDK 8.0.100 or newer. Install or update it from https://aka.ms/dotnet/download.";
+    public Task<string?> CheckSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
+        => CheckSdkFloorAsync(
+            workingDirectory,
+            minimumMajor: 8,
+            minimumPatch: 100,
+            upgradeHint: "Running csproj requires .NET SDK 8.0.100 or newer. Install or update it from https://aka.ms/dotnet/download.",
+            tooOldReason: "is too old for project mode",
+            cancellationToken);
 
+    /// <summary>
+    /// Probes <c>dotnet --version</c> and reports whether the installed SDK meets a minimum floor.
+    /// Shared by project mode (8.0.100, for MSBuild <c>--getProperty</c>) and single-file mode (10.0.300,
+    /// the first band whose <c>dotnet package list --file</c> can resolve a file-based app's packages) so
+    /// the two cannot drift apart.
+    /// </summary>
+    /// <param name="tooOldReason">Completes the sentence "The .NET SDK &lt;version&gt; …".</param>
+    /// <returns>An actionable error message if the SDK is missing/too old, otherwise <c>null</c>.</returns>
+    private async Task<string?> CheckSdkFloorAsync(
+        DirectoryInfo workingDirectory,
+        int minimumMajor,
+        int minimumPatch,
+        string upgradeHint,
+        string tooOldReason,
+        CancellationToken cancellationToken)
+    {
         int exitCode;
         string output;
         try
@@ -79,9 +109,10 @@ internal sealed partial class ProjectRunService(
             // Honor Ctrl+C during the SDK probe instead of reporting it as a missing SDK.
             throw;
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException)
         {
-            // dotnet not on PATH → Process.Start throws.
+            // dotnet not on PATH → Process.Start throws Win32Exception (or FileNotFoundException when a
+            // resolved path has since disappeared). Anything else is unexpected and should surface.
             return $"The .NET SDK was not found. {upgradeHint}";
         }
 
@@ -96,15 +127,16 @@ internal sealed partial class ProjectRunService(
 
         if (!string.IsNullOrEmpty(versionLine) && TryParseSdkVersion(versionLine, out var major, out var minor, out var patch))
         {
-            var capable = major > 8 || (major == 8 && (minor > 0 || (minor == 0 && patch >= 100)));
+            var capable = major > minimumMajor
+                || (major == minimumMajor && (minor > 0 || (minor == 0 && patch >= minimumPatch)));
             if (!capable)
             {
-                return $"The .NET SDK {versionLine} is too old for project mode. {upgradeHint}";
+                return $"The .NET SDK {versionLine} {tooOldReason}. {upgradeHint}";
             }
         }
 
         // Present but unparseable version → assume a modern SDK; the build will surface a real error
-        // if --getProperty is genuinely unsupported.
+        // if the SDK is genuinely incapable.
         return null;
     }
 
@@ -402,7 +434,11 @@ internal sealed partial class ProjectRunService(
             options.Architecture,
             options.Framework,
             options.NoRestore,
-            string.IsNullOrEmpty(runArguments) ? null : runArguments);
+            string.IsNullOrEmpty(runArguments) ? null : runArguments,
+            string.IsNullOrEmpty(outputType) ? null : outputType,
+            ReadAliasPreference(props),
+            GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
+            GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null);
 
         return new ProjectBuildOutcome(resolution, 0);
     }
@@ -800,6 +836,29 @@ internal sealed partial class ProjectRunService(
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Reads the project's <c>WinAppRunUseExecutionAlias</c> preference, warning when it is malformed.
+    /// </summary>
+    /// <remarks>
+    /// A value that is not a valid boolean reads as "no preference", matching the NuGet targets, which
+    /// forward no switch for one. It is warned about rather than accepted silently: the property's whole
+    /// purpose is to override the launch mechanism, and a typo that quietly does nothing is invisible
+    /// until a console app's output goes missing.
+    /// </remarks>
+    private bool? ReadAliasPreference(IReadOnlyDictionary<string, string> props)
+    {
+        var raw = GetProp(props, Commands.RunCommand.Handler.UseExecutionAliasProperty);
+        var preference = MsBuildPropertyReader.ParseOptionalBoolean(raw, out var malformed);
+        if (malformed)
+        {
+            logger.LogWarning(
+                "{UISymbol} Ignoring {Property}='{Value}': expected 'true' or 'false'.",
+                UiSymbols.Warning, Commands.RunCommand.Handler.UseExecutionAliasProperty, raw);
+        }
+
+        return preference;
     }
 
     private static string GetProp(IReadOnlyDictionary<string, string> props, string name)

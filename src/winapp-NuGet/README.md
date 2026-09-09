@@ -91,7 +91,7 @@ Set these MSBuild properties in your `.csproj` to customize behavior:
 |----------|---------|-------------|
 | `EnableWinAppRunSupport` | `true` | Enable/disable the run support functionality |
 | `WinAppLaunchArgs` | (empty) | Arguments to pass to the app on launch |
-| `WinAppRunUseExecutionAlias` | `false` | Launch via execution alias instead of AUMID activation. Useful for console apps that need terminal I/O. |
+| `WinAppRunUseExecutionAlias` | inferred from the app | Launch via execution alias instead of AUMID activation. Left unset, winapp infers it: console apps use an alias so their output reaches the terminal, windowed apps use AUMID. Set `true` or `false` to decide it yourself. |
 | `WinAppRunNoLaunch` | `false` | Only register identity without launching the app |
 | `WinAppRunDebugOutput` | `false` | Capture `OutputDebugString` messages and first-chance exceptions. Only one debugger can attach at a time (prevents VS/VS Code). Use `WinAppRunNoLaunch` instead to attach a different debugger. Cannot be combined with `WinAppRunNoLaunch`. |
 | `WinAppRunDetach` | `false` | Return immediately after launching instead of waiting for the app to exit. Prints the PID. |
@@ -105,8 +105,10 @@ Set these MSBuild properties in your `.csproj` to customize behavior:
 
 | Property | Cannot be combined with |
 |----------|-------------------------|
-| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunUseExecutionAlias`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
-| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunUseExecutionAlias`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+
+`WinAppRunUseExecutionAlias` is deliberately **not** in that list. Neither value conflicts: `false` asks for AUMID activation, which no-launch and detach already use, and `true` is simply not applied when either is set — an execution alias needs a tracked, running process. So a project that checks in `<WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>` still runs cleanly under `dotnet run -p:WinAppRunDetach=true`, launching via AUMID rather than failing.
 
 A conflicting pair fails the run with `--X and --Y cannot be used together`. The other three launch properties can be combined with each other, and `WinAppRunClean`, `WinAppRunSymbols`, `WinAppRunExecutable`, and `WinAppLaunchArgs` have no restrictions. `WinAppRunArgs` adds no restriction of its own, but a switch passed through it is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `WinAppRunNoLaunch`.
 

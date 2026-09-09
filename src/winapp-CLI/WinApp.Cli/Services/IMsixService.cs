@@ -85,6 +85,17 @@ internal interface IMsixService
         TaskContext taskContext,
         CancellationToken cancellationToken = default);
 
+    /// <param name="selfContained">
+    /// When <c>true</c>, the app carries its own Windows App SDK copy: no framework
+    /// <c>&lt;PackageDependency&gt;</c> is added to the manifest and no runtime is provisioned. Callers
+    /// pass the evaluated <c>WindowsAppSDKSelfContained</c>; the default preserves the previous behavior
+    /// for callers that cannot determine it.
+    /// </param>
+    /// <param name="projectAssetsFile">
+    /// The <c>project.assets.json</c> the build consumed. Package discovery reads the graph from it, so a
+    /// configuration- or RID-conditional <c>PackageReference</c> is seen exactly as the build resolved it;
+    /// when null (or the file is gone) discovery falls back to re-evaluating the project.
+    /// </param>
     public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(
         FileInfo appxManifestPath,
         DirectoryInfo inputDirectory,
@@ -96,6 +107,9 @@ internal interface IMsixService
         FileInfo? projectFile = null,
         string? framework = null,
         bool noRestore = false,
+        bool selfContained = false,
+        bool ensureExecutionAlias = false,
+        PackageGraphSource? packageGraph = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -116,6 +130,7 @@ internal interface IMsixService
     /// </param>
     /// <param name="taskContext">Status/debug sink.</param>
     /// <param name="noRestore">When true, runtime discovery passes <c>--no-restore</c> to <c>dotnet list package</c> so a no-restore run doesn't trigger an implicit restore.</param>
+    /// <param name="projectAssetsFile">The <c>project.assets.json</c> the build consumed, when the caller knows it. Package discovery reads the graph from it instead of re-evaluating the project, so a configuration- or RID-conditional Windows App SDK reference is seen.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task<bool> EnsureWindowsAppRuntimeInstalledAsync(
         FileInfo? projectFile,
@@ -123,5 +138,6 @@ internal interface IMsixService
         string? framework,
         bool noRestore,
         TaskContext taskContext,
+        PackageGraphSource? packageGraph = null,
         CancellationToken cancellationToken = default);
 }

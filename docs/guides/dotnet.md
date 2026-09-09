@@ -115,29 +115,21 @@ dotnet list package
 
 You should see `Microsoft.WindowsAppSDK` and `Microsoft.Windows.SDK.BuildTools` in the output.
 
-### Add Execution Alias (for console apps)
+### Console output (nothing to do)
 
-Because we're building a console app, we need to make sure `dotnet run` keeps console output in the current terminal. By default, `dotnet run` launches the packaged app via AUMID activation, which opens a new window — and the window closes immediately when the console app finishes, swallowing any output.
+Because we're building a console app, console output needs to stay in the current terminal. AUMID activation gives a packaged app no console, so a console app would run correctly and print nothing.
 
-To fix this, you'll add an execution alias to the manifest and tell the run integration to launch via that alias instead.
+winapp handles this for you: an app with `OutputType=Exe` is launched through an execution alias instead, which inherits your terminal's stdin/stdout/stderr. It adds the required `uap5:ExecutionAlias` to the manifest it stages, so there is nothing to configure.
 
-> **Skip this step if you're building a UI app** (WPF, WinForms, WinUI). Those apps render their own window, so the default AUMID launch is what you want.
+> **UI apps** (WPF, WinForms, WinUI) render their own window, so they keep AUMID activation.
 
-1. Add the execution alias to your manifest:
+To force AUMID for a console app anyway, set the following inside any `<PropertyGroup>` in `dotnet-app.csproj` — the app then runs without a console and prints nothing to the terminal:
 
-   ```powershell
-   winapp manifest add-alias
-   ```
+```xml
+<WinAppRunUseExecutionAlias>false</WinAppRunUseExecutionAlias>
+```
 
-   This adds a `uap5:ExecutionAlias` to `Package.appxmanifest` (defaulting to your project's exe name) so the app can be launched by name from a terminal.
-
-2. Tell the `dotnet run` integration to use the alias. Open `dotnet-app.csproj` and add the following inside any `<PropertyGroup>` (or create a new `<PropertyGroup>` if needed):
-
-   ```xml
-   <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
-   ```
-
-   With this property set, `dotnet run` launches the app via its execution alias and inherits the current terminal's stdin/stdout/stderr so you see console output inline.
+If you'd rather choose the command name yourself, run `winapp manifest add-alias` to declare one in `Package.appxmanifest`; an alias you author is used as-is.
 
 ## 5. Debug with Identity
 
