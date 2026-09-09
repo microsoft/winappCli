@@ -664,6 +664,111 @@ public class PackageRegistrationServiceTests
         return (new PackageRegistrationService(logger), logger);
     }
 
+    #region FindOrphanedDevPackages
+
+    [TestMethod]
+    public void FindOrphanedDevPackages_ExcludesNonDevelopmentPackages()
+    {
+        // The single most important boundary: --force prune removes everything this returns, so a
+        // Store/MSIX-installed package must never appear here even if its location looks missing.
+        var (svc, _) = NewService();
+        svc.EnumerateUserPackagesImpl = () =>
+        [
+            View("Store.App", fullName: "Store.App_1.0.0.0_x64__abc", dev: false, loc: () => null),
+            View("Store.Throwing", fullName: "Store.Throwing_1.0.0.0_x64__abc", dev: false,
+                loc: () => throw new InvalidOperationException("gone")),
+        ];
+
+        Assert.AreEqual(0, svc.FindOrphanedDevPackages().Count);
+    }
+
+    [TestMethod]
+    public void FindOrphanedDevPackages_ExcludesDevPackagesWhoseFilesStillExist()
+    {
+        // A live registration must survive the sweep — misclassifying one would delete a working app.
+        var live = Directory.CreateTempSubdirectory("winapp_live_");
+        try
+        {
+            var (svc, _) = NewService();
+            svc.EnumerateUserPackagesImpl = () =>
+            [
+                View("Contoso.Live", fullName: "Contoso.Live_1.0.0.0_x64__abc", loc: () => live.FullName),
+            ];
+
+            Assert.AreEqual(0, svc.FindOrphanedDevPackages().Count);
+        }
+        finally
+        {
+            live.Delete(true);
+        }
+    }
+
+    [TestMethod]
+    public void FindOrphanedDevPackages_IncludesDevPackageWhoseDirectoryIsGone()
+    {
+        var (svc, _) = NewService();
+        var missing = Path.Join(Path.GetTempPath(), $"winapp_missing_{Guid.NewGuid():N}");
+        svc.EnumerateUserPackagesImpl = () =>
+        [
+            View("Contoso.Dead", fullName: "Contoso.Dead_1.0.0.0_x64__abc", loc: () => missing),
+        ];
+
+        var results = svc.FindOrphanedDevPackages();
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("Contoso.Dead_1.0.0.0_x64__abc", results[0].FullName);
+    }
+
+    [TestMethod]
+    public void FindOrphanedDevPackages_IncludesDevPackageWhoseLocationAccessorThrows()
+    {
+        // Windows throws from InstalledLocation for a registration whose files were removed — the exact
+        // state prune exists to clear.
+        var (svc, _) = NewService();
+        svc.EnumerateUserPackagesImpl = () =>
+        [
+            View("Contoso.Throwing", fullName: "Contoso.Throwing_1.0.0.0_x64__abc",
+                loc: () => throw new InvalidOperationException("gone")),
+        ];
+
+        var results = svc.FindOrphanedDevPackages();
+
+        Assert.AreEqual(1, results.Count);
+        Assert.IsNull(results[0].InstallLocation);
+    }
+
+    [TestMethod]
+    public void FindOrphanedDevPackages_MixedSet_SelectsOnlyTheDeadDevPackages()
+    {
+        // The whole boundary in one pass, since prune acts on the entire returned set at once.
+        var live = Directory.CreateTempSubdirectory("winapp_live_");
+        try
+        {
+            var missing = Path.Join(Path.GetTempPath(), $"winapp_missing_{Guid.NewGuid():N}");
+            var (svc, _) = NewService();
+            svc.EnumerateUserPackagesImpl = () =>
+            [
+                View("A.Live", fullName: "A.Live_1.0.0.0_x64__abc", loc: () => live.FullName),
+                View("B.Dead", fullName: "B.Dead_1.0.0.0_x64__abc", loc: () => missing),
+                View("C.StoreDead", fullName: "C.StoreDead_1.0.0.0_x64__abc", dev: false, loc: () => missing),
+                View("D.DeadThrowing", fullName: "D.DeadThrowing_1.0.0.0_x64__abc",
+                    loc: () => throw new InvalidOperationException("gone")),
+            ];
+
+            var names = svc.FindOrphanedDevPackages().Select(p => p.FullName).OrderBy(n => n, StringComparer.Ordinal).ToList();
+
+            Assert.AreEqual(2, names.Count);
+            Assert.AreEqual("B.Dead_1.0.0.0_x64__abc", names[0]);
+            Assert.AreEqual("D.DeadThrowing_1.0.0.0_x64__abc", names[1]);
+        }
+        finally
+        {
+            live.Delete(true);
+        }
+    }
+
+    #endregion
+
     private static PackageRegistrationService.InstalledPackageView View(
         string name,
         string fullName = "Pkg_1.0.0.0_x64__abcdefgh",

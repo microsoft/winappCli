@@ -207,10 +207,19 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the <c>noRestore</c> flag from the most recent <see cref="GetPackageListAsync"/> call.</summary>
     public bool? LastGetPackageListNoRestore { get; private set; }
 
-    public Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo csprojFile, bool includeTransitive = true, bool noRestore = false, CancellationToken cancellationToken = default)
+    /// <summary>The <c>projectAssetsFile</c> passed to the most recent <see cref="GetPackageListAsync"/> call.</summary>
+    /// <remarks>
+    /// Recorded because the command takes no <c>-c</c>/<c>-r</c>/<c>-p</c> and environment properties
+    /// cannot substitute for them, so the build's own assets file is the only faithful source of the
+    /// graph the binary was built against.
+    /// </remarks>
+    public string? LastGetPackageListAssetsFile { get; private set; }
+
+    public Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo csprojFile, bool includeTransitive = true, bool noRestore = false, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
     {
         GetPackageListCallCount++;
         LastGetPackageListNoRestore = noRestore;
+        LastGetPackageListAssetsFile = packageGraph?.AssetsFile.FullName;
 
         if (ThrowOnGetPackageList)
         {

@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Win32.SafeHandles;
+using System.Runtime.InteropServices;
+using System.Text;
+
 namespace WinApp.Cli.Helpers;
 
 /// <summary>
@@ -26,7 +30,7 @@ namespace WinApp.Cli.Helpers;
 ///         paths bypass <c>CreateProcess</c>'s CWD/PATH search.</item>
 /// </list>
 /// </remarks>
-internal static class ExecutionAliasResolver
+internal static partial class ExecutionAliasResolver
 {
     // Windows reserved device basenames. The OS treats these specially in
     // path resolution regardless of extension (e.g. "CON.exe" still binds
@@ -182,4 +186,172 @@ internal static class ExecutionAliasResolver
 
         return new FileInfo(Path.Combine(dir, alias!));
     }
+
+    #region Default alias naming
+
+    /// <summary>
+    /// Prefix applied to every alias winapp generates.
+    /// </summary>
+    /// <remarks>
+    /// Two things fall out of it. The alias can never collide with a real tool on PATH — an app called
+    /// <c>python.cs</c> gets <c>winapp-python.exe</c>, not <c>python.exe</c> — and the stem before the
+    /// first dot always starts with <c>winapp-</c>, so a package named <c>con</c> or <c>nul</c> cannot
+    /// produce a reserved DOS device name.
+    /// </remarks>
+    public const string GeneratedAliasPrefix = "winapp-";
+
+    /// <summary>
+    /// Builds the alias winapp declares for a package that does not author one itself, derived from the
+    /// <b>package family name</b> rather than the executable name.
+    /// </summary>
+    /// <remarks>
+    /// An execution alias is a single global entry under <c>%LOCALAPPDATA%\Microsoft\WindowsApps</c>, and
+    /// Windows gives it to the first package that claims it. Deriving it from the executable is what makes
+    /// collisions likely, because unrelated apps share build output names — two different <c>main.cs</c>
+    /// files both produce <c>main.exe</c>, and the second silently launches the first.
+    /// <para>
+    /// The family name is used rather than <c>Identity/@Name</c> alone because identity includes the
+    /// publisher: two side-loaded packages can share a name under different publishers and coexist, so a
+    /// name-only alias would put them back in contention. The family name is unique per installable
+    /// package by construction.
+    /// </para>
+    /// <para>
+    /// Returns <see langword="null"/> when no safe name can be built, and the caller then launches through
+    /// AUMID rather than guessing at one.
+    /// </para>
+    /// </remarks>
+    public static string? BuildDefaultAliasName(string? packageFamilyName)
+    {
+        if (string.IsNullOrWhiteSpace(packageFamilyName))
+        {
+            return null;
+        }
+
+        // Family names are already constrained to [-.A-Za-z0-9_], but this value reaches a file name, so
+        // anything outside that set is dropped rather than trusted.
+        //
+        // Leading and trailing '.'/'-' are deliberately KEPT: they are valid in an Identity/@Name, so
+        // trimming them maps distinct identities onto one alias — '-contoso_hash' and 'contoso_hash'
+        // would both become 'winapp-contoso_hash.exe', and the second app to register would lose the
+        // alias (and with it a console app's terminal output). The 'winapp-' prefix already guarantees
+        // the file name never starts with '.' or '-', and IsSafeAliasName validates the final result.
+        var sanitized = new string([.. packageFamilyName.Where(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '.' or '_')]);
+
+        if (sanitized.Length == 0)
+        {
+            return null;
+        }
+
+        var alias = $"{GeneratedAliasPrefix}{sanitized}.exe";
+        return IsSafeAliasName(alias) ? alias : null;
+    }
+
+    #endregion
+
+    #region Alias ownership
+
+    private const uint IoReparseTagAppExecLink = 0x8000001B;
+    private const uint FsctlGetReparsePoint = 0x000900A8;
+    private const uint FileFlagOpenReparsePoint = 0x00200000;
+    private const uint FileFlagBackupSemantics = 0x02000000;
+    private const uint OpenExisting = 3;
+    private const int MaximumReparseDataBufferSize = 16 * 1024;
+
+    /// <summary>
+    /// Reads the package family name that an execution alias proxy actually resolves to.
+    /// </summary>
+    /// <remarks>
+    /// An execution alias is a global, first-come-first-served name: the alias file is a single entry in
+    /// <c>%LOCALAPPDATA%\Microsoft\WindowsApps</c>, so when two packages declare the same alias only one
+    /// of them owns it. Launching the proxy then starts <b>the other app</b>, which is why the launcher
+    /// compares this against the package it just registered instead of trusting the name.
+    /// <para>
+    /// The proxy is an <c>IO_REPARSE_TAG_APPEXECLINK</c> reparse point, which .NET does not resolve
+    /// (<see cref="FileSystemInfo.LinkTarget"/> is null for it), so the payload is read directly. Its
+    /// data is a version DWORD followed by null-terminated UTF-16 strings, the first of which is the
+    /// package family name. Returns <see langword="false"/> for anything unreadable or not an
+    /// app-exec-link, and the caller then proceeds rather than blocking a launch on a diagnostic.
+    /// </para>
+    /// </remarks>
+    public static bool TryGetAliasPackageFamilyName(string aliasPath, out string? packageFamilyName)
+    {
+        packageFamilyName = null;
+
+        if (string.IsNullOrEmpty(aliasPath) || !OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        using var handle = CreateFileW(
+            aliasPath,
+            0, // No access rights are needed to query a reparse point.
+            FileShare.ReadWrite | FileShare.Delete,
+            IntPtr.Zero,
+            OpenExisting,
+            FileFlagOpenReparsePoint | FileFlagBackupSemantics,
+            IntPtr.Zero);
+
+        if (handle.IsInvalid)
+        {
+            return false;
+        }
+
+        var buffer = new byte[MaximumReparseDataBufferSize];
+        if (!DeviceIoControl(handle, FsctlGetReparsePoint, IntPtr.Zero, 0, buffer, (uint)buffer.Length, out var returned, IntPtr.Zero))
+        {
+            return false;
+        }
+
+        // REPARSE_DATA_BUFFER: ReparseTag (4) + ReparseDataLength (2) + Reserved (2), then the payload,
+        // which for an app-exec-link starts with a version DWORD before the string list.
+        const int headerSize = 8;
+        const int versionSize = 4;
+        if (returned < headerSize + versionSize || BitConverter.ToUInt32(buffer, 0) != IoReparseTagAppExecLink)
+        {
+            return false;
+        }
+
+        var payloadLength = BitConverter.ToUInt16(buffer, 4);
+        var available = Math.Min((int)returned - headerSize, payloadLength);
+        if (available <= versionSize)
+        {
+            return false;
+        }
+
+        // The first string ends at the first UTF-16 NUL; a payload whose strings are absent or unterminated
+        // is not something to guess at.
+        var strings = Encoding.Unicode.GetString(buffer, headerSize + versionSize, available - versionSize);
+        var terminator = strings.IndexOf('\0');
+        if (terminator <= 0)
+        {
+            return false;
+        }
+
+        packageFamilyName = strings[..terminator];
+        return true;
+    }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial SafeFileHandle CreateFileW(
+        string lpFileName,
+        uint dwDesiredAccess,
+        FileShare dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeviceIoControl(
+        SafeFileHandle hDevice,
+        uint dwIoControlCode,
+        IntPtr lpInBuffer,
+        uint nInBufferSize,
+        [Out] byte[] lpOutBuffer,
+        uint nOutBufferSize,
+        out uint lpBytesReturned,
+        IntPtr lpOverlapped);
+
+    #endregion
 }

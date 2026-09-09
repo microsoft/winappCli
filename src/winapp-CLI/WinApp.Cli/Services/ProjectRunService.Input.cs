@@ -19,9 +19,24 @@ internal sealed partial class ProjectRunService
     /// <inheritdoc />
     public async Task<RunInputResolution> ResolveInputAsync(FileSystemInfo input, CancellationToken cancellationToken, string? projectSelector = null, ProjectClassificationInputs? classificationInputs = null)
     {
-        // Explicit file input: a .csproj (project mode) or a .sln/.slnx (solution mode).
+        // Explicit file input: a .cs file-based app (single-file mode), a .csproj (project mode),
+        // or a .sln/.slnx (solution mode).
         if (input is FileInfo file)
         {
+            if (IsSingleFileApp(file))
+            {
+                // Single-file mode is reachable ONLY from an explicitly-typed .cs path — never from
+                // directory inference — so folder mode's classification is completely untouched.
+                if (!string.IsNullOrWhiteSpace(projectSelector))
+                {
+                    throw new ProjectRunException(
+                        $"--project does not apply to '{file.Name}'. A .NET file-based app IS the project; omit --project.");
+                }
+
+                var singleFileDir = file.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+                return new RunInputResolution(WinAppRunMode.SingleFile, null, singleFileDir, SingleFile: file);
+            }
+
             if (IsSolutionFile(file))
             {
                 return await ResolveSolutionAsync(file, projectSelector, classificationInputs, cancellationToken);
@@ -30,7 +45,7 @@ internal sealed partial class ProjectRunService
             if (!string.Equals(file.Extension, ".csproj", StringComparison.OrdinalIgnoreCase))
             {
                 throw new ProjectRunException(
-                    $"'{file.FullName}' is not a runnable input. Pass a .csproj, a .sln/.slnx solution, a directory containing one, or a build-output folder.");
+                    $"'{file.FullName}' is not a runnable input. Pass a .cs file-based app, a .csproj, a .sln/.slnx solution, a directory containing one, or a build-output folder.");
             }
 
             var projectDir = file.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
@@ -211,6 +226,14 @@ internal sealed partial class ProjectRunService
     private static bool IsSolutionFile(FileInfo file) =>
         string.Equals(file.Extension, ".sln", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(file.Extension, ".slnx", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True when the file is a .NET file-based app — a single <c>.cs</c> the SDK builds through a virtual
+    /// <c>&lt;stem&gt;.cs.csproj</c>. Extension-only: the <c>#:</c> directives are optional (a bare
+    /// <c>.cs</c> builds with SDK defaults), so requiring them would reject valid input.
+    /// </summary>
+    internal static bool IsSingleFileApp(FileInfo file) =>
+        string.Equals(file.Extension, ".cs", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Collapses same-basename <c>.sln</c>/<c>.slnx</c> pairs — Visual Studio leaves BOTH side by side

@@ -155,6 +155,13 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
 
     /// <inheritdoc />
     public string ComputePackageFamilyName(string packageName, string publisher)
+        => ComputeFamilyName(packageName, publisher);
+
+    /// <summary>
+    /// Computes a package family name without needing an instance, for callers that have a manifest but
+    /// no launcher (manifest staging in <see cref="MsixService"/>).
+    /// </summary>
+    public static string ComputeFamilyName(string packageName, string publisher)
     {
         // Windows uses the first 13 characters of a Crockford Base32 encoding
         // of the first 8 bytes of the SHA256 hash of the publisher DN (UTF-16LE, uppercase)

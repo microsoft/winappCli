@@ -16,6 +16,45 @@ namespace WinApp.Cli.Helpers;
 internal static class MsBuildPropertyReader
 {
     /// <summary>
+    /// Parses an MSBuild boolean property that may be undeclared or malformed.
+    /// </summary>
+    /// <param name="value">The evaluated property value; an unset property evaluates to an empty string.</param>
+    /// <param name="malformed">
+    /// <see langword="true"/> when the value is neither empty nor a valid boolean, so the caller can report
+    /// the typo. The return is <see langword="null"/> in that case.
+    /// </param>
+    /// <returns>The declared preference, or <see langword="null"/> for "no preference".</returns>
+    /// <remarks>
+    /// Accepts exactly <c>true</c>/<c>false</c>, case-insensitively, because that is what the NuGet targets'
+    /// <c>'$(Prop)' == 'true'</c> conditions match. Anything else has to read as UNSET rather than false:
+    /// the targets forward no switch at all for a value they do not recognize, so treating
+    /// <c>WinAppRunUseExecutionAlias=ture</c> as an explicit <c>false</c> here would make the same typo mean
+    /// opposite things through <c>dotnet run</c> and through a direct <c>winapp run</c>.
+    /// </remarks>
+    public static bool? ParseOptionalBoolean(string? value, out bool malformed)
+    {
+        malformed = false;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        if (string.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(trimmed, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        malformed = true;
+        return null;
+    }
+
+    /// <summary>
     /// Parses <paramref name="stdout"/> for the requested properties into a case-insensitive map (values
     /// may be empty; missing properties are absent). When exactly one name is requested and the output
     /// isn't JSON, the whole trimmed output is that property's value.

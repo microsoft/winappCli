@@ -79,7 +79,8 @@ Describe "Rust App Sample" {
         It "Should run app with identity via winapp run" -Skip:$script:skip {
             Push-Location $script:rustProjectDir
             try {
-                Invoke-WinappCommand -Arguments "run .\target\debug --with-alias --unregister-on-exit"
+                # No --with-alias: a console app is aliased by inference, which is what the guide shows.
+                Invoke-WinappCommand -Arguments "run .\target\debug --unregister-on-exit"
             } finally { Pop-Location }
         }
 
