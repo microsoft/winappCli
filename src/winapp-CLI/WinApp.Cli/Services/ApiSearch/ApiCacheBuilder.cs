@@ -334,11 +334,10 @@ internal static class ApiCacheBuilder
 
     /// <summary>
     /// A short fingerprint of the metadata files a package actually resolved to — their
-    /// paths, sizes, and write times, hashed to roughly twenty characters so the cache
-    /// does not grow a per-file record. Recorded in <c>meta.json</c> and compared on
-    /// reuse: rebuilding a referenced project rewrites its <c>.winmd</c> in place at the
-    /// same path, and comparing the fingerprint re-exports it instead of answering from
-    /// stale metadata.
+    /// paths, sizes, and write times, hashed so the cache does not grow a per-file
+    /// record. Recorded in <c>meta.json</c> and compared on reuse: rebuilding a
+    /// referenced project rewrites its <c>.winmd</c> in place at the same path, and
+    /// comparing the fingerprint re-exports it instead of answering from stale metadata.
     /// </summary>
     private static string ComputeSourceStamp(PackageWithWinMd package)
     {

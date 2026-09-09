@@ -138,9 +138,9 @@ public sealed class ApiCacheBuilderTests
 
         string versionDir = Path.Combine(cacheDir, "packages", "Contoso.Sdk", "1.0.0");
         string oldLayoutTypes = Path.Combine(versionDir, "types");
-        string oldFormatDir = Path.Combine(versionDir, "deadbeef");
-        string otherSelection = Path.Combine(versionDir, "cafecafe");
-        string exportInFlight = Path.Combine(versionDir, "0badf00d");
+        string oldFormatDir = Path.Combine(versionDir, PackageKeyName('a'));
+        string otherSelection = Path.Combine(versionDir, PackageKeyName('b'));
+        string exportInFlight = Path.Combine(versionDir, PackageKeyName('c'));
         Directory.CreateDirectory(oldLayoutTypes);
         Directory.CreateDirectory(oldFormatDir);
         Directory.CreateDirectory(otherSelection);
@@ -166,6 +166,14 @@ public sealed class ApiCacheBuilderTests
         // cache lock. Deleting it recursively would break that run mid-write.
         Assert.IsTrue(Directory.Exists(exportInFlight), "an export in flight must not be deleted");
     }
+
+    /// <summary>
+    /// A directory name this cache layout mints: exactly as many hex characters as an
+    /// asset-path fingerprint. Derived from the constant rather than spelled out, so a
+    /// change to the fingerprint width does not turn these fixtures into leftovers from
+    /// an older layout and quietly invert what the test asserts.
+    /// </summary>
+    private static string PackageKeyName(char hexDigit) => new(hexDigit, ApiCachePaths.ShortHashLength);
 
     /// <summary>A complete <c>meta.json</c> body recording <paramref name="format"/>.</summary>
     private static string MetaJson(int format) =>

@@ -24,7 +24,7 @@ internal static class ApiCachePaths
     /// records the version a cache was written with, and the builder refuses to
     /// reuse a package whose recorded version is not this one.
     /// </summary>
-    internal const int CacheFormatVersion = 7;
+    internal const int CacheFormatVersion = 8;
 
     /// <summary>
     /// File name of the machine-wide "SDK scope" manifest, written as a sibling of
@@ -61,10 +61,17 @@ internal static class ApiCachePaths
         TryPackageCacheDir(cacheDir, package.Id, package.Version, package.AssetPathKey, out dir);
 
     /// <summary>Character count of a <see cref="ShortHash"/>.</summary>
-    internal const int ShortHashLength = 8;
+    /// <remarks>
+    /// Sixteen hex characters is 64 bits. Eight would be 32, and the cache directory
+    /// name is what keeps two different asset selections for one package id and version
+    /// apart — the collision that would silently answer for the wrong one. At 32 bits a
+    /// few tens of thousands of distinct values make that likely; at 64 it is not
+    /// reachable by a cache this size.
+    /// </remarks>
+    internal const int ShortHashLength = 16;
 
     /// <summary>
-    /// First 8 hex characters of the SHA-256 of <paramref name="value"/>, used to
+    /// Leading hex characters of the SHA-256 of <paramref name="value"/>, used to
     /// make otherwise-lossy cache file and directory names injective.
     /// </summary>
     internal static string ShortHash(string value) =>
