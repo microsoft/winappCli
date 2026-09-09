@@ -55,6 +55,23 @@ internal static partial class NuGetResolver
             packages.AddRange(FindPackagesFromWinmdsLockfile(projectDir));
         }
 
+        // A project that declares PackageReferences but has no restore output on disk
+        // would otherwise be indexed from Windows SDK metadata alone: refresh reports
+        // success, then a query answers from the wrong surface (a WinAppSDK app is told
+        // to use the UWP `Windows.UI.Xaml` namespace it does not compile against). Skip
+        // it and ask the caller to restore, rather than writing a misleading index.
+        if (packages.Count == 0
+            && FindRestoreOutput(projectDir, projectFile) is null
+            && !File.Exists(Path.Combine(projectDir, "packages.config"))
+            && ProjectDeclaresPackageReferences(projectFile))
+        {
+            warn?.Invoke(
+                $"'{Path.GetFileName(projectFile)}' has PackageReferences but no restore output. "
+                + "Run 'winapp restore' (or 'dotnet restore') first; it was skipped rather than "
+                + "indexed from an incomplete API surface.");
+            return new List<PackageWithWinMd>();
+        }
+
         packages.AddRange(FindWinMdFromProjectReferences(projectFile));
 
         // The machine's installed WinAppSDK runtime metadata is part of a project's
@@ -327,13 +344,18 @@ internal static partial class NuGetResolver
         try
         {
             string metadataDir = Path.Combine(packageFolder, "metadata");
-            if (Directory.Exists(metadataDir))
+            // `metadata` and `lib` are named beneath a repo-controlled package folder, so a
+            // junction planted as either child would send this doc probe onto whatever host
+            // it points at — File.Exists/Directory.Exists authenticate before returning.
+            // Check the route before touching it, and enumerate without following reparse
+            // points among the files inside.
+            if (!PathSafety.CrossesReparsePoint(metadataDir, packageFolder) && Directory.Exists(metadataDir))
             {
-                xmlFiles.AddRange(Directory.GetFiles(metadataDir, "*.xml"));
+                xmlFiles.AddRange(GetFilesNoReparse(metadataDir, "*.xml"));
             }
 
             string libDir = Path.Combine(packageFolder, "lib");
-            if (Directory.Exists(libDir))
+            if (!PathSafety.CrossesReparsePoint(libDir, packageFolder) && Directory.Exists(libDir))
             {
                 foreach (var xml in GetFilesNoReparse(libDir, "*.xml"))
                 {
@@ -452,6 +474,10 @@ internal static partial class NuGetResolver
             XDocument doc = XDocument.Load(projectFile);
             XNamespace ns = doc.Root?.Name.Namespace ?? XNamespace.None;
             string projectDir = Path.GetDirectoryName(projectFile)!;
+            // When restore output exists it lists the project references active for the
+            // restored configuration, so raw conditional references are dropped in favor
+            // of it in the loop below.
+            bool hasRestoreOutput = FindProjectAssetsJson(projectDir, projectFile) is not null;
 
             // Resolved paths, so the two sources below agree on identity: the same project
             // is spelled `..\Lib\Lib.csproj` in a project file and `../Lib/Lib.csproj` in
@@ -464,6 +490,14 @@ internal static partial class NuGetResolver
             {
                 string? include = element.Attribute("Include")?.Value;
                 if (include is null)
+                {
+                    continue;
+                }
+                // A conditional reference is active only for some configurations, and
+                // evaluating that needs the MSBuild engine. With restore output present its
+                // reference list is authoritative, so a conditional raw reference is skipped
+                // rather than indexed for a configuration it may not belong to.
+                if (hasRestoreOutput && HasBuildCondition(element))
                 {
                     continue;
                 }
@@ -548,6 +582,11 @@ internal static partial class NuGetResolver
                 // `net8.0` build can answer a question asked by a `net8.0-windows` app about
                 // an API that only exists under Windows.
                 winmds = winmds
+                    // An output built for a target framework the referencing project cannot
+                    // compile against (a negative score) is dropped outright. Selecting the
+                    // "least incompatible" of a group would still report Windows-only types
+                    // to a plain .NET app that can never call them.
+                    .Where(file => ScoreTargetFramework(file, referencingFrameworks) >= 0)
                     .GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
                     .Select(group => group
                         .OrderByDescending(file => ScoreTargetFramework(file, referencingFrameworks))
@@ -758,15 +797,19 @@ internal static partial class NuGetResolver
         // under one obj tree — colocated projects, or a nested BaseIntermediateOutputPath —
         // the one that names this project is the right answer, and picking by write time
         // instead makes the whole index depend on which project was built last.
-        if (projectFile is not null && files.Length > 1)
+        if (projectFile is not null)
         {
+            // Every candidate must name this project. Filtering only when more than one
+            // file existed let a lone assets file that belongs to a colocated sibling slip
+            // through, answering this project from the sibling's package graph.
             string[] owned = files
                 .Where(file => OwnsAssetsFile(file, projectFile))
                 .ToArray();
-            if (owned.Length > 0)
+            if (owned.Length == 0)
             {
-                files = owned;
+                return null;
             }
+            files = owned;
         }
 
         string? newest = null;
@@ -965,12 +1008,16 @@ internal static partial class NuGetResolver
                 var files = new List<string>();
                 bool hasSelectedAssets = compileByLibrary.TryGetValue(library.Name, out var selectedAssets);
                 var packageDirs = packageFolders
-                    .Select(packageFolder => TryResolveUnderRoot(packageFolder, relativePath, out string dir) ? dir : null)
-                    // Containment settles the *name*; this settles the *route*. The package
-                    // folder was checked, but the id/version directory beneath it is named by
-                    // the same repo-controlled file, and a junction there is followed by every
-                    // probe below — including the scan, whose reparse pruning cannot help when
-                    // the junction is the directory it starts from.
+                    .Select(packageFolder =>
+                        TryResolveUnderRoot(packageFolder, relativePath, out string dir)
+                        // Containment settles the *name*; this settles the *route*. The
+                        // id/version directory beneath the package folder is named by the
+                        // same repo-controlled file, so the route from the package folder
+                        // down to it is checked for a junction — regardless of whether the
+                        // package folder is inside the project tree, because a solution-level
+                        // `packages` folder is repo-controlled too.
+                        && !PathSafety.CrossesReparsePoint(dir, packageFolder)
+                            ? dir : null)
                     .Where(dir => dir != null && IsProbeablePath(dir, probeRoot) && Directory.Exists(dir))
                     .Select(dir => dir!)
                     .ToList();
@@ -979,7 +1026,9 @@ internal static partial class NuGetResolver
                     foreach (string packageDir in packageDirs)
                     {
                         files.AddRange(selectedAssets!
-                            .Select(asset => TryResolveUnderRoot(packageDir, asset.Replace('/', Path.DirectorySeparatorChar), out string assetPath) ? assetPath : null)
+                            .Select(asset => TryResolveUnderRoot(packageDir, asset.Replace('/', Path.DirectorySeparatorChar), out string assetPath)
+                                && !PathSafety.CrossesReparsePoint(assetPath, packageDir)
+                                ? assetPath : null)
                             .Where(assetPath => assetPath != null && IsProbeablePath(assetPath, probeRoot) && File.Exists(assetPath))
                             .Select(assetPath => assetPath!));
                     }
@@ -1551,5 +1600,35 @@ internal static partial class NuGetResolver
             return env;
         }
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+    }
+
+    /// <summary>
+    /// Whether a <c>&lt;ProjectReference&gt;</c> is gated by an MSBuild <c>Condition</c> —
+    /// on the element itself or an enclosing <c>&lt;ItemGroup&gt;</c>. Such a reference is
+    /// active only for some configurations, which cannot be judged without the MSBuild
+    /// engine.
+    /// </summary>
+    private static bool HasBuildCondition(XElement element) =>
+        element.Attribute("Condition") is not null
+        || element.Ancestors().Any(a =>
+            a.Name.LocalName == "ItemGroup" && a.Attribute("Condition") is not null);
+
+    /// <summary>
+    /// Whether a project file declares at least one <c>&lt;PackageReference Include=…&gt;</c>.
+    /// A non-XML or unreadable project file (an Electron app's <c>winapp.yaml</c>) declares
+    /// none, so it is never mistaken for an unrestored NuGet project.
+    /// </summary>
+    private static bool ProjectDeclaresPackageReferences(string projectFile)
+    {
+        try
+        {
+            return XDocument.Load(projectFile)
+                .Descendants()
+                .Any(e => e.Name.LocalName == "PackageReference" && e.Attribute("Include") is not null);
+        }
+        catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 }

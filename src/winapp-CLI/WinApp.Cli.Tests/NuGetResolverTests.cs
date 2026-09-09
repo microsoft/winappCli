@@ -392,6 +392,89 @@ public sealed class NuGetResolverTests
         Assert.AreEqual(0, packages.Count, "restore output must not reinstate a build-only reference");
     }
 
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_OnlyIncompatibleFrameworkOutput_IsNotIndexed()
+    {
+        // The library built only a net8.0-windows output; a net8.0 app cannot compile
+        // against it. With no compatible output to fall back on, selecting the
+        // "least incompatible" one would still report Windows-only types as callable.
+        string libDir = Path.Combine(_dir, "WinOnly");
+        string windows = Path.Combine(libDir, "bin", "Debug", "net8.0-windows10.0.19041.0");
+        Directory.CreateDirectory(windows);
+        File.WriteAllText(Path.Combine(libDir, "WinOnly.csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(windows, "WinOnly.dll"), "windows");
+
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\WinOnly\WinOnly.csproj" />
+            """, "net8.0");
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(0, packages.Count, "a net8.0 app cannot compile against a net8.0-windows-only library");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_ConditionalReference_ExcludedWhenRestoreOutputPresent()
+    {
+        // A ProjectReference gated by a Condition is active only for some configurations,
+        // which cannot be judged without the MSBuild engine. With restore output present
+        // its reference set is authoritative, so the conditional raw reference must not be
+        // indexed for a configuration it may not belong to.
+        WriteReferencedLibrary("WinLib", "WinLib.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\WinLib\WinLib.csproj" Condition="'$(TargetFramework)' == 'net8.0-windows'" />
+            """, "net8.0");
+        // Restore for the net8.0 configuration recorded no project references.
+        WriteAssetsWithProjectLibraries(appProject);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(0, packages.Count, "a conditional reference absent from restore output is not on the compile surface");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_ConditionalReference_KeptWhenNoRestoreOutput()
+    {
+        // Without restore output there is nothing authoritative to defer to, so a
+        // conditional reference is kept on a best-effort basis rather than dropped —
+        // otherwise a project with no restore would silently lose references.
+        WriteReferencedLibrary("WinLib", "WinLib.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\WinLib\WinLib.csproj" Condition="'$(Configuration)' == 'Debug'" />
+            """);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(1, packages.Count, "with no restore output the raw reference is the only signal available");
+    }
+
+    [TestMethod]
+    public void FindProjectAssetsJson_LoneUnownedAssetsFile_IsNotReturned()
+    {
+        // A single obj\project.assets.json can belong to a colocated sibling. Returning it
+        // for this project answers from the sibling's package graph, so the ownership
+        // filter must apply even when only one assets file exists.
+        string projectDir = Path.Combine(_dir, "Solution");
+        string mine = Path.Combine(projectDir, "App.csproj");
+        string sibling = Path.Combine(projectDir, "Other.csproj");
+        Directory.CreateDirectory(Path.Combine(projectDir, "obj"));
+        File.WriteAllText(mine, "<Project />");
+        File.WriteAllText(sibling, "<Project />");
+
+        string assets = Path.Combine(projectDir, "obj", "project.assets.json");
+        File.WriteAllText(assets, $$"""
+            { "libraries": {}, "project": { "restore": { "projectPath": "{{sibling.Replace("\\", "\\\\")}}" } } }
+            """);
+
+        Assert.IsNull(
+            NuGetResolver.FindProjectAssetsJson(projectDir, mine),
+            "a lone assets file owned by a sibling is not this project's restore output");
+        Assert.AreEqual(
+            assets,
+            NuGetResolver.FindProjectAssetsJson(projectDir, sibling),
+            "the sibling still resolves its own assets file");
+    }
+
     /// <summary>
     /// Writes a project.assets.json next to <paramref name="appProject"/> listing the given
     /// project-relative paths as <c>"type": "project"</c> libraries, the way restore records
