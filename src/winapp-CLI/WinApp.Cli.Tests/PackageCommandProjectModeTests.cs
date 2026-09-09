@@ -52,7 +52,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
 
     private FileInfo CreateCsproj(string name = "App.csproj")
     {
-        var path = Path.Combine(_tempDirectory.FullName, name);
+        var path = Path.Join(_tempDirectory.FullName, name);
         File.WriteAllText(path, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
         return new FileInfo(path);
     }
@@ -62,7 +62,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var dir = _tempDirectory.CreateSubdirectory($"bin_{Guid.NewGuid():N}");
         if (withManifest)
         {
-            File.WriteAllText(Path.Combine(dir.FullName, "appxmanifest.xml"), TestManifestContent);
+            File.WriteAllText(Path.Join(dir.FullName, "appxmanifest.xml"), TestManifestContent);
         }
         return dir;
     }
@@ -122,7 +122,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     {
         var csproj = CreateCsproj();
         var targetDir = CreateTargetDir(withManifest: true);
-        var solution = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.sln"));
+        var solution = new FileInfo(Path.Join(_tempDirectory.FullName, "App.sln"));
         File.WriteAllText(solution.FullName, "");
         _fakeProjectRunService.InputResolutionOverride =
             new RunInputResolution(WinAppRunMode.Project, csproj, csproj.Directory!, solution);
@@ -178,7 +178,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var csproj = CreateCsproj();
         var targetDir = CreateTargetDir(withManifest: false);
         _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
-            new ProjectRunResolution(csproj, targetDir.FullName, Path.Combine(targetDir.FullName, "App.exe"), ProjectPackaging.Unpackaged, false, "x64"), 0);
+            new ProjectRunResolution(csproj, targetDir.FullName, Path.Join(targetDir.FullName, "App.exe"), ProjectPackaging.Unpackaged, false, "x64"), 0);
         var command = GetRequiredService<PackageCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
@@ -245,7 +245,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     [TestMethod]
     public async Task ProjectMode_MissingCsproj_Errors()
     {
-        var missing = Path.Combine(_tempDirectory.FullName, "Nope.csproj");
+        var missing = Path.Join(_tempDirectory.FullName, "Nope.csproj");
         var command = GetRequiredService<PackageCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [missing]);
@@ -286,7 +286,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         // A directory literally named "payload.csproj" is a legal folder and must be packaged as a
         // build-output folder, not misclassified as a project to build.
         var dir = _tempDirectory.CreateSubdirectory("payload.csproj");
-        File.WriteAllText(Path.Combine(dir.FullName, "appxmanifest.xml"), TestManifestContent);
+        File.WriteAllText(Path.Join(dir.FullName, "appxmanifest.xml"), TestManifestContent);
         var command = GetRequiredService<PackageCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [dir.FullName]);
