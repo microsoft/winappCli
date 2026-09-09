@@ -3,7 +3,7 @@
 .SYNOPSIS
     Build the winapp NuGet packages
 .DESCRIPTION
-    Creates all three packages into artifacts/nuget:
+    Creates all packages into artifacts/nuget:
 
       * Microsoft.Windows.SDK.BuildTools.WinApp
         MSBuild integration for 'dotnet run' with packaged apps. Wraps the published CLI, so it
@@ -18,7 +18,11 @@
         Video recording to H.264 MP4. Shipped separately so projects that only inspect and drive
         UI do not take a dependency on SkiaSharp, whose native binary is ~9 MB per architecture.
 
-    The two library packages build from source and need no published CLI, so
+      * Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer
+        Standalone WinUI Roslyn analyzer (WUIxxxx diagnostics). Consumers add it as a
+        PackageReference; shares the CLI version.
+
+    The library packages build from source and need no published CLI, so
     -SkipCliPackage packs just those in seconds without a NativeAOT publish.
 .PARAMETER Version
     Version number for the packages (e.g., "1.0.0" or "1.0.0-prerelease.73").
@@ -70,6 +74,10 @@ try
         @{
             Name = 'Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording'
             Path = Join-Path $ProjectRoot 'src\winapp-CLI\WinApp.UIAutomation.Recording\WinApp.UIAutomation.Recording.csproj'
+        },
+        @{
+            Name = 'Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer'
+            Path = Join-Path $ProjectRoot 'src\winapp-Analyzer\Microsoft.WindowsAppSDK.Analyzers\Microsoft.WindowsAppSDK.Analyzers.csproj'
         }
     )
 

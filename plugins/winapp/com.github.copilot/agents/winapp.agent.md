@@ -185,8 +185,8 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `--no-launch` — register/prepare without launching
 - `--with-alias` — launch via execution alias (console apps run in current terminal)
 - `-c, --configuration <name>` — (project mode) build configuration; default `Debug`
-- `--arch <x64|arm64|x86>` — (project mode) target architecture; default: current process arch. Sets both the build RID and the Windows App Runtime arch
-- `-r, --runtime <rid>` — (project mode) target .NET RID (e.g. `win-x64`); **only the RID's architecture is used** — project mode reduces it and always builds the canonical `win-<arch>` RID, so a version-specific or non-Windows RID is not forwarded (a non-Windows RID like `linux-x64` is rejected). Overrides `--arch`.
+- `--arch <x64|arm64|x86>` — (project mode) target architecture; default: current process arch. Sets the build RID and Windows App Runtime arch, and selects a matching platform-dependent publish profile when required
+- `-r, --runtime <rid>` — (project mode) target .NET RID (e.g. `win-x64`); **only the RID's architecture is used** — project mode reduces it and always builds the canonical `win-<arch>` RID, so a version-specific or non-Windows RID is not forwarded (a non-Windows RID like `linux-x64` is rejected). Overrides `--arch` and can select the required publish profile.
 - `-f, --framework <tfm>` — (project mode) target framework for multi-targeted projects
 - `--project <name-or-path>` — (project mode) select which project to launch when a solution/directory has multiple runnable app projects (errors listing candidates if ambiguous)
 - `--no-build` / `--no-restore` — (project mode) skip build / restore
