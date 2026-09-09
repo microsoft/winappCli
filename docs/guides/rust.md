@@ -110,11 +110,16 @@ This command will:
 
 You can open `Package.appxmanifest` to further customize properties like the display name, publisher, and capabilities.
 
-### Add Execution Alias (for console apps)
+### Add Execution Alias (optional, for console apps)
 
-Because `cargo new` creates a console app, we need to add an execution alias to the manifest. Without it, `winapp run` launches the app via AUMID activation, which opens a new window — and that window closes immediately when a console app finishes, swallowing any output.
+`winapp run` already keeps a console app's output in your terminal without this step: it detects a
+console app from the built binary and stages an execution alias into the package it registers. So this
+step is not needed to develop or debug.
 
-The alias also lets users run your app by name from any terminal after they install the MSIX. The manifest registers an alias like `rust-app.exe` (defaulting to your project's exe name), which users can invoke as `rust-app` or `rust-app.exe`.
+What it adds is a **stable alias that ships in the MSIX**, so that after users install your app they can
+run it by name from any terminal. The manifest registers an alias like `rust-app.exe` (defaulting to your
+project's exe name), invoked as `rust-app` or `rust-app.exe`. The alias winapp stages for a development
+run is generated from your package identity instead, so it is not a name you'd want to publish.
 
 > **Skip this step if you're building a UI app** (a Rust app that renders its own window). Those apps work fine with the default AUMID launch.
 
@@ -140,7 +145,7 @@ To test features that require identity (like Notifications) without fully packag
     winapp run .\target\debug
     ```
 
-A console app is launched via its execution alias automatically, so its output stays in the current terminal — winapp detects that from the built binary and uses the `uap5:ExecutionAlias` we added in step 4. Pass `--without-alias` to force AUMID activation instead, in which case the app prints nothing here.
+A console app is launched via its execution alias automatically, so its output stays in the current terminal — winapp detects that from the built binary. It uses the `uap5:ExecutionAlias` from step 4 if you added one, and otherwise stages a generated alias into the package it registers, printing the name it used. Pass `--without-alias` to force AUMID activation instead, in which case the app prints nothing here.
 
 > [!NOTE]
 > `winapp run` also registers the package on your system. This is why the MSIX may appear as "already installed" when you try to install it later in step 6. Use `winapp unregister` to clean up development packages when done.

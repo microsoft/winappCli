@@ -350,7 +350,8 @@ internal sealed partial class ProjectRunService
                 string.IsNullOrEmpty(runCommand) ? null : runCommand,
                 string.IsNullOrEmpty(runArguments) ? null : runArguments,
                 props,
-                GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null),
+                GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
+                GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null),
             0);
     }
 

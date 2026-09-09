@@ -437,7 +437,8 @@ internal sealed partial class ProjectRunService(
             string.IsNullOrEmpty(runArguments) ? null : runArguments,
             string.IsNullOrEmpty(outputType) ? null : outputType,
             ReadAliasPreference(props),
-            GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null);
+            GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
+            GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null);
 
         return new ProjectBuildOutcome(resolution, 0);
     }

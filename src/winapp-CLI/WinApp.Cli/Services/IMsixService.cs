@@ -104,7 +104,7 @@ internal interface IMsixService
         bool noRestore = false,
         bool selfContained = false,
         bool ensureExecutionAlias = false,
-        FileInfo? projectAssetsFile = null,
+        PackageGraphSource? packageGraph = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -133,6 +133,6 @@ internal interface IMsixService
         string? framework,
         bool noRestore,
         TaskContext taskContext,
-        FileInfo? projectAssetsFile = null,
+        PackageGraphSource? packageGraph = null,
         CancellationToken cancellationToken = default);
 }

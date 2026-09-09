@@ -148,7 +148,8 @@ internal partial class RunCommand
                     // Carry the assets file across: the unpackaged path still provisions the Windows App
                     // Runtime, and without it that decision is made from a re-evaluated graph rather than
                     // the one the build resolved.
-                    ProjectAssetsFile: resolution.ProjectAssetsFile);
+                    ProjectAssetsFile: resolution.ProjectAssetsFile,
+                    ProjectAssetsRuntimeIdentifier: resolution.ProjectAssetsRuntimeIdentifier);
 
                 return await RunUnpackagedProjectAsync(
                     unpackaged, singleFile, appArgs,
@@ -239,7 +240,7 @@ internal partial class RunCommand
                         manifest,
                         outputAppXDirectory,
                         effectiveLayout)),
-                projectAssetsFile: ToAssetsFile(resolution.ProjectAssetsFile));
+                packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier));
         }
 
         /// <summary>

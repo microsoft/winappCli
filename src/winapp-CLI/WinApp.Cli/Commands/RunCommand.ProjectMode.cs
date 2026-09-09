@@ -290,7 +290,7 @@ internal partial class RunCommand
                 targetDir, manifest, outputAppXDirectory, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
-                aliasDecision, cancellationToken, projectAssetsFile: ToAssetsFile(resolution.ProjectAssetsFile));
+                aliasDecision, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier));
         }
 
         /// <summary>
@@ -351,7 +351,7 @@ internal partial class RunCommand
                             // Report whether the runtime was actually prepared: a plain console/desktop app
                             // with no Windows App SDK reference is skipped inside, so claiming "ready" would
                             // be a lie. Surface the skip honestly instead.
-                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToAssetsFile(resolution.ProjectAssetsFile), ct);
+                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), ct);
                             return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference — runtime not needed");
                         }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested)

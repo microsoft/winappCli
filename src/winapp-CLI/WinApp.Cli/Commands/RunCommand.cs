@@ -629,7 +629,7 @@ internal partial class RunCommand : Command, IShortDescription
             AliasLaunchDecision aliasDecision,
             CancellationToken cancellationToken,
             Action? onRegistered = null,
-            FileInfo? projectAssetsFile = null)
+            PackageGraphSource? packageGraph = null)
         {
             uint processId = 0;
             var resolvedUseAlias = aliasDecision.UseAlias;
@@ -695,6 +695,7 @@ internal partial class RunCommand : Command, IShortDescription
                     // alias another package owns, so registering first would produce an app whose alias
                     // launches something else — checking here means the run never reaches that state.
                     var effectiveAlias = aliasDecision;
+                    string? resolvedAliasName = null;
                     if (effectiveAlias.UseAlias)
                     {
                         var probe = AppxManifestDocument.Load(resolvedManifest.FullName);
@@ -715,6 +716,10 @@ internal partial class RunCommand : Command, IShortDescription
 
                             effectiveAlias = AliasLaunchDecision.Aumid;
                         }
+                        else
+                        {
+                            resolvedAliasName = probeAlias;
+                        }
                     }
 
                     // Step 2: Create and register the debug identity
@@ -732,7 +737,7 @@ internal partial class RunCommand : Command, IShortDescription
                         noRestore,
                         selfContained,
                         effectiveAlias.UseAlias,
-                        projectAssetsFile,
+                        packageGraph,
                         cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;
@@ -767,7 +772,12 @@ internal partial class RunCommand : Command, IShortDescription
                         // Alias launch happens after the status display completes, so its inherited stdio
                         // is not interleaved with the spinner.
                         taskContext.AddDebugMessage($"{UiSymbols.Rocket} Will launch via execution alias...");
-                        return (0, $"{packageFamilyName} registered (AUMID: {aumid})");
+
+                        // Name the alias: when winapp generated it the name carries an opaque publisher
+                        // hash, so this is the only way the user learns which command was registered.
+                        return resolvedAliasName is { Length: > 0 } registeredAlias
+                            ? (0, $"{packageFamilyName} registered (alias: {registeredAlias}, AUMID: {aumid})")
+                            : (0, $"{packageFamilyName} registered (AUMID: {aumid})");
                     }
 
                     // Step 3: Launch the application using IApplicationActivationManager

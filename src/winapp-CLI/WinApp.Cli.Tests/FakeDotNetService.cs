@@ -199,11 +199,11 @@ internal class FakeDotNetService : IDotNetService
     /// </remarks>
     public string? LastGetPackageListAssetsFile { get; private set; }
 
-    public Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo csprojFile, bool includeTransitive = true, bool noRestore = false, FileInfo? projectAssetsFile = null, string? runtimeIdentifier = null, CancellationToken cancellationToken = default)
+    public Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo csprojFile, bool includeTransitive = true, bool noRestore = false, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
     {
         GetPackageListCallCount++;
         LastGetPackageListNoRestore = noRestore;
-        LastGetPackageListAssetsFile = projectAssetsFile?.FullName;
+        LastGetPackageListAssetsFile = packageGraph?.AssetsFile.FullName;
 
         if (ThrowOnGetPackageList)
         {

@@ -58,6 +58,19 @@ internal sealed record RunInputResolution(
     FileInfo? SingleFile = null);
 
 /// <summary>
+/// The package graph a build resolved: the <c>project.assets.json</c> restore wrote, and the RID that
+/// build used so the right target inside it is read.
+/// </summary>
+/// <remarks>
+/// These travel together because neither is usable alone. Restore accumulates one target per RID it has
+/// ever resolved, so reading the file without knowing which RID the build used would report another
+/// architecture's packages — including its Windows App SDK version, which drives runtime provisioning.
+/// </remarks>
+/// <param name="AssetsFile">The <c>project.assets.json</c> the build consumed.</param>
+/// <param name="RuntimeIdentifier">The evaluated <c>RuntimeIdentifier</c>, exactly as the build saw it — not reconstructed from the architecture, so a custom RID such as <c>win10-x64</c> still selects its own target. Null when the build resolved no RID.</param>
+internal sealed record PackageGraphSource(FileInfo AssetsFile, string? RuntimeIdentifier);
+
+/// <summary>
 /// The build-and-resolve result for a project-mode target: the evaluated output
 /// paths plus the packaging determination used to pick the launch strategy.
 /// </summary>
@@ -83,7 +96,8 @@ internal sealed record ProjectRunResolution(
     string? RunArguments = null,
     string? OutputType = null,
     bool? PreferExecutionAlias = null,
-    string? ProjectAssetsFile = null);
+    string? ProjectAssetsFile = null,
+    string? ProjectAssetsRuntimeIdentifier = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.
@@ -205,7 +219,8 @@ internal sealed record SingleFileRunResolution(
     string? RunCommand,
     string? RunArguments,
     IReadOnlyDictionary<string, string> Properties,
-    string? ProjectAssetsFile = null);
+    string? ProjectAssetsFile = null,
+    string? ProjectAssetsRuntimeIdentifier = null);
 
 /// <summary>
 /// Outcome of <see cref="Services.IProjectRunService.BuildAndResolveSingleFileAsync"/>. Mirrors

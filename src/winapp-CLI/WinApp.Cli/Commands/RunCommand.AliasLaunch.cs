@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.Logging;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Commands;
 
@@ -26,16 +27,18 @@ internal partial class RunCommand
     public partial class Handler
     {
         /// <summary>
-        /// Turns the evaluated <c>ProjectAssetsFile</c> path into a file to read the package graph from,
-        /// or null when the build did not report one.
+        /// Pairs the evaluated <c>ProjectAssetsFile</c> with the RID the build used, or null when the
+        /// build reported no assets file.
         /// </summary>
         /// <remarks>
         /// Existence is deliberately NOT checked here: <see cref="Services.DotNetService"/> falls back to
         /// <c>dotnet list package</c> when the file is missing or unreadable, so a stale or absent path
         /// degrades to the previous behavior rather than failing the run.
         /// </remarks>
-        private static FileInfo? ToAssetsFile(string? projectAssetsFile) =>
-            string.IsNullOrWhiteSpace(projectAssetsFile) ? null : new FileInfo(projectAssetsFile);
+        private static PackageGraphSource? ToPackageGraph(string? projectAssetsFile, string? runtimeIdentifier) =>
+            string.IsNullOrWhiteSpace(projectAssetsFile)
+                ? null
+                : new PackageGraphSource(new FileInfo(projectAssetsFile), runtimeIdentifier);
 
         /// <summary>
         /// The launch mechanism chosen for a run, and the alias name it needs when that mechanism is the

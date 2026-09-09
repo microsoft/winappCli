@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
@@ -655,6 +656,52 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         StringAssert.StartsWith(aliasValue, "winapp-counter-",
             "The alias is derived from the package family name and prefixed, so it cannot collide with a real tool on PATH or with another publisher's same-named app");
         StringAssert.EndsWith(aliasValue, ".exe");
+    }
+
+    [TestMethod]
+    public async Task SingleFileMode_AliasLaunch_PrintsTheAliasItRegistered()
+    {
+        // The generated alias carries an opaque publisher hash, so a user cannot work out which command
+        // was registered unless winapp names it. Reporting only the AUMID leaves them with a package they
+        // can't invoke by name — and the documentation promises the alias is reported. The name is read
+        // from the manifest that was actually registered, so it is the one that really works.
+        var (singleFile, outputDir) = CreateSingleFileApp();
+        SetOutcome(singleFile, outputDir);
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--with-alias"]);
+
+        // Spectre wraps at the profile width and can break a long alias mid-token, so compare with
+        // whitespace collapsed rather than asserting on the raw output.
+        var output = Regex.Replace(TestAnsiConsole.Output + ConsoleStdOut.ToString(), @"\s+", "");
+        StringAssert.Contains(output, "(alias:winapp-counter-",
+            $"The registered alias must be named. Output was: {TestAnsiConsole.Output}");
+    }
+
+    [TestMethod]
+    public async Task SingleFileMode_CarriesTheExactBuildRid_NotOneRebuiltFromTheArchitecture()
+    {
+        // Reconstructing "win-x64" from the architecture loses a custom RID: an app declaring
+        // `#:property RuntimeIdentifier=win10-x64` is restored under the .../win10-x64 target, so a
+        // rebuilt RID matches no target and the reader falls back to the plain TFM — missing exactly the
+        // RID-conditional packages the assets path exists to find.
+        var (singleFile, outputDir) = CreateSingleFileApp();
+        var assetsFile = Path.Join(outputDir.FullName, "obj", "project.assets.json");
+        _fakeProjectRunService.SingleFileBuildOutcome = new SingleFileBuildOutcome(
+            new SingleFileRunResolution(
+                singleFile, outputDir.FullName, "counter.exe", "x64", "net10.0-windows10.0.22621.0", false,
+                ProjectPackaging.Packaged, null, null,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                assetsFile,
+                "win10-x64"),
+            0);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("win10-x64", _fakeMsixService.AddLooseLayoutRuntimeIdentifierCalls.Single(),
+            "The RID the build evaluated must reach the assets reader verbatim");
     }
 
     [TestMethod]

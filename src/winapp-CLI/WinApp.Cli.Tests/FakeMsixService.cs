@@ -25,6 +25,9 @@ internal class FakeMsixService : IMsixService
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<string?> AddLooseLayoutAssetsFileCalls { get; } = [];
 
+    /// <summary>Records the RID passed alongside the assets file to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
+    public List<string?> AddLooseLayoutRuntimeIdentifierCalls { get; } = [];
+
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
     public List<string?> EnsureRuntimeInstalledAssetsFileCalls { get; } = [];
 
@@ -83,7 +86,7 @@ internal class FakeMsixService : IMsixService
         bool noRestore = false,
         bool selfContained = false,
         bool ensureExecutionAlias = false,
-        FileInfo? projectAssetsFile = null,
+        PackageGraphSource? packageGraph = null,
         CancellationToken cancellationToken = default)
     {
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
@@ -91,7 +94,8 @@ internal class FakeMsixService : IMsixService
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
         AddLooseLayoutEnsureAliasCalls.Add(ensureExecutionAlias);
-        AddLooseLayoutAssetsFileCalls.Add(projectAssetsFile?.FullName);
+        AddLooseLayoutAssetsFileCalls.Add(packageGraph?.AssetsFile.FullName);
+        AddLooseLayoutRuntimeIdentifierCalls.Add(packageGraph?.RuntimeIdentifier);
         if (ExceptionToThrow != null)
         {
             throw ExceptionToThrow;
@@ -108,10 +112,10 @@ internal class FakeMsixService : IMsixService
         string? framework,
         bool noRestore,
         TaskContext taskContext,
-        FileInfo? projectAssetsFile = null,
+        PackageGraphSource? packageGraph = null,
         CancellationToken cancellationToken = default)
     {
-        EnsureRuntimeInstalledAssetsFileCalls.Add(projectAssetsFile?.FullName);
+        EnsureRuntimeInstalledAssetsFileCalls.Add(packageGraph?.AssetsFile.FullName);
         EnsureRuntimeInstalledCalls.Add((projectFile?.FullName, architecture, framework, noRestore));
         if (EnsureRuntimeInstalledException != null)
         {
