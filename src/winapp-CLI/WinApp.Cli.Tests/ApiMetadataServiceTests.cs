@@ -735,6 +735,51 @@ public sealed class ApiMetadataServiceTests
     }
 
     [TestMethod]
+    public void Query_SolutionDir_TwoProjectsInOneDirectory_AnswersFromTheOneTheSolutionLists()
+    {
+        // Two projects can share a directory. Reducing solution membership to the
+        // directory lets the excluded project pass the filter and collapses both into
+        // one group, where enumeration order decides the answer — so a query can be
+        // answered from a project the solution does not build. Alpha is the excluded
+        // one and sorts first, so directory-keyed resolution answers with it.
+        File.WriteAllText(Path.Combine(_currentDir, "App.slnx"),
+            """<Solution><Project Path="src/Beta.csproj" /></Solution>""");
+        string shared = Path.Combine(_currentDir, "src");
+        WriteProjectFile(shared, "Alpha");
+        WriteProjectFile(shared, "Beta");
+        WriteManifest("Alpha", shared);
+        WriteManifest("Beta", shared);
+        WriteSdkManifest();
+
+        var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
+
+        Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+        Assert.AreEqual(ApiScopeNames.Project, result.Data!.Scope);
+        Assert.AreEqual("Beta", result.Data.ProjectName, "only the project the solution lists may answer");
+    }
+
+    [TestMethod]
+    public void Query_SolutionDir_ManifestNamingNoProjectFile_DoesNotCrash()
+    {
+        // A manifest can name no project file — the SDK scope writes both parts empty,
+        // and a truncated or hand-edited manifest can too. Building a project identity
+        // from an empty directory and file name throws, which would take down every
+        // query made from a solution directory.
+        File.WriteAllText(Path.Combine(_currentDir, "App.slnx"),
+            """<Solution><Project Path="src/Alpha/Alpha.csproj" /></Solution>""");
+        WriteProjectFile(Path.Combine(_currentDir, "src", "Alpha"), "Alpha");
+        WriteManifest("Alpha", Path.Combine(_currentDir, "src", "Alpha"));
+        WriteManifest("Broken", projectDir: string.Empty, fileName: "Broken");
+        WriteSdkManifest();
+
+        var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
+
+        Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+        Assert.AreEqual(ApiScopeNames.Project, result.Data!.Scope);
+        Assert.AreEqual("Alpha", result.Data.ProjectName);
+    }
+
+    [TestMethod]
     public void ManifestName_SameProjectNameInDifferentDirs_ProducesDistinctNames()
     {
         // The cache key must include the project's path, otherwise the second project

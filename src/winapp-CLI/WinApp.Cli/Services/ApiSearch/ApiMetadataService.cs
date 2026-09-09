@@ -870,20 +870,26 @@ internal sealed class ApiMetadataService(
         // against something their solution does not contain. An unreadable or empty
         // solution leaves membership unknown, so everything indexed under the directory
         // stays eligible.
-        var solutionProjectDirs = SolutionProjectReader.ReadProjectPaths(solutionFile)
-            .Select(Path.GetDirectoryName)
-            .Where(d => !string.IsNullOrEmpty(d))
-            .Select(d => Path.GetFullPath(d!))
+        //
+        // Identity is the project *file*, not its directory: two projects can share one
+        // directory, and reducing them to that directory both lets a project the solution
+        // excludes pass the filter and collapses the two into a single group, where
+        // First() picks by enumeration order. A manifest naming no project file describes
+        // no project in any solution, so it is dropped rather than grouped under an
+        // unusable key.
+        var solutionProjectFiles = SolutionProjectReader.ReadProjectPaths(solutionFile)
+            .Select(Path.GetFullPath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        IEnumerable<ProjectManifest> candidates = FindManifestsUnderDir(files, dir);
-        if (solutionProjectDirs.Count > 0)
+        IEnumerable<ProjectManifest> candidates = FindManifestsUnderDir(files, dir)
+            .Where(m => ManifestProjectPath(m) is not null);
+        if (solutionProjectFiles.Count > 0)
         {
-            candidates = candidates.Where(m => solutionProjectDirs.Contains(Path.GetFullPath(m.ProjectDir)));
+            candidates = candidates.Where(m => solutionProjectFiles.Contains(ManifestProjectPath(m)!));
         }
 
         List<IGrouping<string, ProjectManifest>> underSolution = candidates
-            .GroupBy(m => Path.GetFullPath(m.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(m => ManifestProjectPath(m)!, StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (underSolution.Count == 1)
         {
@@ -903,6 +909,17 @@ internal sealed class ApiMetadataService(
         return null;
     }
 
+    /// <summary>
+    /// The full path of the project a manifest describes, or <see langword="null"/> when
+    /// the manifest names no project file. <see cref="ProjectManifest.ProjectFile"/> holds
+    /// only the file name, so the directory alone cannot tell two projects in one directory
+    /// apart; both parts are empty for the SDK scope, which describes no project at all.
+    /// </summary>
+    private static string? ManifestProjectPath(ProjectManifest manifest) =>
+        string.IsNullOrEmpty(manifest.ProjectDir) || string.IsNullOrEmpty(manifest.ProjectFile)
+            ? null
+            : Path.GetFullPath(Path.Combine(manifest.ProjectDir, manifest.ProjectFile));
+
     private static string[] ManifestFiles(string cacheDir)
     {
         string projectsDir = Path.Combine(cacheDir, "projects");
@@ -920,6 +937,10 @@ internal sealed class ApiMetadataService(
         return files
             .Select(DeserializeManifest)
             .OfType<ProjectManifest>()
+            // A manifest naming no directory describes no project under any root, and
+            // resolving an empty path throws rather than returning a non-match — so a
+            // truncated or hand-edited manifest would take down every query.
+            .Where(manifest => !string.IsNullOrEmpty(manifest.ProjectDir))
             .Where(manifest => Path.GetFullPath(manifest.ProjectDir).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .ToList();
     }
