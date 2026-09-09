@@ -265,6 +265,11 @@ internal static class Program
             // relatedActivityId for this invocation.
             TelemetryCorrelation.Begin();
 
+            // Open the coordination scope in the same async flow that reads it below. A `winapp ui`
+            // command sets its cooperative-turn summary from deep inside invoke(), and
+            // CommandCompletedEvent picks it up here (issue #764).
+            Services.InteractiveDesktop.UiCoordinationTelemetryScope.Begin();
+
             if (!isCompleteMode)
             {
                 logCommandInvoked(parsedArgs.CommandResult);

@@ -34,6 +34,7 @@ namespace WinApp.Cli.Helpers;
 [JsonSerializable(typeof(UiWaitForResult))]
 [JsonSerializable(typeof(UiScrollResult))]
 [JsonSerializable(typeof(UiSetValueResult))]
+[JsonSerializable(typeof(UiYieldResultJson))]
 [JsonSerializable(typeof(UiFocusResult))]
 [JsonSerializable(typeof(UiScrollIntoViewResult))]
 [JsonSerializable(typeof(UiHoverResult))]
@@ -46,6 +47,7 @@ namespace WinApp.Cli.Helpers;
 [JsonSerializable(typeof(UiPointResult[]))]
 [JsonSerializable(typeof(UiErrorResult))]
 [JsonSerializable(typeof(UiErrorInfo))]
+[JsonSerializable(typeof(UiCoordinationInfo))]
 [JsonSerializable(typeof(UiFocusedResult))]
 [JsonSerializable(typeof(UiScreenshotWindowInfo))]
 [JsonSerializable(typeof(WindowInfo))]
@@ -220,6 +222,28 @@ internal sealed class UiErrorInfo
     public string? Details { get; set; }
     public string? RecoveryHint { get; set; }
     public UiPartialOutputInfo? PartialOutput { get; set; }
+
+    /// <summary>
+    /// Desktop turn coordination detail. Present on <c>cancelled</c> and other coordination errors;
+    /// omitted entirely for every pre-existing error, so the envelope stays additive.
+    /// </summary>
+    public UiCoordinationInfo? Coordination { get; set; }
+}
+
+/// <summary>
+/// Why a command was waiting for the shared desktop when it failed or was cancelled. Contains only
+/// local, non-identifying counters — never an owner id, hash, app name or selector.
+/// </summary>
+internal sealed class UiCoordinationInfo
+{
+    /// <summary>Milliseconds spent waiting for the desktop before the command stopped waiting.</summary>
+    public long WaitedMs { get; set; }
+
+    /// <summary>
+    /// One-based position among live global waiters, counting this command. Omitted when it cannot be
+    /// computed reliably, including while waiting behind the command's own owner-local barrier.
+    /// </summary>
+    public int? QueuePosition { get; set; }
 }
 
 internal sealed class UiPartialOutputInfo
@@ -261,6 +285,19 @@ internal sealed class UiSetValueResult
 {
     public string ElementId { get; set; } = "";
     public long Hwnd { get; set; }
+}
+
+/// <summary>
+/// Result of <c>ui yield</c>. Named to avoid colliding with <c>UiYieldResult</c>, the coordination
+/// outcome it is produced from.
+/// </summary>
+internal sealed class UiYieldResultJson
+{
+    /// <summary>
+    /// Whether an idle turn was actually ended. <see langword="false"/> is a success too: it means the
+    /// workflow held nothing, which is the normal result of yielding twice or after the grace lapsed.
+    /// </summary>
+    public bool Released { get; set; }
 }
 
 internal sealed class UiFocusResult

@@ -35,6 +35,29 @@ export interface CommonOptions {
   verbose?: boolean;
   /** Working directory for the CLI process (defaults to process.cwd()). */
   cwd?: string;
+  /**
+   * Cancels the whole native invocation, not just a wait for the shared desktop.
+   *
+   * `winapp ui` commands take cooperative turns on the desktop, so a command may wait for another
+   * workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may
+   * not run, but Windows releases its coordination handles and deletes its participant lease, and
+   * other processes reclaim the queue entry. If the abort lands after the command acquired the
+   * desktop, UI side effects may already have happened, and aborting an active recording can leave
+   * partial output. Rejects with an `AbortError`.
+   */
+  signal?: AbortSignal;
+  /**
+   * Groups this call with other `winapp ui` calls passing the same value into one logical workflow.
+   *
+   * Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn
+   * whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop
+   * reserved between invocations for a short idle grace, may overlap with each other (a recording and
+   * the clicks it is recording), and are never interleaved with another workflow's input. Without it,
+   * each call is a self-contained one-shot that releases the desktop as soon as it finishes.
+   *
+   * Applied to the spawned child process only; `process.env` is never modified.
+   */
+  workflowId?: string;
 }
 
 /** Result returned by every command wrapper. */
@@ -64,7 +87,11 @@ function pushCommon(args: string[], opts: CommonOptions): void {
 }
 
 function captureOpts(opts: CommonOptions): CallWinappCliCaptureOptions {
-  return opts.cwd ? { cwd: opts.cwd } : {};
+  const result: CallWinappCliCaptureOptions = {};
+  if (opts.cwd) result.cwd = opts.cwd;
+  if (opts.signal) result.signal = opts.signal;
+  if (opts.workflowId !== undefined) result.workflowId = opts.workflowId;
+  return result;
 }
 
 async function execCommand(args: string[], opts: CommonOptions): Promise<WinappResult> {
@@ -1656,6 +1683,24 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
   if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
   if (options.value) args.push('--value', options.value);
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui yield
+// ---------------------------------------------------------------------------
+
+export interface UiYieldOptions extends CommonOptions {
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Release the current workflow's idle UI turn early. A workflow with WINAPP_UI_WORKFLOW_ID keeps the desktop for a few seconds after each command so a burst of commands reads as one workflow; run this after the final command of a workflow to hand the desktop to waiting workflows straight away. Requires WINAPP_UI_WORKFLOW_ID; targets no app and takes no selector.
+ */
+export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'yield'];
+  if (options.json) args.push('--json');
   return execCommand(args, options);
 }
 

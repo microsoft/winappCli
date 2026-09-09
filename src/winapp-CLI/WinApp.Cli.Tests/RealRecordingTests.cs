@@ -6,6 +6,8 @@ using System.Text.Json;
 using Windows.Win32.Foundation;
 using WinApp.Cli.Services;
 
+using WinApp.Cli.Services.InteractiveDesktop;
+
 namespace WinApp.Cli.Tests;
 
 /// <summary>
@@ -188,6 +190,18 @@ public partial class RealRecordingTests
         var recording = NewRecordingService(svc, capture);
         var uiTarget = SessionFor(fx);
         await ResolveAsync(svc, uiTarget, "btnInvoke");
+
+        // A screen-DC recording captures whatever is genuinely in front, so the engine now refuses to
+        // start one unless the target actually reached the foreground. That is a real precondition of
+        // this capture mode, not test scaffolding — satisfy it the same way a user would.
+        DesktopTestHelpers.ForceForeground(fx.Hwnd);
+        if (!ForegroundBelongsToFixture(fx))
+        {
+            Assert.Inconclusive(
+                "The fixture window could not be brought to the foreground on this session, so the "
+                + "consented screen path cannot be exercised. Foreground refusal itself is covered by "
+                + "CaptureForegroundSafetyTests, which drives the check directly.");
+        }
 
         var output = Path.Combine(AppContext.BaseDirectory, "coverage-scratch", Guid.NewGuid().ToString("N"), "screen.mp4");
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);

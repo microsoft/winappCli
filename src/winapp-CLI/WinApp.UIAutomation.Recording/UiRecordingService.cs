@@ -96,6 +96,23 @@ internal sealed partial class UiRecordingService(
         {
             global::Windows.Win32.PInvoke.SetForegroundWindow(hwnd);
             await Task.Delay(150, ct).ConfigureAwait(false);
+
+            // SetForegroundWindow is advisory. If it was refused, every screen-DC frame would record
+            // whichever window is really in front and the caller would get a perfectly playable MP4 of
+            // the wrong app. Verify after the activation delay and before any frame is captured. Capture
+            // safety, not coordination: it says nothing about who else may be driving the desktop.
+            //
+            // The capture predicate, not the injection one: a modal dialog the target owns is part of
+            // its UI and is sitting on the pixels being recorded, which is the reason to record the
+            // screen rather than the window. An unrelated foreground window is still refused, and a
+            // refusal still produces no artifact.
+            if (!ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
+            {
+                throw new ForegroundLostException(
+                    "The target window is not in the foreground, so a screen recording would capture " +
+                    "whatever window is actually in front. Bring the window to the foreground and retry, " +
+                    "or record the window directly instead of the screen.");
+            }
         }
 
         global::Windows.Win32.PInvoke.GetWindowRect(hwnd, out var rect);
@@ -272,6 +289,23 @@ internal sealed partial class UiRecordingService(
 
             var (encoderW, encoderH, displayW, displayH) = ComputeTargetSize(cropW, cropH, options.MaxEdge);
             var bitrate = (uint)Math.Clamp((long)encoderW * encoderH * options.Fps / 8, 1_000_000, 24_000_000);
+
+            // Last foreground check before any file exists. The earlier one ran right after the
+            // activation delay; selector resolution between the two can take long enough for another
+            // window to steal the foreground, and every screen-DC frame would then be of that window.
+            // It deliberately sits above the encoder rather than next to the first frame read: creating
+            // the encoder creates OutputPath, so refusing after that point would leave an empty MP4 and
+            // break the "no artifact on refusal" contract the CLI states for foreground_not_target.
+            //
+            // Same capture predicate as the first check — the two must agree, or a modal dialog the
+            // target owns would pass one and fail the other.
+            if (options.CaptureScreen && !ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
+            {
+                throw new ForegroundLostException(
+                    "The target window lost the foreground while the recording was being prepared, so a " +
+                    "screen recording would capture whatever window is actually in front. Bring the " +
+                    "window to the foreground and retry, or record the window directly instead of the screen.");
+            }
 
             // Never replace an existing recording. The CLI refuses up front ("recording never
             // replaces existing artifacts"), but that guard does not travel with the package, and

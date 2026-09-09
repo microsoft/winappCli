@@ -14,6 +14,18 @@ public partial class RealRecordingTests
 {
     private const int ReadyTimeoutMs = 10_000;
 
+    /// <summary>
+    /// Whether the fixture window (or its top-level root) currently owns the foreground.
+    /// </summary>
+    /// <remarks>
+    /// Uses the shipped guard rather than a private P/Invoke so the test asks the exact question the
+    /// engine asks before it agrees to capture the screen. A session that refuses activation — a
+    /// locked desktop, or an agent host running the suite in the background — cannot exercise the
+    /// screen path at all, and the caller reports that rather than failing on it.
+    /// </remarks>
+    private static bool ForegroundBelongsToFixture(UiaTestFixture fixture)
+        => ForegroundGuard.ForegroundBelongsTo(fixture.Hwnd);
+
     /// <summary>Real UI Automation engine, resolved the same way the CLI resolves it.</summary>
     private static TestAutomation NewAutomation()
         => new(new ServiceCollection()
