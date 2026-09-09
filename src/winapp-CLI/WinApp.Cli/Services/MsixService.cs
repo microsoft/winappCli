@@ -388,7 +388,8 @@ internal partial class MsixService(
         // Update manifest content to ensure it's either referencing Windows App SDK or is self-contained
         // Fetch dotnet package list once for all downstream operations. In project mode a resolved
         // projectFile drives this (with framework/no-restore); folder mode falls back to the cwd probe.
-        var dotNetPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, cancellationToken);
+        // No pre-resolved package graph is available at this entry point, so pass null to resolve it here.
+        var dotNetPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph: null, cancellationToken);
 
         // Determine executable path for ProcessorArchitecture auto-detection, and detect whether
         // this is a sparse (AllowExternalContent) manifest so the rewrite applies sparse
