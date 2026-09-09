@@ -116,7 +116,13 @@ appear:
 | `invalid_ui_workflow_id` | `WINAPP_UI_WORKFLOW_ID` is set but empty/whitespace or longer than 256 characters. Fails before any UI side effect. |
 | `desktop_coordination_unavailable` | Coordination state could not be read, published, or safely rebuilt — including state written by a newer `winapp`. Mutating commands fail closed rather than acting uncoordinated. |
 | `queue_capacity_exceeded` | 64 commands from other workflows are already waiting for the desktop. Counts live foreign waiters, so entries left by commands that exited or were killed do not occupy a slot. |
+| `ui_turn_busy` | `ui yield` was run while this same workflow still has a command running or queued, so its turn is not idle. Nothing was released, and the running command is unaffected. Distinct from `invalid_arguments` (the request was well formed) and from `desktop_coordination_unavailable` (coordination is working — this is a valid request at an unsafe moment). Carries a `recoveryHint`: wait for or stop this workflow's other `winapp ui` commands — typically a `record` started with the same `WINAPP_UI_WORKFLOW_ID` — then retry `yield`. |
 | `cancelled` | Native Ctrl+C while the command was still waiting for its turn. The command never ran, so it has no UI side effects. Exit code **130**. |
+
+`ui yield` also emits the command-level `invalid_arguments` when `WINAPP_UI_WORKFLOW_ID` is not set
+at all — deliberately not `invalid_ui_workflow_id`, which means the variable is present but
+malformed. On success it writes `{ "released": true }`, or `{ "released": false }` when this workflow
+held nothing to release (both exit **0**).
 
 An npm `AbortSignal` is a different contract: Node force-terminates the child,
 so there is usually no envelope and no exit code 130 — the wrapper rejects with

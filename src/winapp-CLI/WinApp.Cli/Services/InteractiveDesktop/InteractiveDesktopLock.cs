@@ -119,6 +119,106 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
     private LivenessProbe CreateProbe() => new LivenessProbe(_participants);
 
     /// <summary>
+    /// Publishes a mutated state and wakes every participant the mutation made runnable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The single place state reaches disk during a transaction that can change who may run, so no
+    /// transition path — promotion, absorption, barrier release, cancellation cleanup, crash pruning,
+    /// an explicit yield — has to remember to wake anyone. The set is computed by comparing what the
+    /// state said was runnable before the mutation with what it says afterwards, which is a property of
+    /// the state rather than of the code path that produced it.
+    /// </para>
+    /// <para>
+    /// Signalling happens strictly after the publish. A wake-up that arrived first would send its
+    /// target to read state that has not changed yet, and the target would go back to sleep having
+    /// consumed the only notification it was going to get.
+    /// </para>
+    /// </remarks>
+    /// <param name="self">
+    /// The caller's own participant identity, skipped because waking ourselves would only cost a
+    /// spurious loop after we already know. Null when the caller is not a participant at all, which is
+    /// the case for <see cref="ReleaseIdleTurn"/>.
+    /// </param>
+    private void PublishAndSignal(
+        InteractiveDesktopState state,
+        HashSet<(int Pid, long StartTicksUtc)> runnableBefore,
+        (int Pid, long StartTicksUtc)? self)
+    {
+        _store.Publish(state);
+
+        foreach (var target in InteractiveDesktopScheduler.RunnableParticipants(state))
+        {
+            if (target == self || runnableBefore.Contains(target))
+            {
+                continue;
+            }
+
+            _signals.Signal(target.Pid, target.StartTicksUtc);
+        }
+    }
+
+    public UiYieldResult ReleaseIdleTurn(CancellationToken cancellationToken)
+    {
+        var owner = _ownerResolver.Resolve();
+        if (!owner.HasContinuity)
+        {
+            // An anonymous owner releases the desktop the instant its one command ends, so it can never
+            // be holding an idle turn. Answered before state.lock: reading state to prove a structural
+            // impossibility would only add contention.
+            return UiYieldResult.NotAWorkflow;
+        }
+
+        using var stateLock = _store.AcquireStateLock(cancellationToken);
+        var read = _store.Read();
+        if (read.UnknownNewerVersion)
+        {
+            throw new UiCoordinationException(
+                UiCoordinationErrorCodes.Unavailable,
+                "UI turn coordination state was written by a newer version of winapp, so this build cannot release the turn safely.",
+                "Update winapp so every process on this desktop uses a compatible version, then retry.");
+        }
+
+        var state = read.State!;
+        var runnableBefore = InteractiveDesktopScheduler.RunnableParticipants(state);
+
+        // Normalization alone can already have released this turn — the grace may have lapsed while the
+        // caller was getting here — and can promote a waiter. Either way the result must be published.
+        var changed = _scheduler.Normalize(state, CreateProbe()) | read.RecoveredFromCorruption;
+
+        var result = UiYieldResult.NothingHeld;
+        if (InteractiveDesktopScheduler.IsCurrentOwner(state, owner))
+        {
+            if (state.OwnerCommands.Count > 0)
+            {
+                // Normalization just pruned every dead participant, so anything left here is a live
+                // command of this workflow's own, running or queued behind its barrier. The turn is not
+                // idle, and ending it would hand the desktop to somebody else mid-command.
+                result = UiYieldResult.Busy;
+            }
+            else
+            {
+                _scheduler.ReleaseIdleTurn(state, CreateProbe());
+                changed = true;
+                result = UiYieldResult.Released;
+            }
+        }
+
+        if (changed)
+        {
+            // Strictly before the return, so `Released` is only ever reported for a release that
+            // actually reached disk: a failed publish throws out of here rather than telling the
+            // caller the desktop was handed over when it was not. The `NothingHeld` and `Busy`
+            // branches reach this too — normalization may have pruned a dead participant, expired
+            // somebody's grace or promoted a waiter, and that recovery has to be published by
+            // whoever performed it.
+            PublishAndSignal(state, runnableBefore, self: null);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Waits for <c>active.lock</c>. Never steals it from a live process — a hung owner is recovered by
     /// cancelling or terminating it, not by another process forcing its way onto the desktop (spec §7.3).
     /// </summary>
@@ -230,44 +330,14 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         public long WaitedMs { get; private set; }
 
         /// <summary>
-        /// Publishes a mutated state and wakes every participant the mutation made runnable.
+        /// Publishes a mutated state and wakes every participant the mutation made runnable, skipping
+        /// this command itself.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// The single place state reaches disk during a transaction that can change who may run, so no
-        /// transition path — promotion, absorption, barrier release, cancellation cleanup, crash
-        /// pruning — has to remember to wake anyone. The set is computed by comparing what the state
-        /// said was runnable before the mutation with what it says afterwards, which is a property of
-        /// the state rather than of the code path that produced it.
-        /// </para>
-        /// <para>
-        /// Signalling happens strictly after the publish. A wake-up that arrived first would send its
-        /// target to read state that has not changed yet, and the target would go back to sleep having
-        /// consumed the only notification it was going to get.
-        /// </para>
-        /// </remarks>
         private void PublishAndSignal(
             InteractiveDesktopState state,
             HashSet<(int Pid, long StartTicksUtc)> runnableBefore)
-        {
-            coordinator._store.Publish(state);
-
-            foreach (var target in InteractiveDesktopScheduler.RunnableParticipants(state))
-            {
-                if (target.Pid == participant.ProcessId && target.StartTicksUtc == participant.StartTicksUtc)
-                {
-                    // Waking ourselves would only cost us a spurious loop after we already know.
-                    continue;
-                }
-
-                if (runnableBefore.Contains(target))
-                {
-                    continue;
-                }
-
-                coordinator._signals.Signal(target.Pid, target.StartTicksUtc);
-            }
-        }
+            => coordinator.PublishAndSignal(
+                state, runnableBefore, (participant.ProcessId, participant.StartTicksUtc));
 
         public async Task<int> RunAsync(
             Func<IUiTurn, CancellationToken, Task<int>> body,

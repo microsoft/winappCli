@@ -43,11 +43,13 @@ internal class UiSetValueCommand : Command, IShortDescription
         protected override string Operation => "ui set-value";
 
         /// <remarks>
-        /// Spec §6.1: background-safe UIA mutations stay concurrent even against the same target. This
-        /// feature prevents desktop interference; it deliberately does not provide transactional
-        /// app-state isolation.
+        /// A background-safe mutation: it drives ValuePattern rather than the foreground, so it must
+        /// stay usable on a locked or headless session and never takes <c>active.lock</c>. But it does
+        /// change what the app shows, so it waits behind a foreign workflow's turn instead of editing a
+        /// control underneath somebody else's click. Same-workflow commands still overlap under the
+        /// ordinary <see cref="UiTurnMode.TurnShared"/> barrier rules.
         /// </remarks>
-        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.Observe;
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.TurnShared;
 
         protected override int? Preflight(ParseResult parseResult)
         {

@@ -83,7 +83,12 @@ Driving a UI while other workflows may be running?
 │  one-shot that releases the desktop immediately (each tool call usually gets a fresh shell, and
 │  there is no process-ancestry fallback)
 ├─ A workflow with an id keeps the desktop for 4s after its last command; that covers a tight
-│  script but intentionally expires while you reason
+│  script but intentionally expires while you reason. It is a fallback, not the way to finish
+├─ Finished a known sequence? → winapp ui yield   (hands the desktop over immediately instead of
+│  making a waiting workflow sit out the 4s grace; needs WINAPP_UI_WORKFLOW_ID; safe to repeat)
+├─ `set-value`, `scroll-into-view` and `scroll --direction`/`--to` never take the desktop, so they
+│  stay headless/locked-session friendly — but they DO wait behind another workflow, because they
+│  change what the app shows, and behind an earlier exclusive command of your OWN workflow
 ├─ `ui record` shares its turn only with the SAME workflow id — a no-id recording blocks everyone
 │  else for its whole duration
 └─ After a reasoning gap, reopen/re-navigate and re-resolve before acting — another workflow may
@@ -305,7 +310,7 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `ui inspect -a <app> [--depth N] [--interactive] [--hide-disabled] [--hide-offscreen]` — view element tree with semantic slugs and 2-space indentation. `--interactive` filters to invokable elements only (auto-depth 8) — ideal for discovering clickable elements
 - `ui search <selector> -a <app> [--max N]` — find elements; output shows semantic slugs. Surfaces invokable ancestor for all non-invokable results
 - `ui get-property <selector> -a <app> [-p <prop>]` — read UIA properties (including ToggleState, Value, IsSelected, ExpandCollapseState)
-- `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window.
+- `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window. **`--capture-screen` needs exactly one window** — it reads whatever is in front, and only one window can be. If `-a` matches several top-level or owned windows it fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. If a capture reports `foreground_not_target`, the window could not be brought to the front — do the same thing: list the windows and target one with `-w <hwnd>`.
 - `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--capture-screen] [--json]` — record window or element region to an H.264 MP4 using Windows Graphics Capture + Media Foundation. Default is 0 — records until stopped (Ctrl+C interactively, or a newline/EOF on stdin for programmatic callers); use `--duration-sec N` for a timed run. Add `--frames` to retain timestamped JPEGs, `frames.ndjson`, and `manifest.json` under `<output-name>.frames`. JSON results include `elapsedMs`, `achievedFps`, `cadenceRatio`, `stopReason`, optional `frameArtifacts`, and the capture `mode` (`"wgc"`, `"screen"`, or `"printwindow"`).
 - `ui invoke <selector> -a <app>` — activate element by slug or text search. Auto-walks to invokable ancestor for non-invokable elements.
 - `ui hover <selector> -a <app> [--dwell-time <ms>]` — move mouse to element center to trigger tooltips, flyouts, and hover states. Use with `ui screenshot --capture-screen` to capture the result.
@@ -320,6 +325,7 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `ui wait-for <selector> -a <app> --timeout <ms> [--gone] [--value Y] [--property X --value Y]` — wait for element value or property match
 - `ui list-windows -a <app> [--show-hidden]` — list windows, popups, and dialogs with HWNDs (untitled zero-size windows hidden by default)
 - `ui get-focused -a <app>` — show the element with keyboard focus
+- `ui yield` — release this workflow's UI turn early instead of waiting out the 4s idle grace. Requires `WINAPP_UI_WORKFLOW_ID`; takes no app or selector. Idempotent, never releases another workflow's turn, and fails with `ui_turn_busy` if your own workflow still has a command running.
 
 ## Framework-specific guidance
 

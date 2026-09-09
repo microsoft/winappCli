@@ -73,8 +73,16 @@ internal class UiScrollCommand : Command, IShortDescription
 
         protected override string Operation => "ui scroll";
 
+        /// <remarks>
+        /// Two different commands share one name. <c>--wheel</c> synthesizes real mouse input at screen
+        /// coordinates, so it foregrounds the target and needs the desktop exclusively. <c>--direction</c>
+        /// and <c>--to</c> drive UIA <c>ScrollPattern</c> in the background: they never take
+        /// <c>active.lock</c> and stay usable on a locked or headless session, but they do move the
+        /// container, so they wait behind a foreign workflow rather than scrolling content out from under
+        /// somebody else's click.
+        /// </remarks>
         protected override UiTurnMode ResolveMode(ParseResult parseResult)
-            => parseResult.GetValue(WheelOption) is not null ? UiTurnMode.DesktopExclusive : UiTurnMode.Observe;
+            => parseResult.GetValue(WheelOption) is not null ? UiTurnMode.DesktopExclusive : UiTurnMode.TurnShared;
 
         protected override int? Preflight(ParseResult parseResult)
         {

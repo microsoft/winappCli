@@ -16,17 +16,25 @@ namespace WinApp.Cli.Services.InteractiveDesktop;
 internal enum UiTurnMode
 {
     /// <summary>
-    /// Does not claim a free turn. A non-owner runs immediately and detached (no lease, no queue entry);
-    /// the current owner registers so the observation pins and renews that owner's turn while it reads
-    /// transient UI.
+    /// Reads the UI without changing it. Does not claim a free turn: a non-owner runs immediately and
+    /// detached (no lease, no queue entry); the current owner registers so the observation pins and
+    /// renews that owner's turn while it reads transient UI.
     /// </summary>
     Observe,
 
     /// <summary>
-    /// Claims or waits for the workflow turn. Several same-owner <c>TurnShared</c> commands may overlap
-    /// unless an earlier <see cref="DesktopExclusive"/> forward barrier is waiting or running. Used by
-    /// <c>ui record</c>, which pins the owner for the whole capture while same-owner input continues.
+    /// Claims or waits for the workflow turn without taking <c>active.lock</c>. Several same-owner
+    /// <c>TurnShared</c> commands may overlap unless an earlier <see cref="DesktopExclusive"/> forward
+    /// barrier is waiting or running.
     /// </summary>
+    /// <remarks>
+    /// This is the mode for work that changes the app but not the desktop: <c>ui record</c>, which pins
+    /// the owner for the whole capture while same-owner input continues, and the background-safe UIA
+    /// mutations <c>set-value</c>, <c>scroll-into-view</c> and <c>scroll --direction</c>/<c>--to</c>.
+    /// Because they never take <c>active.lock</c> they remain usable on a locked or headless session,
+    /// but they still wait behind a foreign workflow's turn rather than editing or scrolling content out
+    /// from under somebody else's click.
+    /// </remarks>
     TurnShared,
 
     /// <summary>

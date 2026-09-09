@@ -4927,6 +4927,57 @@
               "recursive": false
             }
           }
+        },
+        "yield": {
+          "description": "Release the current workflow's idle UI turn early. A workflow with WINAPP_UI_WORKFLOW_ID keeps the desktop for a few seconds after each command so a burst of commands reads as one workflow; run this after the final command of a workflow to hand the desktop to waiting workflows straight away. Requires WINAPP_UI_WORKFLOW_ID; targets no app and takes no selector.",
+          "hidden": false,
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
         }
       }
     },

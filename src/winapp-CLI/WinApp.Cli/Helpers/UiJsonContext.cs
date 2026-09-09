@@ -34,6 +34,7 @@ namespace WinApp.Cli.Helpers;
 [JsonSerializable(typeof(UiWaitForResult))]
 [JsonSerializable(typeof(UiScrollResult))]
 [JsonSerializable(typeof(UiSetValueResult))]
+[JsonSerializable(typeof(UiYieldResultJson))]
 [JsonSerializable(typeof(UiFocusResult))]
 [JsonSerializable(typeof(UiScrollIntoViewResult))]
 [JsonSerializable(typeof(UiHoverResult))]
@@ -284,6 +285,19 @@ internal sealed class UiSetValueResult
 {
     public string ElementId { get; set; } = "";
     public long Hwnd { get; set; }
+}
+
+/// <summary>
+/// Result of <c>ui yield</c>. Named to avoid colliding with <c>UiYieldResult</c>, the coordination
+/// outcome it is produced from.
+/// </summary>
+internal sealed class UiYieldResultJson
+{
+    /// <summary>
+    /// Whether an idle turn was actually ended. <see langword="false"/> is a success too: it means the
+    /// workflow held nothing, which is the normal result of yielding twice or after the grace lapsed.
+    /// </summary>
+    public bool Released { get; set; }
 }
 
 internal sealed class UiFocusResult

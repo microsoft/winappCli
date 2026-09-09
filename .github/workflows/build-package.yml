@@ -164,43 +164,10 @@ jobs:
         $platform = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
         .\scripts\test-e2e-winui-ui.ps1 -WinAppPath "artifacts/cli/win-$platform/winapp.exe"
 
-    # Cooperative desktop-turn coverage (issue #764 §18.2/§18.3). These drive real winapp.exe child
-    # processes against a real foreground window, so they are gated off the canonical build and only
-    # run here, on the interactive lane, after the CLI binaries above are on disk. Without this step
-    # the gate was never set by any workflow and all of them silently skipped everywhere.
+    # Gated cooperative desktop-turn coverage (issue #764). Runs here, on the interactive lane, because
+    # it drives real winapp.exe processes against a real foreground window.
     - name: Run UI coordination multiprocess and real-app tests
-      env:
-        WINAPP_UI_MULTIPROCESS_TESTS: "1"
-      run: |
-        $filter = "FullyQualifiedName~InteractiveDesktopMultiprocessTests|FullyQualifiedName~InteractiveDesktopRealAppTests"
-        $results = Join-Path $PWD "artifacts/TestResults/ui-coordination"
-        New-Item -ItemType Directory -Path $results -Force | Out-Null
-
-        dotnet run --project src/winapp-CLI/WinApp.Cli.Tests/WinApp.Cli.Tests.csproj -c Debug `
-          --results-directory $results --report-trx --report-trx-filename ui-coordination.trx `
-          --filter $filter
-        $testExit = $LASTEXITCODE
-
-        # A skip here is a silent failure: it means the gate or the published-binary lookup regressed and
-        # nothing was actually verified. Assert against the TRX rather than trusting the exit code, which
-        # is 0 for a run that skipped everything.
-        $trx = Get-ChildItem -Path $results -Filter *.trx -Recurse | Sort-Object LastWriteTime | Select-Object -Last 1
-        if (-not $trx) { throw "No TRX produced: the UI coordination tests did not run." }
-
-        [xml]$doc = Get-Content $trx.FullName
-        $counters = $doc.TestRun.ResultSummary.Counters
-        $total = [int]$counters.total
-        $passed = [int]$counters.passed
-        $failed = [int]$counters.failed
-        # MSTest reports Assert.Inconclusive (the gate's skip path) under notExecuted.
-        $skipped = [int]$counters.notExecuted + [int]$counters.inconclusive
-        Write-Host "UI coordination tests: total=$total passed=$passed failed=$failed skipped=$skipped"
-
-        # Currently 8 multiprocess + 3 real-app = 11. Asserted dynamically rather than pinned to 11 so
-        # adding coverage does not fail the build, while a filter that stops matching still does.
-        if ($total -eq 0) { throw "The UI coordination filter matched no tests — it no longer selects the gated suites." }
-        if ($skipped -gt 0) { throw "$skipped UI coordination test(s) skipped; the gate must run them here, not skip them." }
-        if ($failed -gt 0 -or $testExit -ne 0) { throw "UI coordination tests failed (exit $testExit)." }
+      run: .\scripts\test-ui-coordination.ps1
 
     - name: Upload UI coordination test results
       if: always()

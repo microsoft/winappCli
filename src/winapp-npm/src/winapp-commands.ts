@@ -1477,6 +1477,24 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
 }
 
 // ---------------------------------------------------------------------------
+// ui yield
+// ---------------------------------------------------------------------------
+
+export interface UiYieldOptions extends CommonOptions {
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Release the current workflow's idle UI turn early. A workflow with WINAPP_UI_WORKFLOW_ID keeps the desktop for a few seconds after each command so a burst of commands reads as one workflow; run this after the final command of a workflow to hand the desktop to waiting workflows straight away. Requires WINAPP_UI_WORKFLOW_ID; targets no app and takes no selector.
+ */
+export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'yield'];
+  if (options.json) args.push('--json');
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // unregister
 // ---------------------------------------------------------------------------
 

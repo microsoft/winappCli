@@ -25,6 +25,12 @@ internal static class UiCoordinationErrorCodes
 
     /// <summary>The command was cancelled while queued and never reached execution.</summary>
     public const string Cancelled = "cancelled";
+
+    /// <summary>
+    /// <c>ui yield</c> found the workflow's turn still busy: a command of this same workflow is running
+    /// or queued under it, so the turn is not idle and there is nothing safe to release.
+    /// </summary>
+    public const string TurnBusy = "ui_turn_busy";
 }
 
 /// <summary>

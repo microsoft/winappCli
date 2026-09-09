@@ -13,6 +13,7 @@ description: Inspect and interact with running Windows app UIs from the command 
 - For UIA mode (any app): No setup needed — works with any running Windows app
 - For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.
+- `--capture-screen` needs **exactly one window**. If `-a` matches several top-level or owned windows the command fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`.
 - **If other UI workflows may run at the same time**, set one workflow id per logical workflow (see below). Nothing breaks without it, but your commands will not be recognized as belonging together.
 
 ## Coordinating with other UI workflows
@@ -36,12 +37,16 @@ Rules that matter when driving this from an agent:
 - **Each tool call usually gets a fresh shell**, and there is no process-ancestry fallback, so
   commands are grouped ONLY by the id you inject. Without it every call is its own workflow.
 - **A workflow with an id keeps its turn for four seconds** after its last command. That covers
-  back-to-back commands in one script; it deliberately expires while you are reasoning.
+  back-to-back commands in one script; it deliberately expires while you are reasoning. Treat it as
+  a fallback for when you cannot say you are done — not as the way to finish.
+- **Run `winapp ui yield` when you finish a known sequence.** It hands the desktop over immediately
+  instead of making a waiting workflow sit out a four-second grace nobody needs. Yielding twice, or
+  after the grace lapsed, is a harmless success.
 - **After a reasoning gap, replay your setup.** Another workflow may have used the desktop, so
   reopen the menu / re-navigate, re-resolve the element, then act. Do not assume transient UI
   survived.
 - **Prefer one tight script over many round trips** for a known sequence: `winapp ui invoke View -w
-  $hwnd; winapp ui search "Status bar" -w $hwnd; winapp ui click "Status bar" -w $hwnd`.
+  $hwnd; winapp ui search "Status bar" -w $hwnd; winapp ui click "Status bar" -w $hwnd; winapp ui yield`.
 - **`record` shares the turn with its own workflow**, so same-workflow clicks and typing are captured
   while it runs — but only if both commands carry the same id. A `record` with no id blocks everyone
   else for its whole duration.
@@ -52,10 +57,20 @@ Rules that matter when driving this from an agent:
 - **There is no hard cap** — a long script, unbounded recording, or failure loop can block other
   mutating workflows until it finishes or is stopped.
 
-Commands that never wait: `status`, `list-windows`, `inspect`, `search`, `get-*`, `wait-for`,
-`set-value`, `scroll-into-view`, `scroll --direction`/`--to`.
-Commands that take a turn: `record` (shared) and `invoke`, `click`, `drag`, `hover`,
-`scroll --wheel`, `touch`, `pen`, `focus`, `send-keys`, `screenshot` (all exclusive).
+Commands that never wait: `status`, `list-windows`, `inspect`, `search`, `get-*`, `wait-for`.
+Commands that wait for the turn but never take the desktop (headless/locked-session friendly):
+`set-value`, `scroll-into-view`, `scroll --direction`/`--to`, `record`. They mutate the app, so they
+queue behind another workflow. Inside your own workflow they overlap with other shared work — that
+is how `record` captures the `set-value` calls it is recording — but they still wait behind an
+earlier `DesktopExclusive` command of your own workflow, so a `click` followed by a `set-value` runs
+in the order you wrote it.
+Commands that take the desktop exclusively: `invoke`, `click`, `drag`, `hover`, `scroll --wheel`,
+`touch`, `pen`, `focus`, `send-keys`, `screenshot`.
+
+```powershell
+# Finish a workflow deliberately rather than leaving the desktop reserved for four more seconds.
+winapp ui yield
+```
 
 ## Common patterns
 

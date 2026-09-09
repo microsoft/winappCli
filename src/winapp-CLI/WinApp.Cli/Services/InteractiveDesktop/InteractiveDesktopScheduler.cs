@@ -216,6 +216,24 @@ internal sealed class InteractiveDesktopScheduler(IMonotonicClock clock)
     }
 
     /// <summary>
+    /// Ends the current owner's idle grace now, then re-normalizes so the release, the promotion of the
+    /// next waiter and that waiter's eligibility all land in the same transaction.
+    /// </summary>
+    /// <remarks>
+    /// The caller must have already established that the turn belongs to the yielding workflow and that
+    /// it has no live commands under it — this deliberately does not re-check, because it is the same
+    /// primitive <see cref="ExpireIdleTurn"/> applies when the grace runs out on its own, only at a time
+    /// the owner chose. Expressing it as "the deadline is now" rather than as a second way to clear
+    /// <see cref="InteractiveDesktopState.Owner"/> means an explicit yield and a lapsed grace cannot
+    /// diverge.
+    /// </remarks>
+    public void ReleaseIdleTurn(InteractiveDesktopState state, ICoordinationLivenessProbe probe)
+    {
+        state.IdleExpiresTick64 = clock.NowTicks64;
+        Normalize(state, probe);
+    }
+
+    /// <summary>
     /// Section 10.6: removes this process's command and sets the idle deadline. A non-cancelled
     /// completion renews the grace; an anonymous owner gets none and hands off immediately;
     /// cancellation never renews.

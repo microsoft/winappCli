@@ -47,6 +47,28 @@ internal interface IUiTurn : IDesktopSection
     long WaitedMs { get; }
 }
 
+/// <summary>What an explicit early release did.</summary>
+internal enum UiYieldResult
+{
+    /// <summary>
+    /// The caller has no explicit <c>WINAPP_UI_WORKFLOW_ID</c>, so it has no turn that outlives a
+    /// command and nothing it could release. Reported before coordination state is read.
+    /// </summary>
+    NotAWorkflow,
+
+    /// <summary>This workflow's idle turn was ended and any waiting workflow promoted.</summary>
+    Released,
+
+    /// <summary>Nothing to release: the desktop was unowned, or another workflow held it.</summary>
+    NothingHeld,
+
+    /// <summary>
+    /// This workflow holds the turn but still has a live command running or queued under it, so the
+    /// turn is not idle and releasing it would pull the desktop out from under that command.
+    /// </summary>
+    Busy,
+}
+
 /// <summary>
 /// Cooperative desktop turn coordination across concurrent <c>winapp.exe</c> processes (issue #764).
 /// </summary>
@@ -74,4 +96,21 @@ internal interface IInteractiveDesktopLock
         ParseResult parseResult,
         Func<IUiTurn, CancellationToken, Task<int>> body,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ends this workflow's post-command idle grace immediately instead of waiting it out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A control operation over a reservation this workflow already holds, not a command that runs on
+    /// the desktop. It therefore never takes <c>active.lock</c>, opens no participant lease and adds no
+    /// entry to the state: it takes <c>state.lock</c>, ends the grace, promotes whoever was waiting and
+    /// wakes them, all in one transaction.
+    /// </para>
+    /// <para>
+    /// It only ever releases the caller's own idle turn. A turn held by another workflow, or one this
+    /// workflow still has a live command under, is left exactly as it was.
+    /// </para>
+    /// </remarks>
+    UiYieldResult ReleaseIdleTurn(CancellationToken cancellationToken);
 }

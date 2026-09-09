@@ -30,6 +30,26 @@ internal sealed class FakeInteractiveDesktopLock : IInteractiveDesktopLock
     /// <summary>Set to throw from <see cref="RunCoordinatedAsync"/>, to cover coordination failures.</summary>
     public UiCoordinationException? ThrowOnRun { get; set; }
 
+    /// <summary>Every <c>ui yield</c> that reached coordination, in order.</summary>
+    public List<UiYieldResult> YieldCalls { get; } = [];
+
+    /// <summary>What <see cref="ReleaseIdleTurn"/> reports. Defaults to a successful release.</summary>
+    public UiYieldResult YieldResult { get; set; } = UiYieldResult.Released;
+
+    /// <summary>Set to throw from <see cref="ReleaseIdleTurn"/>, to cover coordination failures.</summary>
+    public UiCoordinationException? ThrowOnYield { get; set; }
+
+    public UiYieldResult ReleaseIdleTurn(CancellationToken cancellationToken)
+    {
+        if (ThrowOnYield is { } failure)
+        {
+            throw failure;
+        }
+
+        YieldCalls.Add(YieldResult);
+        return YieldResult;
+    }
+
     /// <summary>Milliseconds reported as queue wait, so output/telemetry paths can be exercised.</summary>
     public long WaitedMs { get; set; }
 

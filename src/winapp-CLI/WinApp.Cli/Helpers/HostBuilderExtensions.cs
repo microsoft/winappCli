@@ -133,6 +133,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiWaitForCommand, UiWaitForCommand.Handler>()
                 .UseCommandHandler<UiListWindowsCommand, UiListWindowsCommand.Handler>()
                 .UseCommandHandler<UiGetFocusedCommand, UiGetFocusedCommand.Handler>()
+                .UseCommandHandler<UiYieldCommand, UiYieldCommand.Handler>()
                 .ConfigureCommand<CompleteCommand>();
     }
 

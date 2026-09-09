@@ -38,8 +38,13 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
     {
         protected override string Operation => "ui scroll-into-view";
 
-        /// <summary>UIA <c>ScrollItemPattern</c> works in the background and never takes the foreground.</summary>
-        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.Observe;
+        /// <remarks>
+        /// UIA <c>ScrollItemPattern</c> works in the background and never takes the foreground, so this
+        /// never takes <c>active.lock</c> and stays usable on a locked or headless session. It does move
+        /// the container, though, so it waits behind a foreign workflow's turn rather than scrolling
+        /// content out from under somebody else's click.
+        /// </remarks>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.TurnShared;
 
         protected override int? Preflight(ParseResult parseResult)
         {

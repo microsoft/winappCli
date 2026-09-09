@@ -35,6 +35,17 @@ public class FakeUiAutomationService : IUiAutomation
     public Dictionary<string, object?> PropertiesResult { get; set; } = [];
     public string InvokeResult { get; set; } = "InvokePattern";
     public (byte[] Pixels, int Width, int Height) ScreenshotResult { get; set; } = (new byte[4], 1, 1);
+
+    /// <summary>
+    /// Every window <see cref="ScreenshotAsync"/> was asked to capture, in order.
+    /// </summary>
+    /// <remarks>
+    /// Lets a test assert that a command failed <em>before</em> touching the desktop, which an exit
+    /// code alone cannot show — a command that foregrounded three windows and then gave up also
+    /// returns 1.
+    /// </remarks>
+    public List<(long Hwnd, bool CaptureScreen, bool Focus)> ScreenshotCalls { get; } = [];
+
     public List<(nint Hwnd, int Pid, string Title)> WindowsByTitleResult { get; set; } = [];
     public List<(nint Hwnd, int Pid, string Title)> WindowsByPidResult { get; set; } = [];
 
@@ -176,6 +187,7 @@ public class FakeUiAutomationService : IUiAutomation
 
     public Task<(byte[] Pixels, int Width, int Height)> ScreenshotAsync(UiTarget uiTarget, string? elementId, bool captureScreen, bool focus, CancellationToken ct)
     {
+        ScreenshotCalls.Add((uiTarget.WindowHandle, captureScreen, focus));
         if (ScreenshotThrow is not null) { throw ScreenshotThrow; }
         return Task.FromResult(ScreenshotResult);
     }

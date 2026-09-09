@@ -173,7 +173,8 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
                     pass = await CaptureUnderSectionAsync(
-                        selector, app, window, json, captureScreen, focus, cancellationToken).ConfigureAwait(false);
+                        selector, app, window, json, captureScreen, focus,
+                        parseResult.InvocationConfiguration.Error, cancellationToken).ConfigureAwait(false);
                 }
 
                 // Deliberately outside the section: composing, PNG encoding and writing to disk are pure
@@ -233,6 +234,15 @@ internal class UiScreenshotCommand : Command, IShortDescription
         /// </remarks>
         private readonly record struct CaptureCandidate(nint Hwnd, int ActualPid, int ExpectedAppPid, string Title);
 
+        /// <summary>
+        /// The <c>-a</c> fragment to put in a recovery hint, so the suggested command is one the caller
+        /// can paste. Falls back to the PID when there is no process name to name.
+        /// </summary>
+        private static string DescribeApp(UiTarget target)
+            => string.IsNullOrWhiteSpace(target.ProcessName)
+                ? $" -a {target.ProcessId}"
+                : $" -a {target.ProcessName}";
+
         /// <param name="ExitCode">Set when the pass already reported a failure and produced no pixels.</param>
         private sealed record CapturePass(
             int? ExitCode,
@@ -252,6 +262,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
             bool json,
             bool captureScreen,
             bool focus,
+            TextWriter errorOut,
             CancellationToken ct)
         {
             // Screenshot handles multi-window discovery itself (avoids duplicate warning from session resolution)
@@ -267,7 +278,8 @@ internal class UiScreenshotCommand : Command, IShortDescription
                         return (long)info.Width * info.Height;
                     }).First();
                     var multiTarget = await targetResolver.ResolveAsync(null, main.Hwnd, ct).ConfigureAwait(false);
-                    return await CaptureWindowsAsync(allWindows, multiTarget, json, captureScreen, focus, ct).ConfigureAwait(false);
+                    return await CaptureWindowsAsync(
+                        allWindows, multiTarget, json, captureScreen, focus, errorOut, ct).ConfigureAwait(false);
                 }
             }
 
@@ -285,7 +297,8 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 if (ownedWindows.Count > 0)
                 {
                     var allWindows = ToCandidates(appWindows, ownedWindows);
-                    return await CaptureWindowsAsync(allWindows, singleTarget, json, captureScreen, focus, ct).ConfigureAwait(false);
+                    return await CaptureWindowsAsync(
+                        allWindows, singleTarget, json, captureScreen, focus, errorOut, ct).ConfigureAwait(false);
                 }
             }
 
@@ -315,8 +328,31 @@ internal class UiScreenshotCommand : Command, IShortDescription
             bool json,
             bool captureScreen,
             bool focus,
+            TextWriter errorOut,
             CancellationToken ct)
         {
+            if (captureScreen && windows.Count > 1)
+            {
+                // Live-screen capture reads pixels off the screen, so it can only ever record the one
+                // window that is actually in front. Compositing several of them would mean activating
+                // each in turn: at best a picture stitched from moments where each window covered the
+                // others, and in practice a foreground_not_target failure the moment Windows refuses the
+                // second activation. Refuse here, before any window is foregrounded or captured, so the
+                // caller gets the fix instead of a generic activation error.
+                var message =
+                    $"--capture-screen needs exactly one window, but {windows.Count} windows matched. " +
+                    "Live-screen capture reads whatever is in front, so several windows cannot be captured together.";
+                var hint =
+                    $"Run 'winapp ui list-windows{DescribeApp(uiTarget)}' and retry with '-w <hwnd>' for the window you want, " +
+                    "or drop --capture-screen to composite all of them from their own window contents.";
+
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+                logger.LogError("{Symbol} {Hint}", UiSymbols.Error, hint);
+                UiJsonError.Emit(
+                    json, UiJsonError.CodeInvalidArguments, message, errorOut: errorOut, recoveryHint: hint);
+                return new CapturePass(1, uiTarget, null, [], [], IsComposite: true);
+            }
+
             // Sort: main window first (largest), then others
             var sorted = windows.OrderByDescending(w =>
             {

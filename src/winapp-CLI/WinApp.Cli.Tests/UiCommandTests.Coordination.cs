@@ -88,15 +88,29 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public async Task SetValue_StaysAnObservationBecauseItIsBackgroundSafe()
+    public async Task SetValue_TakesASharedTurnBecauseItChangesWhatTheAppShows()
     {
-        // Spec §6.1: background-safe UIA mutations stay concurrent. This feature prevents desktop
-        // interference, not transactional app-state isolation.
+        // Background-safe: it drives ValuePattern and never takes active.lock, so it stays usable on a
+        // locked or headless session. But it does mutate the app, so it must wait behind a foreign
+        // workflow rather than editing a control underneath somebody else's click.
         _fakeUia.FindSingleResult = new UiElement { Id = "box", Selector = "box", Name = "Box" };
         var command = GetRequiredService<UiSetValueCommand>();
         await ParseAndInvokeWithCaptureAsync(command, ["box", "hello", "-a", "TestApp", "--json"]);
 
-        Assert.AreEqual(UiTurnMode.Observe, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(UiTurnMode.TurnShared, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters,
+            "a background-safe mutation must never take active.lock");
+    }
+
+    [TestMethod]
+    public async Task ScrollIntoView_TakesASharedTurnWithoutTakingTheDesktop()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "item", Selector = "item", Name = "Item" };
+        var command = GetRequiredService<UiScrollIntoViewCommand>();
+        await ParseAndInvokeWithCaptureAsync(command, ["item", "-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(UiTurnMode.TurnShared, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
     }
 
     [TestMethod]
@@ -128,15 +142,26 @@ public partial class UiCommandTests
         };
         _fakeSystemQuery.ProcessIdForWindowResult = 1234;
 
-        // --direction uses the UIA ScrollPattern, which works in the background.
+        // --direction uses the UIA ScrollPattern, which moves the container without touching the
+        // desktop: a shared turn, and no active.lock.
         var command = GetRequiredService<UiScrollCommand>();
         await ParseAndInvokeWithCaptureAsync(command, ["list", "-a", "TestApp", "--direction", "down", "--json"]);
-        Assert.AreEqual(UiTurnMode.Observe, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(UiTurnMode.TurnShared, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters,
+            "ScrollPattern must not take active.lock");
+
+        // --to is the same transport, so it classifies the same way.
+        _fakeDesktopLock.Runs.Clear();
+        await ParseAndInvokeWithCaptureAsync(command, ["list", "-a", "TestApp", "--to", "bottom", "--json"]);
+        Assert.AreEqual(UiTurnMode.TurnShared, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
 
         // --wheel injects OS-wide mouse input at the cursor.
         _fakeDesktopLock.Runs.Clear();
         await ParseAndInvokeWithCaptureAsync(command, ["list", "-a", "TestApp", "--wheel", "3", "--json"]);
         Assert.AreEqual(UiTurnMode.DesktopExclusive, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters,
+            "wheel input must run inside a desktop section");
     }
 
     [TestMethod]

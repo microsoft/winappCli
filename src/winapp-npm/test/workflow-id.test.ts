@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import childProcess = require('child_process');
 
 import { WINAPP_UI_WORKFLOW_ID } from '../src/winapp-cli-utils';
-import { uiListWindows } from '../src/winapp-commands';
+import { uiListWindows, uiYield } from '../src/winapp-commands';
 
 // Cooperative desktop turns group commands by workflow id. The wrapper must pass that id to the
 // spawned child ONLY: writing it into process.env would silently enrol every later call in this
@@ -95,5 +95,55 @@ test('well-formed workflow ids — including a real U+FFFD — are still accepte
   }
 
   assert.equal(spawnCalls.length, 4, 'every well-formed workflow id must still spawn the CLI');
+  mock.restoreAll();
+});
+
+// `ui yield` releases the turn belonging to one specific workflow, so the id it carries decides
+// which reservation is ended. A generated wrapper that dropped it — or that reached for the ambient
+// process.env instead — would either yield nothing or yield somebody else's turn.
+
+test('uiYield sends its per-call workflowId to the child and nowhere else', async () => {
+  const before = process.env[WINAPP_UI_WORKFLOW_ID];
+  const childEnvs: (NodeJS.ProcessEnv | undefined)[] = [];
+
+  mock.method(childProcess, 'spawn', ((..._args: unknown[]) => {
+    const options = _args[2] as { env?: NodeJS.ProcessEnv } | undefined;
+    childEnvs.push(options?.env);
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    process.nextTick(() => child.emit('close', 0));
+    return child;
+  }) as unknown as typeof childProcess.spawn);
+
+  await uiYield({ workflowId: 'yield-unit-test-workflow' }).catch(() => undefined);
+
+  assert.equal(childEnvs.length, 1, 'ui yield must spawn the CLI');
+  assert.equal(
+    childEnvs[0]?.[WINAPP_UI_WORKFLOW_ID],
+    'yield-unit-test-workflow',
+    'the id decides whose turn is released, so it has to reach the child'
+  );
+  assert.equal(
+    process.env[WINAPP_UI_WORKFLOW_ID],
+    before,
+    'and it must not leak into this process'
+  );
+  mock.restoreAll();
+});
+
+test('uiYield refuses an ill-formed workflowId before spawning', async () => {
+  const spawnCalls: unknown[] = [];
+  mock.method(childProcess, 'spawn', ((..._args: unknown[]) => {
+    spawnCalls.push(_args);
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    process.nextTick(() => child.emit('close', 0));
+    return child;
+  }) as unknown as typeof childProcess.spawn);
+
+  await assert.rejects(() => uiYield({ workflowId: '\uD800' }), /unpaired UTF-16 surrogate/);
+  assert.equal(spawnCalls.length, 0);
   mock.restoreAll();
 });
