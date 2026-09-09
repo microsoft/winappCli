@@ -335,7 +335,7 @@ internal static partial class NuGetResolver
             string libDir = Path.Combine(packageFolder, "lib");
             if (Directory.Exists(libDir))
             {
-                foreach (var xml in Directory.GetFiles(libDir, "*.xml", SearchOption.AllDirectories))
+                foreach (var xml in GetFilesNoReparse(libDir, "*.xml"))
                 {
                     try
                     {
@@ -452,6 +452,12 @@ internal static partial class NuGetResolver
             XDocument doc = XDocument.Load(projectFile);
             XNamespace ns = doc.Root?.Name.Namespace ?? XNamespace.None;
             var references = doc.Descendants(ns + "ProjectReference")
+                // An analyzer or source-generator reference builds a .dll into the referenced
+                // project's bin like any other, but the referencing project cannot call into
+                // it — indexing it answers "yes, that API exists" for code that will not
+                // compile. MSBuild marks these with OutputItemType="Analyzer" or
+                // ReferenceOutputAssembly="false".
+                .Where(e => !ProjectReferenceMetadata.IsBuildOnly(e))
                 .Select(e => e.Attribute("Include")?.Value)
                 .Where(v => v != null)
                 .Select(v => v!)
@@ -487,7 +493,7 @@ internal static partial class NuGetResolver
                 {
                     continue;
                 }
-                var winmds = Directory.GetFiles(binDir, "*.winmd", SearchOption.AllDirectories)
+                var winmds = GetFilesNoReparse(binDir, "*.winmd")
                     .Where(f => !Path.GetFileName(f).Equals("Windows.winmd", StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
@@ -500,7 +506,7 @@ internal static partial class NuGetResolver
                 // by <AssemblyName> when the project sets one, and only defaults to the
                 // file name otherwise.
                 string outputName = ReadAssemblyName(fullPath) ?? refName;
-                winmds.AddRange(Directory.GetFiles(binDir, outputName + ".dll", SearchOption.AllDirectories));
+                winmds.AddRange(GetFilesNoReparse(binDir, outputName + ".dll"));
 
                 // Newest wins per file name. `bin` accumulates every configuration and
                 // target framework ever built, so first-found means directory enumeration
@@ -616,7 +622,7 @@ internal static partial class NuGetResolver
         {
             return null;
         }
-        string[] files = Directory.GetFiles(objDir, "project.assets.json", SearchOption.AllDirectories);
+        string[] files = GetFilesNoReparse(objDir, "project.assets.json");
         if (files.Length == 0)
         {
             return null;
@@ -851,7 +857,7 @@ internal static partial class NuGetResolver
                 {
                     foreach (string packageDir in packageDirs)
                     {
-                        files.AddRange(Directory.GetFiles(packageDir, "*.winmd", SearchOption.AllDirectories));
+                        files.AddRange(GetFilesNoReparse(packageDir, "*.winmd"));
                     }
                 }
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1013,13 +1019,13 @@ internal static partial class NuGetResolver
                     && TryResolveUnderRoot(solutionPackages, id + "." + version, out string solutionDir)
                     && Directory.Exists(solutionDir))
                 {
-                    files.AddRange(Directory.GetFiles(solutionDir, "*.winmd", SearchOption.AllDirectories));
+                    files.AddRange(GetFilesNoReparse(solutionDir, "*.winmd"));
                 }
                 if (files.Count == 0 && Directory.Exists(globalPackages)
                     && TryResolveUnderRoot(globalPackages, Path.Combine(id.ToLowerInvariant(), version), out string globalDir)
                     && Directory.Exists(globalDir))
                 {
-                    files.AddRange(Directory.GetFiles(globalDir, "*.winmd", SearchOption.AllDirectories));
+                    files.AddRange(GetFilesNoReparse(globalDir, "*.winmd"));
                 }
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 files = files.Where(f => seen.Add(Path.GetFileName(f))).ToList();
@@ -1206,6 +1212,31 @@ internal static partial class NuGetResolver
             return core + "." + packageVersion.Minor + (suffix.Length > core.Length ? suffix.Substring(core.Length) : string.Empty);
         }
         return suffix;
+    }
+
+    /// <summary>
+    /// Recursively enumerates files without descending through a reparse point (a junction
+    /// or symbolic link).
+    /// </summary>
+    /// <remarks>
+    /// Callers already refuse to start a scan at a directory reached by crossing a reparse
+    /// point, but that only guards the entry. <c>SearchOption.AllDirectories</c> follows a
+    /// junction found part-way down, so a repository that commits one inside <c>bin</c> or
+    /// <c>obj</c> still redirects the walk onto whatever it points at — a network share
+    /// turns a local, read-only query into an outbound SMB authentication attempt against a
+    /// host the repository chose. The options below otherwise match
+    /// <c>SearchOption.AllDirectories</c> exactly, so hidden and system files are still
+    /// enumerated.
+    /// </remarks>
+    private static string[] GetFilesNoReparse(string directory, string pattern)
+    {
+        return Directory.GetFiles(directory, pattern, new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            MatchType = MatchType.Win32,
+            IgnoreInaccessible = false,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+        });
     }
 
     /// <summary>

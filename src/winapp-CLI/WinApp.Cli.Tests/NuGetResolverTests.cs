@@ -181,6 +181,105 @@ public sealed class NuGetResolverTests
     }
 
     [TestMethod]
+    public void FindWinMdFromProjectReferences_AnalyzerReference_IsNotIndexed()
+    {
+        // A source generator is referenced with OutputItemType="Analyzer", which tells
+        // MSBuild to load it into the compiler rather than reference it. Its .dll still
+        // lands in bin like any other, so indexing it makes `find-api` report the
+        // generator's own types as callable API and an agent writes code that cannot
+        // compile.
+        WriteReferencedLibrary("GenLib", "GenLib.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\GenLib\GenLib.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+            """);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(0, packages.Count, "a build-only reference is not on the compile surface");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_ReferenceOutputAssemblyAsChildElement_IsNotIndexed()
+    {
+        // MSBuild item metadata is equally valid as a child element, and a project that
+        // spells it that way must get the same answer as the attribute form.
+        WriteReferencedLibrary("ToolLib", "ToolLib.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\ToolLib\ToolLib.csproj">
+                  <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+                </ProjectReference>
+            """);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(0, packages.Count, "metadata spelled as a child element means the same thing");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_JunctionInsideBin_IsNotFollowed()
+    {
+        // The scan refuses to *start* at a junctioned bin, but a junction found part-way
+        // down is followed all the same. A repo that commits one at bin\Debug\shared
+        // aimed at \\attacker\share turns `winapp find-api refresh` into an outbound
+        // authenticated SMB connection, with no user action beyond cloning.
+        string libDir = Path.Combine(_dir, "LinkLib");
+        string libBin = Path.Combine(libDir, "bin", "Debug", "net8.0");
+        Directory.CreateDirectory(libBin);
+        File.WriteAllText(Path.Combine(libDir, "LinkLib.csproj"), "<Project />");
+
+        string outside = Path.Combine(_dir, "Elsewhere", "planted");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "LinkLib.dll"), "x");
+
+        string link = Path.Combine(libBin, "shared");
+        if (!TryCreateJunction(link, outside))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            string appProject = WriteApp("""
+                    <ProjectReference Include="..\LinkLib\LinkLib.csproj" />
+                """);
+
+            List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+            Assert.AreEqual(0, packages.Count, "the walk must not descend through the junction");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    /// <summary>Writes a referenced library with a single built output in its bin tree.</summary>
+    private void WriteReferencedLibrary(string name, string outputFileName)
+    {
+        string libDir = Path.Combine(_dir, name);
+        string libBin = Path.Combine(libDir, "bin", "Debug", "net8.0");
+        Directory.CreateDirectory(libBin);
+        File.WriteAllText(Path.Combine(libDir, name + ".csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(libBin, outputFileName), "x");
+    }
+
+    /// <summary>Writes an App.csproj whose ItemGroup holds <paramref name="itemGroupBody"/>.</summary>
+    private string WriteApp(string itemGroupBody)
+    {
+        string appDir = Path.Combine(_dir, "App");
+        Directory.CreateDirectory(appDir);
+        string appProject = Path.Combine(appDir, "App.csproj");
+        File.WriteAllText(appProject, $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+            {itemGroupBody}
+              </ItemGroup>
+            </Project>
+            """);
+        return appProject;
+    }
+
+    [TestMethod]
     public void FindProjectAssetsJson_SeveralUnderOneObjTree_PicksTheOneRestoredForThisProject()
     {
         // Colocated projects, or a nested BaseIntermediateOutputPath, put more than one
