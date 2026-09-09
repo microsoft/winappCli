@@ -11,7 +11,20 @@ internal sealed record ProcessRunRequest(
     string FileName,
     IReadOnlyList<string> Arguments,
     bool CreateNoWindow = true,
-    IReadOnlyDictionary<string, string>? Environment = null);
+    IReadOnlyDictionary<string, string>? Environment = null)
+{
+    /// <summary>
+    /// Whether the child must not inherit this process's standard handles.
+    /// </summary>
+    /// <remarks>
+    /// Set for a child that is expected to outlive winapp. Such a child would otherwise hold a
+    /// duplicate of the caller's captured stdout/stderr pipe, and the caller would not reach end of
+    /// stream until that child exited — long after the command it ran had finished. See
+    /// <see cref="Helpers.StandardHandleInheritance"/> for why redirecting the child's own streams
+    /// is not sufficient on its own.
+    /// </remarks>
+    public bool OutlivesCaller { get; init; }
+}
 
 /// <summary>Captured result of a completed child process.</summary>
 internal sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError);

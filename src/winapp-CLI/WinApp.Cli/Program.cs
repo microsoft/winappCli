@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 using System.Text;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
@@ -105,6 +106,10 @@ internal static class Program
                 {
                     EmitFindUiJsonError(message);
                 }
+                else if (ResolveEffectiveJson(parseResult) && IsTargetDescendant(parseResult))
+                {
+                    TargetOutput.RejectCommandLine(message);
+                }
                 else
                 {
                     Console.Error.WriteLine(message);
@@ -205,6 +210,18 @@ internal static class Program
                         CommandCompletedEvent.Log(parsedArgs.CommandResult, 1);
                     }
                 }
+                else if (effectiveJson && IsTargetDescendant(parsedArgs))
+                {
+                    if (!isCompleteMode)
+                    {
+                        CommandInvokedEvent.Log(parsedArgs.CommandResult);
+                    }
+                    TargetOutput.RejectCommandLine(typoMessage);
+                    if (!isCompleteMode)
+                    {
+                        CommandCompletedEvent.Log(parsedArgs.CommandResult, 1);
+                    }
+                }
                 else
                 {
                     Console.Error.WriteLine(typoMessage);
@@ -215,7 +232,89 @@ internal static class Program
             }
         }
 
-        return await RunWithTelemetryAsync(parsedArgs, isCompleteMode, () => parsedArgs.InvokeAsync());
+        return await RunWithTelemetryAsync(parsedArgs, isCompleteMode, () =>
+        {
+            // Target selection is settled before anything else, and settled for every command.
+            // A command that cannot honour --on says so, and a selector that names nothing usable
+            // fails here — never silently on this desktop, which is the one outcome the option
+            // exists to prevent.
+            if (ExecutionTargetSelection.Validate(parsedArgs) is { } selectionError)
+            {
+                return Task.FromResult(TargetOutput.RejectSelection(
+                    serviceProvider.GetRequiredService<IAnsiConsole>(), effectiveJson, selectionError));
+            }
+
+            // System.CommandLine binds an unrecognised option to a nearby optional positional rather
+            // than failing, so `--onn=sandbox` would become a UI element selector and the command
+            // would run here and report success. Rejected before dispatch for every command except
+            // `run`, whose own handler already reports the same mistake with the passthrough advice
+            // its `--` separator needs and in its own --json shape.
+            if (parsedArgs.CommandResult.Command is not RunCommand &&
+                WindowsCommandLine.FindOptionLikePositionals(parsedArgs) is { Count: > 0 } stray)
+            {
+                return Task.FromResult(RejectOptionLikePositionals(parsedArgs, stray, effectiveJson));
+            }
+
+            // One pre-dispatch interception, before any local UI service runs. A command the user
+            // sent to another target must not perform UI Automation, window discovery, capture, or
+            // input injection on this desktop, and the only way to guarantee that for every verb is
+            // to divert before the handler exists.
+            //
+            // Only for a command line that actually parsed. Routing a broken one first means
+            // `winapp ui inspect --on sandbox --depth notanumber` boots a Sandbox, spends minutes
+            // preparing it, and then reports a transport failure that never mentions `--depth` —
+            // and leaves the Sandbox running. The ordinary parse-error path is both faster and
+            // truthful, and it runs on this machine only because it runs nothing at all.
+            if (parsedArgs.Errors.Count == 0 && ExecutionTargetUiRouter.ShouldRoute(parsedArgs))
+            {
+                var router = serviceProvider.GetRequiredService<ExecutionTargetUiRouter>();
+                return router.RouteAsync(
+                    args,
+                    TargetUiRequirements.For(parsedArgs),
+                    effectiveJson,
+                    CancellationToken.None);
+            }
+
+            return parsedArgs.InvokeAsync();
+        });
+    }
+
+    /// <summary>
+    /// Reports positional values that were really misspelt options, and returns the exit code.
+    /// </summary>
+    /// <remarks>
+    /// Rendered in whichever error shape the invoked command promises, so a <c>--json</c> caller
+    /// still gets a parseable document rather than a bare line on stderr.
+    /// </remarks>
+    private static int RejectOptionLikePositionals(
+        System.CommandLine.ParseResult parsedArgs,
+        IReadOnlyList<string> stray,
+        bool effectiveJson)
+    {
+        var message = stray.Count == 1
+            ? $"Unrecognized option '{stray[0]}'."
+            : $"Unrecognized options: {string.Join(", ", stray.Select(token => $"'{token}'"))}.";
+
+        var advice = "Check the spelling, or put the value after '--' if it really is an argument.";
+
+        if (effectiveJson && IsUiDescendant(parsedArgs))
+        {
+            UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, $"{message} {advice}");
+        }
+        else if (effectiveJson && IsFindUi(parsedArgs))
+        {
+            EmitFindUiJsonError($"{message} {advice}");
+        }
+        else
+        {
+            Console.Error.WriteLine(message);
+            Console.Error.WriteLine(advice);
+        }
+
+        // The same code every other malformed winapp command line returns. This is a parse mistake,
+        // not a failure to reach a target, and conflating the two would make an unknown option look
+        // like an unavailable machine.
+        return TargetOutput.InvalidCommandLineExitCode;
     }
 
     /// <summary>
@@ -326,6 +425,21 @@ internal static class Program
                 return 1;
             }
 
+            // Parse-error → JSON bridge for the `target` verbs, which own their own error envelope
+            // ({"error":{"code":...}} on stderr). Same reasoning as the ui bridge: a caller that
+            // passed --json must never have to read human help text off stdout to find out that its
+            // command line was wrong.
+            if (effectiveJson && parsedArgs.Errors.Count > 0 && IsTargetDescendant(parsedArgs))
+            {
+                var errorMsg = string.Join("; ", parsedArgs.Errors.Select(e => e.Message));
+                var exitCode = TargetOutput.RejectCommandLine(errorMsg);
+                if (!isCompleteMode)
+                {
+                    logCommandCompleted(parsedArgs.CommandResult, exitCode);
+                }
+                return exitCode;
+            }
+
             var returnCode = await invoke();
 
             if (!isCompleteMode)
@@ -404,6 +518,25 @@ internal static class Program
     /// </summary>
     private static bool IsFindUi(System.CommandLine.ParseResult parseResult) =>
         parseResult.CommandResult.Command.Name == "find-ui";
+
+    /// <summary>
+    /// Returns <see langword="true"/> when the selected command is <c>target</c> or one of its
+    /// descendants, so a parse failure is reported in the target error envelope rather than as
+    /// help text.
+    /// </summary>
+    private static bool IsTargetDescendant(System.CommandLine.ParseResult parseResult)
+    {
+        var cmd = parseResult.CommandResult.Command;
+        while (cmd is not null)
+        {
+            if (cmd.Name == "target")
+            {
+                return true;
+            }
+            cmd = cmd.Parents.OfType<System.CommandLine.Command>().FirstOrDefault();
+        }
+        return false;
+    }
 
     /// <summary>
     /// Writes a flat <c>{"error":"..."}</c> object to stdout — the same schema and sink

@@ -100,6 +100,37 @@ const DEPRECATED_ARG_ALIASES = {
 };
 
 /**
+ * Option property renames, keyed by command path, for options whose natural camelCase name
+ * would collide with a `CommonOptions` member.
+ *
+ * `CommonOptions.cwd` is where the winapp *process* is spawned on this machine. A CLI option
+ * that also camelCases to `cwd` would silently make one property drive two unrelated things —
+ * setting the host spawn directory would also send `--cwd` to the guest.
+ *
+ * Map shape: `{ '<cmd path>': { '<cli option>': '<property name>' } }`.
+ */
+const OPTION_PROP_RENAMES = {
+  'target exec': { '--cwd': 'targetCwd' },
+};
+
+/**
+ * Command trees that honour `--on`.
+ *
+ * `--on` is registered recursively on the winapp root so that *every* command parses the token
+ * consistently — that is a parser-safety property, not an API one: a command that did not declare
+ * it would let System.CommandLine bind `--on sandbox` to a nearby positional argument and then run
+ * on this machine while reporting success. Commands outside this list parse `--on` only to reject
+ * it, so emitting an `on` property on their wrappers would advertise an option that always fails.
+ *
+ * Kept in step with `ITargetAwareCommand` in the CLI by
+ * `ExecutionTargetSelectionTests.TargetAwareCommands_MatchTheGeneratorList`.
+ */
+const TARGET_AWARE_COMMANDS = ['run', 'ui', 'unregister'];
+
+/** The recursive selector option, which only target-aware commands should expose. */
+const TARGET_SELECTOR_OPTION = '--on';
+
+/**
  * Nullable enum types — strip `System.Nullable<...>` wrapper.
  */
 const NULLABLE_ENUM_RE = /^System\.Nullable<(.+)>$/;
@@ -173,26 +204,84 @@ const PASSTHROUGH_COMMANDS = {
   tool: { propName: 'toolArgs', description: "Arguments to pass to the SDK tool, e.g. ['makeappx', 'pack', '/d', './folder', '/p', './out.msix'].", separator: ' -- ' },
   store: { propName: 'storeArgs', description: 'Arguments to pass through to the Microsoft Store Developer CLI.', separator: '' },
   run: { propName: 'appArgs', description: 'Arguments to pass to the launched application (forwarded after --).', separator: ' -- ' },
+  // The executable and its arguments must follow '--', or winapp would parse the command's own
+  // flags as its own. Emitting them as a plain positional produced a wrapper that could not run
+  // any command taking a flag.
+  'target exec': { propName: 'command', description: "Executable and arguments to run on the target, e.g. ['dotnet', '--info'] (forwarded after --).", separator: ' -- ' },
 };
 
 // ---------------------------------------------------------------------------
 // Flatten schema into leaf commands
 // ---------------------------------------------------------------------------
-function flattenCommands(node, parentPath = []) {
+/**
+ * A recursive option declared on a group applies to every command beneath it, but the schema
+ * records it only once, on the group. Without inheriting it here the generated wrapper for each
+ * leaf would silently lack an option the CLI accepts.
+ *
+ * A leaf's own declaration wins, so a command that redefines an inherited name keeps its own
+ * description and type.
+ */
+function inheritRecursiveOptions(cmd, inherited) {
+  if (Object.keys(inherited).length === 0) return cmd;
+  return { ...cmd, options: { ...inherited, ...(cmd.options || {}) } };
+}
+
+function collectRecursiveOptions(cmd, inherited) {
+  const recursive = Object.fromEntries(
+    Object.entries(cmd.options || {}).filter(([, def]) => def.recursive),
+  );
+  return { ...inherited, ...recursive };
+}
+
+function flattenCommands(node, parentPath = [], inherited = null) {
   const results = [];
   const subs = node.subcommands || {};
+
+  // `--on` is declared once, on the root, so that every command parses it and a misspelling can
+  // never be absorbed by a positional argument. Groups have their recursive options collected on
+  // the way down; the root does not, so the selector is seeded here.
+  //
+  // Only the selector. The root's other recursive options (`--cli-schema`, `--caller`) describe
+  // winapp itself rather than the command, and putting them on every wrapper would offer callers a
+  // property that prints a schema instead of doing what they asked.
+  const inheritedOptions = inherited ?? rootSelectorOption(node);
 
   for (const [name, cmd] of Object.entries(subs)) {
     if (cmd.hidden) continue;
     const cmdPath = [...parentPath, name];
 
     if (cmd.subcommands && Object.keys(cmd.subcommands).length > 0) {
-      results.push(...flattenCommands(cmd, cmdPath));
+      results.push(...flattenCommands(cmd, cmdPath, collectRecursiveOptions(cmd, inheritedOptions)));
     } else {
-      results.push({ path: cmdPath, cmd });
+      results.push({
+        path: cmdPath,
+        cmd: inheritRecursiveOptions(cmd, dropUnsupportedSelector(cmdPath, inheritedOptions)),
+      });
     }
   }
   return results;
+}
+
+function rootSelectorOption(root) {
+  const selector = (root.options || {})[TARGET_SELECTOR_OPTION];
+  return selector ? { [TARGET_SELECTOR_OPTION]: selector } : {};
+}
+
+/**
+ * Removes `--on` from what a leaf inherits unless that leaf can actually honour it.
+ *
+ * See `TARGET_AWARE_COMMANDS`: the CLI parses the option everywhere so a misspelling cannot be
+ * absorbed by a positional argument, but only these trees do anything with it. A wrapper that
+ * offered `on` on, say, `certInfo` would be offering a property whose only possible outcome is a
+ * non-zero exit.
+ */
+function dropUnsupportedSelector(cmdPath, inherited) {
+  if (TARGET_AWARE_COMMANDS.includes(cmdPath[0]) || !(TARGET_SELECTOR_OPTION in inherited)) {
+    return inherited;
+  }
+
+  const { [TARGET_SELECTOR_OPTION]: _dropped, ...rest } = inherited;
+  return rest;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,11 +416,12 @@ function generate(schema) {
 
     // Collect non-common options
     const opts = [];
+    const optionRenames = OPTION_PROP_RENAMES[cmdPathStr] || {};
     for (const [optName, optDef] of Object.entries(cmd.options || {})) {
       if (COMMON_OPTIONS.has(optName)) continue;
       // Skip if all aliases are common
       if (optDef.aliases?.every((a) => COMMON_OPTIONS.has(a))) continue;
-      opts.push({ cliName: optName, def: optDef, propName: kebabToCamel(optName) });
+      opts.push({ cliName: optName, def: optDef, propName: optionRenames[optName] || kebabToCamel(optName) });
     }
 
     // Collect arguments (positional)
@@ -406,7 +496,21 @@ function generate(schema) {
     // Build args array
     L(`  const args: string[] = [${cmdPath.map((p) => `'${p}'`).join(', ')}];`);
 
-    // Positional args
+    // Positional args.
+    //
+    // For a command with no passthrough, they are collected here and emitted after `--`, below.
+    // winapp rejects a positional that starts with a dash, because System.CommandLine would
+    // otherwise let a misspelt option quietly become one — so a caller with a legitimate value
+    // like `-42 degrees` or `-abc` needs the separator, and the wrapper is the only place that can
+    // add it. (`buildUiRecordArgs` in ui-record-guard.ts already does this by hand.)
+    //
+    // A passthrough command keeps the old order: its `--` already belongs to the passthrough
+    // arguments, and a second one would make the first positional look like an app argument.
+    const positionalSink = passthrough ? 'args' : 'positionals';
+    if (!passthrough && positionalArgs.length > 0) {
+      L('  const positionals: string[] = [];');
+    }
+
     for (const arg of positionalArgs) {
       const required = arg.def.arity?.minimum >= 1;
       const variadic = isVariadicArg(arg.def);
@@ -421,17 +525,17 @@ function generate(schema) {
       if (variadic) {
         if (required) {
           L(`  const ${arg.propName}Arr = Array.isArray(${accessor}) ? ${accessor} : [${accessor}];`);
-          L(`  args.push(...${arg.propName}Arr);`);
+          L(`  ${positionalSink}.push(...${arg.propName}Arr);`);
         } else {
           L(`  if (${accessor}) {`);
           L(`    const ${arg.propName}Arr = Array.isArray(${accessor}) ? ${accessor} : [${accessor}];`);
-          L(`    args.push(...${arg.propName}Arr);`);
+          L(`    ${positionalSink}.push(...${arg.propName}Arr);`);
           L('  }');
         }
       } else if (required) {
-        L(`  args.push(${accessor});`);
+        L(`  ${positionalSink}.push(${accessor});`);
       } else {
-        L(`  if (${accessor}) args.push(${accessor});`);
+        L(`  if (${accessor}) ${positionalSink}.push(${accessor});`);
       }
     }
 
@@ -450,6 +554,13 @@ function generate(schema) {
       } else {
         L(`  if (options.${opt.propName}) args.push('${opt.cliName}', options.${opt.propName});`);
       }
+    }
+
+    // Positionals last, behind a separator, so a value that begins with a dash reaches winapp as a
+    // value rather than as an option winapp does not recognise. Only emitted when there is at least
+    // one, so an all-optional command does not grow a trailing `--`.
+    if (!passthrough && positionalArgs.length > 0) {
+      L('  if (positionals.length > 0) args.push(\'--\', ...positionals);');
     }
 
     // Passthrough args. Normalize a single string to a one-element array so a bare-string
@@ -480,6 +591,9 @@ function generate(schema) {
 const FN_NAME_OVERRIDES = {
   'package': 'packageApp', // `package` is a TS reserved-ish word
   'ui record': '_uiRecordGenerated', // the public uiRecord is the guarded wrapper in ui-record-guard.ts
+  // A recording the caller cannot stop is a hang, so both record verbs go through a guard that
+  // requires a duration. See target-record-guard.ts.
+  'target record': '_targetRecordGenerated',
 };
 
 function getFunctionName(cmdPath) {

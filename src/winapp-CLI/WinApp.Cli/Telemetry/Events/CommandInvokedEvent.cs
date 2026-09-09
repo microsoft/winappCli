@@ -8,6 +8,8 @@ using System.CommandLine.Parsing;
 using System.Diagnostics.Tracing;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 
 namespace WinApp.Cli.Telemetry.Events;
 
@@ -26,8 +28,48 @@ internal class CommandInvokedEvent : EventBase
     {
         CommandName = commandResult.Command.GetType().FullName!;
         Context = CreateContext(commandResult.Children);
+        ExecutionTargetKind = ResolveTargetKind(commandResult);
         StartedTime = startedTime;
     }
+
+    /// <summary>
+    /// The execution target kind this invocation resolved to, from a closed set.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not the selector the user typed. A selector can carry a provider-defined ID —
+    /// a machine name, a desktop name, a VM name — which is exactly the kind of value the rest of
+    /// this event redacts to <c>[string]</c>. The kind is one of a handful of names this build
+    /// reserves, so it carries no user data while still answering the only question telemetry needs
+    /// to ask: is anyone using targets other than the local machine.
+    /// </remarks>
+    private static string ResolveTargetKind(CommandResult commandResult)
+    {
+        for (CommandResult? command = commandResult; command is not null; command = command.Parent as CommandResult)
+        {
+            foreach (var option in command.Children.OfType<OptionResult>())
+            {
+                if (option.Option != ExecutionTargetSelection.OnOption || option.Implicit)
+                {
+                    continue;
+                }
+
+                if (option.Errors.Any())
+                {
+                    return InvalidTargetKind;
+                }
+
+                return ExecutionTargetSelector.TryParse(
+                    option.GetValueOrDefault<string?>(), out var target, out _)
+                    ? target!.Kind
+                    : InvalidTargetKind;
+            }
+        }
+
+        return ExecutionTargetRef.LocalKind;
+    }
+
+    /// <summary>Recorded when the selector did not name a target, so no kind exists to record.</summary>
+    private const string InvalidTargetKind = "invalid";
 
     internal static string CreateContext(IEnumerable<SymbolResult> children)
     {
@@ -72,6 +114,9 @@ internal class CommandInvokedEvent : EventBase
     public string CommandName { get; private set; }
 
     public string Context { get; private set; }
+
+    /// <summary>Resolved execution target kind, from the closed reserved set.</summary>
+    public string ExecutionTargetKind { get; private set; }
 
     public DateTime StartedTime { get; private set; }
 

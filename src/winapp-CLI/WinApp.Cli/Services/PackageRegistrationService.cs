@@ -33,7 +33,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
 
     internal Func<string, bool, CancellationToken, Task<RemovalOutcome>> RemovePackageImpl { get; set; } = DefaultRemovePackage;
 
-    internal Func<Uri, CancellationToken, Task<InstallOutcome>> AddPackageImpl { get; set; } = DefaultAddPackage;
+    internal Func<Uri, bool, CancellationToken, Task<InstallOutcome>> AddPackageImpl { get; set; } = DefaultAddPackage;
 
     /// <inheritdoc />
     public async Task RegisterLooseLayoutAsync(string manifestPath, CancellationToken cancellationToken = default)
@@ -175,7 +175,16 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
     }
 
     /// <inheritdoc />
-    public async Task InstallPackageAsync(string packagePath, CancellationToken cancellationToken = default)
+    public Task InstallPackageAsync(
+        string packagePath,
+        CancellationToken cancellationToken = default) =>
+        InstallPackageAsync(packagePath, forceApplicationShutdown: true, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task InstallPackageAsync(
+        string packagePath,
+        bool forceApplicationShutdown,
+        CancellationToken cancellationToken = default)
     {
         var fullPath = Path.GetFullPath(packagePath);
         LongPathHelper.ValidatePathLength(fullPath);
@@ -184,7 +193,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         // Convert to 8.3 short path as a workaround; throw if shortening fails.
         var packageUri = new Uri(LongPathHelper.GetShortPathOrThrow(fullPath));
 
-        var result = await AddPackageImpl(packageUri, cancellationToken);
+        var result = await AddPackageImpl(packageUri, forceApplicationShutdown, cancellationToken);
 
         if (!string.IsNullOrEmpty(result.ErrorText))
         {
@@ -230,6 +239,35 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
 
         return best is { } v ? $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}" : null;
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<RegisteredPackageIdentity> FindInstalledPackagesByName(string packageName) =>
+        [
+            .. EnumerateUserPackagesImpl()
+                .Where(pkg => string.Equals(pkg.Name, packageName, StringComparison.OrdinalIgnoreCase))
+                .Select(pkg => new RegisteredPackageIdentity(
+                    pkg.Name,
+                    $"{pkg.VersionMajor}.{pkg.VersionMinor}.{pkg.VersionBuild}.{pkg.VersionRevision}",
+                    pkg.Publisher,
+                    DescribeArchitecture(pkg.Architecture))),
+        ];
+
+    /// <summary>
+    /// Maps a WinRT identity architecture back to the canonical winapp token.
+    /// </summary>
+    /// <remarks>
+    /// An unknown value maps to <c>unknown</c>, never to <c>neutral</c>. Neutral is the value that
+    /// satisfies every architecture, so treating "the platform did not tell us" as neutral would be
+    /// the same false pass this reporting exists to remove.
+    /// </remarks>
+    internal static string DescribeArchitecture(Windows.System.ProcessorArchitecture architecture) => architecture switch
+    {
+        Windows.System.ProcessorArchitecture.X64 => "x64",
+        Windows.System.ProcessorArchitecture.Arm64 => "arm64",
+        Windows.System.ProcessorArchitecture.X86 => "x86",
+        Windows.System.ProcessorArchitecture.Neutral => "neutral",
+        _ => "unknown",
+    };
 
     /// <inheritdoc />
     public bool IsPackageInstalled(string namePrefix, string? architecture = null, string? excludeNameSubstring = null)
@@ -348,7 +386,8 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 Name: pkg.Name,
                 Version: $"{pkg.VersionMajor}.{pkg.VersionMinor}.{pkg.VersionBuild}.{pkg.VersionRevision}",
                 InstallLocation: installLocation,
-                IsDevelopmentMode: pkg.IsDevelopmentMode));
+                IsDevelopmentMode: pkg.IsDevelopmentMode,
+                Publisher: pkg.Publisher));
         }
 
         return results;
@@ -516,7 +555,8 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 v.Revision,
                 p.IsDevelopmentMode,
                 () => p.InstalledLocation?.Path,
-                p.Id.Architecture));
+                p.Id.Architecture,
+                p.Id.Publisher));
         }
 
         return views;
@@ -532,13 +572,18 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         return new RemovalOutcome(result.ErrorText);
     }
 
-    private static async Task<InstallOutcome> DefaultAddPackage(Uri packageUri, CancellationToken cancellationToken)
+    private static async Task<InstallOutcome> DefaultAddPackage(
+        Uri packageUri,
+        bool forceApplicationShutdown,
+        CancellationToken cancellationToken)
     {
         var pm = new PackageManager();
         var result = await pm.AddPackageAsync(
             packageUri,
             null,
-            DeploymentOptions.ForceApplicationShutdown
+            forceApplicationShutdown
+                ? DeploymentOptions.ForceApplicationShutdown
+                : DeploymentOptions.None
         ).AsTask(cancellationToken);
         return new InstallOutcome(result.ErrorText, result.ExtendedErrorCode?.HResult);
     }
@@ -562,5 +607,6 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         ushort VersionRevision,
         bool IsDevelopmentMode,
         Func<string?> InstalledLocationAccessor,
-        Windows.System.ProcessorArchitecture Architecture = Windows.System.ProcessorArchitecture.Unknown);
+        Windows.System.ProcessorArchitecture Architecture = Windows.System.ProcessorArchitecture.Unknown,
+        string? Publisher = null);
 }

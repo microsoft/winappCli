@@ -62,6 +62,20 @@ internal interface IPackageRegistrationService
     Task InstallPackageAsync(string packagePath, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Installs an MSIX/APPX package file with explicit control over application shutdown.
+    /// </summary>
+    /// <param name="packagePath">Path to the .msix or .appx file.</param>
+    /// <param name="forceApplicationShutdown">
+    /// Whether Windows may stop applications using the package while installing it. Runtime
+    /// provisioning passes false so adding a side-by-side shared runtime never disrupts a live app.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task InstallPackageAsync(
+        string packagePath,
+        bool forceApplicationShutdown,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Checks if a package with the given name is installed and returns its version,
     /// or null if not found.
     /// </summary>
@@ -105,6 +119,20 @@ internal interface IPackageRegistrationService
     string? GetHighestInstalledVersion(string namePrefix, string? architecture = null, string? excludeNameSubstring = null);
 
     /// <summary>
+    /// Returns every package registered for the current user whose identity Name matches
+    /// <paramref name="packageName"/> exactly, with the full identity of each.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="GetInstalledVersion"/>, this reports the publisher and architecture rather
+    /// than collapsing them away. A framework dependency is resolved by Windows on (name, publisher,
+    /// architecture), so a caller deciding whether a dependency is satisfied needs all three — and a
+    /// version-only answer is exactly how a neutral or wrong-architecture package comes to look like
+    /// a match.
+    /// </remarks>
+    /// <param name="packageName">The package identity name.</param>
+    IReadOnlyList<RegisteredPackageIdentity> FindInstalledPackagesByName(string packageName);
+
+    /// <summary>
     /// Finds all installed packages matching the given name that were registered in
     /// development mode (sideloaded). Returns package metadata including the full name
     /// and install location for safety checks.
@@ -114,6 +142,20 @@ internal interface IPackageRegistrationService
     List<DevPackageInfo> FindDevPackages(string packageName);
 }
 
+/// <summary>The identity of one registered package, as a dependency resolver sees it.</summary>
+/// <param name="Name">Identity name.</param>
+/// <param name="Version">Identity version, in four-part form.</param>
+/// <param name="Publisher">Identity publisher, when the platform reported one.</param>
+/// <param name="Architecture">
+/// Canonical architecture (<c>x64</c> / <c>arm64</c> / <c>x86</c>), or <c>neutral</c> for a package
+/// that really is architecture-neutral and therefore satisfies any requirement.
+/// </param>
+internal sealed record RegisteredPackageIdentity(
+    string Name,
+    string Version,
+    string? Publisher,
+    string Architecture);
+
 /// <summary>
 /// Information about a development-mode registered package.
 /// </summary>
@@ -122,4 +164,5 @@ internal sealed record DevPackageInfo(
     string Name,
     string Version,
     string? InstallLocation,
-    bool IsDevelopmentMode);
+    bool IsDevelopmentMode,
+    string? Publisher = null);

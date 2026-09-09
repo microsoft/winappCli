@@ -20,6 +20,8 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 [DoNotParallelize]
 public class UiAutomationServicePureTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestCleanup]
     public void CleanupSeams()
     {
@@ -186,6 +188,33 @@ public class UiAutomationServicePureTests
         Assert.IsTrue(UiAutomationService.IsBlankCapture(pixels));
     }
 
+    /// <summary>
+    /// The blank check is the same one everywhere it is asked. It used to be copied into the
+    /// screenshot path and the frame-capture backend, and video recording -- which is in another
+    /// assembly and cannot see either copy -- did not ask at all, which is how blank frames reached
+    /// an MP4. Both internal callers now answer through this public one.
+    /// </summary>
+    [TestMethod]
+    public void IsBlank_IsTheSameAnswerEveryCallerGets()
+    {
+        var blank = new byte[13];
+        var painted = new byte[13];
+        painted[11] = 0x01;
+
+        Assert.IsTrue(CapturedFrame.IsBlank(blank));
+        Assert.IsFalse(CapturedFrame.IsBlank(painted));
+        Assert.AreEqual(CapturedFrame.IsBlank(blank), UiAutomationService.IsBlankCapture(blank));
+        Assert.AreEqual(CapturedFrame.IsBlank(painted), UiAutomationService.IsBlankCapture(painted));
+        Assert.AreEqual(CapturedFrame.IsBlank(blank), WgcCapture.IsBlankCapture(blank));
+        Assert.AreEqual(CapturedFrame.IsBlank(painted), WgcCapture.IsBlankCapture(painted));
+    }
+
+    [TestMethod]
+    public void IsBlank_NullBuffer_Throws()
+    {
+        Assert.ThrowsExactly<ArgumentNullException>(() => CapturedFrame.IsBlank(null!));
+    }
+
     [TestMethod]
     public void CaptureFromWindowWithBlankRetry_RetriesBlankFrame()
     {
@@ -220,6 +249,95 @@ public class UiAutomationServicePureTests
 
         Assert.AreEqual(1, calls);
         Assert.AreEqual(1, pixels[3]);
+    }
+
+    // ---- capture that must never activate the window ------------------------------------
+
+    /// <summary>
+    /// Frame capture gives up after a few blank frames and hands back the last one. Writing that to
+    /// disk would produce an all-black PNG reported as a successful screenshot — indistinguishable,
+    /// to the caller, from a real picture of a black screen.
+    /// </summary>
+    [TestMethod]
+    public async Task CaptureWithoutActivation_BlankFrameCapture_FallsBackToPrintWindowWithoutForegrounding()
+    {
+        UiAutomationService.s_frameCaptureWithoutActivation =
+            (_, _, _) => Task.FromResult<(byte[], int, int)?>((new byte[4 * 2 * 2], 2, 2));
+        UiAutomationService.s_windowSizeForCapture = _ => (2, 2);
+        UiAutomationService.s_captureFromWindow = (_, w, h) => Enumerable.Repeat((byte)0x40, w * h * 4).ToArray();
+        UiAutomationService.s_foregroundWindowForBlankRetry =
+            _ => Assert.Fail("The strict path must never bring the window to the front.");
+
+        var captured = await UiAutomationService.CaptureWithoutActivationAsync(
+            new HWND(123), allowFrameCapture: true, NullLogger.Instance, TestContext.CancellationToken);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(2, captured.Value.Width);
+        Assert.AreEqual(0x40, captured.Value.Pixels[0], "The PrintWindow frame is the one that was kept.");
+    }
+
+    [TestMethod]
+    public async Task CaptureWithoutActivation_BothPathsBlank_ReportsNoCapture()
+    {
+        UiAutomationService.s_frameCaptureWithoutActivation =
+            (_, _, _) => Task.FromResult<(byte[], int, int)?>((new byte[4 * 2 * 2], 2, 2));
+        UiAutomationService.s_windowSizeForCapture = _ => (2, 2);
+        UiAutomationService.s_captureFromWindow = (_, w, h) => new byte[w * h * 4];
+        UiAutomationService.s_foregroundWindowForBlankRetry =
+            _ => Assert.Fail("Failing is the promised outcome; foregrounding is not.");
+
+        var captured = await UiAutomationService.CaptureWithoutActivationAsync(
+            new HWND(123), allowFrameCapture: true, NullLogger.Instance, TestContext.CancellationToken);
+
+        Assert.IsNull(captured, "A blank capture is a failed capture, not a picture of a blank window.");
+    }
+
+    [TestMethod]
+    public async Task CaptureWithoutActivation_UsableFrameCapture_NeverTouchesPrintWindow()
+    {
+        UiAutomationService.s_frameCaptureWithoutActivation =
+            (_, _, _) => Task.FromResult<(byte[], int, int)?>((new byte[] { 9, 9, 9, 9 }, 1, 1));
+        UiAutomationService.s_captureFromWindow =
+            (_, _, _) => throw new InvalidOperationException("A usable frame needs no fallback.");
+
+        var captured = await UiAutomationService.CaptureWithoutActivationAsync(
+            new HWND(123), allowFrameCapture: true, NullLogger.Instance, TestContext.CancellationToken);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(9, captured.Value.Pixels[0]);
+    }
+
+    [TestMethod]
+    public async Task CaptureWithoutActivation_FrameCaptureThrows_StillTriesPrintWindowOnce()
+    {
+        var attempts = 0;
+        UiAutomationService.s_frameCaptureWithoutActivation =
+            (_, _, _) => throw new InvalidOperationException("no graphics capture here");
+        UiAutomationService.s_windowSizeForCapture = _ => (2, 2);
+        UiAutomationService.s_captureFromWindow = (_, w, h) =>
+        {
+            attempts++;
+            return Enumerable.Repeat((byte)0x11, w * h * 4).ToArray();
+        };
+
+        var captured = await UiAutomationService.CaptureWithoutActivationAsync(
+            new HWND(123), allowFrameCapture: true, NullLogger.Instance, TestContext.CancellationToken);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(1, attempts, "Exactly one attempt, because a second would need the foreground.");
+    }
+
+    [TestMethod]
+    public async Task CaptureWithoutActivation_WindowHasNoSize_ReportsNoCapture()
+    {
+        UiAutomationService.s_frameCaptureWithoutActivation =
+            (_, _, _) => Task.FromResult<(byte[], int, int)?>(null);
+        UiAutomationService.s_windowSizeForCapture = _ => (0, 0);
+        UiAutomationService.s_captureFromWindow =
+            (_, _, _) => throw new InvalidOperationException("Nothing to capture from a sizeless window.");
+
+        Assert.IsNull(await UiAutomationService.CaptureWithoutActivationAsync(
+            new HWND(123), allowFrameCapture: true, NullLogger.Instance, TestContext.CancellationToken));
     }
 
     [TestMethod]

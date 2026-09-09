@@ -70,6 +70,41 @@
         "winapp.pdb"
       ],
       "SdlWorkItemId": 63509499
+    },
+    {
+      "fuzzer": {
+        "$type": "libfuzzerDotNet",
+        "dll": "WinApp.Cli.Fuzz.dll",
+        "class": "WinApp.Cli.Fuzz.FuzzableCode",
+        "method": "FuzzGuestFrame",
+        "FuzzingTargetBinaries": [
+          "winapp.dll"
+        ]
+      },
+      "adoTemplate": {
+        "org": "microsoft",
+        "project": "OS",
+        "AssignedTo": "alzollin@microsoft.com",
+        "AreaPath": "OS\\Windows Client and Services\\WinPD\\DFX-Developer Fundamentals and Experiences\\Modern Frameworks\\WinApp",
+        "IterationPath": "OS\\Future"
+      },
+      "jobNotificationEmail": "alzollin@microsoft.com",
+      "skip": false,
+      "rebootAfterSetup": false,
+      "oneFuzzJobs": [
+        {
+          "projectName": "WinAppCli",
+          "targetName": "guestframecodec-decode",
+          "SeedCorpusContainer": "winappcli-guestframecodec-decode-seeds"
+        }
+      ],
+      "jobDependencies": [
+        "WinApp.Cli.Fuzz.dll",
+        "WinApp.Cli.Fuzz.pdb",
+        "winapp.dll",
+        "winapp.pdb"
+      ],
+      "SdlWorkItemId": 63509499
     }
   ]
 }

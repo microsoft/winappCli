@@ -197,6 +197,11 @@ public class CaptureForegroundSafetyTests
         public byte[] CaptureWindowPixels(nint hwnd, int width, int height)
             => new byte[Math.Max(0, width * height * 4)];
 
+        public Task<(byte[] Pixels, int Width, int Height)?> TryCaptureWindowWithoutActivationAsync(
+            nint hwnd,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Foreground safety should fail before no-activation capture.");
+
         public byte[] CaptureScreenPixels(
             int x, int y, int cropWidth, int cropHeight,
             int encoderWidth, int encoderHeight,

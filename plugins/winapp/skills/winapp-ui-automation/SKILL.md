@@ -366,7 +366,27 @@ The `--json` envelope for `ui inspect`, `ui get-focused`, `ui search`, and `ui w
 
 Full schemas with examples: `references/ui-json-envelope.md`.
 
+## Automating without taking over the desktop
+
+Every verb accepts `--on sandbox`, which forwards the whole command to a persistent Windows Sandbox
+instead of running it on the user's own desktop:
+
+```powershell
+winapp run . --on sandbox
+winapp ui inspect --on sandbox -a MyApp
+winapp ui screenshot --on sandbox -a MyApp -o .\result.png
+```
+
+The host performs no UI Automation, window discovery, capture, or input injection, so the workflow
+cannot steal focus, move the cursor, or type into the wrong window. `-o` files are copied back to the
+host path given and verified before they are published. A string app target can opt in by prefix
+instead — `--on sandbox -a MyApp` — while a numeric `--window` needs the flag, because a handle carries no
+scope of its own.
+
+Use the `winapp-sandbox` skill for prerequisites, lifecycle, and error codes.
+
 ## Related skills
+- `winapp-sandbox` for running and automating apps in an isolated Windows Sandbox
 - `winapp-setup` for adding Windows SDK to your project
 - `winapp-package` for packaging apps as MSIX
 

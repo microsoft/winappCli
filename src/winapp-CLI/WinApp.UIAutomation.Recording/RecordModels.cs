@@ -31,6 +31,31 @@ public sealed class RecordOptions
     /// <see langword="null"/> records video only.
     /// </summary>
     public string? FramesDirectory { get; init; }
+
+    /// <summary>
+    /// Record the window exactly where it stands, never restoring, activating, or foregrounding it.
+    /// </summary>
+    /// <remarks>
+    /// This is a promise to the user, not a performance hint, which is why it changes what counts as
+    /// a failure rather than just which code path runs. An ordinary recording may raise a minimized
+    /// window and may recover a blank <c>PrintWindow</c> frame by bringing the window to the front;
+    /// both are reasonable when the user is watching the app they asked to record, and both are
+    /// unacceptable for a caller who advertised that recording takes no focus — a background job that
+    /// yanked a Sandbox window onto the user's screen mid-take would be a worse outcome than not
+    /// recording at all.
+    /// <para>
+    /// So under this option nothing is moved: frame capture reads the window's own frames wherever it
+    /// is, the fallback is a single non-activating <c>PrintWindow</c>, and a window that can only be
+    /// captured by activating it is reported as uncapturable. Recording still publishes whatever it
+    /// had already captured when that happens partway through a take.
+    /// </para>
+    /// <para>
+    /// Incompatible with <see cref="CaptureScreen"/>, which reads the screen the window would have to
+    /// be visible on, and with an element selector, which crops within a window this policy is only
+    /// defined for as a whole.
+    /// </para>
+    /// </remarks>
+    public bool NoActivation { get; init; }
 }
 
 /// <summary>Result of an MP4 recording.</summary>
@@ -62,7 +87,8 @@ public sealed class RecordCaptureResult
 
     /// <summary>
     /// Why recording stopped: "duration_elapsed", "cancelled", "target_closed" when the recorded
-    /// window went away, or "mp4_failed" when the encoder failed partway.
+    /// window went away, "capture_unavailable" when the window could no longer be captured under
+    /// <see cref="RecordOptions.NoActivation"/>, or "mp4_failed" when the encoder failed partway.
     /// </summary>
     public string StopReason { get; init; } = "duration_elapsed";
 

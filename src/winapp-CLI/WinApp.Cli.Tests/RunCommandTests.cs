@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
@@ -228,6 +229,73 @@ public class RunCommandTests : BaseCommandTests
         var folder = parseResult.GetValue(RunCommand.InputArgument);
         Assert.IsNotNull(folder);
         Assert.AreEqual(_tempDirectory.FullName, folder.FullName);
+    }
+
+    /// <summary>
+    /// The three ways a run can name its layout, and who owns each. This is the decision that
+    /// makes deletion safe or unsafe, and it is made here -- from the options as typed -- because
+    /// once the default has been filled in the path alone no longer says who created the directory.
+    /// </summary>
+    [TestMethod]
+    public void ResolveLayoutOutput_NoDirectoryNamed_IsWinappsOwnGeneratedLayout()
+    {
+        var parseResult = GetRequiredService<RunCommand>().Parse([_tempDirectory.FullName]);
+
+        Assert.IsTrue(RunCommand.TryResolveLayoutOutput(parseResult, out var layoutOutput, out var error), error);
+        Assert.IsNull(layoutOutput.Directory, "the generated default is filled in later, by the run itself");
+        Assert.AreEqual(LayoutReconciliation.Exact, layoutOutput.Reconciliation);
+    }
+
+    [TestMethod]
+    public void ResolveLayoutOutput_UserTypedDirectory_IsNeverPruned()
+    {
+        var outputDir = Path.Combine(_tempDirectory.FullName, "mine");
+        var parseResult = GetRequiredService<RunCommand>()
+            .Parse([_tempDirectory.FullName, "--output-appx-directory", outputDir]);
+
+        Assert.IsTrue(RunCommand.TryResolveLayoutOutput(parseResult, out var layoutOutput, out var error), error);
+        Assert.AreEqual(outputDir, layoutOutput.Directory?.FullName);
+        Assert.AreEqual(LayoutReconciliation.Additive, layoutOutput.Reconciliation);
+    }
+
+    [TestMethod]
+    public void ResolveLayoutOutput_HostNamedGuestLayout_IsWinappOwned()
+    {
+        var layout = Path.Combine(_tempDirectory.FullName, "abc-layout");
+        var parseResult = GetRequiredService<RunCommand>()
+            .Parse([_tempDirectory.FullName, "--managed-appx-directory", layout]);
+
+        Assert.IsTrue(RunCommand.TryResolveLayoutOutput(parseResult, out var layoutOutput, out var error), error);
+        Assert.AreEqual(layout, layoutOutput.Directory?.FullName);
+        Assert.AreEqual(LayoutReconciliation.Exact, layoutOutput.Reconciliation);
+    }
+
+    /// <summary>
+    /// Both options name the same thing and disagree about who owns it. Picking one silently would
+    /// settle a deletion question by argument order, so the run refuses instead.
+    /// </summary>
+    [TestMethod]
+    public void ResolveLayoutOutput_BothDirectoryOptions_IsRefused()
+    {
+        var parseResult = GetRequiredService<RunCommand>().Parse(
+        [
+            _tempDirectory.FullName,
+            "--output-appx-directory", Path.Combine(_tempDirectory.FullName, "mine"),
+            "--managed-appx-directory", Path.Combine(_tempDirectory.FullName, "theirs"),
+        ]);
+
+        Assert.IsFalse(RunCommand.TryResolveLayoutOutput(parseResult, out _, out var error));
+        Assert.IsNotNull(error);
+        StringAssert.Contains(error, "--output-appx-directory", StringComparison.Ordinal);
+        StringAssert.Contains(error, "--managed-appx-directory", StringComparison.Ordinal);
+    }
+
+    /// <summary>The internal option stays out of help and the generated schema.</summary>
+    [TestMethod]
+    public void ManagedAppXDirectoryOption_IsHiddenFromUsers()
+    {
+        Assert.IsTrue(RunCommand.ManagedAppXDirectoryOption.Hidden);
+        Assert.IsFalse(RunCommand.OutputAppXDirectoryOption.Hidden);
     }
 
     [TestMethod]
@@ -517,6 +585,10 @@ public class RunCommandTests : BaseCommandTests
             GetRequiredService<IStatusService>(),
             GetRequiredService<IProjectRunService>(),
             GetRequiredService<IProjectContextDetector>(),
+            GetRequiredService<ExecutionTargetOrchestrator>(),
+            GetRequiredService<GuestApplicationRunner>(),
+            GetRequiredService<TargetRuntimeService>(),
+            GetRequiredService<IWinappDirectoryService>(),
             GetRequiredService<ILogger<RunCommand>>());
 
         // Act
@@ -567,6 +639,48 @@ public class RunCommandTests : BaseCommandTests
         StringAssert.Contains(error, "does not exist",
             "The existence error should be surfaced in the JSON Error field");
         Assert.IsFalse(root.TryGetProperty("AUMID", out _), "AUMID should not be present on a validation error");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_LayoutFailure_WithJson_NamesTheLinkInTheErrorField()
+    {
+        // winapp refuses to build a layout through a symbolic link or junction, because a layout
+        // quietly missing whatever was behind the link registers and runs with files absent. That
+        // refusal has to reach the caller in every output mode -- a machine-readable run that saw
+        // only success would be the same silence, one level up. This is the --json half.
+        await CreateTestManifestAsync();
+        var linkPath = Path.Combine(_tempDirectory.FullName, "Plugins");
+        _fakeMsixService.ExceptionToThrow = new InvalidOperationException(
+            $"'{linkPath}' is a symbolic link or junction. winapp will not build an AppX layout through a link.");
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--no-launch", "--json"]);
+
+        Assert.AreNotEqual(0, exitCode, "A layout winapp will not build must fail the run");
+
+        var json = ParseJsonOutput();
+        StringAssert.Contains(json.GetProperty("Error").GetString(), linkPath, StringComparison.OrdinalIgnoreCase);
+        Assert.IsFalse(json.TryGetProperty("AUMID", out _),
+            "nothing may be registered when the layout was refused");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_LayoutFailure_WithQuiet_StillFailsAndNamesTheLink()
+    {
+        // The --quiet half. Quiet suppresses progress, not the reason a run produced no app.
+        await CreateTestManifestAsync();
+        var linkPath = Path.Combine(_tempDirectory.FullName, "Plugins");
+        _fakeMsixService.ExceptionToThrow = new InvalidOperationException(
+            $"'{linkPath}' is a symbolic link or junction. winapp will not build an AppX layout through a link.");
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--no-launch", "--quiet"]);
+
+        Assert.AreNotEqual(0, exitCode, "A layout winapp will not build must fail the run");
+        StringAssert.Contains(ConsoleStdErr.ToString(), linkPath, StringComparison.OrdinalIgnoreCase,
+            "quiet suppresses progress, not the reason the run produced no app");
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count,
+            "nothing may be launched when the layout was refused");
     }
 
     [TestMethod]

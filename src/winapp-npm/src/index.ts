@@ -4,6 +4,7 @@ import { addMsixIdentityToExe, addElectronDebugIdentity, clearElectronDebugIdent
 import { getGlobalWinappPath, getLocalWinappPath } from './winapp-path-utils';
 import * as winappCommands from './winapp-commands';
 import { uiRecord } from './ui-record-guard';
+import { targetRecord } from './target-record-guard';
 
 // Re-export types from child_process for convenience
 export type { ExecSyncOptions } from 'child_process';
@@ -25,8 +26,9 @@ export { GenerateCppAddonOptions, GenerateCppAddonResult } from './cpp-addon-uti
 export { GenerateCsAddonOptions, GenerateCsAddonResult } from './cs-addon-utils';
 
 // Re-export all command types and public functions automatically from the generated module.
-// The generated _uiRecordGenerated function is module-internal (not exported) so it does
-// not appear in the package surface — only the guarded uiRecord is public.
+// The generated _uiRecordGenerated and _targetRecordGenerated functions are module-internal
+// (not exported) so they do not appear in the package surface — only the guarded uiRecord and
+// targetRecord are public.
 export * from './winapp-commands';
 
 // Export the public, guarded uiRecord wrapper (overrides the internal _uiRecordGenerated).
@@ -34,6 +36,11 @@ export * from './winapp-commands';
 // Also re-export the stricter UiRecordOptions type (durationSec: number, required),
 // which shadows the generated optional durationSec version from winapp-commands.
 export { uiRecord, type UiRecordOptions } from './ui-record-guard';
+
+// Same arrangement for `target record`: the stricter TargetRecordOptions (durationSec required)
+// shadows the generated one, so a caller who omits a duration fails to compile as well as at
+// runtime.
+export { targetRecord, type TargetRecordOptions } from './target-record-guard';
 
 // Re-export functions
 export {
@@ -60,4 +67,5 @@ export default {
   getLocalWinappPath,
   ...winappCommands,
   uiRecord, // guarded wrapper — overrides any uiRecord from the spread (none expected)
+  targetRecord, // guarded wrapper — overrides any targetRecord from the spread (none expected)
 };

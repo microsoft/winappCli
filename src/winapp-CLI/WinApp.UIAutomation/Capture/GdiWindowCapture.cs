@@ -30,6 +30,11 @@ internal sealed class GdiWindowCapture(ILogger<GdiWindowCapture> logger) : IWind
         => UiAutomationService.CaptureFromWindowWithBlankRetry(
             new global::Windows.Win32.Foundation.HWND(hwnd), width, height, logger);
 
+    public Task<(byte[] Pixels, int Width, int Height)?> TryCaptureWindowWithoutActivationAsync(
+        nint hwnd, CancellationToken cancellationToken)
+        => UiAutomationService.CaptureWithoutActivationAsync(
+            new global::Windows.Win32.Foundation.HWND(hwnd), allowFrameCapture: false, logger, cancellationToken);
+
     public byte[] CaptureScreenPixels(
         int x, int y, int cropWidth, int cropHeight,
         int encoderWidth, int encoderHeight,

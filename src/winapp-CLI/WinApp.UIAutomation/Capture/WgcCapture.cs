@@ -332,26 +332,7 @@ internal static partial class WgcCapture
         }
     }
 
-    internal static bool IsBlankCapture(byte[] pixels)
-    {
-        // Check if all pixels are zero (black/unrendered frame). Int-sized chunks for speed.
-        var span = MemoryMarshal.Cast<byte, long>(pixels.AsSpan());
-        foreach (var chunk in span)
-        {
-            if (chunk != 0)
-            {
-                return false;
-            }
-        }
-        for (var i = span.Length * sizeof(long); i < pixels.Length; i++)
-        {
-            if (pixels[i] != 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
+    internal static bool IsBlankCapture(byte[] pixels) => CapturedFrame.IsBlank(pixels);
 
     [LibraryImport("d3d11.dll")]
     private static partial int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);

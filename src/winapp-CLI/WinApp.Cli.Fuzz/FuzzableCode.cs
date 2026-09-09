@@ -1,13 +1,14 @@
 ﻿// Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Fuzz;
 
 /// <summary>
-/// libFuzzer entry points for <see cref="ZipRangeExtractor"/> — the only hand-written parser in
-/// winapp that consumes bytes originating off the network.
+/// libFuzzer entry points for winapp's hand-written parsers over untrusted bytes:
+/// <see cref="ZipRangeExtractor"/> and <see cref="GuestFrameCodec"/>.
 /// </summary>
 /// <remarks>
 /// <c>WinDbgJsProviderAcquirer</c> range-downloads the WinDbg <c>.msixbundle</c> and parses its
@@ -136,6 +137,38 @@ public static class FuzzableCode
     // The parser is async; libFuzzer targets must be void. These calls never touch I/O because the
     // reader is memory-backed, so blocking cannot deadlock.
     private static T Await<T>(Task<T> task) => task.GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Targets <see cref="GuestFrameCodec"/>'s decode path — the framing winapp uses for every byte
+    /// that crosses the host/guest boundary.
+    /// </summary>
+    /// <remarks>
+    /// The guest command channel treats the connection as untrusted, so this decoder is reached by
+    /// arbitrary bytes from the network before anything is authenticated. It reads an
+    /// attacker-controlled 32-bit length prefix and slices ciphertext and tag on it, so any
+    /// exception escaping here means a missing bounds or length check rather than a rejection —
+    /// which is precisely what this target exists to surface.
+    /// <para>
+    /// The key is fixed and the input is never expected to authenticate; the value is in the parsing
+    /// path, and authentication failure must be reported through <c>GuestFrameError</c> rather than
+    /// thrown. Two sequence numbers are exercised so a nonce-construction bug that only appears once
+    /// the sequence exceeds a single byte cannot hide.
+    /// </para>
+    /// </remarks>
+    public static void FuzzGuestFrame(ReadOnlySpan<byte> input)
+    {
+        Span<byte> key = stackalloc byte[GuestFrameCodec.KeySize];
+        Span<byte> noncePrefix = stackalloc byte[GuestFrameCodec.NoncePrefixSize];
+
+        using var codec = new GuestFrameCodec(key, noncePrefix);
+
+        // The decoder must never write more plaintext than the frame could possibly carry.
+        var destination = new byte[Math.Max(1, input.Length)];
+
+        _ = GuestFrameCodec.TryReadBodyLength(input, out _, out _);
+        _ = codec.TryDecode(input, sequence: 0, destination, out _, out _);
+        _ = codec.TryDecode(input, sequence: ulong.MaxValue, destination, out _, out _);
+    }
 }
 
 /// <summary>

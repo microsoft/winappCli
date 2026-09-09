@@ -33,6 +33,7 @@ public partial class RealRecordingTests
         Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, fps, bitrate)
             => new Mp4SinkWriterEncoder(path, width, height, fps, bitrate, overwriteExisting: false);
         RecordFrameBundleWriter.ResetTestSeams();
+        UiRecordingService.ResetWindowStateSeams();
     }
 
     [TestMethod]

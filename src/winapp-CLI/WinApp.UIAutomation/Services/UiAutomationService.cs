@@ -54,6 +54,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_captureFromScreenScaled = CaptureFromScreenScaled;
         s_foregroundWindowForBlankRetry = ForegroundWindowForBlankRetry;
         s_sleepForBlankRetry = Thread.Sleep;
+        s_frameCaptureWithoutActivation = null;
+        s_windowSizeForCapture = null;
     }
 
     public UiAutomationService(ILogger<UiAutomationService> logger, IUiSelectorParser selectorParser)

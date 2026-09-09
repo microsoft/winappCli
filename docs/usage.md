@@ -691,16 +691,17 @@ winapp run [<input>] [options]
 **Options:**
 
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from input folder or current directory)
-- `--output-appx-directory <path>` - Output directory for the loose layout package (default: `AppX` inside the input folder directory)
+- `--output-appx-directory <path>` - Output directory for the loose layout package (default: `AppX` inside the input folder directory). The default directory is one winapp creates and maintains, so it is kept matching the build: a file your app no longer contains is removed from it on the next run. A directory you name yourself is treated as yours — winapp copies into it and never deletes anything from it, because it cannot tell its own leftovers from your files. If files removed from your app must disappear from the layout, use the default or point this at a fresh path. If the directory contains the build output, winapp warns and removes nothing, rather than deleting build artifacts the package does not include. The path may not be, or sit under, a symbolic link or junction, and neither may a plain build-output folder you point winapp at. When winapp stages the folder itself — a build-output folder with no `.build.appxrecipe` in it — a symbolic link or junction *inside* that folder fails the run, whether the layout is the default one or one you name: winapp will not copy through a link, and a layout quietly missing whatever was behind it would register and run with those files absent. Replace the link with the real file or directory. Building a project is not affected: its build recipe names each file to stage, so sources that legitimately live outside the project keep working.
 - `--args <string>` - Command-line arguments to pass to the application. Alternatively, use `--` followed by arguments to avoid escaping (e.g., `winapp run . -- --flag value`).
 - `--no-launch` - Only create the debug identity and register the package without launching the application
 - `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Requires a `uap5:ExecutionAlias` in the manifest (use `winapp manifest add-alias` to add one). Cannot be combined with `--no-launch`. Cannot be combined with `--json`.
 - `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`.
 - `--symbols` - Download PDB symbols from Microsoft Symbol Server for richer native crash analysis with resolved function names. Only used with `--debug-output`. If omitted and a native crash occurs, the output will suggest adding this flag. This flag also improves the WinUI stowed-exception triage stack for WinUI 3 apps. First run downloads symbols and caches them locally; subsequent runs use the cache.
 - `--unregister-on-exit` - Unregister the development package after the application exits. Only removes packages registered in development mode. Cannot be combined with `--no-launch`.
-- `--detach` - Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Prints the PID to stdout (or in JSON with `--json`). Cannot be combined with `--no-launch`, `--debug-output`, `--with-alias`, or `--unregister-on-exit`.
+- `--detach` - Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope. Cannot be combined with `--no-launch`, `--debug-output`, `--with-alias`, or `--unregister-on-exit`.
 - `--clean` - Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments.
 - `--json` - Format output as JSON for programmatic consumption (e.g. CI/automation). Useful with `--detach` to capture the PID. Cannot be combined with `--with-alias` or `--debug-output`.
+- `--on <target>` - Run the app on the named execution target instead of on this machine. Omit it and the app runs here, as it always has. The only target today is `sandbox`, the Windows Sandbox winapp manages: the app is still built on the host, while registration, launch, and debugging happen in the Sandbox, which stays running afterwards so a rerun transfers only what changed. Nothing is registered and no runtime is installed on your machine. Every option above keeps its meaning, because the target runs the same `winapp run`. There is no fallback to local execution: if the target cannot be prepared, the command fails. One limit applies to `--detach`: an unpackaged app launched this way runs only for the lifetime of the current guest agent, so it stops if the Sandbox closes or if winapp automatically repairs the agent — rerun the command to bring it back. See [Detached apps and the agent's lifetime](sandbox-execution.md#detached-apps-and-the-agents-lifetime) and [Windows Sandbox execution](sandbox-execution.md).
 
 **Application data persistence:**
 
@@ -898,7 +899,8 @@ winapp unregister [options]
 **Options:**
 
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from current directory)
-- `--force` - Skip the install-location directory check and unregister even if the package was registered from a different project tree
+- `--force` - For local unregister only, skip the install-location directory check and unregister even if the package was registered from a different project tree. It is rejected with `--on`; target ownership checks cannot be bypassed.
+- `--on <target>` - Unregister the package on the named execution target instead of on this machine. Windows' current registration selects the matching winapp-managed deployment, so stale ownership records left by deploying the same identity from another layout do not make the command ambiguous. The target must independently confirm the registration is a development package rooted in a current-generation managed folder, removes only its exact package full name, and clears ownership records only after Windows confirms it is gone. A package installed on the target by anything other than winapp is never touched. See [Windows Sandbox execution](sandbox-execution.md).
 - `--json` - Format output as JSON
 
 **What it does:**
@@ -1228,6 +1230,178 @@ winapp get-winapp-path [options]
 
 ---
 
+### target
+
+Run commands, copy files, and see what is happening on an execution target. These are escape hatches: reach for them when you need to prepare a dependency, inspect state, or diagnose something `winapp run --on <target>` cannot resolve on its own.
+
+Every verb takes the target as its first argument. `sandbox` is the only target these verbs accept today; see [Windows Sandbox execution](sandbox-execution.md) for what it is and how it is prepared.
+
+They all start, reuse, or take over the one Sandbox Windows allows, installing the Sandbox prerequisites first if the machine needs them. None ever stops a Sandbox — ending one stays with the Windows Sandbox CLI (`wsb`).
+
+> [!NOTE]
+> `--on`, `winapp target`, and Windows Sandbox execution are in development and are not available
+> in a released build yet.
+
+#### target exec
+
+Run a command on the target, as its interactive user.
+
+```bash
+winapp target exec <target> [--cwd <path>] [--json] -- <executable> [arguments...]
+```
+
+Everything after `--` is passed through as a structured argument array, so quoting, spacing, and non-ASCII text survive exactly, and nothing can be reinterpreted as an extra argument.
+
+```bash
+winapp target exec sandbox -- dotnet --info
+winapp target exec sandbox --cwd C:\WinApp\work -- powershell -ExecutionPolicy Bypass -File .\test.ps1
+```
+
+**Behavior:**
+
+- Streams stdin, stdout, and stderr.
+- Returns the target process's exit code. Infrastructure failures use a distinct exit code (`70`), so "winapp could not run your command" is always distinguishable from "your command failed".
+- `--json` changes only how a winapp failure is reported: as a structured envelope on stderr. The command's own stdout is always relayed byte-for-byte, because it is the command's output and not winapp's.
+- Forwards your Cooperative UI Turns owner context, so a script run this way can invoke the target's `winapp ui` commands without losing its workflow ownership.
+- Does **not** provide a full terminal or ConPTY. Interactive console applications may observe redirected pipes.
+- Arguments, paths, environment, and stream contents are excluded from telemetry entirely.
+
+#### target push and target pull
+
+Copy files or directories between this machine and the target. The verb is the direction, so neither path carries a marker and neither side can be mistaken for the other.
+
+```bash
+winapp target push <target> <host-source> <target-destination> [--json]
+winapp target pull <target> <target-source> <host-destination> [--json]
+```
+
+**Target paths are relative to `C:\WinApp\work`**, the folder winapp manages inside the Sandbox. That is what makes containment provable: a path you pass can only ever resolve inside a root the target owns. A drive-absolute, rooted, or UNC target path is refused with a message naming the work root, rather than silently re-rooted — silently accepting `C:\Setup\setup.ps1` as a target path would place the file somewhere you never named while reporting success.
+
+```bash
+winapp target push sandbox .\setup.ps1 Setup\setup.ps1
+winapp target push sandbox .\build build
+winapp target pull sandbox Results .\results
+```
+
+Each push reports where the file actually landed, which is the path to use next:
+
+```bash
+winapp target push sandbox .\setup.ps1 Setup\setup.ps1
+# Copied 1 file(s), skipped 0 unchanged, to C:\WinApp\work\Setup\setup.ps1 on sandbox.
+
+winapp target exec sandbox --cwd C:\WinApp\work\Setup -- powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+`-ExecutionPolicy Bypass` is part of the sequence, not an optional extra: a fresh Sandbox starts with the execution policy at `Restricted`, so a script you just copied in is refused with `UnauthorizedAccess` until you pass it.
+
+**Behavior:**
+
+- A single file lands at exactly the destination you name — `Setup\setup.ps1` is that file, not a folder to put it in.
+- A directory preserves its structure beneath the destination.
+- Copies files and directories, preserving structure and useful timestamps.
+- Skips files whose content already matches, compared by hash rather than timestamp.
+- Replaces changed files atomically, after verifying size and hash. An interrupted copy never publishes a partial file over one that was correct.
+- Does not expose arbitrary mapped host folders to target applications.
+
+#### target snapshot
+
+Report what the target looks like right now, in one command.
+
+```bash
+winapp target snapshot <target> [--json]
+```
+
+Answers the question worth asking before deciding what to do next: is the target up, can it take input, what did winapp deploy there, and what is on its desktop.
+
+```bash
+winapp target snapshot sandbox
+# sandbox: running, epoch 3f2a...
+#   Architecture: x64
+#   Guest support: real input yes, screen capture yes, interactive desktop yes
+#   Desktop: HWND 984156 (WindowsSandboxRemoteSession, PID 24160), minimized
+#   Effective readiness: real input no, screen capture no
+#   Deployments: 1
+#     Contoso.App_1.0.0.0_x64__8wekyb3d8bbwe (registered, package-launcher running, PID 6200)
+#   Windows: 7
+#     HWND 197326 Contoso.App (PID 5104) 1280x720 [foreground] "Contoso"
+```
+
+When nothing is running, that is the answer, not a failure:
+
+```bash
+winapp target snapshot sandbox
+# sandbox: not running
+#   Start one with: winapp run . --on sandbox
+```
+
+**Behavior:**
+
+- Inspects and nothing more. It never starts a target, never connects or reconnects one, and never repairs an agent that is not answering — so asking whether a target is running can never be what makes one exist. Use `winapp run . --on <target>` to start one.
+- Exits 0 whether or not a target is running. "Nothing is running" is a fact about the target, not an error in the command.
+- Writes only to stdout. It creates no files and embeds no image data.
+- Lists at most 50 top-level guest windows, foreground first then largest, and always reports the true total so a truncated list is never mistaken for the whole desktop.
+- Reports the host window the guest desktop is drawn into, which is what `target screenshot` and `target record` capture. A target that renders nowhere on this machine says so and the rest of the report still arrives.
+- Reports guest capability separately from effective host-client readiness. A minimized client does not erase what the guest supports, but effective real input and capture are `false` until winapp can restore that exact client without activation.
+- If the guest cannot report its windows, the readiness, capability, and deployment facts that explain why are still reported rather than the whole command failing. Under `--json` this is `attached: false` with `capabilities` omitted.
+- Deployments are filtered to the current epoch, because a record from a previous Sandbox describes files and a registration that no longer exist.
+- A deployment PID is reported only as `trackedOperationProcessId`, after its PID and start time are revalidated in the guest. For packaged runs it is explicitly a `package-launcher`, not the application UI PID; use the `windows` list for the actual UI process. Exited or reused PIDs are omitted, and clean files left after unregister are labeled `retained layout` rather than registered or running.
+
+`target screenshot` and `target record` are the other way round: they need a target to capture, so they prepare one the way every other `target` verb does.
+
+#### target screenshot
+
+Capture the target's entire desktop as a PNG on this machine.
+
+```bash
+winapp target screenshot <target> -o <host-path> [--json]
+```
+
+```bash
+winapp target screenshot sandbox -o .\sandbox.png
+# Screenshot saved: C:\work\sandbox.png (2738x1146)
+```
+
+The difference from `winapp ui screenshot --on <target>` is *what* is captured, not where the file lands: that routes into the guest and captures one application's window, while this captures the guest desktop as it is being drawn — the shell, dialogs owned by no app winapp deployed, and anything on screen before it could be named. That is the picture worth having when a command failed and nobody knows why.
+
+**Behavior:**
+
+- Needs no application, window, or element selector. There is nothing to name and nothing to get wrong.
+- Writes the PNG to a path on **this machine**, not on the target.
+- A warm capture of an already parked client activates nothing and takes no focus. A cold connection or reconnect can briefly foreground the Sandbox because Windows may paint it before exact ownership is observable; winapp parks it and restores the previous foreground at the earliest safe point. If the exact winapp-owned client is minimized, winapp restores and parks it with no activation, verifies that its identity did not change and your foreground window stayed foreground, then captures it. A minimized adopted/manual client is left untouched and must be restored or reconnected manually. If any proof fails, the command fails without publishing a thumbnail.
+- Never truncates the destination. The PNG is published by rename, so an existing screenshot at that path survives a failed or interrupted capture intact.
+- `--json` reports the absolute host path, the pixel dimensions, and the target and epoch the image came from.
+
+#### target record
+
+Record the target's entire desktop to an H.264 MP4 on this machine.
+
+```bash
+winapp target record <target> -o <host-path> [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--json]
+```
+
+```bash
+winapp target record sandbox -o .\sandbox.mp4 --duration-sec 20 --fps 15
+```
+
+Same capture as `target screenshot`, over time. Options, cadence, frame artifacts, partial-output handling, and JSON shape are those of [`ui record`](#ui-record) — this verb only changes what is recorded, from one named application to the whole guest desktop.
+
+**Behavior:**
+
+- Prefer `--duration-sec`. Without it the recording runs until Ctrl+C or a newline on redirected stdin, which is not something an unattended script or an agent can rely on. The npm wrapper requires it, because a spawned process has no Ctrl+C to press.
+- Options are checked before the target is touched. A bad `--duration-sec`, `--fps`, `--max-edge`, `--frames`, or `--output` fails immediately with `target_invalid_arguments`, so a request that could never have recorded never starts a Sandbox to find that out.
+- Records from this machine, reading the window the target's desktop is drawn into. The target's connection is resolved before the take starts and released immediately, so a recording that runs for hours does not hold the target's single guest connection for hours — other `winapp` commands keep working throughout.
+- After connection is ready, the take activates nothing, exactly like `target screenshot`. Cold connection or reconnect has the same brief-foreground platform ceiling described above. A minimized winapp-owned client is restored and parked without activation before recording starts, with the same identity and foreground-preservation checks; a minimized adopted/manual client is left untouched and the command fails. The window is never foregrounded or brought forward later to rescue a frame.
+- If the window stops being capturable where it stands mid-take, the recording ends there, publishes what it captured, and reports `"stopReason": "capture_unavailable"` — the alternative is minutes of black video reported as a success. A window that frame capture only ever returns black for counts as not capturable, and a take that never captured anything else fails without publishing a file.
+- If the target's desktop window closes mid-take, the recording ends there and publishes what it captured.
+- An interrupted recording still publishes what it captured, exactly as `ui record` does.
+- `--frames` writes the same timestamped JPEGs, `frames.ndjson`, and `manifest.json` sidecar next to the MP4.
+
+**When the desktop cannot be captured:** all three verbs report the reason rather than guessing. If the Sandbox has no connected client, they fail with `sandbox_no_interactive_session`. If more than one remote-session window is running and none of them is provably the one winapp manages, they fail with `sandbox_target_ambiguous` and name the candidate process IDs — parking, capturing, or recording a window that might belong to someone else's Sandbox is worse than stopping.
+
+**How winapp knows which window is its own:** the client is started as a child process of the `wsb connect` winapp launched, so winapp matches on that parentage rather than on which window appeared first. A second `wsb connect` running at the same instant therefore never has its window parked or recorded as winapp's. Parentage is checked together with start time, because Windows never revises a process's recorded parent ID and eventually reuses the ID itself — a client that already existed before winapp's launcher started cannot be its child, whatever it reports. When Windows will not report the parentage or the start times, winapp claims nothing and leaves the client where it is; capture still works if exactly one client window is open, which winapp adopts and reads without moving it.
+
+---
+
 ### find-ui
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
@@ -1523,6 +1697,7 @@ winapp ui [command] [options]
 **Options:**
 - `-a, --app <app>` - Target app (name, title, or PID)
 - `-w, --window <hwnd>` - Target window by HWND (stable)
+- `--on <target>` - Run the command on the named execution target instead of on this desktop. Accepted by every `ui` verb; omit it and the command runs here. The whole command is forwarded to the target's own winapp: the host performs no UI Automation, window discovery, capture, or input injection, so warm operations do not steal your focus or type into your windows. A cold Sandbox connection or reconnect can briefly foreground its client before winapp can prove ownership; winapp parks it and restores the previous foreground at the earliest safe point. A `-o/--output` file is copied back to the path you asked for and verified before it is published, and the result reports your path rather than the target's. An `--app` name, PID, or `--window` handle is always interpreted on the selected target, so a PID from a `--on sandbox` run needs `--on sandbox` again to be found. See [Windows Sandbox execution](sandbox-execution.md).
 
 #### ui record
 

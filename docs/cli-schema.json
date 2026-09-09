@@ -36,6 +36,18 @@
       "required": false,
       "recursive": true
     },
+    "--on": {
+      "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+      "hidden": false,
+      "valueType": "System.String",
+      "hasDefaultValue": false,
+      "arity": {
+        "minimum": 1,
+        "maximum": 1
+      },
+      "required": false,
+      "recursive": true
+    },
     "--version": {
       "description": "Show version information",
       "hidden": false,
@@ -1957,7 +1969,7 @@
           "recursive": false
         },
         "--detach": {
-          "description": "Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Prints the PID to stdout (or in JSON with --json).",
+          "description": "Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,
@@ -2064,7 +2076,7 @@
           "recursive": false
         },
         "--output-appx-directory": {
-          "description": "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used.",
+          "description": "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory is used, and winapp keeps it matching the build — a file your app no longer contains is removed from it on the next run. A directory you name here is only ever added to: winapp never deletes anything from it, so point it at a fresh path when files removed from your app must disappear from the layout.",
           "hidden": false,
           "valueType": "System.IO.DirectoryInfo",
           "hasDefaultValue": false,
@@ -2279,6 +2291,544 @@
     "store": {
       "description": "Run a Microsoft Store Developer CLI command. This command will download the Microsoft Store Developer CLI if not already downloaded. Learn more about the Microsoft Store Developer CLI here: https://aka.ms/msstoredevcli",
       "hidden": false
+    },
+    "target": {
+      "description": "Run commands and copy files on an execution target such as the Windows Sandbox winapp manages. Use these to prepare dependencies or diagnose an application that 'winapp run --on <target>' cannot resolve on its own.",
+      "hidden": false,
+      "subcommands": {
+        "exec": {
+          "description": "Run a command on an execution target, as that target's interactive user. Streams stdin, stdout, and stderr, and returns the command's own exit code. Does not provide a full terminal, so interactive console applications may see redirected pipes.",
+          "hidden": false,
+          "arguments": {
+            "target": {
+              "description": "Execution target to act on. Currently: 'sandbox'.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "command": {
+              "description": "Executable and arguments to run on the target, after '--'.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1
+              }
+            }
+          },
+          "options": {
+            "--cwd": {
+              "description": "Working directory on the target.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "pull": {
+          "description": "Copy files or directories from an execution target to this machine. Directory structure and useful timestamps are preserved, unchanged files are skipped, and changed files are replaced atomically.",
+          "hidden": false,
+          "arguments": {
+            "target": {
+              "description": "Execution target to act on. Currently: 'sandbox'.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "source": {
+              "description": "File or directory on the target to copy, relative to its managed work area.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "destination": {
+              "description": "Destination path on this machine.",
+              "order": 2,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "push": {
+          "description": "Copy files or directories from this machine to an execution target. Directory structure and useful timestamps are preserved, unchanged files are skipped, and changed files are replaced atomically.",
+          "hidden": false,
+          "arguments": {
+            "target": {
+              "description": "Execution target to act on. Currently: 'sandbox'.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "source": {
+              "description": "File or directory on this machine to copy.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "destination": {
+              "description": "Destination path on the target, relative to its managed work area.",
+              "order": 2,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "record": {
+          "description": "Record an execution target's entire desktop to an H.264 MP4 on this machine. Records the whole rendered guest desktop, so no application or window has to be named. Prefer --duration-sec: without it the recording runs until Ctrl+C or a newline on redirected stdin.",
+          "hidden": false,
+          "arguments": {
+            "target": {
+              "description": "Execution target to act on. Currently: 'sandbox'.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--duration-sec": {
+              "description": "Recording duration in seconds. 0 records until Ctrl+C or redirected-stdin newline/EOF.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 0,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--fps": {
+              "description": "Frames per second to capture",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 15,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--frames": {
+              "description": "Write timestamped JPEGs, frames.ndjson, and manifest.json to <output-name>.frames. Supports 1-30 fps and max-edge 64-4096 (default 1280), with a 1 GiB frame-data cap.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-edge": {
+              "description": "Downscale so the longest edge is at most this many pixels (0 = no downscale)",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 0,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "Save output to this file path.",
+              "hidden": false,
+              "aliases": [
+                "-o"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "screenshot": {
+          "description": "Capture an execution target's entire desktop as a PNG on this machine. Captures the whole rendered guest desktop, so no application or window has to be named.",
+          "hidden": false,
+          "arguments": {
+            "target": {
+              "description": "Execution target to act on. Currently: 'sandbox'.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "Save output to this file path.",
+              "hidden": false,
+              "aliases": [
+                "-o"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "snapshot": {
+          "description": "Report an execution target's readiness, capabilities, deployments, and top-level guest windows. Inspects only: never starts, connects, or repairs a target, and reports plainly when none is running. Writes only to stdout: no screenshots and no files.",
+          "hidden": false,
+          "arguments": {
+            "target": {
+              "description": "Execution target to act on. Currently: 'sandbox'.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        }
+      }
     },
     "tool": {
       "description": "Run Windows SDK tools directly (makeappx, signtool, makepri, etc.). Auto-downloads Build Tools if needed. For most tasks, prefer higher-level commands like 'package' or 'sign'. Example: winapp tool makeappx pack /d ./folder /p ./out.msix",

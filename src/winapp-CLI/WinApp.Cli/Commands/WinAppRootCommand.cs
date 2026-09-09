@@ -82,7 +82,11 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         CreateExternalCatalogCommand createExternalCatalogCommand,
         CompleteCommand completeCommand,
         FindUiCommand findUiCommand,
-        UiCommand uiCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
+        UiCommand uiCommand,
+        GuestAgentCommand guestAgentCommand,
+        GuestRuntimeCommand guestRuntimeCommand,
+        GuestLaunchCommand guestLaunchCommand,
+        TargetCommand targetCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(newCommand);
@@ -104,10 +108,15 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(findUiCommand);
         Subcommands.Add(uiCommand);
         Subcommands.Add(completeCommand);
+        Subcommands.Add(guestAgentCommand);
+        Subcommands.Add(guestRuntimeCommand);
+        Subcommands.Add(guestLaunchCommand);
+        Subcommands.Add(targetCommand);
 
         Options.Add(CliSchemaOption);
         Options.Add(CallerOption);
         Options.Add(ProjectFrameworkOption);
+        Options.Add(ExecutionTargetSelection.OnOption);
 
         // Reject unknown options/arguments so typos and removed flags fail loudly
         TreatUnmatchedTokensAsErrors = true;
@@ -117,7 +126,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         helpOption.Action = new CustomHelpAction(this, ansiConsole,
             ("Setup", [typeof(InitCommand), typeof(NewCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
             ("Packaging & Signing", [typeof(PackageCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(CertCommand), typeof(ManifestCommand), typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand)]),
-            ("Development Tools", [typeof(CreateDebugIdentityCommand), typeof(MSStoreCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(RunCommand), typeof(UnregisterCommand)]),
+            ("Development Tools", [typeof(CreateDebugIdentityCommand), typeof(MSStoreCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(RunCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
             ("Discovery", [typeof(FindUiCommand)]),
             ("UI Automation", [typeof(UiCommand)])
         );

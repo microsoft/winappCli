@@ -188,6 +188,53 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
         return packages.FirstOrDefault()?.Id.FullName;
     }
 
+    /// <inheritdoc />
+    public RegisteredPackage? GetRegisteredPackageOrThrow(string packageFamilyName) =>
+        FindRegisteredPackageImpl(packageFamilyName);
+
+    /// <summary>
+    /// Package-manager lookup seam for the full-name-plus-install-location query. Defaults to the
+    /// real <see cref="PackageManager"/> query; overridable in tests to exercise the not-found,
+    /// error, and mismatched-location fallbacks.
+    /// </summary>
+    internal Func<string, RegisteredPackage?> FindRegisteredPackageImpl { get; set; } = DefaultFindRegisteredPackage;
+
+    [SupportedOSPlatform("windows10.0.19041.0")]
+    private static RegisteredPackage? DefaultFindRegisteredPackage(string packageFamilyName)
+    {
+        var pm = new PackageManager();
+
+        // FindPackagesForUser(userSecurityId, familyName), not the parameterless-user
+        // FindPackages(familyName): the latter enumerates every user's packages and requires
+        // administrative rights, which a stop-before-mutate check run as an ordinary user must not
+        // depend on -- it would otherwise throw UnauthorizedAccessException for every caller
+        // without elevation, which the strict, non-swallowing contract here would then report as a
+        // genuine query failure on every single redeploy. Scoping to the current user with an
+        // empty security ID matches the pattern PackageRegistrationService already uses for the
+        // same reason.
+        var package = pm.FindPackagesForUser(string.Empty, packageFamilyName).FirstOrDefault();
+
+        if (package is null)
+        {
+            return null;
+        }
+
+        // Package.InstalledPath, not Package.InstalledLocation.Path: the latter binds a live
+        // StorageFolder and throws once the folder underneath it is gone -- which a package stays
+        // registered through (an interrupted `--clean` deletes the layout's files, not the
+        // registration). InstalledPath returns the path exactly as the package manager recorded it,
+        // with no requirement that anything still exists there, which is what lets a caller repair
+        // that damage instead of every retry failing before it can even prove what it is looking at.
+        var installedPath = package.InstalledPath;
+
+        return new RegisteredPackage(
+            package.Id.FullName,
+            package.Id.Name,
+            package.Id.Publisher,
+            string.IsNullOrWhiteSpace(installedPath) ? null : installedPath,
+            package.IsDevelopmentMode);
+    }
+
     /// <summary>
     /// Computes the publisher ID from the publisher DN.
     /// The publisher ID is a 13-character Crockford Base32 encoding
@@ -296,6 +343,15 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
     {
         using var process = Process.GetProcessById(unchecked((int)processId));
         process.Kill(entireProcessTree: true);
+    }
+
+    /// <inheritdoc />
+    [SupportedOSPlatform("windows8.0")]
+    public void StopPackageProcessesOrThrow(string packageFullName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageFullName);
+
+        TerminateAllProcessesImpl(packageFullName);
     }
 
     /// <summary>

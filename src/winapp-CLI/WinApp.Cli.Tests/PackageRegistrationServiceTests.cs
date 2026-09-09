@@ -384,7 +384,7 @@ public class PackageRegistrationServiceTests
     {
         var (svc, logger) = NewService();
         Uri? capturedUri = null;
-        svc.AddPackageImpl = (uri, _) =>
+        svc.AddPackageImpl = (uri, _, _) =>
         {
             capturedUri = uri;
             return Task.FromResult(new PackageRegistrationService.InstallOutcome(null, null));
@@ -397,10 +397,28 @@ public class PackageRegistrationServiceTests
     }
 
     [TestMethod]
+    public async Task InstallPackageAsync_WithoutForcedShutdown_PreservesThatPolicyAtTheOsBoundary()
+    {
+        var (svc, _) = NewService();
+        bool? capturedForceShutdown = null;
+        svc.AddPackageImpl = (_, forceApplicationShutdown, _) =>
+        {
+            capturedForceShutdown = forceApplicationShutdown;
+            return Task.FromResult(new PackageRegistrationService.InstallOutcome(null, null));
+        };
+
+        await svc.InstallPackageAsync(
+            TestPaths.Under(Path.GetTempPath(), "winapp-pkg", "runtime.msix"),
+            forceApplicationShutdown: false);
+
+        Assert.IsFalse(capturedForceShutdown);
+    }
+
+    [TestMethod]
     public async Task InstallPackageAsync_Error_ThrowsWithHResult()
     {
         var (svc, _) = NewService();
-        svc.AddPackageImpl = (_, _) => Task.FromResult(
+        svc.AddPackageImpl = (_, _, _) => Task.FromResult(
             new PackageRegistrationService.InstallOutcome("install failed", unchecked((int)0x80073CFB)));
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(

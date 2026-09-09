@@ -8,17 +8,20 @@ using System.CommandLine.Invocation;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
-internal class UnregisterCommand : Command, IShortDescription
+internal partial class UnregisterCommand : Command, IShortDescription, ITargetAwareCommand
 {
     public string ShortDescription => "Unregister a sideloaded development package.";
 
     public static Option<FileInfo> ManifestOption { get; }
     public static Option<bool> ForceOption { get; }
+
 
     static UnregisterCommand()
     {
@@ -32,6 +35,7 @@ internal class UnregisterCommand : Command, IShortDescription
         {
             Description = "Skip the install-location directory check and unregister even if the package was registered from a different project tree"
         };
+
     }
 
     public UnregisterCommand() : base("unregister", "Unregisters a sideloaded development package. Only removes packages registered in development mode (e.g., via 'winapp run' or 'create-debug-identity').")
@@ -41,9 +45,12 @@ internal class UnregisterCommand : Command, IShortDescription
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
-    public class Handler(
+    public partial class Handler(
         IPackageRegistrationService packageRegistrationService,
+        IAppLauncherService appLauncherService,
         ICurrentDirectoryProvider currentDirectoryProvider,
+        ExecutionTargetOrchestrator orchestrator,
+        GuestApplicationRunner guestApplicationRunner,
         IAnsiConsole ansiConsole,
         ILogger<UnregisterCommand> logger) : AsynchronousCommandLineAction
     {
@@ -51,6 +58,7 @@ internal class UnregisterCommand : Command, IShortDescription
         {
             var manifest = parseResult.GetValue(ManifestOption);
             var force = parseResult.GetValue(ForceOption);
+            var target = ExecutionTargetSelection.Resolve(parseResult);
             var isJson = parseResult.GetValue(WinAppRootCommand.JsonOption);
 
             // Resolve manifest
@@ -81,6 +89,27 @@ internal class UnregisterCommand : Command, IShortDescription
             var manifestContent = await File.ReadAllTextAsync(resolvedManifest.FullName, Encoding.UTF8, cancellationToken);
             var identity = MsixService.ParseAppxManifestAsync(manifestContent);
             var packageName = identity.PackageName;
+
+            // A selected target never touches this machine's registrations, and this machine's
+            // state never decides what happens on that target.
+            if (!target.IsLocal)
+            {
+                if (force)
+                {
+                    return TargetOutput.RejectOptions(
+                        ansiConsole,
+                        isJson,
+                        new ExecutionTargetErrorInfo
+                        {
+                            Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
+                            Message =
+                                "'--force' is not supported with '--on'. Target packages are removed only when winapp can prove ownership.",
+                            UserAction = "Retry without '--force'.",
+                        });
+                }
+
+                return await UnregisterOnTargetAsync(identity, isJson, cancellationToken);
+            }
 
             // Search for both the exact name and the .debug variant
             var namesToCheck = new[] { packageName, $"{packageName}.debug" };
@@ -154,7 +183,12 @@ internal class UnregisterCommand : Command, IShortDescription
             };
 
             var json = JsonSerializer.Serialize(result, UnregisterJsonContext.Default.UnregisterResult);
-            ansiConsole.WriteLine(json);
+
+            // Written straight to the underlying stdout writer rather than through Spectre's
+            // word-wrapping layer, which injects CR/LF *inside* JSON string values once a message
+            // exceeds the console width and produces a document strict parsers reject. Matches how
+            // run/cert/ui emit their machine-readable output.
+            ansiConsole.Profile.Out.Writer.WriteLine(json);
         }
     }
 }

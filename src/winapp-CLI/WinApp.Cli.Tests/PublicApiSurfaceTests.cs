@@ -24,6 +24,7 @@ public class PublicApiSurfaceTests
     [
         "AppNotFoundException",
         "CaptureGeometry",
+        "CapturedFrame",
         "CoordinateParser",
         "ForegroundCheck",
         "ForegroundGuard",

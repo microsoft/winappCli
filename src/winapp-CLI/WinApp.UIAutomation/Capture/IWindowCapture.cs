@@ -60,6 +60,24 @@ public interface IWindowCapture
     byte[] CaptureWindowPixels(nint hwnd, int width, int height);
 
     /// <summary>
+    /// Captures a window's current pixels (BGRA) without ever activating, restoring, or foregrounding
+    /// it, returning <see langword="null"/> when that could not be done.
+    /// </summary>
+    /// <remarks>
+    /// The difference from <see cref="CaptureWindowPixels"/> is the promise, not the pipeline: that
+    /// one recovers from a blank frame by bringing the window to the front, which is exactly the
+    /// behavior a caller who advertised "this takes no focus" must not have. Here a blank frame is
+    /// reported as a failure to capture, so the caller can say so instead of silently yanking a
+    /// window onto the user's screen.
+    /// <para>
+    /// Returns the frame's own dimensions, which need not match the window rectangle: a frame-capture
+    /// backend reports the size of the surface it actually captured.
+    /// </para>
+    /// </remarks>
+    Task<(byte[] Pixels, int Width, int Height)?> TryCaptureWindowWithoutActivationAsync(
+        nint hwnd, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Captures a screen region (BGRA), scaling it to fit
     /// <paramref name="displayWidth"/>×<paramref name="displayHeight"/> and centering it within an
     /// <paramref name="encoderWidth"/>×<paramref name="encoderHeight"/> surface. The surface size is

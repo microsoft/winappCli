@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Text;
 
@@ -124,6 +125,100 @@ internal static class WindowsCommandLine
         }
 
         return (postDash, invalid);
+    }
+
+    /// <summary>
+    /// Finds tokens that look like options but were bound to a positional argument before
+    /// <c>--</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// System.CommandLine does not reject an unrecognised option when a nearby positional argument
+    /// can absorb it. That is a real hazard rather than a cosmetic one: <c>winapp ui inspect
+    /// --onn=sandbox -a MyApp</c> parses cleanly, with <c>--onn=sandbox</c> quietly becoming the
+    /// element selector, and the command then runs on this desktop and exits zero. The user asked
+    /// for a different machine and was told everything worked.
+    /// </para>
+    /// <para>
+    /// So any token that starts with a dash and reaches a positional before <c>--</c> is rejected.
+    /// Tokens after <c>--</c> are exempt, which is also the escape hatch for the rare legitimate
+    /// value that begins with a dash. Negative numbers are exempt because they are ordinary values
+    /// for verbs such as <c>ui set-value</c> on a slider.
+    /// </para>
+    /// </remarks>
+    /// <param name="parseResult">The parsed command line.</param>
+    /// <returns>The offending token values, in the order they appeared. Empty when there are none.</returns>
+    public static IReadOnlyList<string> FindOptionLikePositionals(ParseResult parseResult)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+
+        // Matched by value and count rather than by token identity, for the same reason
+        // SplitPassthroughTokens does: the same literal can appear on both sides of '--', and only
+        // the occurrences that are not accounted for after the separator came from before it.
+        var budget = new Dictionary<string, int>(StringComparer.Ordinal);
+        var seenDoubleDash = false;
+        foreach (var token in parseResult.Tokens)
+        {
+            if (!seenDoubleDash)
+            {
+                seenDoubleDash = token.Type == TokenType.DoubleDash;
+                continue;
+            }
+
+            budget[token.Value] = budget.GetValueOrDefault(token.Value) + 1;
+        }
+
+        var invalid = new List<string>();
+
+        // Walked from the invoked command outward, because a positional can belong to the command
+        // itself or to any ancestor that declared one.
+        for (CommandResult? command = parseResult.CommandResult;
+             command is not null;
+             command = command.Parent as CommandResult)
+        {
+            foreach (var argument in command.Children.OfType<ArgumentResult>())
+            {
+                foreach (var token in argument.Tokens)
+                {
+                    if (!LooksLikeOption(token.Value))
+                    {
+                        continue;
+                    }
+
+                    if (budget.TryGetValue(token.Value, out var remaining) && remaining > 0)
+                    {
+                        budget[token.Value] = remaining - 1;
+                        continue;
+                    }
+
+                    invalid.Add(token.Value);
+                }
+            }
+        }
+
+        return invalid;
+    }
+
+    /// <summary>Whether a positional value would be read as an option had it been recognised.</summary>
+    private static bool LooksLikeOption(string value)
+    {
+        if (value.Length < 2 || value[0] != '-')
+        {
+            return false;
+        }
+
+        // '--' is the separator itself, never a value that was mistaken for an option.
+        if (value == "--")
+        {
+            return false;
+        }
+
+        // '-5', '-1.5': a value, not a misspelt option.
+        return !double.TryParse(
+            value.AsSpan(1),
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out _);
     }
 
     /// <summary>
