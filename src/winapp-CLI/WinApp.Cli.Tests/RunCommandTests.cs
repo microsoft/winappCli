@@ -1744,6 +1744,27 @@ public class RunCommandTests : BaseCommandTests
 
     [TestMethod]
     [DoNotParallelize]
+    public async Task RunCommand_UnregisterOnExit_WindowsRefusesRemoval_DoesNotClaimSuccess()
+    {
+        // Windows reports a refused removal as error text rather than an exception, so the bool return is
+        // the only signal. Logging success regardless contradicts the service's own warning under
+        // --verbose and tells the user a registration is gone when it is still there.
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
+        _fakePackageRegistrationService.FakeUnregisterByFullNameResult = false;
+        await CreateTestManifestAsync();
+        var command = GetRequiredService<RunCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Removal is still attempted");
+        var output = System.Text.RegularExpressions.Regex.Replace(
+            $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        StringAssert.Contains(output, "still registered", "A refused removal has to be reported");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     public async Task RunCommand_UnregisterOnExit_FullNameUnavailable_RemovesNothingAndSaysSo()
     {
         // With no full name there is nothing that identifies the package this run registered, and the

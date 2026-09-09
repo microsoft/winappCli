@@ -965,8 +965,19 @@ internal partial class RunCommand : Command, IShortDescription
 
             try
             {
-                await packageRegistrationService.UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cleanupCts.Token);
-                logger.LogDebug("Unregistered package {FullName} on exit.", packageFullName);
+                // Windows reports a refused removal as error text rather than an exception, so the return
+                // value is the only signal. Logging success regardless would contradict the service's own
+                // warning under --verbose and tell the user a registration is gone when it is still there.
+                if (await packageRegistrationService.UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cleanupCts.Token))
+                {
+                    logger.LogDebug("Unregistered package {FullName} on exit.", packageFullName);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "{UISymbol} Could not remove '{FullName}' on exit, so it is still registered. Remove it with 'winapp unregister'.",
+                        UiSymbols.Warning, packageFullName);
+                }
             }
             catch (Exception ex)
             {
