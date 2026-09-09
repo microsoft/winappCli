@@ -137,10 +137,10 @@ To test features that require identity (like Notifications) without fully packag
 
 2.  **Run with identity**:
     ```powershell
-    winapp run .\target\debug --with-alias
+    winapp run .\target\debug
     ```
 
-The `--with-alias` flag launches the app via its execution alias so console output stays in the current terminal. This requires the `uap5:ExecutionAlias` we added in step 4.
+A console app is launched via its execution alias automatically, so its output stays in the current terminal — winapp detects that from the built binary and uses the `uap5:ExecutionAlias` we added in step 4. Pass `--without-alias` to force AUMID activation instead, in which case the app prints nothing here.
 
 > [!NOTE]
 > `winapp run` also registers the package on your system. This is why the MSIX may appear as "already installed" when you try to install it later in step 6. Use `winapp unregister` to clean up development packages when done.

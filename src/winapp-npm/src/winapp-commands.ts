@@ -1463,7 +1463,7 @@ export interface UnregisterOptions extends CommonOptions {
   arch?: string;
   /** Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. */
   configuration?: string;
-  /** Skip the install-location directory check and unregister even if the package was registered from a different project tree. With --prune, also skips the confirmation prompt. */
+  /** Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt. */
   force?: boolean;
   /** Format output as JSON */
   json?: boolean;
