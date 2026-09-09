@@ -109,17 +109,17 @@ internal partial class RunCommand
             // Reject malformed -p values early so they never become a nonsensical MSBuild argument.
             foreach (var property in properties)
             {
-                // MSBuild splits a -p token on ';' into MULTIPLE properties, which would smuggle a
-                // dedicated-flag property (e.g. RuntimeIdentifier) past the name-only ForwardableProperties
-                // filter and override the arch winapp conveys via the RID. Reject packing; '%3B' escapes a
-                // literal ';' in a value.
-                if (property.Contains(';'))
+                // MSBuild splits a -p token on ';' or ',' into MULTIPLE properties. Keep winapp's repeatable
+                // -p contract unambiguous and reject packing before a malformed secret value can reach logs.
+                // Percent escapes preserve a literal separator inside one value.
+                var packedSeparator = property.IndexOfAny([';', ',']);
+                if (packedSeparator >= 0)
                 {
                     // Show the name only — the value may hold a secret.
-                    var name = property[..property.IndexOfAny(['=', ';'])];
+                    var name = property[..property.IndexOfAny(['=', ';', ','])];
                     return Fail(
-                        $"Invalid --property '{name}'. A single -p cannot pack multiple properties with ';'. " +
-                        "Pass one property per repeatable -p (for example: -p A=1 -p B=2), or escape a literal ';' in a value as '%3B'.",
+                        $"Invalid --property '{name}'. A single -p cannot pack multiple properties with ';' or ','. " +
+                        "Pass one property per repeatable -p (for example: -p A=1 -p B=2), or escape a literal separator in a value as '%3B' or '%2C'.",
                         isJson);
                 }
 

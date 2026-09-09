@@ -2540,7 +2540,7 @@
       },
       "options": {
         "--arch": {
-          "description": "Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Default: the current process architecture.",
+          "description": "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Default: the current process architecture.",
           "hidden": false,
           "valueType": "System.String",
           "hasDefaultValue": false,
@@ -2737,7 +2737,7 @@
           "recursive": false
         },
         "--property": {
-          "description": "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Ignored in folder mode.",
+          "description": "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode.",
           "hidden": false,
           "aliases": [
             "-p"
@@ -2767,7 +2767,7 @@
           "recursive": false
         },
         "--runtime": {
-          "description": "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, and rejects non-Windows RIDs (e.g. linux-x64); it overrides --arch. Ignored in folder mode.",
+          "description": "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode.",
           "hidden": false,
           "aliases": [
             "-r"
