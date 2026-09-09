@@ -45,6 +45,9 @@ DBG_EXCEPTION_NOT_HANDLED
 GetShortPathName
 GetForegroundWindow
 SetForegroundWindow
+IsIconic
+ShowWindow
+SHOW_WINDOW_CMD
 MiniDumpWriteDump
 MINIDUMP_TYPE
 MINIDUMP_EXCEPTION_INFORMATION
