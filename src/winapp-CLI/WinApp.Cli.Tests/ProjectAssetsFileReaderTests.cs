@@ -91,6 +91,9 @@ public class ProjectAssetsFileReaderTests
         Assert.AreEqual("net10.0", result!.Projects.Single().Frameworks.Single().Framework);
     }
 
+    private static readonly string[] ExpectedTopLevel = ["Newtonsoft.Json", "Microsoft.WindowsAppSDK"];
+    private static readonly string[] ExpectedTransitive = ["runtime.win-x64.Microsoft.DotNet.ILCompiler"];
+
     [TestMethod]
     public void Read_SplitsTopLevelFromTransitive_UsingTheProjectsOwnDependencies()
     {
@@ -98,11 +101,11 @@ public class ProjectAssetsFileReaderTests
 
         var framework = result!.Projects.Single().Frameworks.Single();
         CollectionAssert.AreEquivalent(
-            new[] { "Newtonsoft.Json", "Microsoft.WindowsAppSDK" },
+            ExpectedTopLevel,
             framework.TopLevelPackages.Select(p => p.Id).ToList(),
             "Only what the project references directly is top-level");
         CollectionAssert.AreEquivalent(
-            new[] { "runtime.win-x64.Microsoft.DotNet.ILCompiler" },
+            ExpectedTransitive,
             framework.TransitivePackages.Select(p => p.Id).ToList());
     }
 
