@@ -28,7 +28,11 @@ internal static partial class XmlDocParser
             using var reader = XmlReader.Create(xmlPath, new XmlReaderSettings
             {
                 IgnoreComments = true,
-                IgnoreWhitespace = true,
+                // Whitespace is content here: the only thing separating two adjacent
+                // references is a whitespace-only text node, and dropping it renders
+                // "Alpha Beta" as "AlphaBeta". Runs of it are collapsed after the
+                // markup has been flattened.
+                IgnoreWhitespace = false,
                 DtdProcessing = DtdProcessing.Ignore
             });
 

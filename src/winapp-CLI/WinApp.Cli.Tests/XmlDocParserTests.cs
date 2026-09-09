@@ -137,6 +137,18 @@ public class XmlDocParserTests
     }
 
     [TestMethod]
+    public void Summary_AdjacentReferences_KeepTheSpaceBetweenThem()
+    {
+        // The reader is configured to ignore whitespace, and the only thing separating
+        // two references is a whitespace-only text node.
+        string summary = ParseSummary(
+            "T:A.B",
+            """Compare <see cref="T:A.Alpha" /> <see cref="T:A.Beta" /> carefully.""");
+
+        Assert.AreEqual("Compare Alpha Beta carefully.", summary);
+    }
+
+    [TestMethod]
     public void Summary_MemberWithoutSummary_IsSkipped()
     {
         string path = Path.Combine(_tempDir.FullName, "NoSummary.xml");
