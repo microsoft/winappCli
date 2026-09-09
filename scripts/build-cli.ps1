@@ -117,6 +117,7 @@ try
     $CliSolutionPath = "$CliSolutionDir\winapp.sln"
     $CliProjectPath = "$CliSolutionDir\WinApp.Cli\WinApp.Cli.csproj"
     $CliTestsProjectPath = "$CliSolutionDir\WinApp.Cli.Tests\WinApp.Cli.Tests.csproj"
+    $AnalyzerTestsProjectPath = "$ProjectRoot\src\winapp-Analyzer\Microsoft.WindowsAppSDK.Analyzers.Tests\Microsoft.WindowsAppSDK.Analyzers.Tests.csproj"
     $UiAutomationTestsProjectPath = "$CliSolutionDir\WinApp.UIAutomation.Tests\WinApp.UIAutomation.Tests.csproj"
     # Build-time only, never shipped: regenerates the embedded find-ui corpus.
     $SnapshotBakerProjectPath = "$CliSolutionDir\WinApp.Cli.SnapshotBaker\WinApp.Cli.SnapshotBaker.csproj"
@@ -423,6 +424,24 @@ try
                 $TestExitCode = $LASTEXITCODE
             }
         }
+
+        # Run the WinUI analyzer test suite (separate solution folder, src\winapp-Analyzer). These
+        # xUnit tests validate the analyzer rules themselves; fold their result into $TestExitCode so a
+        # regression fails the build the same way the CLI suite does. See issue #634.
+        Write-Host "[TEST] Running WinUI analyzer tests..." -ForegroundColor Blue
+        dotnet test $AnalyzerTestsProjectPath -c Debug --results-directory $CliSolutionDir\TestResults
+        if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
+            $TestExitCode = $LASTEXITCODE
+        }
+
+        # Verify the analyzer package's MSBuild self-deactivation contract (the .targets
+        # stand-down when WindowsAppSDKProvidesWinUIAnalyzer=true). The xUnit suite runs
+        # Roslyn in-memory and can't cover MSBuild targets, so this guards it separately.
+        Write-Host "[TEST] Verifying WinUI analyzer stand-down contract..." -ForegroundColor Blue
+        & "$ProjectRoot\src\winapp-Analyzer\tests\Test-StandDownContract.ps1"
+        if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
+            $TestExitCode = $LASTEXITCODE
+        }
     
         # Copy test results to artifacts BEFORE checking for failure - find all TRX files
         Write-Host "[TEST] Collecting test results..." -ForegroundColor Blue
@@ -523,8 +542,8 @@ try
         Write-Host ""
         Write-Host "[NUGET] Creating NuGet packages..." -ForegroundColor Blue
 
-        # package-nuget.ps1 builds all three: the CLI tools package plus the two UI Automation
-        # library packages.
+        # package-nuget.ps1 builds all four: the CLI tools package, the two UI Automation
+        # library packages, and the standalone WinUI analyzer package.
         $PackageNuGetScript = Join-Path $PSScriptRoot "package-nuget.ps1"
 
         & $PackageNuGetScript -Version $FullVersion -Stable:$Stable
@@ -541,7 +560,8 @@ try
         $ExpectedPackages = @(
             'Microsoft.Windows.SDK.BuildTools.WinApp',
             'Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation',
-            'Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording'
+            'Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording',
+            'Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer'
         )
         $NuGetOutput = Join-Path $ProjectRoot "artifacts\nuget"
         $BuiltPackages = @(Get-ChildItem $NuGetOutput -Filter '*.nupkg' -ErrorAction SilentlyContinue |
