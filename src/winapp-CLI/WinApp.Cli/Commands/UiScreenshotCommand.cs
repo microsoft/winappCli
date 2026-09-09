@@ -265,8 +265,16 @@ internal class UiScreenshotCommand : Command, IShortDescription
             TextWriter errorOut,
             CancellationToken ct)
         {
+            // A live-screen capture of an EXPLICITLY chosen window is exactly one region: the pixels
+            // inside that window's bounds. Anything visibly on top of it — including a dialog it owns —
+            // is already in those pixels, which is the whole reason to reach for --capture-screen. So
+            // the multi-window expansion below is skipped: running it would send `-w <hwnd>` into the
+            // ambiguity guard, and `-w <hwnd>` is the documented way OUT of that ambiguity. Without a
+            // window the app may still resolve to several candidates, and that stays an error.
+            var expandsToSeveralWindows = selector is null && !(captureScreen && window is not null and > 0);
+
             // Screenshot handles multi-window discovery itself (avoids duplicate warning from session resolution)
-            if (selector is null)
+            if (expandsToSeveralWindows)
             {
                 var allWindows = DiscoverAllWindows(app, window);
                 if (allWindows is not null && allWindows.Count > 1)
@@ -286,7 +294,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
             var singleTarget = await targetResolver.ResolveAsync(app, window, ct).ConfigureAwait(false);
 
             // Even for a single-window session, check for owned dialogs.
-            if (selector is null)
+            if (expandsToSeveralWindows)
             {
                 var targetWindowHwnd = (nint)singleTarget.WindowHandle;
                 var appWindows = new List<(nint Hwnd, int Pid, string Title)>

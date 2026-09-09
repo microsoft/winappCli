@@ -107,18 +107,71 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public async Task Screenshot_CaptureScreenWithAnOwnedDialog_IsAlsoRejected()
+    public async Task Screenshot_CaptureScreenForOneExplicitWindowThatOwnsADialog_StillCaptures()
     {
-        // The other way a capture becomes multi-window: one app window plus a dialog it owns. Same
-        // ambiguity, same guard — the app window and its file picker cannot both be in front.
+        // The regression this guard nearly shipped. `-w <hwnd>` is what the ambiguity error tells you
+        // to do, so it must not land back in the same error when the window you picked happens to own
+        // a dialog. Live-screen capture of a chosen window is one region, and a dialog sitting on top
+        // of it is already in those pixels — that is the reason to use --capture-screen at all.
         ArrangeOwnedDialog(ownerOfDialog: AppWindow);
+        // The real resolver returns the window it was asked for; the fake needs telling, and this
+        // test is specifically about which HWND the single capture targets.
+        _fakeTargetResolver.TargetResult = new UiTarget
+        {
+            ProcessId = AppPid,
+            ProcessName = "TestApp",
+            WindowTitle = "Main Window",
+            WindowHandle = AppWindow,
+        };
         var command = GetRequiredService<UiScreenshotCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
             command, ["-w", AppWindow.ToString(), "--capture-screen", "--json", "-o", ShotPath()]);
 
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeUia.ScreenshotCalls.Count, "exactly one region is captured");
+        Assert.AreEqual((long)AppWindow, _fakeUia.ScreenshotCalls[0].Hwnd,
+            "and it is the window the caller explicitly selected, not the dialog");
+        Assert.IsTrue(_fakeUia.ScreenshotCalls[0].CaptureScreen);
+    }
+
+    [TestMethod]
+    public async Task Screenshot_CaptureScreenWithAnAppOwnedDialog_IsStillRejected()
+    {
+        // Discovery from `-a` can produce an app window plus a dialog it owns, and there the caller
+        // has not chosen between them — same ambiguity as several top-level windows, same guard.
+        _fakeSystemQuery.ProcessIdForWindowResult = MultiWindowPid;
+        _fakeSystemQuery.ProcessIdByHwnd[FirstWindow] = MultiWindowPid;
+        _fakeSystemQuery.ProcessIdByHwnd[OwnedDialog] = SystemHostPid;
+        _fakeSystemQuery.WindowOwnerByHwnd[OwnedDialog] = FirstWindow;
+        _fakeSystemQuery.WindowTextResult = "Main Window";
+        _fakeUia.WindowsByPidResult = [(FirstWindow, MultiWindowPid, "Main Window")];
+        _fakeWindowFinder.OwnedWindowsResult = [(OwnedDialog, SystemHostPid, "Save As")];
+        _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
+
+        var command = GetRequiredService<UiScreenshotCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", App, "--capture-screen", "--json", "-o", ShotPath()]);
+
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode("invalid_arguments");
         Assert.AreEqual(0, _fakeUia.ScreenshotCalls.Count);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "-w <hwnd>");
+    }
+
+    [TestMethod]
+    public async Task Screenshot_ExplicitWindowThatOwnsADialog_StillCompositesWithoutCaptureScreen()
+    {
+        // Window-content capture reads each window's own pixels, so a dialog is not already included
+        // and compositing it is the point. Only the live-screen path narrows to one region.
+        ArrangeOwnedDialog(ownerOfDialog: AppWindow);
+        var command = GetRequiredService<UiScreenshotCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-w", AppWindow.ToString(), "--json", "-o", ShotPath()]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(2, _fakeUia.ScreenshotCalls.Count,
+            "the owned dialog is still composited when not capturing the screen");
     }
 }

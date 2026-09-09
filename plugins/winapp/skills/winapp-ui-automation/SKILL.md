@@ -13,7 +13,7 @@ description: Inspect and interact with running Windows app UIs from the command 
 - For UIA mode (any app): No setup needed — works with any running Windows app
 - For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.
-- `--capture-screen` needs **exactly one window**. If `-a` matches several top-level or owned windows the command fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`.
+- `--capture-screen` needs **exactly one window**. `-w <hwnd>` gives it one: that window's screen region, including anything visibly on top of it. If `-a` matches several top-level or owned windows the command fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`.
 - **If other UI workflows may run at the same time**, set one workflow id per logical workflow (see below). Nothing breaks without it, but your commands will not be recognized as belonging together.
 
 ## Coordinating with other UI workflows

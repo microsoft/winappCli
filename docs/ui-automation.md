@@ -109,10 +109,13 @@ captures them all under one exclusive turn, so the saved image is a single consi
 than a mix of before and after. Encoding and writing the file happen after the desktop is released.
 
 > **`--capture-screen` needs exactly one window.** Live-screen capture records whatever is actually
-> in front, and only one window can be. If `-a` matches several top-level or owned windows, the
-> command fails with **`invalid_arguments`** before capturing anything rather than fighting the
-> foreground. Run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`, or drop
-> `--capture-screen` to composite every window from its own contents.
+> in front, and only one window can be. Selecting a window explicitly with `-w <hwnd>` gives it
+> exactly one region — the pixels inside that window's bounds, including any dialog or overlay
+> visibly on top of it, which is the reason to read the screen in the first place. When `-a` matches
+> several top-level or owned windows there is no such selection, so the command fails with
+> **`invalid_arguments`** before capturing anything rather than fighting the foreground. Run
+> `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`, or drop `--capture-screen` to
+> composite every window from its own contents.
 
 `record` shares its turn, so same-workflow input can interleave with the capture — that is how you
 record a workflow driving an app. Two caveats:
