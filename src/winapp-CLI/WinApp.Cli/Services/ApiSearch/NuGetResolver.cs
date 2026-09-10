@@ -1665,13 +1665,13 @@ internal static partial class NuGetResolver
     /// </remarks>
     private static bool IsProbeablePath(string? path, string root)
     {
-        if (string.IsNullOrWhiteSpace(path) || PathSafety.IsNetworkPath(path))
+        if (string.IsNullOrWhiteSpace(path) || PathSafety.RedirectsToNetwork(path))
         {
             return false;
         }
-        return PathSafety.IsUnder(path, root)
-            ? !PathSafety.CrossesReparsePoint(path, root)
-            : !PathSafety.RedirectsToNetwork(path);
+        // Validate redirects before containment normalization, which can expand
+        // short names and therefore touch the filesystem on Windows.
+        return !PathSafety.IsUnder(path, root) || !PathSafety.CrossesReparsePoint(path, root);
     }
 
     /// <summary>

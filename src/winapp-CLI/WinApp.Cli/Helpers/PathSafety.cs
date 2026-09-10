@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.IO;
+using Windows.Win32;
 
 namespace WinApp.Cli.Helpers;
 
@@ -140,84 +141,141 @@ internal static class PathSafety
     /// <summary>
     /// Whether any component of <paramref name="path"/> is a link that resolves to a
     /// network location. Unlike <see cref="IsNetworkPath"/>, which reads the path as
-    /// written, this follows the redirection: a junction at <c>D:\packages</c> pointing at
-    /// <c>\\server\share</c> is not network-shaped as a string, but reading through it
-    /// still authenticates outward to a host the value's author chose.
+    /// written, this inspects each redirection without opening its target. A link at
+    /// <c>D:\packages</c> pointing at <c>\\server\share</c> is not network-shaped as a
+    /// string, but reading through it can authenticate outward.
     /// </summary>
     /// <remarks>
-    /// Only redirections that leave the machine are refused. A junction that relocates a
-    /// package cache onto another local volume is a normal developer setup, which is why
-    /// this is not simply a reparse-point check — that is
+    /// Redirections that leave the machine or cannot be safely resolved are refused.
+    /// A junction that relocates a package cache onto another local volume is a normal
+    /// developer setup, which is why this is not simply a reparse-point check — that is
     /// <see cref="CrossesReparsePoint"/>, and applying it to a user-configured location
     /// outside the repository would reject ordinary machines.
     /// </remarks>
-    public static bool RedirectsToNetwork(string path)
+    public static bool RedirectsToNetwork(string path) =>
+        RedirectsToNetwork(path, static info => info.LinkTarget);
+
+    internal static bool RedirectsToNetwork(
+        string path, Func<FileSystemInfo, string?> readLinkTarget)
     {
-        string normalized;
-        string? root;
+        const int MaxLinkHops = 64;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int linkHops = 0;
         try
         {
-            string full = Path.GetFullPath(path);
-            if (IsNetworkPath(full))
+            while (true)
             {
-                return true;
+                string? full = NormalizeLocalPathWithoutProbing(path);
+                if (full is null || !visited.Add(full))
+                {
+                    return true;
+                }
+
+                string? root = Path.GetPathRoot(full);
+                if (string.IsNullOrEmpty(root))
+                {
+                    return true;
+                }
+
+                string current = root;
+                string[] segments = full[root.Length..].Split(
+                    [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                    StringSplitOptions.RemoveEmptyEntries);
+                bool redirected = false;
+                for (int index = 0; index < segments.Length; index++)
+                {
+                    current = Path.Combine(current, segments[index]);
+                    FileAttributes attributes;
+                    try
+                    {
+                        attributes = File.GetAttributes(current);
+                    }
+                    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                    {
+                        return false;
+                    }
+                    if ((attributes & FileAttributes.ReparsePoint) == 0)
+                    {
+                        continue;
+                    }
+                    if (++linkHops > MaxLinkHops)
+                    {
+                        return true;
+                    }
+
+                    FileSystemInfo info = attributes.HasFlag(FileAttributes.Directory)
+                        ? new DirectoryInfo(current)
+                        : new FileInfo(current);
+                    // Even ResolveLinkTarget(false) constructs a target FileSystemInfo,
+                    // which can probe short names. LinkTarget only reads the reparse data.
+                    string? target = readLinkTarget(info);
+                    if (string.IsNullOrEmpty(target) || IsNetworkPath(target))
+                    {
+                        return true;
+                    }
+
+                    // The target's parents can themselves be links. Restart from its
+                    // root before probing them, keeping the original unvisited suffix.
+                    path = Path.Combine(
+                        Path.IsPathRooted(target) ? target : Path.Combine(Path.GetDirectoryName(current)!, target),
+                        string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
+                    redirected = true;
+                    break;
+                }
+                if (!redirected)
+                {
+                    return false;
+                }
             }
-            normalized = NormalizeForContainment(full);
-            root = Path.GetPathRoot(normalized);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or System.Security.SecurityException)
         {
             return true;
         }
-
-        if (string.IsNullOrEmpty(root))
-        {
-            return true;
-        }
-
-        string current = root;
-        string[] segments = normalized[Math.Min(root.Length, normalized.Length)..].Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-            StringSplitOptions.RemoveEmptyEntries);
-        foreach (string segment in segments)
-        {
-            current = Path.Combine(current, segment);
-            if (LinkLeavesMachine(current))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
-    /// <summary>
-    /// Whether a single component is a link whose final target is a network location. A
-    /// component that does not exist yet is not a redirection; a link that cannot be
-    /// resolved is refused, because an unreadable link is one that cannot be cleared.
-    /// </summary>
-    private static bool LinkLeavesMachine(string path)
+    internal static unsafe string? NormalizeLocalPathWithoutProbing(string path)
     {
-        try
+        if (string.IsNullOrWhiteSpace(path) || path.Contains('\0') || IsNetworkPath(path))
         {
-            FileAttributes attributes = File.GetAttributes(path);
-            if ((attributes & FileAttributes.ReparsePoint) == 0)
-            {
-                return false;
-            }
+            return null;
+        }
 
-            FileSystemInfo info = attributes.HasFlag(FileAttributes.Directory)
-                ? new DirectoryInfo(path)
-                : new FileInfo(path);
-            string? resolved = info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? info.LinkTarget;
-            return resolved is not null && IsNetworkPath(resolved);
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        // Unlike Path.GetFullPath on ordinary Windows paths, GetFullPathName does
+        // not expand 8.3 names by calling GetLongPathName on an unchecked target.
+        Span<char> buffer = stackalloc char[512];
+        fixed (char* input = path)
         {
-            return false;
-        }
-        catch
-        {
-            return true;
+            uint length;
+            fixed (char* output = buffer)
+            {
+                length = PInvoke.GetFullPathName(input, (uint)buffer.Length, output, null);
+            }
+            if (length >= buffer.Length && length <= 32768)
+            {
+                buffer = new char[length];
+                fixed (char* output = buffer)
+                {
+                    length = PInvoke.GetFullPathName(input, (uint)buffer.Length, output, null);
+                }
+            }
+            if (length == 0 || length >= buffer.Length)
+            {
+                return null;
+            }
+            string full = new(buffer[..(int)length]);
+            string? root = Path.GetPathRoot(full);
+            if (string.IsNullOrEmpty(root) || IsNetworkPath(full))
+            {
+                return null;
+            }
+            string extendedRoot = root.StartsWith(@"\\?\", StringComparison.Ordinal)
+                ? root
+                : root.StartsWith(@"\\.\", StringComparison.Ordinal) ? @"\\?\" + root[4..] : @"\\?\" + root;
+            // With an extended base and relative suffix, .NET removes dot segments
+            // lexically. The prefix also prevents later attribute reads expanding ~.
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(full[root.Length..], extendedRoot));
         }
     }
 
