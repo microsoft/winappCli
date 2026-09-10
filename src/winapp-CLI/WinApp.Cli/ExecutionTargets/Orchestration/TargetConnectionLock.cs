@@ -29,7 +29,7 @@ internal sealed class TargetConnectionLease : IDisposable
     }
 }
 
-/// <summary>Serializes the one guest-agent channel across host processes.</summary>
+/// <summary>Serializes bootstrap, repair, and connection establishment across host processes.</summary>
 internal interface ITargetConnectionLock
 {
     TargetConnectionLease? TryAcquire(
@@ -39,13 +39,11 @@ internal interface ITargetConnectionLock
 }
 
 /// <summary>
-/// File-backed lock for bootstrap material and the one channel the guest agent accepts.
+/// File-backed lock released once a guest channel is established.
 /// </summary>
 /// <remarks>
-/// Separate from the mutation lock: read-only UI inspection still does not block host builds or hold
-/// guest mutation state. It only waits for the previous command's channel to close, which the agent's
-/// one-connection protocol requires. The file handle has no thread affinity and is released by the
-/// kernel if the host process dies.
+/// Established channels run concurrently. Package mutations use a separate lease; neither lease
+/// spans a running application's lifetime. File handles allow async use and release on process exit.
 /// </remarks>
 internal sealed class TargetConnectionLock(ITargetStateDirectoryProvider directoryProvider)
     : ITargetConnectionLock

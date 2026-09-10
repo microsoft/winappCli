@@ -166,6 +166,31 @@ public class DotNetRuntimeInstallerTests
     }
 
     [TestMethod]
+    public void Ensure_AnotherArchitectureCannotSatisfyTheSameVersion()
+    {
+        var guestInstall = TestPaths.Under(_root, "dotnet-arm64");
+        WriteInstalledFramework(guestInstall, Core, "8.0.12", architecture: "arm64");
+        WriteLayout("layout.zip", Core, "8.0.12");
+
+        var outcome = Ensure(Requirement(Core, "8.0.0", "layout.zip"), extraRoots: [guestInstall]);
+
+        Assert.IsTrue(outcome.Installed);
+        Assert.AreEqual(new Version(8, 0, 12), outcome.PresentVersion);
+        Assert.IsTrue(DotNetLayout.MatchesArchitecture(_managedRoot, "x64"));
+    }
+
+    [TestMethod]
+    public void Ensure_DisableDoesNotAcceptANewerInstalledPatch()
+    {
+        WriteInstalledFramework(_managedRoot, Core, "8.0.12");
+
+        var outcome = Ensure(Requirement(Core, "8.0.0", null) with { RollForward = "Disable" });
+
+        Assert.IsNull(outcome.PresentVersion);
+        Assert.IsFalse(outcome.Installed);
+    }
+
+    [TestMethod]
     public void Ensure_WithNoStagedLayout_ReportsWhyRatherThanThrowing()
     {
         var outcome = Ensure(Requirement(Core, "10.0.0", payloadFile: null));
@@ -233,7 +258,10 @@ public class DotNetRuntimeInstallerTests
 
         if (framework == Core)
         {
-            Write(archive, $"shared/{framework}/{version}/hostpolicy.dll", "mz");
+            using (var entry = archive.CreateEntry($"shared/{framework}/{version}/hostpolicy.dll").Open())
+            {
+                entry.Write(MinimalPe.ForArchitecture("x64"));
+            }
             Write(archive, $"shared/{framework}/{version}/coreclr.dll", "mz");
             Write(archive, $"shared/{framework}/{version}/System.Private.CoreLib.dll", "mz");
             Write(archive, $"host/fxr/{version}/hostfxr.dll", "mz");
@@ -246,7 +274,8 @@ public class DotNetRuntimeInstallerTests
         }
     }
 
-    private static string WriteInstalledFramework(string root, string framework, string version)
+    private static string WriteInstalledFramework(
+        string root, string framework, string version, string architecture = "x64")
     {
         var directory = Path.Join(root, "shared", framework, version);
         Directory.CreateDirectory(directory);
@@ -254,7 +283,7 @@ public class DotNetRuntimeInstallerTests
 
         if (framework == Core)
         {
-            File.WriteAllText(Path.Join(directory, "hostpolicy.dll"), "mz");
+            File.WriteAllBytes(Path.Join(directory, "hostpolicy.dll"), MinimalPe.ForArchitecture(architecture));
             File.WriteAllText(Path.Join(directory, "coreclr.dll"), "mz");
             File.WriteAllText(Path.Join(directory, "System.Private.CoreLib.dll"), "mz");
 

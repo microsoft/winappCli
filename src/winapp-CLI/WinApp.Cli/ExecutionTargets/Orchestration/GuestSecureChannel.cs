@@ -344,8 +344,7 @@ internal sealed class GuestSecureChannel : IGuestTransport
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.AgentIncompatible,
                 $"The guest agent speaks protocol {remoteMinimum}-{remoteMaximum}, but this winapp speaks {GuestProtocol.MinimumVersion}-{GuestProtocol.CurrentVersion}.",
-                userAction: "Update winapp on the host so it matches the guest agent.",
-                nextCommand: new ExecutionTargetNextCommand { Command = "winapp update", Advisory = false });
+                userAction: "Update your winapp installation. If the guest is still incompatible, save any guest work and close Windows Sandbox before retrying.");
         }
 
         return negotiated;

@@ -4,6 +4,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -91,9 +92,6 @@ internal sealed record DeploymentState
     /// reports healthy; the next run performs a complete desired-state reconciliation.
     /// </summary>
     public required bool Dirty { get; init; }
-
-    /// <summary>Desired state the last reconciliation was working toward.</summary>
-    public IReadOnlyList<DeploymentFile>? Desired { get; init; }
 
     /// <summary>Package this deployment registered, when it registered one.</summary>
     public PackageOwnership? Package { get; init; }
@@ -197,7 +195,7 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
         DeploymentState? state;
         try
         {
-            using var stream = File.OpenRead(file);
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             state = JsonSerializer.Deserialize(stream, DeploymentStateJsonContext.Default.DeploymentState);
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -215,8 +213,7 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.TargetAmbiguous,
                 $"Deployment state was written by a newer version of winapp (schema {state.SchemaVersion}, this build supports {CurrentSchemaVersion}).",
-                userAction: "Update winapp to the newest version, then retry.",
-                nextCommand: new ExecutionTargetNextCommand { Command = "winapp update", Advisory = false });
+                userAction: "Update your winapp installation to the newest version, then retry.");
         }
 
         return state;
@@ -227,6 +224,8 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
     {
         ArgumentNullException.ThrowIfNull(state);
 
+        var file = GetStateFile(target, state.DeploymentId, create: true);
+        using var commitLease = AcquireCommitLease(file);
         var current = Read(target, state.DeploymentId);
         var currentRevision = current?.Revision ?? 0;
 
@@ -251,8 +250,7 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
             UpdatedUtc = DateTimeOffset.UtcNow,
         };
 
-        var file = GetStateFile(target, state.DeploymentId, create: true);
-        WriteAtomic(file, JsonSerializer.Serialize(committed, DeploymentStateJsonContext.Default.DeploymentState));
+        AtomicFile.WriteAllText(file, JsonSerializer.Serialize(committed, DeploymentStateJsonContext.Default.DeploymentState));
         return committed;
     }
 
@@ -260,9 +258,42 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
     public void Clear(ExecutionTargetRef target, string deploymentId)
     {
         var file = GetStateFile(target, deploymentId, create: false);
+        if (!Directory.Exists(Path.GetDirectoryName(file)))
+        {
+            return;
+        }
+
+        using var commitLease = AcquireCommitLease(file);
         if (File.Exists(file))
         {
             File.Delete(file);
+        }
+    }
+
+    // Process-start publication runs outside the guest mutation lease. Serialize the revision check
+    // and replacement together so a delayed start cannot overwrite a newer deployment's ownership.
+    private static FileStream AcquireCommitLease(string stateFile)
+    {
+        var deadline = Environment.TickCount64 + 5_000;
+        while (true)
+        {
+            try
+            {
+                return new FileStream(stateFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                    FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+            }
+            catch (IOException ex) when ((ex.HResult & 0xffff) is 32 or 33)
+            {
+                if (Environment.TickCount64 >= deadline)
+                {
+                    throw ExecutionTargetException.Create(
+                        ExecutionTargetErrorCodes.TargetAmbiguous,
+                        "Another command is updating this deployment's state.",
+                        userAction: "Retry the command.",
+                        innerException: ex);
+                }
+                Thread.Sleep(10);
+            }
         }
     }
 
@@ -299,42 +330,6 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
         }
 
         return file;
-    }
-
-    private static void WriteAtomic(string path, string contents)
-    {
-        var directory = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(directory);
-
-        var temporary = TargetPathSafety.CombineInsideRoot(
-            directory,
-            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-
-        try
-        {
-            File.WriteAllText(temporary, contents);
-            File.Move(temporary, path, overwrite: true);
-        }
-        catch
-        {
-            TryDelete(temporary);
-            throw;
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // A leftover temporary is harmless and must never mask the original error.
-        }
     }
 
     private static ExecutionTargetException Unreadable(string file, Exception? innerException) =>

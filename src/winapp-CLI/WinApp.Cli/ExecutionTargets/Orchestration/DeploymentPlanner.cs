@@ -3,7 +3,6 @@
 
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json.Serialization;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
@@ -38,17 +37,6 @@ internal sealed record DeploymentPlan(
 
     /// <summary>Total bytes that must be transferred.</summary>
     public long TransferBytes => Added.Sum(f => f.Size) + Changed.Sum(f => f.Size);
-}
-
-/// <summary>Source-generated serializer context for persisted deployment state.</summary>
-[JsonSerializable(typeof(DeploymentSnapshot))]
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    NewLine = "\n",
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class DeploymentJsonContext : JsonSerializerContext
-{
 }
 
 /// <summary>

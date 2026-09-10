@@ -43,6 +43,14 @@ public class TargetTelemetryTests : BaseCommandTests
     protected override IServiceCollection ConfigureServices(IServiceCollection services) => services;
 
     [TestMethod]
+    public void EmbedIdentity_TargetFileArgument_IsNotAnExecutionTarget()
+    {
+        var (context, targetKind) = CreateEventFor("embed-identity", @"C:\Customers\Contoso\app.manifest");
+        Assert.AreEqual(ExecutionTargetRef.LocalKind, targetKind);
+        AssertNothingSensitive(context);
+    }
+
+    [TestMethod]
     public void TargetExec_RecordsNeitherTheCommandNorItsArgumentsNorPaths()
     {
         var (context, targetKind) = CreateEventFor(

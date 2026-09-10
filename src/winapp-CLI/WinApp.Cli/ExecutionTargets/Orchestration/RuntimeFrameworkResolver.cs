@@ -16,7 +16,10 @@ internal sealed record RuntimeFrameworkPayload(
     FileInfo Archive,
     string Name,
     string Version,
-    string Architecture);
+    string Architecture)
+{
+    public IReadOnlyList<RuntimeFrameworkRequirement> Dependencies { get; init; } = [];
+}
 
 /// <summary>
 /// Resolves an official .NET shared framework into a portable layout the guest can unpack
@@ -134,11 +137,17 @@ internal sealed class RuntimeFrameworkResolver(
     /// </para>
     /// </remarks>
     private DotNetLayoutSource? FindHostInstallation(RuntimeFrameworkRequirement requirement) =>
-        HostDotNetRoots()
+        SelectSource(requirement, HostDotNetRoots()
             .Where(root => DotNetLayout.MatchesArchitecture(root, requirement.Architecture))
-            .SelectMany(root => DotNetLayout.EnumerateInstalled(root, requirement))
-            .OrderBy(candidate => candidate.Version)
-            .FirstOrDefault();
+            .SelectMany(root => DotNetLayout.EnumerateInstalled(root, requirement)));
+
+    private static DotNetLayoutSource? SelectSource(
+        RuntimeFrameworkRequirement requirement, IEnumerable<DotNetLayoutSource> sources)
+    {
+        var candidates = sources.ToList();
+        var version = requirement.SelectVersion(candidates.Select(candidate => candidate.Version));
+        return candidates.FirstOrDefault(candidate => candidate.Version == version);
+    }
 
     /// <summary>Finds a cached official runtime pack that satisfies the requirement.</summary>
     private DotNetLayoutSource? FindRuntimePack(RuntimeFrameworkRequirement requirement)
@@ -147,9 +156,7 @@ internal sealed class RuntimeFrameworkResolver(
             nugetService.GetNuGetGlobalPackagesDir().FullName,
             PackId(requirement).ToLowerInvariant()));
 
-        return DotNetLayout.EnumeratePacks(packRoot, requirement)
-            .OrderBy(candidate => candidate.Version)
-            .FirstOrDefault();
+        return SelectSource(requirement, DotNetLayout.EnumeratePacks(packRoot, requirement));
     }
 
     /// <summary>
@@ -204,6 +211,17 @@ internal sealed class RuntimeFrameworkResolver(
         TaskContext taskContext,
         CancellationToken cancellationToken)
     {
+        IReadOnlyList<RuntimeFrameworkRequirement> dependencies;
+        try
+        {
+            dependencies = DotNetLayout.ReadDependencies(source, requirement.Architecture);
+        }
+        catch (InvalidDataException ex)
+        {
+            taskContext.AddDebugMessage($"{UiSymbols.Note} {ex.Message}");
+            return null;
+        }
+
         var cache = new DirectoryInfo(Path.Join(
             winappDirectoryService.GetGlobalWinappDirectory().FullName, "cache", CacheFolderName));
 
@@ -235,7 +253,10 @@ internal sealed class RuntimeFrameworkResolver(
             archive,
             requirement.Name,
             source.Version.ToString(),
-            requirement.Architecture);
+            requirement.Architecture)
+        {
+            Dependencies = dependencies,
+        };
     }
 
     private static string PackId(RuntimeFrameworkRequirement requirement) =>

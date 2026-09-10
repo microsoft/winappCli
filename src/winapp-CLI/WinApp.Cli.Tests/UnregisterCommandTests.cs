@@ -15,6 +15,33 @@ public class UnregisterCommandTests : BaseCommandTests
     private FakePackageRegistrationService _fakePackageRegistrationService = null!;
     private FakeProjectRunService _fakeProjectRunService = null!;
 
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task UnregisterCommand_SingleFileOnTarget_RejectsBeforeEvaluatingOrRemoving()
+    {
+        var input = CreateSingleFile();
+        var command = GetRequiredService<WinAppRootCommand>();
+        var originalError = Console.Error;
+        using var error = new StringWriter();
+        Console.SetError(error);
+        int exitCode;
+        try
+        {
+            exitCode = await ParseAndInvokeWithCaptureAsync(command,
+                ["unregister", input.FullName, "--on", "sandbox", "--json"]);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
+        StringAssert.Contains(error.ToString(), "target_invalid_arguments");
+        StringAssert.Contains(error.ToString(), "manifest");
+        Assert.IsEmpty(_fakeProjectRunService.ResolveSingleFileIdentityInputs);
+        Assert.IsEmpty(_fakePackageRegistrationService.UnregisterByFullNameCalls);
+    }
+
     private const string TestManifestContent = """
         <?xml version="1.0" encoding="utf-8"?>
         <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"

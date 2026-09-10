@@ -119,7 +119,7 @@ internal sealed class RuntimePackageRequirement
 /// unpacks it side-by-side into a per-user root it owns — so no machine-wide <c>dotnet</c>
 /// installation is touched, nothing is ever replaced, and the guest needs no network of its own.
 /// </remarks>
-internal sealed class RuntimeFrameworkRequirement
+internal sealed record RuntimeFrameworkRequirement
 {
     /// <summary>Framework name, for example <c>Microsoft.WindowsDesktop.App</c>.</summary>
     public required string Name { get; init; }
@@ -138,24 +138,82 @@ internal sealed class RuntimeFrameworkRequirement
     /// <summary>Staged portable-layout archive, or null when the host resolved none.</summary>
     public string? PayloadFile { get; init; }
 
-    /// <summary>Exact framework version <see cref="PayloadFile"/> contains, when there is one.</summary>
-    public string? PayloadVersion { get; init; }
+    public string RollForward { get; init; } = "Minor";
 
-    /// <summary>
-    /// Whether an installed <paramref name="candidate"/> version satisfies this requirement.
-    /// </summary>
-    /// <remarks>
-    /// The .NET roll-forward default: a newer patch or minor of the same major is compatible, a
-    /// different major is not. Accepting any higher version would let a guest with only .NET 10
-    /// "satisfy" an application built against .NET 8 — exactly the case that fails at startup with
-    /// an error naming a framework the report claimed was present.
-    /// </remarks>
-    public bool IsSatisfiedBy(Version candidate)
+    public bool ApplyPatches { get; init; } = true;
+
+    /// <summary>Inherited from a referencing framework's LatestMinor/LatestMajor policy.</summary>
+    public bool RollToHighestVersion { get; init; }
+
+    /// <summary>Other references to this framework that the selected version must also satisfy.</summary>
+    public List<RuntimeFrameworkPolicy> AdditionalConstraints { get; init; } = [];
+
+    [JsonIgnore]
+    internal IEnumerable<RuntimeFrameworkPolicy> Policies =>
+        new[] { new RuntimeFrameworkPolicy(MinVersion, RollForward, ApplyPatches) }.Concat(AdditionalConstraints);
+
+    [JsonIgnore]
+    internal bool PrefersHighestVersion =>
+        RollToHighestVersion || Policies.Any(policy => policy.RollForward is "LatestMinor" or "LatestMajor");
+
+    public bool IsSatisfiedBy(Version candidate) => Policies.All(policy => policy.Accepts(candidate));
+
+    /// <summary>Applies the configured roll-forward preference to the available compatible versions.</summary>
+    internal Version? SelectVersion(IEnumerable<Version> versions)
     {
-        ArgumentNullException.ThrowIfNull(candidate);
+        var candidates = versions.Where(IsSatisfiedBy).Distinct().Order().ToList();
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
 
-        var required = RuntimeRequirementDiscovery.ComparableVersion(MinVersion);
-        return candidate.Major == required.Major && candidate >= required;
+        var policies = Policies.ToList();
+        if (PrefersHighestVersion)
+        {
+            return candidates[^1];
+        }
+
+        var closest = candidates[0];
+        return policies.All(policy => policy.ApplyPatches)
+            ? candidates.Last(candidate => candidate.Major == closest.Major && candidate.Minor == closest.Minor)
+            : closest;
+    }
+
+    internal static RuntimeFrameworkRequirement Combine(IEnumerable<RuntimeFrameworkRequirement> requirements)
+    {
+        var references = requirements.OrderByDescending(
+            requirement => RuntimeRequirementDiscovery.ComparableVersion(requirement.MinVersion)).ToList();
+        var first = references[0];
+        return first with
+        {
+            RollToHighestVersion = references.Any(requirement => requirement.PrefersHighestVersion),
+            AdditionalConstraints = [
+                .. first.AdditionalConstraints,
+                .. references.Skip(1).SelectMany(requirement => requirement.Policies),
+            ],
+        };
+    }
+}
+
+internal sealed record RuntimeFrameworkPolicy(string Version, string RollForward, bool ApplyPatches)
+{
+    internal bool Accepts(Version candidate)
+    {
+        var required = RuntimeRequirementDiscovery.ComparableVersion(Version);
+        if (candidate < required)
+        {
+            return false;
+        }
+
+        return RollForward switch
+        {
+            "Disable" => candidate == required,
+            "LatestPatch" when !ApplyPatches => candidate == required,
+            "LatestPatch" => candidate.Major == required.Major && candidate.Minor == required.Minor,
+            "Minor" or "LatestMinor" => candidate.Major == required.Major,
+            "Major" or "LatestMajor" => true,
+            _ => false,
+        };
     }
 }
 

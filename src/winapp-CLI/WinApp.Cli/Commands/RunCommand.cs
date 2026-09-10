@@ -130,7 +130,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         {
             Description = "Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope."
         };
-        
+
         CleanOption = new Option<bool>("--clean")
         {
             Description = "Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments."
@@ -718,8 +718,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 return await ExecutePackagedTargetRunAsync(
                     inputFolder, manifest, layoutOutput, appArgs,
-                    noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, executable, isJson,
-                    projectFile, framework, noRestore, selfContained, aliasDecision.UseAlias, packageGraph, cancellationToken);
+                    noLaunch, aliasDecision, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
+                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, cancellationToken);
             }
 
             uint processId = 0;

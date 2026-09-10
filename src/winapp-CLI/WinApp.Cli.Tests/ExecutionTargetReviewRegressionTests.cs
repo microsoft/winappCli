@@ -168,55 +168,6 @@ public class ExecutionTargetReviewRegressionTests
         }
     }
 
-    // ---- Finding 6: the no-downgrade rule has no architecture exception ----
-
-    [TestMethod]
-    public void NewerGuestUnderEmulation_IsNeverDowngraded()
-    {
-        var host = new GuestAgentIdentity("1.2.0", "host-hash", "arm64", 1, 1);
-
-        // A guest running emulated, or simply reporting a different architecture spelling. Deciding
-        // on architecture first would replace it -- a downgrade reached without ever comparing
-        // versions.
-        var newerGuest = Heartbeat("2.0.0", "guest-hash", "x64");
-
-        Assert.AreEqual(GuestAgentAction.Reuse, GuestAgentUpdatePlanner.Plan(host, newerGuest).Action);
-        Assert.IsFalse(GuestAgentUpdatePlanner.CanForceRepair(host, newerGuest));
-    }
-
-    [TestMethod]
-    public void NewerIncompatibleGuestUnderEmulation_FailsRatherThanInstalling()
-    {
-        var host = new GuestAgentIdentity("1.2.0", "host-hash", "arm64", 1, 1);
-        var guest = Heartbeat("2.0.0", "guest-hash", "x64", protocolMinimum: 99, protocolMaximum: 100);
-
-        Assert.AreEqual(GuestAgentAction.FailIncompatible, GuestAgentUpdatePlanner.Plan(host, guest).Action);
-    }
-
-    [TestMethod]
-    public void UnorderableGuestVersion_FailsClosedRatherThanReplacing()
-    {
-        var host = new GuestAgentIdentity("1.2.0", "host-hash", "arm64", 1, 1);
-        var guest = Heartbeat("not-a-version", "guest-hash", "arm64");
-
-        // A version that cannot be ordered cannot be proven older, so replacing it might be a
-        // downgrade. Failing is the only outcome that cannot silently move the guest backwards.
-        Assert.AreEqual(GuestAgentAction.FailIncompatible, GuestAgentUpdatePlanner.Plan(host, guest).Action);
-        Assert.IsFalse(GuestAgentUpdatePlanner.CanForceRepair(host, guest));
-    }
-
-    [TestMethod]
-    public void OlderGuestWithDifferentArchitecture_IsStillReplaced()
-    {
-        var host = new GuestAgentIdentity("2.0.0", "host-hash", "arm64", 1, 1);
-
-        // Host is genuinely newer, so replacing is not a downgrade and the architecture mismatch is
-        // the reason a full install rather than an in-place update is needed.
-        Assert.AreEqual(
-            GuestAgentAction.Install,
-            GuestAgentUpdatePlanner.Plan(host, Heartbeat("1.0.0", "guest-hash", "x64")).Action);
-    }
-
     // ---- Finding 8: a forwarded owner must never be silently altered ----
 
     [TestMethod]
@@ -359,25 +310,6 @@ public class ExecutionTargetReviewRegressionTests
             TryDeleteDirectory(outside);
         }
     }
-
-    private static GuestAgentHeartbeat Heartbeat(
-        string version,
-        string hash,
-        string architecture,
-        int protocolMinimum = 1,
-        int protocolMaximum = 1) => new()
-        {
-            SchemaVersion = GuestAgentHeartbeat.CurrentSchemaVersion,
-            Version = version,
-            BinaryHash = hash,
-            Architecture = architecture,
-            ProtocolMinimum = protocolMinimum,
-            ProtocolMaximum = protocolMaximum,
-            Ready = true,
-            TargetEpoch = Epoch.Value,
-            Port = 5000,
-            PublishedUtc = DateTimeOffset.UtcNow,
-        };
 
     private static async Task<string> ComputeHashAsync(byte[] content)
     {

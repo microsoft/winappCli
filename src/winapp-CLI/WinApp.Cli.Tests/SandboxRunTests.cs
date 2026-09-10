@@ -7,6 +7,7 @@ using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Services;
+using WinApp.Cli.Models;
 
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 
@@ -28,17 +29,17 @@ public class SandboxRunTests
 
     private static readonly ExecutionTargetEpoch Epoch = ExecutionTargetEpoch.Create("sandbox-1", "nonce-a");
 
-    private static readonly string[] FullOptionMatrixArguments =
+    private static readonly string[] RegistrationArguments =
     [
         "run", @"C:\WinApp\deployments\abc",
         "--managed-appx-directory", @"C:\WinApp\deployments\abc-layout",
-        "--no-launch", "--with-alias", "--debug-output", "--unregister-on-exit",
-        "--detach", "--clean", "--json", "--args", "--flag value",
+        "--no-launch", "--clean", "--json",
     ];
 
     private static readonly string[] MinimalRunArguments =
     [
         "run", @"C:\WinApp\deployments\abc", "--managed-appx-directory", @"C:\WinApp\deployments\abc-layout",
+        "--no-launch",
     ];
 
     private string _root = null!;
@@ -77,31 +78,60 @@ public class SandboxRunTests
     // ---- Guest command translation -------------------------------------------------
 
     [TestMethod]
-    public void BuildRunArguments_ForwardsTheWholeOptionMatrix()
+    public async Task RestoredRuntimeVersion_UsesExactBuildFrameworkAndRid()
     {
-        var arguments = GuestRunPlanner.BuildRunArguments(
-            @"C:\WinApp\deployments\abc",
-            @"C:\WinApp\deployments\abc-layout",
-            new GuestRunOptions(
-                NoLaunch: true,
-                WithAlias: true,
-                DebugOutput: true,
-                UnregisterOnExit: true,
-                Detach: true,
-                Clean: true,
-                Json: true,
-                AppArguments: "--flag value"));
+        var assets = new FileInfo(Path.Join(_root, "project.assets.json"));
+        await File.WriteAllTextAsync(assets.FullName, """
+            {
+              "project": { "frameworks": { "net10.0": {}, "net9.0": {} } },
+              "targets": {
+                "net10.0/win-x64": {
+                  "Microsoft.WindowsAppSDK.Runtime/1.8.2": { "type": "package" },
+                  "Microsoft.WindowsAppSDK/1.8.999": { "type": "package" }
+                },
+                "net10.0/win-arm64": {
+                  "Microsoft.WindowsAppSDK.Runtime/1.8.3": { "type": "package" }
+                },
+                "net9.0/win-x64": {
+                  "Microsoft.WindowsAppSDK.Runtime/1.7.9": { "type": "package" }
+                }
+              }
+            }
+            """, TestContext.CancellationToken);
 
-        // Every option is the guest's ordinary winapp run option, so its meaning cannot drift from
-        // the local one.
-        CollectionAssert.AreEqual(FullOptionMatrixArguments, arguments);
+        Assert.AreEqual("1.8.2", RunCommand.Handler.ResolveRestoredWindowsAppRuntimeVersion(
+            new PackageGraphSource(assets, "win-x64"), "net10.0"));
+        Assert.AreEqual("1.8.3", RunCommand.Handler.ResolveRestoredWindowsAppRuntimeVersion(
+            new PackageGraphSource(assets, "win-arm64"), "net10.0"));
+        Assert.ThrowsExactly<ExecutionTargetException>(() =>
+            RunCommand.Handler.ResolveRestoredWindowsAppRuntimeVersion(
+                new PackageGraphSource(assets, "win-x64"), framework: null));
     }
 
     [TestMethod]
-    public void BuildRunArguments_WithNoOptions_PassesOnlyTheTwoPaths()
+    public void RestoredRuntimeVersion_UnreadableGraphFailsBeforeProvisioning()
     {
-        var arguments = GuestRunPlanner.BuildRunArguments(
-            @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", new GuestRunOptions());
+        var graph = new PackageGraphSource(new FileInfo(Path.Join(_root, "missing.json")), "win-x64");
+        Assert.ThrowsExactly<ExecutionTargetException>(() =>
+            RunCommand.Handler.ResolveRestoredWindowsAppRuntimeVersion(graph, "net10.0"));
+    }
+
+    [TestMethod]
+    public void BuildRegistrationArguments_NeverLaunches()
+    {
+        var arguments = GuestRunPlanner.BuildRegistrationArguments(
+            @"C:\WinApp\deployments\abc",
+            @"C:\WinApp\deployments\abc-layout",
+            clean: true, json: true);
+
+        CollectionAssert.AreEqual(RegistrationArguments, arguments);
+    }
+
+    [TestMethod]
+    public void BuildRegistrationArguments_WithNoOptions_StillDisablesLaunch()
+    {
+        var arguments = GuestRunPlanner.BuildRegistrationArguments(
+            @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", clean: false, json: false);
 
         CollectionAssert.AreEqual(MinimalRunArguments, arguments);
     }
@@ -115,8 +145,8 @@ public class SandboxRunTests
     [TestMethod]
     public void BuildRunArguments_MarksTheGuestLayoutAsWinappsOwn_NotAsAUserSuppliedDirectory()
     {
-        var arguments = GuestRunPlanner.BuildRunArguments(
-            @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", new GuestRunOptions());
+        var arguments = GuestRunPlanner.BuildRegistrationArguments(
+            @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", clean: false, json: false);
 
         CollectionAssert.DoesNotContain(arguments, "--output-appx-directory");
 
@@ -132,8 +162,8 @@ public class SandboxRunTests
     [TestMethod]
     public void GuestRunArguments_ParseBackToAWinappOwnedLayout()
     {
-        var arguments = GuestRunPlanner.BuildRunArguments(
-            @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", new GuestRunOptions());
+        var arguments = GuestRunPlanner.BuildRegistrationArguments(
+            @"C:\WinApp\deployments\abc", @"C:\WinApp\deployments\abc-layout", clean: false, json: false);
 
         var parseResult = new RunCommand().Parse(arguments.ToArray());
 
@@ -146,7 +176,7 @@ public class SandboxRunTests
     public void EnsureSupportedForUnpackaged_DebugOutput_IsRefusedUpFront()
     {
         var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
-            GuestRunPlanner.EnsureSupportedForUnpackaged(new GuestRunOptions(DebugOutput: true)));
+            GuestRunPlanner.EnsureSupportedForUnpackaged(debugOutput: true));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.Unsupported, failure.Error.Code);
     }
@@ -264,8 +294,9 @@ public class SandboxRunTests
             new GuestExecRequest
             {
                 UseGuestWinapp = true,
-                Arguments = GuestRunPlanner.BuildRunArguments(
-                    deployment.PayloadPath, deployment.LayoutPath, new GuestRunOptions()),
+                Arguments = GuestLaunchPlanner.BuildLaunchArguments(
+                    "Contoso.MyApp", "CN=Contoso", "App",
+                    deployment.LayoutPath, deployment.PayloadPath, "sandbox", new GuestLaunchOptions()),
             },
             new GuestExecCallbacks(),
             TestContext.CancellationToken);
@@ -275,7 +306,7 @@ public class SandboxRunTests
         // The host names the binary by intent, never by path: it does not know where the agent
         // installed itself, and a host-supplied path would make the agent's identity host-selectable.
         Assert.AreEqual(Harness.GuestWinappPath, process.Request.Executable);
-        Assert.AreEqual("run", process.Request.Arguments[0]);
+        Assert.AreEqual("guest-launch", process.Request.Arguments[0]);
 
         process.Exit(7);
 
@@ -1269,7 +1300,7 @@ public class SandboxRunTests
     [TestMethod]
     public void DirectUnpackagedJsonResult_IsAlwaysAHostScopedEnvelope()
     {
-        var result = RunCommand.Handler.CreateDirectGuestResult(WindowsSandboxTarget.Default, 
+        var result = RunCommand.Handler.CreateDirectGuestResult(WindowsSandboxTarget.Default,
             architecture: "arm64",
             epoch: "epoch-1");
 

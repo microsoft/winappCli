@@ -84,7 +84,7 @@ public class TargetStateStoreTests
     {
         var committed = _store.Commit(
             _target,
-            NewState() with { AgentVersion = "1.2.3", AgentBinaryHash = "abc123" },
+            NewState() with { GuestAddress = "172.27.0.9" },
             expectedRevision: 0);
 
         var read = _store.Read(_target);
@@ -93,8 +93,7 @@ public class TargetStateStoreTests
         Assert.AreEqual(committed.Revision, read.Revision);
         Assert.AreEqual("instance-1", read.InstanceId);
         Assert.AreEqual("nonce-1", read.BootNonce);
-        Assert.AreEqual("1.2.3", read.AgentVersion);
-        Assert.AreEqual("abc123", read.AgentBinaryHash);
+        Assert.AreEqual("172.27.0.9", read.GuestAddress);
         Assert.AreEqual(ExecutionTargetRef.SandboxKind, read.TargetKind);
     }
 
@@ -179,7 +178,8 @@ public class TargetStateStoreTests
         var exception = Assert.ThrowsExactly<ExecutionTargetException>(() => _store.Read(_target));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, exception.Error.Code);
-        StringAssert.Contains(exception.Error.UserAction!, "Update winapp", StringComparison.OrdinalIgnoreCase);
+        StringAssert.Contains(exception.Error.UserAction!, "winapp installation", StringComparison.OrdinalIgnoreCase);
+        Assert.IsNull(exception.Error.NextCommand, "Project SDK updates do not upgrade the CLI installation.");
     }
 
     [TestMethod]

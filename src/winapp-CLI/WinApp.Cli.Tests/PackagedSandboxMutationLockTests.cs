@@ -29,7 +29,7 @@ namespace WinApp.Cli.Tests;
 /// ReleaseMutationLease -&gt; launch (unlocked)</c> pipeline, built on the real, file-backed
 /// <see cref="TargetMutationLock"/> and the real wire protocol
 /// (<see cref="GuestCommandChannel"/>/<see cref="GuestCommandServer"/>,
-/// <see cref="GuestRunPlanner.BuildRunArguments"/>). Only the guest OS process each request would
+/// <see cref="GuestRunPlanner.BuildRegistrationArguments"/>). Only the guest OS process each request would
 /// start is scripted -- the same boundary <c>SandboxRunTests</c> already accepts as
 /// production-equivalent, since a real Windows Sandbox is unavailable in this environment.
 /// <para>
@@ -51,7 +51,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
     private DirectoryInfo _layout = null!;
 
     private ITargetMutationLock _mutationLock = null!;
-    private IDeploymentStateStore _deploymentStateStore = null!;
+    private DeploymentStateStore _deploymentStateStore = null!;
 
     /// <summary>
     /// Raises the process-wide thread-pool floor once for this class.
@@ -360,6 +360,24 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         Assert.AreEqual(0, await task);
     }
 
+    [TestMethod]
+    public async Task InferredAliasPackagedSandboxRun_PreservesTheResolvedPreference()
+    {
+        var ct = TestContext.CancellationToken;
+        await using var harness = CreateHarness("inferredAlias");
+        var task = RunAsync(harness, noLaunch: false, clean: false, ct,
+            aliasDecision: new RunCommand.Handler.AliasLaunchDecision(true, null, Explicit: false));
+
+        var register = await harness.Processes.WaitForNextAsync(ct);
+        Assert.IsTrue(IsRegisterOnly(register));
+        register.Exit(0);
+        var launch = await harness.Processes.WaitForNextAsync(ct);
+        Assert.Contains("--prefer-alias", launch.Request.Arguments);
+        Assert.DoesNotContain("--with-alias", launch.Request.Arguments);
+        launch.Exit(0);
+        Assert.AreEqual(0, await task);
+    }
+
     /// <summary>
     /// H2: the third, host-orchestrated <c>--unregister-on-exit</c> phase removes exactly the full
     /// package name Windows reported for this deployment. It never runs before the application exits.
@@ -421,6 +439,43 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         Assert.IsFalse(
             harness.PackageRegistration.UnregisterByFullNameTokenCancelled.Single(),
             "Cleanup must use an independent token after the caller cancels.");
+    }
+
+    [TestMethod]
+    public async Task UnregisterOnExit_OlderRunLeavesTheReplacementRegistrationIntact()
+    {
+        var ct = TestContext.CancellationToken;
+        var inventory = new FakeAppLauncherService
+        {
+            FakePackageName = "SbxMutationLockTestPackage",
+            FakePublisher = "CN=SbxMutationLockTests",
+            FakePackageFullName = null,
+        };
+        await using var first = CreateHarness("replacement", inventory);
+        await using var replacement = CreateHarness("replacement", inventory);
+        var firstRun = RunAsync(first, noLaunch: false, clean: false, ct, unregisterOnExit: true);
+        (await first.Processes.WaitForNextAsync(ct)).Exit(0);
+        var firstLaunch = await first.Processes.WaitForNextAsync(ct);
+
+        using var arrivalTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        arrivalTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+        while (!_deploymentStateStore.List(WindowsSandboxTarget.Default)
+            .Any(state => state.TrackedOperationProcessId == firstLaunch.ProcessId))
+        {
+            await Task.Delay(10, arrivalTimeout.Token);
+        }
+
+        var nextRun = RunAsync(replacement, noLaunch: true, clean: false, ct);
+        var nextRegistration = await replacement.Processes.WaitForNextAsync(ct);
+        // A redeploy stops the previous app while it owns the mutation lease.
+        firstLaunch.Exit(0);
+        nextRegistration.Exit(0);
+
+        Assert.AreEqual(0, await nextRun);
+        Assert.AreEqual(0, await firstRun);
+        Assert.IsNotNull(inventory.FakePackageFullName);
+        Assert.IsEmpty(first.PackageRegistration.UnregisterByFullNameCalls);
+        Assert.IsEmpty(replacement.PackageRegistration.UnregisterByFullNameCalls);
     }
 
     /// <summary>
@@ -603,7 +658,8 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         CancellationToken cancellationToken,
         bool withAlias = false,
         bool unregisterOnExit = false,
-        LayoutOutput? layoutOutput = null) =>
+        LayoutOutput? layoutOutput = null,
+        RunCommand.Handler.AliasLaunchDecision? aliasDecision = null) =>
         Task.Run(
             () => harness.Handler.ExecuteRunPipelineAsync(
                 new DirectoryInfo(harness.HostFolder ?? throw new InvalidOperationException()),
@@ -624,7 +680,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
                 framework: null,
                 noRestore: false,
                 selfContained: false,
-                aliasDecision: RunCommand.Handler.AliasLaunchDecision.Aumid,
+                aliasDecision: aliasDecision ?? new RunCommand.Handler.AliasLaunchDecision(withAlias, null, withAlias),
                 executionTarget: WindowsSandboxTarget.Default,
                 cancellationToken: cancellationToken),
             cancellationToken);
@@ -647,7 +703,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         }
     }
 
-    private RunHarness CreateHarness(string name) => new(
+    private RunHarness CreateHarness(string name, FakeAppLauncherService? inventory = null) => new(
         TestPaths.Under(_root, $"guest-{name}"),
         TestPaths.Under(_root, $"connection-{name}"),
         _mutationLock,
@@ -660,7 +716,8 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         GetRequiredService<IPackageRegistrationService>(),
         GetRequiredService<IDebugOutputService>(),
         GetRequiredService<IProjectRunService>(),
-        GetRequiredService<Microsoft.Extensions.Logging.ILogger<RunCommand>>());
+        GetRequiredService<Microsoft.Extensions.Logging.ILogger<RunCommand>>(),
+        inventory);
 
     /// <summary>
     /// One simulated <c>winapp run --on sandbox</c> caller: a real <see cref="RunCommand.Handler"/>
@@ -686,13 +743,14 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
             IPackageRegistrationService packageRegistrationService,
             IDebugOutputService debugOutputService,
             IProjectRunService projectRunService,
-            Microsoft.Extensions.Logging.ILogger<RunCommand> logger)
+            Microsoft.Extensions.Logging.ILogger<RunCommand> logger,
+            FakeAppLauncherService? packageInventory = null)
         {
             HostFolder = hostFolder;
             Manifest = manifest;
             Layout = layout;
 
-            var packageInventory = new FakeAppLauncherService
+            packageInventory ??= new FakeAppLauncherService
             {
                 FakePackageName = "SbxMutationLockTestPackage",
                 FakePublisher = "CN=SbxMutationLockTests",
@@ -776,8 +834,6 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
             var runner = new GuestApplicationRunner(new TargetDeploymentService(deploymentStateStore));
 
             var runtimeService = new TargetRuntimeService(
-                new RuntimeProvisionStateStore(new TargetStateDirectoryProvider(
-                    Path.Join(connectionStateRoot, "runtime-unused"))),
                 new UnusedRuntimePayloadResolver(),
                 new UnusedRuntimeFrameworkResolver());
 

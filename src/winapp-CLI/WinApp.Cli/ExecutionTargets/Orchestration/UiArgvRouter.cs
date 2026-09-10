@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.Commands;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -9,31 +10,20 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 /// <param name="GuestRelativePath">Name inside the operation's guest staging folder.</param>
 /// <param name="GuestFullPath">Absolute guest path handed to the guest command.</param>
 /// <param name="HostDestination">Absolute host path the caller asked for.</param>
-internal sealed record RoutedArtifact(string GuestRelativePath, string GuestFullPath, string HostDestination);
+internal sealed record RoutedArtifact(
+    string GuestRelativePath, string GuestFullPath, string HostDestination,
+    bool IsRecording = false, bool Overwrite = true, bool Frames = false)
+{
+    public string GuestFramesDirectory => RecordingArtifactPublisher.GetFramesDirectory(GuestFullPath);
+    public string HostFramesDirectory => RecordingArtifactPublisher.GetFramesDirectory(HostDestination);
+}
 
 /// <summary>A UI command rewritten for the guest.</summary>
 /// <param name="Arguments">Argument vector to hand to guest winapp.</param>
 /// <param name="Artifact">The output file to fetch back, when the command declares one.</param>
 internal sealed record RoutedUiCommand(List<string> Arguments, RoutedArtifact? Artifact);
 
-/// <summary>
-/// Rewrites a UI command line for execution on the target (spec §"UI command routing").
-/// </summary>
-/// <remarks>
-/// Only routing-specific arguments are touched: the <c>--on</c> selector is removed, and an output
-/// path is redirected into target staging. Everything else is forwarded verbatim, so the target's
-/// own winapp parses and executes the ordinary command — which is what keeps every verb's behaviour
-/// and output identical to running it locally.
-/// <para>
-/// Removing <c>--on</c> is not cosmetic. Forwarding it would make the target's winapp try to select
-/// a target of its own and route the command again, so the command would either recurse or fail
-/// somewhere the user cannot see.
-/// </para>
-/// <para>
-/// Pure, and deliberately so: which tokens are rewritten is the only thing that can be wrong here,
-/// and that is exactly what a test can pin without a target.
-/// </para>
-/// </remarks>
+/// <summary>Removes host routing options and redirects capture output into guest staging.</summary>
 internal static class UiArgvRouter
 {
     private static readonly string[] TargetOptionNames = ["--on"];
@@ -49,7 +39,9 @@ internal static class UiArgvRouter
     public static RoutedUiCommand Rewrite(
         IReadOnlyList<string> arguments,
         string guestArtifactDirectory,
-        Func<string, string> resolveHostPath)
+        Func<string, string> resolveHostPath,
+        string? commandName = null,
+        string? defaultOutput = null)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentException.ThrowIfNullOrWhiteSpace(guestArtifactDirectory);
@@ -58,6 +50,11 @@ internal static class UiArgvRouter
         var rewritten = new List<string>(arguments.Count);
         RoutedArtifact? artifact = null;
         var forwardVerbatim = false;
+        commandName ??= arguments.Count > 1 && arguments[0] == "ui" ? arguments[1] : null;
+        var recording = commandName == "record";
+        var options = arguments.TakeWhile(token => token != "--").ToArray();
+        var overwrite = !recording || HasFlag(options, "--overwrite");
+        var frames = recording && HasFlag(options, "--frames");
 
         for (var index = 0; index < arguments.Count; index++)
         {
@@ -92,11 +89,13 @@ internal static class UiArgvRouter
                 continue;
             }
 
-            if (Matches(name, OutputOptionNames) && artifact is null)
+            if (Matches(name, OutputOptionNames))
             {
                 index += Rewrite(token, name, inlineValue, arguments, index, rewritten, value =>
                 {
-                    artifact = CreateArtifact(value, guestArtifactDirectory, resolveHostPath);
+                    artifact = CreateArtifact(value, guestArtifactDirectory, resolveHostPath)
+                        with
+                    { IsRecording = recording, Overwrite = overwrite, Frames = frames };
                     return artifact.GuestFullPath;
                 });
                 continue;
@@ -105,7 +104,36 @@ internal static class UiArgvRouter
             rewritten.Add(token);
         }
 
+        if (artifact is null && commandName is "record" or "screenshot")
+        {
+            artifact = CreateArtifact(
+                defaultOutput ?? (recording ? UiRecordOptionValidator.DefaultOutputPath() : "screenshot.png"),
+                guestArtifactDirectory, resolveHostPath)
+                with
+            { IsRecording = recording, Overwrite = overwrite, Frames = frames };
+            var separator = rewritten.IndexOf("--");
+            rewritten.InsertRange(separator < 0 ? rewritten.Count : separator, ["--output", artifact.GuestFullPath]);
+        }
         return new RoutedUiCommand(rewritten, artifact);
+    }
+
+    private static bool HasFlag(string[] arguments, string name)
+    {
+        var enabled = false;
+        for (var index = 0; index < arguments.Length; index++)
+        {
+            var token = arguments[index];
+            if (token == name)
+            {
+                enabled = index + 1 >= arguments.Length || !bool.TryParse(arguments[index + 1], out var value) || value;
+            }
+            else if (token.StartsWith(name + "=", StringComparison.Ordinal) ||
+                     token.StartsWith(name + ":", StringComparison.Ordinal))
+            {
+                enabled = bool.TryParse(token[(name.Length + 1)..], out var value) && value;
+            }
+        }
+        return enabled;
     }
 
     /// <summary>

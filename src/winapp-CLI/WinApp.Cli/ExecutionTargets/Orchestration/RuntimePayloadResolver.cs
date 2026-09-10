@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
@@ -116,7 +117,7 @@ internal sealed class RuntimePayloadResolver(
                     .ConfigureAwait(false)));
         }
 
-        if (requirements.WindowsAppSdkVersion is { Length: > 0 } sdkVersion &&
+        if (requirements.WindowsAppRuntimeVersion is { Length: > 0 } sdkVersion &&
             !requirements.Packages.Any(requirement => IsWindowsAppRuntime(requirement.Name)))
         {
             foreach (var entry in await ResolveWindowsAppRuntimeAsync(
@@ -161,22 +162,10 @@ internal sealed class RuntimePayloadResolver(
 
         if (inventory is null)
         {
-            var band = RuntimeBand(sdkVersion);
-            taskContext.AddDebugMessage(
-                $"{UiSymbols.Note} No cached Windows App Runtime inventory matches Microsoft.WindowsAppSDK {sdkVersion}; it will be verified in the guest instead.");
-
-            return
-            [
-                new ResolvedRuntimePackage(
-                    new RuntimePackageRequirement
-                    {
-                        Name = $"Microsoft.WindowsAppRuntime.{band}",
-                        MinVersion = "0.0.0.0",
-                        Architecture = architecture,
-                        Derived = true,
-                    },
-                    null),
-            ];
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.RuntimeProvisionFailed,
+                $"Could not resolve Microsoft.WindowsAppSDK.Runtime {sdkVersion} for {architecture}.",
+                "Restore the project's exact Windows App SDK Runtime package and retry.");
         }
 
         return
@@ -324,53 +313,38 @@ internal sealed class RuntimePayloadResolver(
     private RuntimeInventory? FindRuntimeInventory(string sdkVersion, string architecture)
     {
         var cache = nugetService.GetNuGetGlobalPackagesDir();
-        foreach (var packageId in (string[])
-            [BuildToolsService.WINAPP_SDK_RUNTIME_PACKAGE, BuildToolsService.WINAPP_SDK_PACKAGE])
+        var directory = new DirectoryInfo(Path.Join(
+            cache.FullName,
+            BuildToolsService.WINAPP_SDK_RUNTIME_PACKAGE.ToLowerInvariant(),
+            sdkVersion,
+            "tools",
+            "MSIX",
+            $"win10-{architecture}"));
+        if (!directory.Exists)
         {
-            var directory = new DirectoryInfo(Path.Join(
-                cache.FullName,
-                packageId.ToLowerInvariant(),
-                sdkVersion,
-                "tools",
-                "MSIX",
-                $"win10-{architecture}"));
-            if (!directory.Exists)
-            {
-                continue;
-            }
-
-            var payloads = SafePackageFiles(directory)
-                .Select(RuntimePayloadIdentity.TryRead)
-                .OfType<RuntimePayload>()
-                .Where(payload =>
-                    string.Equals(payload.Architecture, architecture, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(
-                        payload.Architecture,
-                        RuntimePackageRequirement.NeutralArchitecture,
-                        StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            var framework = payloads.FirstOrDefault(payload =>
-                payload.PackageName.StartsWith(
-                    "Microsoft.WindowsAppRuntime.",
-                    StringComparison.OrdinalIgnoreCase) &&
-                !payload.PackageName.Contains(
-                    WindowsAppRuntimeService.WinAppRuntimeCbsInfix,
-                    StringComparison.OrdinalIgnoreCase));
-            if (framework is not null)
-            {
-                return new RuntimeInventory(
-                    framework,
-                    [.. payloads.Where(payload => !ReferenceEquals(payload, framework))]);
-            }
+            return null;
         }
 
-        return null;
-    }
-
-    private static string RuntimeBand(string sdkVersion)
-    {
-        var parts = sdkVersion.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length >= 2 ? $"{parts[0]}.{parts[1]}" : sdkVersion;
+        var payloads = SafePackageFiles(directory)
+            .Select(RuntimePayloadIdentity.TryRead)
+            .OfType<RuntimePayload>()
+            .Where(payload =>
+                string.Equals(payload.Architecture, architecture, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    payload.Architecture,
+                    RuntimePackageRequirement.NeutralArchitecture,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var framework = payloads.FirstOrDefault(payload =>
+            payload.PackageName.StartsWith(
+                "Microsoft.WindowsAppRuntime.",
+                StringComparison.OrdinalIgnoreCase) &&
+            !payload.PackageName.Contains(
+                WindowsAppRuntimeService.WinAppRuntimeCbsInfix,
+                StringComparison.OrdinalIgnoreCase));
+        return framework is null
+            ? null
+            : new RuntimeInventory(framework, [.. payloads.Where(payload => !ReferenceEquals(payload, framework))]);
     }
 
     /// <summary>Resolves a dependency that is not part of a Windows App Runtime inventory.</summary>

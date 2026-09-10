@@ -343,7 +343,7 @@ public partial class SandboxLiveE2ETests
 
             var coordinatedRecording = RunCliAsync(
                 [
-                    "ui", "record", "--on", "sandbox", "-a", "winui-app", "--duration-sec", "8",
+                    "ui", "record", "--on", "sandbox", "-a", "winui-app", "--duration-sec", "12",
                     "-o", coordinationRecording, "--json",
                 ],
                 timeout.Token,
@@ -372,6 +372,16 @@ public partial class SandboxLiveE2ETests
                 foreignWorkflow.IsCompleted,
                 "A different workflow must remain queued while the guest recording owns the turn.");
 
+            var observedDuringRecording = await RunCliAsync(
+                ["ui", "get-value", "--on", "sandbox", "TextInput", "-a", "winui-app"],
+                timeout.Token,
+                environment: workflowEnvironmentB)
+                .WaitAsync(TimeSpan.FromSeconds(5), timeout.Token);
+            AssertCommandSucceeded(observedDuringRecording, "read-only command while another workflow owns the turn");
+            StringAssert.Contains(observedDuringRecording.StandardOutput, "Workflow A");
+            Assert.IsFalse(coordinatedRecording.IsCompleted,
+                "Observation must complete before the recording releases the guest turn.");
+
             AssertCommandSucceeded(await coordinatedRecording, "coordinated guest recording");
 
             AssertCommandSucceeded(
@@ -391,6 +401,18 @@ public partial class SandboxLiveE2ETests
             AssertCommandSucceeded(finalValue, "guest coordination postcondition");
             StringAssert.Contains(finalValue.StandardOutput, "Workflow B");
 
+            AssertCommandSucceeded(
+                await RunCliAsync(
+                    ["ui", "yield", "--on", "sandbox", "--json"],
+                    timeout.Token,
+                    environment: workflowEnvironmentB),
+                "second guest workflow yield");
+            var anonymousYield = await RunCliAsync(
+                ["ui", "yield", "--on", "sandbox", "--json"], timeout.Token);
+            Assert.AreEqual(1, anonymousYield.ExitCode,
+                "An anonymous command must not acquire an invented explicit guest workflow.");
+            StringAssert.Contains(anonymousYield.StandardError, $"requires {GuestOwnerContext.WorkflowVariable}");
+
             var captured = await RunCliAsync(
                 ["ui", "screenshot", "--on", "sandbox", "-a", "winui-app", "-o", screenshot, "--json"],
                 timeout.Token);
@@ -399,15 +421,52 @@ public partial class SandboxLiveE2ETests
             Assert.IsGreaterThan(1024L, new FileInfo(screenshot).Length);
             StringAssert.Contains(captured.StandardOutput, screenshot.Replace(@"\", @"\\"));
 
+            var defaultScreenshot = await RunCliAsync(
+                ["ui", "screenshot", "--on", "sandbox", "-a", "winui-app", "--json"],
+                timeout.Token,
+                workingDirectory: artifacts);
+            AssertCommandSucceeded(defaultScreenshot, "guest screenshot with host-default output");
+            Assert.HasCount(2, Directory.GetFiles(artifacts, "*.png"));
+            StringAssert.Contains(defaultScreenshot.StandardOutput, artifacts.Replace(@"\", @"\\"));
+
             var recorded = await RunCliAsync(
                 [
                     "ui", "record", "--on", "sandbox", "-a", "winui-app", "--duration-sec", "2",
-                    "-o", recording, "--json",
+                    "-o", recording, "--frames", "--json",
                 ],
                 timeout.Token);
             AssertCommandSucceeded(recorded, "guest recording");
             Assert.IsTrue(File.Exists(recording));
             Assert.IsGreaterThan(1024L, new FileInfo(recording).Length);
+            var framesDirectory = Path.ChangeExtension(recording, ".frames");
+            Assert.IsTrue(File.Exists(Path.Join(framesDirectory, "frames.ndjson")));
+            Assert.IsTrue(File.Exists(Path.Join(framesDirectory, "manifest.json")));
+            Assert.IsTrue(Directory.EnumerateFiles(framesDirectory, "*.jpg", SearchOption.AllDirectories).Any());
+            StringAssert.Contains(recorded.StandardOutput, framesDirectory.Replace(@"\", @"\\"));
+            var originalVideoHash = Sha256(await File.ReadAllBytesAsync(recording, timeout.Token));
+
+            var collision = await RunCliAsync(
+                ["ui", "record", "--on", "sandbox", "-a", "winui-app", "--duration-sec", "1",
+                    "-o", recording, "--json"], timeout.Token);
+            Assert.AreNotEqual(0, collision.ExitCode, "An existing recording must not be silently replaced.");
+            Assert.AreEqual(originalVideoHash, Sha256(await File.ReadAllBytesAsync(recording, timeout.Token)));
+            Assert.IsTrue(Directory.Exists(framesDirectory));
+
+            var overwritten = await RunCliAsync(
+                ["ui", "record", "--on", "sandbox", "-a", "winui-app", "--duration-sec", "1",
+                    "-o", recording, "--overwrite", "--json"], timeout.Token);
+            AssertCommandSucceeded(overwritten, "explicit guest recording replacement");
+            Assert.AreNotEqual(originalVideoHash, Sha256(await File.ReadAllBytesAsync(recording, timeout.Token)));
+            Assert.IsFalse(Directory.Exists(framesDirectory),
+                "Replacing a paired recording without --frames must not leave frames from the old take.");
+
+            var recordingsBeforeDefault = Directory.GetFiles(artifacts, "*.mp4").Length;
+            var defaultRecording = await RunCliAsync(
+                ["ui", "record", "--on", "sandbox", "-a", "winui-app", "--duration-sec", "1", "--json"],
+                timeout.Token, workingDirectory: artifacts);
+            AssertCommandSucceeded(defaultRecording, "guest recording with host-default output");
+            Assert.AreEqual(recordingsBeforeDefault + 1, Directory.GetFiles(artifacts, "*.mp4").Length);
+            StringAssert.Contains(defaultRecording.StandardOutput, artifacts.Replace(@"\", @"\\"));
 
             var store = new TargetStateStore(new TargetStateDirectoryProvider());
             var previous = store.Read(WindowsSandboxTarget.Default)!;
@@ -697,7 +756,8 @@ public partial class SandboxLiveE2ETests
         string? standardInput = null,
         IReadOnlyDictionary<string, string>? environment = null,
         string? standardErrorMarker = null,
-        TaskCompletionSource? markerObserved = null)
+        TaskCompletionSource? markerObserved = null,
+        string? workingDirectory = null)
     {
         var captureRoot = Path.Join(Path.GetTempPath(), "winapp-live-capture");
         Directory.CreateDirectory(captureRoot);
@@ -732,10 +792,12 @@ public partial class SandboxLiveE2ETests
             FileName = Environment.GetEnvironmentVariable("ComSpec")!,
             UseShellExecute = false,
             CreateNoWindow = true,
+            WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
         };
         startInfo.ArgumentList.Add("/d");
         startInfo.ArgumentList.Add("/c");
         startInfo.ArgumentList.Add(scriptPath);
+        startInfo.Environment.Remove(GuestOwnerContext.WorkflowVariable);
         if (environment is not null)
         {
             foreach (var (name, value) in environment)
@@ -758,7 +820,19 @@ public partial class SandboxLiveE2ETests
                     process,
                     cancellationToken);
 
-            await process.WaitForExitAsync(cancellationToken);
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                await process.WaitForExitAsync(CancellationToken.None);
+                throw;
+            }
             await markerTask;
             await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
 

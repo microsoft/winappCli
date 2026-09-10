@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.Threading.Channels;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Services;
@@ -39,6 +40,10 @@ internal sealed class GuestCommandServer : IAsyncDisposable
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly ConcurrentDictionary<Guid, RunningOperation> _operations = new();
     private readonly ConcurrentDictionary<Guid, GuestFileWrite> _writes = new();
+    private readonly CancellationTokenSource _connectionClosed = new();
+    private readonly CancellationToken _connectionToken;
+    private readonly TaskCompletionSource _runFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _runStarted;
     private bool _disposed;
 
     /// <summary>Creates a server bound to one connection and one target generation.</summary>
@@ -62,6 +67,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         _guestWinapp = guestWinapp;
         _appLauncher = appLauncher;
         _packageRegistration = packageRegistration;
+        _connectionToken = _connectionClosed.Token;
     }
 
     /// <summary>How long a cancelled child gets to exit before its job is terminated.</summary>
@@ -104,17 +110,19 @@ internal sealed class GuestCommandServer : IAsyncDisposable
     /// </summary>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        _runStarted = true;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _connectionToken);
         try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (!lifetime.IsCancellationRequested)
             {
-                var frame = await _transport.ReceiveFrameAsync(cancellationToken).ConfigureAwait(false);
+                var frame = await _transport.ReceiveFrameAsync(lifetime.Token).ConfigureAwait(false);
                 if (frame is null)
                 {
                     return;
                 }
 
-                await DispatchAsync(frame.Value, cancellationToken).ConfigureAwait(false);
+                await DispatchAsync(frame.Value, lifetime.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -123,7 +131,16 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         }
         finally
         {
-            await StopAllOperationsAsync().ConfigureAwait(false);
+            try
+            {
+                await _connectionClosed.CancelAsync().ConfigureAwait(false);
+                await StopAllOperationsAsync().ConfigureAwait(false);
+                await _transport.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _runFinished.TrySetResult();
+            }
         }
     }
 
@@ -136,9 +153,19 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         }
 
         _disposed = true;
-        await StopAllOperationsAsync().ConfigureAwait(false);
-        _sendLock.Dispose();
+        await _connectionClosed.CancelAsync().ConfigureAwait(false);
         await _transport.DisposeAsync().ConfigureAwait(false);
+        if (_runStarted)
+        {
+            await _runFinished.Task.ConfigureAwait(false);
+        }
+        else
+        {
+            await StopAllOperationsAsync().ConfigureAwait(false);
+        }
+        await _sendLock.WaitAsync().ConfigureAwait(false);
+        _sendLock.Dispose();
+        _connectionClosed.Dispose();
     }
 
     private async Task DispatchAsync(ReadOnlyMemory<byte> frame, CancellationToken cancellationToken)
@@ -203,7 +230,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
             case GuestMessageTypes.StdinClosed:
                 if (_operations.TryGetValue(operationId, out var forClose))
                 {
-                    forClose.Host.CloseStandardInput();
+                    forClose.CloseStandardInput();
                 }
                 else if (_writes.TryRemove(operationId, out var completedWrite))
                 {
@@ -216,7 +243,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
             case GuestMessageTypes.CancelRequest:
                 if (_operations.TryGetValue(operationId, out var forCancel))
                 {
-                    await forCancel.CancelAsync().ConfigureAwait(false);
+                    forCancel.RequestCancel();
                 }
                 else if (_writes.TryRemove(operationId, out var abandonedWrite))
                 {
@@ -328,7 +355,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
 
         if (_operations.TryGetValue(operationId, out var operation))
         {
-            await operation.Host.WriteStandardInputAsync(data, cancellationToken).ConfigureAwait(false);
+            operation.EnqueueStandardInput(data);
         }
     }
 
@@ -378,13 +405,17 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         {
             var files = await RequireFiles().ListAsync(scope, cancellationToken).ConfigureAwait(false);
 
+            foreach (var batch in GuestPayloadCodec.EncodeFileInventory(operationId, _targetEpoch, files))
+            {
+                await SendRawAsync(batch, cancellationToken).ConfigureAwait(false);
+            }
+
             await SendAsync(
                 new GuestMessage
                 {
-                    Type = GuestMessageTypes.ListFilesResponse,
+                    Type = GuestMessageTypes.ListFilesCompleted,
                     OperationId = operationId.ToString(),
                     TargetEpoch = _targetEpoch,
-                    Files = files,
                 },
                 cancellationToken).ConfigureAwait(false);
         }
@@ -945,7 +976,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
             "This guest agent was not configured with package registration support.",
             userAction: "Retry the command.");
 
-    private Task SendFileCompletedAsync(Guid operationId, CancellationToken cancellationToken) =>        SendAsync(
+    private Task SendFileCompletedAsync(Guid operationId, CancellationToken cancellationToken) => SendAsync(
             new GuestMessage
             {
                 Type = GuestMessageTypes.FileCompleted,
@@ -1021,12 +1052,13 @@ internal sealed class GuestCommandServer : IAsyncDisposable
 
         try
         {
-            var outputSends = new ConcurrentQueue<Task>();
             var host = _processes.Start(
                 resolved,
-                (stream, data) => outputSends.Enqueue(ForwardOutputAsync(operationId, stream, data)));
+                (stream, data) => request.Detach
+                    ? Task.CompletedTask
+                    : ForwardOutputAsync(operationId, stream, data));
 
-            operation = new RunningOperation(host, outputSends, GracefulStopTimeout, request.Detach);
+            operation = new RunningOperation(host, GracefulStopTimeout, request.Detach);
         }
         catch (ExecutionTargetException ex)
         {
@@ -1151,10 +1183,15 @@ internal sealed class GuestCommandServer : IAsyncDisposable
 
             var exitCode = await operation.Host.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
-            // GuestProcessHost has drained the child pipes at this point, so no more tasks can be
-            // enqueued. Wait for every encoded frame to cross the transport before completion makes
-            // the host remove the operation; otherwise a fast process loses its trailing output.
-            await Task.WhenAll(operation.OutputSends.ToArray()).ConfigureAwait(false);
+            await operation.StopInputAsync().ConfigureAwait(false);
+            await operation.WaitForStopAsync().ConfigureAwait(false);
+            // Releasing the job terminates any surviving descendants before the host may mutate
+            // their files or unregister the package in response to completion.
+            await operation.Host.DisposeAsync().ConfigureAwait(false);
+            if (operation.InputFailure is { } inputFailure)
+            {
+                throw new ExecutionTargetException(inputFailure);
+            }
 
             if (!operation.Detach)
             {
@@ -1202,9 +1239,16 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         }
         finally
         {
-            _operations.TryRemove(operationId, out _);
-            await operation.Host.DisposeAsync().ConfigureAwait(false);
-            operation.MarkFinished();
+            try
+            {
+                await operation.StopInputAsync().ConfigureAwait(false);
+                await operation.Host.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _operations.TryRemove(operationId, out _);
+                operation.Dispose();
+            }
         }
     }
 
@@ -1226,6 +1270,14 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         {
             // The connection is already gone; the host will observe the closed channel instead.
         }
+        catch (OperationCanceledException) when (_connectionClosed.IsCancellationRequested)
+        {
+            // The connection closed while the failure was being reported.
+        }
+        catch (ObjectDisposedException) when (_connectionToken.IsCancellationRequested)
+        {
+            // Disposal completed before this late failure could be reported.
+        }
     }
 
     /// <summary>Forwards one output chunk, splitting it to fit the frame limit.</summary>
@@ -1239,7 +1291,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
             {
                 var take = Math.Min(remaining.Length, GuestPayloadCodec.MaxStreamChunkSize);
                 var payload = GuestPayloadCodec.EncodeStream(operationId, stream, remaining.Span[..take]);
-                await SendRawAsync(payload, CancellationToken.None).ConfigureAwait(false);
+                await SendRawAsync(payload, _connectionToken).ConfigureAwait(false);
                 remaining = remaining[take..];
             }
         }
@@ -1251,6 +1303,10 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         {
             // The server shut down while output was still draining.
         }
+        catch (OperationCanceledException) when (_connectionClosed.IsCancellationRequested)
+        {
+            // Stop draining into a peer that disconnected; process cleanup must still finish.
+        }
     }
 
     private Task SendAsync(GuestMessage message, CancellationToken cancellationToken) =>
@@ -1260,10 +1316,11 @@ internal sealed class GuestCommandServer : IAsyncDisposable
     {
         // One lock over the whole send keeps frames — and therefore the sequence numbers the AEAD
         // nonce is derived from — strictly ordered even with several operations streaming at once.
-        await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _connectionToken);
+        await _sendLock.WaitAsync(linked.Token).ConfigureAwait(false);
         try
         {
-            await _transport.SendFrameAsync(payload, cancellationToken).ConfigureAwait(false);
+            await _transport.SendFrameAsync(payload, linked.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -1347,17 +1404,24 @@ internal sealed class GuestCommandServer : IAsyncDisposable
     /// <summary>One in-flight operation and its child process.</summary>
     private sealed class RunningOperation(
         IGuestProcessHost host,
-        ConcurrentQueue<Task> outputSends,
         TimeSpan gracefulTimeout,
-        bool detach)
+        bool detach) : IDisposable
     {
         private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly CancellationTokenSource _inputCancellation = new();
+        private readonly Channel<ReadOnlyMemory<byte>> _input = Channel.CreateBounded<ReadOnlyMemory<byte>>(
+            new BoundedChannelOptions(64) { SingleReader = true, SingleWriter = true });
+        private Task? _inputPump;
+        private Task? _stopInput;
+        private Task<int>? _stop;
+        private int _pendingInputBytes;
+        private bool _inputClosed;
+        private const int MaxPendingInputBytes = 4 * 1024 * 1024;
 
         /// <summary>The child process running this operation.</summary>
         public IGuestProcessHost Host { get; } = host;
 
-        /// <summary>Output frames that must be sent before completion is published.</summary>
-        public ConcurrentQueue<Task> OutputSends { get; } = outputSends;
+        public ExecutionTargetErrorInfo? InputFailure { get; private set; }
 
         /// <summary>Whether this process remains owned by the agent after its host channel closes.</summary>
         public bool Detach { get; } = detach;
@@ -1372,11 +1436,144 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         public Task Completion => _finished.Task;
 
         /// <summary>Marks this operation as fully finished.</summary>
-        public void MarkFinished() => _finished.TrySetResult();
+        public void Dispose()
+        {
+            lock (_finished)
+            {
+                _finished.TrySetResult();
+                _inputCancellation.Dispose();
+            }
+        }
+
+        public void EnqueueStandardInput(ReadOnlyMemory<byte> data)
+        {
+            lock (_finished)
+            {
+                if (_finished.Task.IsCompleted || _inputClosed || _inputCancellation.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _inputPump ??= PumpInputAsync();
+                if (Interlocked.Add(ref _pendingInputBytes, data.Length) <= MaxPendingInputBytes
+                    && _input.Writer.TryWrite(data.ToArray()))
+                {
+                    return;
+                }
+
+                Interlocked.Add(ref _pendingInputBytes, -data.Length);
+                InputFailure = new ExecutionTargetErrorInfo
+                {
+                    Code = ExecutionTargetErrorCodes.TransportFailed,
+                    Message = "The guest process is not consuming standard input fast enough; its bounded input buffer is full.",
+                    UserAction = "Reduce or throttle the input, then retry the command.",
+                };
+                RequestCancel();
+            }
+        }
+
+        public void CloseStandardInput()
+        {
+            lock (_finished)
+            {
+                if (_finished.Task.IsCompleted || _inputCancellation.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _inputClosed = true;
+                _inputPump ??= PumpInputAsync();
+                _input.Writer.TryComplete();
+            }
+        }
+
+        private async Task PumpInputAsync()
+        {
+            try
+            {
+                await foreach (var data in _input.Reader.ReadAllAsync(_inputCancellation.Token).ConfigureAwait(false))
+                {
+                    try
+                    {
+                        await Host.WriteStandardInputAsync(data, _inputCancellation.Token).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        Interlocked.Add(ref _pendingInputBytes, -data.Length);
+                    }
+                }
+
+                Host.CloseStandardInput();
+            }
+            catch (OperationCanceledException) when (_inputCancellation.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
+            {
+                InputFailure = new ExecutionTargetErrorInfo
+                {
+                    Code = ExecutionTargetErrorCodes.TransportFailed,
+                    Message = $"The guest could not forward standard input: {ex.Message}",
+                    UserAction = "Retry the command.",
+                };
+                RequestCancel();
+            }
+        }
+
+        public Task StopInputAsync()
+        {
+            lock (_finished)
+            {
+                return _stopInput ??= StopInputCoreAsync();
+            }
+        }
+
+        private async Task StopInputCoreAsync()
+        {
+            await _inputCancellation.CancelAsync().ConfigureAwait(false);
+            _input.Writer.TryComplete();
+            if (_inputPump is { } pump)
+            {
+                await pump.ConfigureAwait(false);
+            }
+
+            while (_input.Reader.TryRead(out _))
+            {
+            }
+        }
+
+        public void RequestCancel() => _ = CancelAsync();
+
+        public Task WaitForStopAsync()
+        {
+            lock (_finished)
+            {
+                return _stop is { } stop ? stop : Task.CompletedTask;
+            }
+        }
 
         /// <summary>
         /// Requests graceful termination, then terminates the process tree after the timeout.
         /// </summary>
-        public Task<int> CancelAsync() => Host.StopAsync(gracefulTimeout, CancellationToken.None);
+        public Task<int> CancelAsync()
+        {
+            lock (_finished)
+            {
+                if (_finished.Task.IsCompleted || (_stop is null && _stopInput is not null))
+                {
+                    return Task.FromResult(-1);
+                }
+
+                return _stop ??= Task.Run(async () =>
+                {
+                    // A synchronous Windows pipe write may not observe cancellation until the
+                    // child closes its read handle. Stop the child while joining the input pump.
+                    var inputStopped = StopInputAsync();
+                    var exitCode = await Host.StopAsync(gracefulTimeout, CancellationToken.None).ConfigureAwait(false);
+                    await inputStopped.ConfigureAwait(false);
+                    return exitCode;
+                });
+            }
+        }
     }
 }

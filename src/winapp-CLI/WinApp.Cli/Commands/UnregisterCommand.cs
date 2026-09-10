@@ -157,19 +157,6 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                         isJson);
                 }
 
-                if (!target.IsLocal && input is not null)
-                {
-                    return TargetOutput.RejectOptions(
-                        ansiConsole,
-                        isJson,
-                        new ExecutionTargetErrorInfo
-                        {
-                            Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
-                            Message = "A .cs file-based app cannot currently be used with 'unregister --on'.",
-                            UserAction = "Pass the manifest that identifies the deployed package instead.",
-                        });
-                }
-
                 if (properties.Length > 0 || outputAppXDirectory != null || configuration != null
                     || archOption != null || runtimeOption != null)
                 {
@@ -179,6 +166,19 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 }
 
                 return await PruneOrphanedRegistrationsAsync(force, isJson, cancellationToken);
+            }
+
+            if (!target.IsLocal && input is not null)
+            {
+                return TargetOutput.RejectOptions(
+                    ansiConsole,
+                    isJson,
+                    new ExecutionTargetErrorInfo
+                    {
+                        Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
+                        Message = "A .cs file-based app cannot currently be used with 'unregister --on'.",
+                        UserAction = "Pass the manifest that identifies the deployed package instead.",
+                    });
             }
 
             // An input and --manifest are two different ways to name a package, and they can name

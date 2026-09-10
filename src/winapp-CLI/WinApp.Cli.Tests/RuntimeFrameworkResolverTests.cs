@@ -129,14 +129,14 @@ public class RuntimeFrameworkResolverTests
     }
 
     [TestMethod]
-    public async Task Resolve_PrefersTheOldestPackThatSatisfiesTheConstraint()
+    public async Task Resolve_AppliesLatestPatchWithinTheNearestMinorByDefault()
     {
         WritePack(Core, "10.0.2", "x64");
         WritePack(Core, "10.0.9", "x64");
 
         var payload = await ResolveAsync(Core, "10.0.1", "x64");
 
-        Assert.AreEqual("10.0.2", payload!.Version);
+        Assert.AreEqual("10.0.9", payload!.Version);
     }
 
     [TestMethod]
@@ -177,6 +177,50 @@ public class RuntimeFrameworkResolverTests
         // would publish a second copy of the same versioned folder for no reason.
         Assert.Contains($"shared/{Desktop}/10.0.2/WindowsBase.dll", entries);
         Assert.IsFalse(entries.Any(entry => entry.StartsWith("host/fxr/", StringComparison.Ordinal)));
+        Assert.AreEqual(Core, payload.Dependencies.Single().Name);
+        Assert.AreEqual("10.0.2", payload.Dependencies.Single().MinVersion);
+    }
+
+    [TestMethod]
+    public async Task Resolve_ReadsTheCoreDependencyFromAHostDesktopInstallation()
+    {
+        var installed = TestPaths.Under(_root, "dotnet");
+        WriteInstallation(installed, "8.0.11");
+        var desktop = Path.Join(installed, "shared", Desktop, "8.0.12");
+        Directory.CreateDirectory(desktop);
+        File.WriteAllText(Path.Join(desktop, $"{Desktop}.deps.json"), "{}");
+        File.WriteAllText(Path.Join(desktop, $"{Desktop}.runtimeconfig.json"), """
+            {"runtimeOptions":{"rollForward":"LatestPatch","framework":{"name":"Microsoft.NETCore.App","version":"8.0.12"}}}
+            """);
+        File.WriteAllText(Path.Join(desktop, "WindowsBase.dll"), "managed");
+        File.WriteAllText(Path.Join(desktop, "System.Windows.Forms.dll"), "managed");
+        _resolver.HostDotNetRoots = () => [installed];
+
+        var payload = await ResolveAsync(Desktop, "8.0.0", "x64");
+
+        Assert.IsNotNull(payload);
+        Assert.AreEqual("8.0.12", payload.Dependencies.Single().MinVersion);
+        var core = await _resolver.ResolveAsync(
+            payload.Dependencies.Single(), new DirectoryInfo(_root), CreateTaskContext(), TestContext.CancellationToken);
+        Assert.IsNull(core, "Core 8.0.11 cannot satisfy Desktop 8.0.12");
+        Assert.AreEqual("8.0.12", _installer.EnsurePackageCalls.Single().Version);
+    }
+
+    [TestMethod]
+    public async Task Resolve_DisableConfigDoesNotSelectANewerCachedRuntimePack()
+    {
+        WritePack(Core, "8.0.12", "x64");
+        File.WriteAllText(Path.Join(_root, "App.runtimeconfig.json"), """
+            {"runtimeOptions":{"framework":{
+                "name":"Microsoft.NETCore.App","version":"8.0.0","rollForward":"Disable"}}}
+            """);
+        var requirements = RuntimeRequirementDiscovery.Discover(new DirectoryInfo(_root), "x64");
+
+        var payload = await _resolver.ResolveAsync(
+            requirements.Frameworks.Single(), new DirectoryInfo(_root), CreateTaskContext(), TestContext.CancellationToken);
+
+        Assert.IsNull(payload);
+        Assert.AreEqual("8.0.0", _installer.EnsurePackageCalls.Single().Version);
     }
 
     [TestMethod]
@@ -251,7 +295,10 @@ public class RuntimeFrameworkResolverTests
         Directory.CreateDirectory(lib);
 
         File.WriteAllText(Path.Join(lib, $"{framework}.deps.json"), "{}");
-        File.WriteAllText(Path.Join(lib, $"{framework}.runtimeconfig.json"), "{}");
+        File.WriteAllText(Path.Join(lib, $"{framework}.runtimeconfig.json"),
+            framework == Desktop
+                ? $$"""{"runtimeOptions":{"rollForward":"LatestPatch","framework":{"name":"Microsoft.NETCore.App","version":"{{version}}"} } }"""
+                : "{}");
 
         if (framework == Desktop)
         {
@@ -274,7 +321,7 @@ public class RuntimeFrameworkResolverTests
         if (framework == Core)
         {
             File.WriteAllText(Path.Join(native, "coreclr.dll"), "native");
-            File.WriteAllText(Path.Join(native, "hostpolicy.dll"), "native");
+            File.WriteAllBytes(Path.Join(native, "hostpolicy.dll"), MinimalPe.ForArchitecture(architecture));
             File.WriteAllText(Path.Join(native, "hostfxr.dll"), "native");
         }
         else

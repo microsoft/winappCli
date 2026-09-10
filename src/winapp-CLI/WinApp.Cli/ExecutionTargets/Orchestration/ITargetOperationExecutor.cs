@@ -41,6 +41,10 @@ internal interface ITargetOperationExecutor
     /// <remarks>
     /// The exit code returned is the target application's own, kept distinguishable from the
     /// infrastructure failures reported as <see cref="ExecutionTargetException"/>.
+    /// Cancellation waits for the guest to stop and drain output before throwing
+    /// <see cref="OperationCanceledException"/>. The channel remains usable with an independent
+    /// token for cleanup and artifact collection. A missing stop acknowledgement instead fails
+    /// with <see cref="ExecutionTargetException"/> and closes the channel.
     /// </remarks>
     Task<GuestExecResult> ExecuteAsync(
         GuestExecRequest request,

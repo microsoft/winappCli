@@ -19,6 +19,122 @@ namespace WinApp.Cli.Tests;
 public partial class TargetRuntimeServiceTests
 {
     [TestMethod]
+    public async Task Ensure_UsesAppArchitectureAndKeepsManagedRootsSeparate()
+    {
+        await WriteRuntimeConfigAsync(DotNetLayout.CoreFramework, "8.0.0");
+        await using var harness = new Harness(
+            _guestManaged, _stateRoot, sharedFrameworkRoot: TestPaths.Under(_root, "no-dotnet"),
+            guestArchitecture: "arm64");
+
+        harness.Frameworks.Layouts[DotNetLayout.CoreFramework] =
+            await WriteLayoutAsync(DotNetLayout.CoreFramework, "8.0.12", "x86");
+        var x86 = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken, "x86");
+        harness.Frameworks.Layouts[DotNetLayout.CoreFramework] =
+            await WriteLayoutAsync(DotNetLayout.CoreFramework, "8.0.12", "x64");
+        var x64 = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken, "x64");
+
+        Assert.AreEqual("x86", x86.Requirements.Architecture);
+        Assert.AreEqual("x64", x64.Requirements.Architecture);
+        Assert.AreNotEqual(x86.Report!.DotNetRoot, x64.Report!.DotNetRoot);
+        Assert.IsTrue(DotNetLayout.MatchesArchitecture(x86.Report.DotNetRoot!, "x86"));
+        Assert.IsTrue(DotNetLayout.MatchesArchitecture(x64.Report.DotNetRoot!, "x64"));
+        Assert.AreEqual(x86.Report.DotNetRoot, x86.LaunchEnvironment["DOTNET_ROOT_X86"]);
+        Assert.AreEqual(x64.Report.DotNetRoot, x64.LaunchEnvironment["DOTNET_ROOT_X64"]);
+    }
+
+    [TestMethod]
+    public async Task Ensure_DisableConfigurationDoesNotAcceptANewerGuestPatch()
+    {
+        await File.WriteAllTextAsync(Path.Join(_hostSource, "App.runtimeconfig.json"), """
+            {"runtimeOptions":{"rollForward":"Disable",
+                "framework":{"name":"Microsoft.NETCore.App","version":"8.0.0"}}}
+            """, TestContext.CancellationToken);
+        var installed = TestPaths.Under(_root, "guest-dotnet");
+        WriteInstalledFramework(installed, DotNetLayout.CoreFramework, "8.0.12");
+        await using var harness = new Harness(_guestManaged, _stateRoot, sharedFrameworkRoot: installed);
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.EnsureAsync(_hostSource, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task Ensure_ResolvesCoreAgainstTheSelectedDesktopDependency()
+    {
+        await WriteRuntimeConfigAsync(DotNetLayout.DesktopFramework, "8.0.0");
+        await using var harness = new Harness(
+            _guestManaged, _stateRoot, sharedFrameworkRoot: TestPaths.Under(_root, "no-dotnet"));
+        harness.Frameworks.Layouts[DotNetLayout.CoreFramework] =
+            await WriteLayoutAsync(DotNetLayout.CoreFramework, "8.0.11");
+        harness.Frameworks.Layouts[DotNetLayout.DesktopFramework] =
+            await WriteLayoutAsync(DotNetLayout.DesktopFramework, "8.0.12");
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.EnsureAsync(_hostSource, TestContext.CancellationToken));
+        Assert.AreEqual("8.0.12", harness.Frameworks.Requests.Single(
+            requirement => requirement.Name == DotNetLayout.CoreFramework).MinVersion);
+
+        harness.Frameworks.Layouts[DotNetLayout.CoreFramework] =
+            await WriteLayoutAsync(DotNetLayout.CoreFramework, "8.0.12");
+        var repaired = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken);
+        Assert.IsTrue(repaired.Report!.Satisfied);
+    }
+
+    [TestMethod]
+    public async Task Ensure_ExistingDesktopIsVerifiedAgainstItsOwnCoreDependency()
+    {
+        await WriteRuntimeConfigAsync(DotNetLayout.DesktopFramework, "8.0.0");
+        var installed = TestPaths.Under(_root, "guest-dotnet");
+        WriteInstalledFramework(installed, DotNetLayout.CoreFramework, "8.0.11");
+        WriteInstalledFramework(installed, DotNetLayout.DesktopFramework, "8.0.12");
+        await using var harness = new Harness(_guestManaged, _stateRoot, sharedFrameworkRoot: installed);
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.EnsureAsync(_hostSource, TestContext.CancellationToken));
+
+        WriteInstalledFramework(installed, DotNetLayout.CoreFramework, "8.0.12");
+        var repaired = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken);
+        Assert.IsTrue(repaired.AlreadySatisfied);
+        Assert.AreEqual(installed, repaired.Report!.DotNetRoot);
+    }
+
+    [TestMethod]
+    public async Task Ensure_DesktopDependencyDoesNotOverrideAnExplicitDisabledCoreReference()
+    {
+        await File.WriteAllTextAsync(Path.Join(_hostSource, "App.runtimeconfig.json"), """
+            {"runtimeOptions":{"frameworks":[
+                {"name":"Microsoft.NETCore.App","version":"8.0.0","rollForward":"Disable"},
+                {"name":"Microsoft.WindowsDesktop.App","version":"8.0.0"}
+            ]}}
+            """, TestContext.CancellationToken);
+        await using var harness = new Harness(
+            _guestManaged, _stateRoot, sharedFrameworkRoot: TestPaths.Under(_root, "no-dotnet"));
+        harness.Frameworks.Layouts[DotNetLayout.CoreFramework] =
+            await WriteLayoutAsync(DotNetLayout.CoreFramework, "8.0.12");
+        harness.Frameworks.Layouts[DotNetLayout.DesktopFramework] =
+            await WriteLayoutAsync(DotNetLayout.DesktopFramework, "8.0.12");
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.EnsureAsync(_hostSource, TestContext.CancellationToken));
+        var core = harness.Frameworks.Requests.Single(requirement => requirement.Name == DotNetLayout.CoreFramework);
+        Assert.IsFalse(core.IsSatisfiedBy(new Version(8, 0, 12)));
+    }
+
+    [TestMethod]
+    public async Task Ensure_SelfContainedCrossArchitectureBuildDoesNotProvisionRuntimes()
+    {
+        await File.WriteAllTextAsync(Path.Join(_hostSource, "App.runtimeconfig.json"), """
+            {"runtimeOptions":{"includedFrameworks":[{"name":"Microsoft.NETCore.App","version":"8.0.12"}]}}
+            """, TestContext.CancellationToken);
+        await using var harness = new Harness(_guestManaged, _stateRoot, guestArchitecture: "arm64");
+
+        var result = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken, "x86");
+
+        Assert.IsTrue(result.Requirements.IsEmpty);
+        Assert.AreEqual(0, harness.GuestInvocations);
+        Assert.IsEmpty(harness.Frameworks.Requests);
+    }
+
+    [TestMethod]
     public async Task Ensure_InstallsTheSharedFrameworkAndPinsTheLaunchToTheManagedRoot()
     {
         await WriteRuntimeConfigAsync("Microsoft.WindowsDesktop.App", "10.0.0");
@@ -40,7 +156,7 @@ public partial class TargetRuntimeServiceTests
         Assert.AreEqual(2, result.Report.Items.Count);
         Assert.IsTrue(result.Report.Items.TrueForAll(item => item.Installed));
 
-        var managedRoot = TestPaths.Under(_guestManaged, TargetRuntimeService.DotNetRootFolderName);
+        var managedRoot = TestPaths.Under(_guestManaged, TargetRuntimeService.DotNetRootFolderName, "x64");
         Assert.IsTrue(Directory.Exists(Path.Join(managedRoot, "shared", "Microsoft.NETCore.App", "10.0.2")));
         Assert.IsTrue(Directory.Exists(Path.Join(managedRoot, "host", "fxr", "10.0.2")));
 
@@ -51,7 +167,7 @@ public partial class TargetRuntimeServiceTests
     }
 
     [TestMethod]
-    public async Task Ensure_WhenTheGuestAlreadyHasTheFramework_InstallsNothingAndLeavesTheLaunchAlone()
+    public async Task Ensure_WhenTheGuestAlreadyHasTheFramework_InstallsNothingAndUsesThatRoot()
     {
         await WriteRuntimeConfigAsync("Microsoft.NETCore.App", "10.0.0");
 
@@ -69,7 +185,7 @@ public partial class TargetRuntimeServiceTests
 
         // Nothing was installed into the managed root, so pinning DOTNET_ROOT to it would break a
         // launch that works perfectly well against the guest's own installation.
-        Assert.IsEmpty(result.LaunchEnvironment);
+        Assert.AreEqual(installed, result.LaunchEnvironment["DOTNET_ROOT"]);
         Assert.IsEmpty(harness.ConfiguredDiscoveryRoots);
     }
 
@@ -116,7 +232,7 @@ public partial class TargetRuntimeServiceTests
         Assert.IsTrue(result.Report!.Satisfied);
         Assert.IsTrue(result.Report.Items.TrueForAll(item => item.Installed));
 
-        var managedRoot = TestPaths.Under(_guestManaged, TargetRuntimeService.DotNetRootFolderName);
+        var managedRoot = TestPaths.Under(_guestManaged, TargetRuntimeService.DotNetRootFolderName, "x64");
         Assert.IsTrue(Directory.Exists(Path.Join(managedRoot, "shared", "Microsoft.NETCore.App", "10.0.2")));
         Assert.IsTrue(Directory.Exists(Path.Join(managedRoot, "shared", "Microsoft.WindowsDesktop.App", "10.0.2")));
         Assert.AreEqual(managedRoot, result.LaunchEnvironment["DOTNET_ROOT"]);

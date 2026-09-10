@@ -2,7 +2,7 @@
  * AUTO-GENERATED — DO NOT EDIT
  *
  * Regenerate with:  npm run generate-commands
- * Source schema version: 0.6.3
+ * Source schema version: 1.0.0
  *
  * Programmatic wrappers for all winapp CLI commands.
  * Each function builds the CLI arguments, invokes the native CLI,
@@ -898,6 +898,8 @@ export interface TargetRecordOptions extends CommonOptions {
   maxEdge?: number;
   /** Save output to this file path. */
   output?: string;
+  /** Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory. */
+  overwrite?: boolean;
 }
 
 // _targetRecordGenerated: options interface exported above; function body omitted — use the
@@ -1402,6 +1404,8 @@ export interface UiRecordOptions extends CommonOptions {
   maxEdge?: number;
   /** Save output to this file path. */
   output?: string;
+  /** Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory. */
+  overwrite?: boolean;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
   window?: number;
 }

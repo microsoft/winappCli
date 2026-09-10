@@ -66,7 +66,8 @@ internal class CommandInvokedEvent : EventBase
 
             foreach (var argument in command.Children.OfType<ArgumentResult>())
             {
-                if (!string.Equals(argument.Argument.Name, "target", StringComparison.Ordinal))
+                if (command.Parent is not CommandResult { Command: TargetCommand } ||
+                    !string.Equals(argument.Argument.Name, "target", StringComparison.Ordinal))
                 {
                     continue;
                 }

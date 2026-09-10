@@ -2,22 +2,8 @@
 // Licensed under the MIT License.
 
 /**
- * Hand-written guard wrapper for uiRecord.
- *
- * winapp-commands.ts is AUTO-GENERATED. The raw generated delegate for `ui record`
- * is intentionally NOT exported (underscore-prefixed, module-internal) so it cannot
- * bypass this guard. This module is the only public entry point for recording.
- *
- * The guard validates that `durationSec` is provided and positive before calling the
- * CLI, because unbounded recording (durationSec == 0) is only supportable via the CLI
- * with Ctrl+C or piped stdin, which the npm wrapper has no way to drive.
- *
- * `CommonOptions.signal` (issue #764) does NOT relax this. An `AbortSignal` force-terminates the
- * child, so it can stop an unbounded recording only by killing it — leaving partial or invalid MP4
- * output with no graceful finalization. A finite `durationSec` remains required so the normal path
- * always produces a valid recording.
- *
- * This file must NOT be edited by the code generator; it is hand-maintained.
+ * Hand-maintained public wrapper. A finite duration is required: AbortSignal kills the
+ * child on Windows and cannot guarantee MP4 finalization. The generated delegate is private.
  */
 
 import { callWinappCliCapture } from './winapp-cli-utils';
@@ -32,6 +18,8 @@ import { assertBoundedRecordDuration } from './record-duration';
  */
 export type UiRecordOptions = Omit<GeneratedUiRecordOptions, 'durationSec'> & {
   durationSec: number;
+  /** Replace an existing recording only after the new take finishes. */
+  overwrite?: boolean;
 };
 
 type UiRecordArgSpec = {
@@ -49,6 +37,7 @@ export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'json', flag: '--json', kind: 'boolean' },
   { property: 'maxEdge', flag: '--max-edge', kind: 'value' },
   { property: 'output', flag: '--output', kind: 'value' },
+  { property: 'overwrite', flag: '--overwrite', kind: 'boolean' },
   { property: 'on', flag: '--on', kind: 'value' },
   { property: 'window', flag: '--window', kind: 'value' },
   { property: 'quiet', flag: '--quiet', kind: 'boolean' },

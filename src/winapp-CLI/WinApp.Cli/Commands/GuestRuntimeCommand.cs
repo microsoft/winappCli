@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
@@ -75,7 +76,7 @@ internal class GuestRuntimeCommand : Command, IShortDescription
         /// Seamed because it writes the guest user's environment, which a test must not do to the
         /// machine running it.
         /// </remarks>
-        internal Func<string, bool> ConfigureDiscovery { get; set; } = DotNetRuntimeInstaller.TryConfigureDiscovery;
+        internal Func<string, string, bool> ConfigureDiscovery { get; set; } = DotNetRuntimeInstaller.TryConfigureDiscovery;
 
         /// <inheritdoc/>
         public override async Task<int> InvokeAsync(
@@ -122,9 +123,9 @@ internal class GuestRuntimeCommand : Command, IShortDescription
             // cannot be truncated by the process finishing first.
             try
             {
-                await File.WriteAllTextAsync(
+                await AtomicFile.WriteAllBytesAsync(
                     Path.Join(stagingDirectory, RuntimeProvisionReport.FileName),
-                    report.ToJson(),
+                    System.Text.Encoding.UTF8.GetBytes(report.ToJson()),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -198,17 +199,15 @@ internal class GuestRuntimeCommand : Command, IShortDescription
                 Satisfied = items.TrueForAll(item => item.Satisfied),
                 Items = items,
 
-                // Reported only when the managed root is what actually satisfies something. A guest
-                // whose own installation covers every framework must not have its launches pinned to
-                // a root winapp created and left empty.
-                DotNetRoot = frameworks.Any(framework => framework.UsesManagedRoot) ? plan.DotNetRoot : null,
+                // Pin launch to the exact root whose complete graph was verified.
+                DotNetRoot = frameworks.FirstOrDefault(framework => framework.DotNetRoot is not null)?.DotNetRoot,
                 InstallMilliseconds = installWatch.ElapsedMilliseconds,
                 VerifyMilliseconds = verifyWatch.ElapsedMilliseconds,
             };
         }
 
-        /// <summary>One shared framework's outcome, and whether the managed root is what supplies it.</summary>
-        private sealed record FrameworkOutcome(RuntimeItemStatus Status, bool UsesManagedRoot);
+        /// <summary>One shared framework's outcome and the verified root that supplies the graph.</summary>
+        private sealed record FrameworkOutcome(RuntimeItemStatus Status, string? DotNetRoot);
 
         /// <summary>
         /// Installs and verifies every shared .NET framework the plan requires.
@@ -245,22 +244,27 @@ internal class GuestRuntimeCommand : Command, IShortDescription
             // The guest's own installation is preferred whole. Only when it cannot serve every
             // framework does the managed root come into play — and then it has to serve all of them.
             var completeGuestRoot = guestRoots.FirstOrDefault(root =>
-                plan.Frameworks.All(framework =>
-                    DotNetRuntimeInstaller.FindSatisfying(framework, [root]) is not null));
+                DotNetLayout.ResolveInstalledGraph(root, plan.Frameworks) is not null);
 
             var useManagedRoot = completeGuestRoot is null;
             var probeRoots = useManagedRoot ? (List<string>)[plan.DotNetRoot] : [completeGuestRoot!];
+            var installs = new Dictionary<string, DotNetInstallOutcome>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var framework in plan.Frameworks)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var outcome = useManagedRoot
+                installs[framework.Name] = useManagedRoot
                     ? DotNetRuntimeInstaller.Ensure(
                         framework, plan.DotNetRoot, stagingDirectory, probeRoots, cancellationToken)
                     : new DotNetInstallOutcome(Installed: false, PresentVersion: null, Detail: null);
+            }
 
-                var present = DotNetRuntimeInstaller.FindSatisfying(framework, probeRoots);
+            var graph = DotNetLayout.ResolveInstalledGraph(probeRoots[0], plan.Frameworks);
+            foreach (var framework in plan.Frameworks)
+            {
+                var outcome = installs[framework.Name];
+                var present = graph?.GetValueOrDefault(framework.Name);
 
                 outcomes.Add(new FrameworkOutcome(
                     new RuntimeItemStatus
@@ -272,9 +276,9 @@ internal class GuestRuntimeCommand : Command, IShortDescription
                         Satisfied = present is not null,
                         Detail = present is not null
                             ? null
-                            : outcome.Detail ?? "no compatible version of that shared framework is installed",
+                            : outcome.Detail ?? "the installed shared frameworks do not form a compatible runtime graph",
                     },
-                    useManagedRoot && present is not null));
+                    graph is not null ? probeRoots[0] : null));
             }
 
             // Only once the managed root really does serve the whole graph. Recording it per-user
@@ -286,7 +290,7 @@ internal class GuestRuntimeCommand : Command, IShortDescription
                 // Best-effort, and never on the critical path: the launch carries the same value in
                 // the child's own environment. This only extends it to processes winapp did not
                 // start, such as an app run by hand through `sandbox exec`.
-                ConfigureDiscovery(plan.DotNetRoot);
+                ConfigureDiscovery(plan.DotNetRoot, plan.Architecture);
             }
 
             return outcomes;

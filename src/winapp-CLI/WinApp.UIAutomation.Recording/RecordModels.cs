@@ -11,6 +11,9 @@ public sealed class RecordOptions
     /// <summary>Absolute output path for the .mp4 file.</summary>
     public required string OutputPath { get; init; }
 
+    /// <summary>Replace a previous recording only after the new recording has finalized.</summary>
+    public bool Overwrite { get; init; }
+
     /// <summary>Recording duration in seconds. 0 = record until cancellation (Ctrl+C).</summary>
     public int DurationSec { get; init; }
 

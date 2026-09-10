@@ -8,17 +8,19 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
 /// <summary>Callbacks for one running guest operation.</summary>
 /// <param name="OnOperationId">
-/// Invoked with the operation's identity as soon as it is registered, before the request is sent.
+/// Invoked with the operation's identity after its request is sent.
 /// This is what lets a caller stream standard input into an operation the channel named itself.
 /// </param>
 /// <param name="OnStarted">Invoked once the guest reports the process started.</param>
 /// <param name="OnStandardOutput">Invoked for each stdout chunk, in order.</param>
 /// <param name="OnStandardError">Invoked for each stderr chunk, in order.</param>
+/// <param name="ReturnResultOnCancellation">For recording, return its finalized result after an acknowledged stop.</param>
 internal sealed record GuestExecCallbacks(
     Action<Guid>? OnOperationId = null,
     Action<GuestProcessStart>? OnStarted = null,
     Action<ReadOnlyMemory<byte>>? OnStandardOutput = null,
-    Action<ReadOnlyMemory<byte>>? OnStandardError = null);
+    Action<ReadOnlyMemory<byte>>? OnStandardError = null,
+    bool ReturnResultOnCancellation = false);
 
 /// <summary>A guest process that has just started.</summary>
 /// <param name="ProcessId">Guest process ID, meaningful only within the current target epoch.</param>
@@ -58,6 +60,9 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
 
     private Task? _receivePump;
     private ExecutionTargetErrorInfo? _fatalError;
+    private int _disposed;
+
+    internal TimeSpan CancellationAcknowledgementTimeout { get; init; } = TimeSpan.FromSeconds(15);
 
     /// <summary>Creates a channel over <paramref name="transport"/> fenced to <paramref name="targetEpoch"/>.</summary>
     public GuestCommandChannel(IGuestTransport transport, ExecutionTargetEpoch targetEpoch)
@@ -118,9 +123,13 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
         var operationId = Guid.NewGuid();
         var state = Register(operationId);
         state.Callbacks = callbacks;
+        var requestSent = false;
+        var requestSendStarted = false;
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            requestSendStarted = true;
             await SendAsync(
                 new GuestMessage
                 {
@@ -130,6 +139,7 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
                     Exec = request,
                 },
                 cancellationToken).ConfigureAwait(false);
+            requestSent = true;
 
             // Announced only after the request is on the wire. Publishing it earlier would let a
             // caller send standard input that overtakes the request it belongs to, and the guest
@@ -139,14 +149,30 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
             var exitCode = await state.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             return new GuestExecResult(exitCode, state.ProcessId);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (requestSendStarted || cancellationToken.IsCancellationRequested)
         {
-            // Ask the guest to stop before surfacing cancellation. This is done here rather than
-            // from a CancellationToken registration because registrations fire last-in-first-out:
-            // WaitAsync's own registration would run first, and unwinding this method would dispose
-            // ours before it ever ran, silently leaving the guest process running.
-            await RequestCancelAsync(operationId).ConfigureAwait(false);
+            if (requestSent)
+            {
+                await CancelAndWaitAsync(operationId, state).ConfigureAwait(false);
+                if (callbacks?.ReturnResultOnCancellation == true)
+                {
+                    return new GuestExecResult(await state.Completion.Task.ConfigureAwait(false), state.ProcessId);
+                }
+            }
+            else if (requestSendStarted)
+            {
+                // A cancelled transport write may already have delivered the request. Without
+                // a completion response, cancellation is not evidence that the child stopped.
+                throw await FailUnacknowledgedStopAsync(
+                    "The guest execution request was interrupted before its delivery could be confirmed.")
+                    .ConfigureAwait(false);
+            }
             throw;
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            throw await FailUnacknowledgedStopAsync(
+                "The guest connection failed before the operation's completion could be confirmed.").ConfigureAwait(false);
         }
         finally
         {
@@ -160,6 +186,7 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
         ReadOnlyMemory<byte> data,
         CancellationToken cancellationToken)
     {
+        ThrowIfFailed();
         // Split so one write can never exceed the frame limit and stall the channel.
         var remaining = data;
         while (!remaining.IsEmpty)
@@ -338,6 +365,7 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(relativePaths);
+        ThrowIfFailed();
 
         if (relativePaths.Count == 0)
         {
@@ -518,7 +546,8 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
         }
     }
 
-    /// <summary>    /// Asks the guest to stop one specific tracked process before a redeploy mutates files it may
+    /// <summary>
+    /// Asks the guest to stop one specific tracked process before a redeploy mutates files it may
     /// still have open.
     /// </summary>
     /// <remarks>
@@ -586,42 +615,99 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        if (_shutdown.IsCancellationRequested)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
-            // Idempotent: disposing twice must not throw on the already-disposed shutdown source.
             return;
         }
 
-        await _shutdown.CancelAsync().ConfigureAwait(false);
-
-        if (_receivePump is { } pump)
-        {
-            try
-            {
-                await pump.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected: shutdown cancels the pump.
-            }
-        }
-
-        FailPendingOperations(_fatalError ?? new ExecutionTargetErrorInfo
+        SetFatalError(new ExecutionTargetErrorInfo
         {
             Code = ExecutionTargetErrorCodes.TransportFailed,
             Message = "The connection to the guest was closed.",
         });
 
-        _shutdown.Dispose();
-        _sendLock.Dispose();
-        await _transport.DisposeAsync().ConfigureAwait(false);
+        try
+        {
+            await _shutdown.CancelAsync().ConfigureAwait(false);
+            await _transport.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            try
+            {
+                if (_receivePump is { } pump)
+                {
+                    await pump.ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await _sendLock.WaitAsync().ConfigureAwait(false);
+                _sendLock.Dispose();
+                _shutdown.Dispose();
+            }
+        }
     }
 
     private OperationState Register(Guid operationId)
     {
+        ThrowIfFailed();
         var state = new OperationState();
         _operations[operationId] = state;
+        if (Volatile.Read(ref _fatalError) is { } error)
+        {
+            Fail(state, error);
+        }
+
         return state;
+    }
+
+    private async Task CancelAndWaitAsync(Guid operationId, OperationState state)
+    {
+        using var timeout = new CancellationTokenSource(CancellationAcknowledgementTimeout);
+        try
+        {
+            await SendAsync(
+                new GuestMessage
+                {
+                    Type = GuestMessageTypes.CancelRequest,
+                    OperationId = operationId.ToString(),
+                    TargetEpoch = _targetEpoch,
+                },
+                timeout.Token).ConfigureAwait(false);
+            await state.Completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw await FailUnacknowledgedStopAsync(
+                "The guest did not acknowledge stopping the operation in time.").ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException)
+        {
+            throw await FailUnacknowledgedStopAsync(
+                "The guest connection closed before stopping the operation could be confirmed.").ConfigureAwait(false);
+        }
+    }
+
+    private async Task<ExecutionTargetException> FailUnacknowledgedStopAsync(string message)
+    {
+        var error = new ExecutionTargetErrorInfo
+        {
+            Code = ExecutionTargetErrorCodes.TransportFailed,
+            Message = message,
+            UserAction = "Reconnect to the target and verify the application stopped before retrying.",
+        };
+        SetFatalError(error);
+        try
+        {
+            await _transport.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (
+            ex is IOException or ObjectDisposedException or OperationCanceledException or ExecutionTargetException)
+        {
+            // Preserve the unconfirmed-stop failure even if closing the broken transport fails.
+        }
+        return new ExecutionTargetException(error);
     }
 
     /// <summary>
@@ -633,6 +719,7 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
     /// </remarks>
     private async Task RequestCancelAsync(Guid operationId)
     {
+        using var timeout = new CancellationTokenSource(CancellationAcknowledgementTimeout);
         try
         {
             await SendAsync(
@@ -642,7 +729,7 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
                     OperationId = operationId.ToString(),
                     TargetEpoch = _targetEpoch,
                 },
-                CancellationToken.None).ConfigureAwait(false);
+                timeout.Token).ConfigureAwait(false);
         }
         catch (ExecutionTargetException)
         {
@@ -652,6 +739,10 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
         {
             // The channel was disposed concurrently with cancellation.
         }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            // A non-reading peer must not hold cancellation indefinitely.
+        }
     }
 
     private Task SendAsync(GuestMessage message, CancellationToken cancellationToken) =>
@@ -659,10 +750,13 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
 
     private async Task SendRawAsync(byte[] payload, CancellationToken cancellationToken)
     {
-        await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfFailed();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
+        await _sendLock.WaitAsync(linked.Token).ConfigureAwait(false);
         try
         {
-            await _transport.SendFrameAsync(payload, cancellationToken).ConfigureAwait(false);
+            ThrowIfFailed();
+            await _transport.SendFrameAsync(payload, linked.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -680,7 +774,7 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
                 if (frame is null)
                 {
                     // The guest closed cleanly. Any operation still waiting will never complete.
-                    FailPendingOperations(new ExecutionTargetErrorInfo
+                    SetFatalError(new ExecutionTargetErrorInfo
                     {
                         Code = ExecutionTargetErrorCodes.Terminated,
                         Message = "The guest closed the connection before the operation completed.",
@@ -692,14 +786,29 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
                 Dispatch(frame.Value);
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Shutdown.
         }
         catch (ExecutionTargetException ex)
         {
-            _fatalError = ex.Error;
-            FailPendingOperations(ex.Error);
+            SetFatalError(ex.Error);
+        }
+        catch (Exception ex)
+        {
+            SetFatalError(new ExecutionTargetErrorInfo
+            {
+                Code = ExecutionTargetErrorCodes.TransportFailed,
+                Message = $"The guest connection failed while receiving output: {ex.Message}",
+                UserAction = "Check the output destination and reconnect before retrying.",
+            });
+        }
+        finally
+        {
+            if (Volatile.Read(ref _fatalError) is not null)
+            {
+                await _transport.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
 
@@ -750,7 +859,11 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
                 break;
 
             case GuestMessageTypes.ListFilesResponse when message.Files is { } files:
-                state.Files.TrySetResult(files);
+                state.FileInventory.AddRange(files);
+                break;
+
+            case GuestMessageTypes.ListFilesCompleted:
+                state.Files.TrySetResult(state.FileInventory);
                 break;
 
             case GuestMessageTypes.QueryPackageResponse
@@ -822,6 +935,20 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
         }
     }
 
+    private void SetFatalError(ExecutionTargetErrorInfo error)
+    {
+        Interlocked.CompareExchange(ref _fatalError, error, null);
+        FailPendingOperations(_fatalError!);
+    }
+
+    private void ThrowIfFailed()
+    {
+        if (Volatile.Read(ref _fatalError) is { } error)
+        {
+            throw new ExecutionTargetException(error);
+        }
+    }
+
     private static void Fail(OperationState state, ExecutionTargetErrorInfo error)
     {
         var exception = new ExecutionTargetException(error);
@@ -843,6 +970,8 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
 
         public TaskCompletionSource<IReadOnlyList<GuestFileInfo>> Files { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public List<GuestFileInfo> FileInventory { get; } = [];
 
         public TaskCompletionSource<bool> FileCompletion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -2,36 +2,15 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
-using WinApp.Cli.ExecutionTargets.Orchestration;
 
 namespace WinApp.Cli.Commands;
 
 /// <summary>
-/// Verifies a package is registered from exactly the expected layout and launches it -- never
-/// registers, unregisters, or otherwise mutates package state (spec §"Coordination between
-/// commands").
+/// Verifies an exact package registration and launches it without mutating package state.
 /// </summary>
 /// <remarks>
-/// Exists because the ordinary <c>winapp run</c> registers and launches in a single call: after a
-/// <c>--on sandbox</c> run's own locked registration phase releases the mutation lease, a second,
-/// unrelated <c>--on sandbox</c> run sharing the same package identity but a different layout can
-/// register in the gap. If the first run's launch phase were the ordinary <c>run</c>, it would
-/// notice the now-mismatched install location and silently fall through to unregister-then-register
-/// -- an unlocked package mutation that also disturbs the second run's registration. This verb
-/// makes that structurally impossible: it has no code path that calls register or unregister at
-/// all, so there is nothing for a mismatch to fall through to. A mismatch is refused outright.
-/// <para>
-/// This has no <c>--unregister-on-exit</c> option at all, deliberately: unregistering by name alone
-/// after the app exits would reintroduce exactly the hazard above, since a different deployment
-/// sharing this identity could have registered while this app was running. <c>--unregister-on-exit</c>
-/// is instead honored by the host as its own separate, locked, exact-layout-verified phase after this
-/// verb returns -- see <c>RunCommand.Sandbox.cs</c>'s <c>UnregisterDeploymentAfterExitAsync</c>.
-/// </para>
-/// <para>
-/// Hidden, like the other guest verbs (<c>guest-agent</c>, <c>guest-runtime</c>): it is an internal
-/// step of a host-driven workflow, launched only by <c>RunCommand.Sandbox</c>'s guest exec requests,
-/// never something to run by hand, and carries no public schema/docs surface.
-/// </para>
+/// Runs after the host releases its registration lease. A mismatch is refused, never repaired.
+/// Exit cleanup belongs to the host, which rechecks the deployment revision under a new lease.
 /// </remarks>
 internal class GuestLaunchCommand : Command, IShortDescription
 {
@@ -63,6 +42,8 @@ internal class GuestLaunchCommand : Command, IShortDescription
 
     public static Option<bool> WithAliasOption { get; } = new("--with-alias");
 
+    public static Option<bool> PreferAliasOption { get; } = new("--prefer-alias");
+
     public static Option<bool> DebugOutputOption { get; } = new("--debug-output");
 
     public static Option<bool> DetachOption { get; } = new("--detach");
@@ -73,8 +54,6 @@ internal class GuestLaunchCommand : Command, IShortDescription
     public GuestLaunchCommand()
         : base(Verb, "Verify an exact package registration and launch it. Internal; not part of the public CLI.")
     {
-        // Hidden, like the other guest verbs: an internal step of a host-driven workflow, not
-        // something to run by hand, so it stays out of help, completions, and the published schema.
         Hidden = true;
 
         Options.Add(PackageNameOption);
@@ -85,6 +64,7 @@ internal class GuestLaunchCommand : Command, IShortDescription
         Options.Add(TargetSelectorOption);
         Options.Add(ArgsOption);
         Options.Add(WithAliasOption);
+        Options.Add(PreferAliasOption);
         Options.Add(DebugOutputOption);
         Options.Add(DetachOption);
         Options.Add(SymbolsOption);

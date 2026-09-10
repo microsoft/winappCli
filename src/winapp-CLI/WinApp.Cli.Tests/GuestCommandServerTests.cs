@@ -176,9 +176,9 @@ public class GuestCommandServerTests
         Assert.AreEqual(process.ProcessId, processId);
         CollectionAssert.AreEqual(InspectArguments, process.Request.Arguments);
 
-        process.Emit(GuestStreamId.StandardOutput, "first ");
-        process.Emit(GuestStreamId.StandardOutput, "second");
-        process.Emit(GuestStreamId.StandardError, "warning");
+        await process.EmitAsync(GuestStreamId.StandardOutput, "first ");
+        await process.EmitAsync(GuestStreamId.StandardOutput, "second");
+        await process.EmitAsync(GuestStreamId.StandardError, "warning");
         process.Exit(3);
 
         var result = await execution;
@@ -211,12 +211,233 @@ public class GuestCommandServerTests
         Assert.IsFalse(process.StopRequested);
         Assert.IsFalse(process.Disposed);
 
+        await harness.Channel.DisposeAsync();
+        await process.EmitAsync(GuestStreamId.StandardOutput, "after disconnect").WaitAsync(TimeSpan.FromSeconds(5));
         process.Exit(17);
         Assert.IsTrue(
             SpinWait.SpinUntil(() => process.Disposed, TimeSpan.FromSeconds(1)),
             "The agent should release the detached process after it exits.");
     }
 
+    [TestMethod]
+    public async Task Execute_OutputProducerWaitsForTransportAndResumesInOrder()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var harness = new Harness(Interactive, beforeGuestSend: async (frame, token) =>
+        {
+            if (GuestPayloadCodec.TryGetKind(frame.Span, out var kind) && kind == GuestPayloadKind.Stream)
+            {
+                sending.TrySetResult();
+                await gate.Task.WaitAsync(token);
+            }
+        });
+        var output = new List<string>();
+        var execution = harness.Channel.ExecuteAsync(
+            Request("output"), new GuestExecCallbacks(
+                OnStandardOutput: data => output.Add(Encoding.UTF8.GetString(data.Span))), harness.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+        var completedChunks = 0;
+        var producer = Task.Run(async () =>
+        {
+            for (var i = 0; i < 32; i++)
+            {
+                await process.EmitAsync(GuestStreamId.StandardOutput, $"{i:D2}:{new string('x', 64 * 1024)}");
+                Interlocked.Increment(ref completedChunks);
+            }
+            process.Exit(0);
+        }, harness.Token);
+        try
+        {
+            await sending.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(100, harness.Token);
+            Assert.AreEqual(0, Volatile.Read(ref completedChunks), "A blocked send must pause the producer.");
+            Assert.IsFalse(execution.IsCompleted);
+        }
+        finally
+        {
+            gate.TrySetResult();
+        }
+
+        await producer.WaitAsync(TimeSpan.FromSeconds(5));
+        await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.HasCount(32, output);
+        for (var i = 0; i < output.Count; i++)
+        {
+            StringAssert.StartsWith(output[i], $"{i:D2}:");
+            Assert.AreEqual(64 * 1024 + 3, output[i].Length);
+        }
+    }
+
+    [TestMethod]
+    public async Task Execute_OutputBeforeRegistrationIsDeliveredAndDrained()
+    {
+        using var harness = new Harness(Interactive);
+        harness.Processes.InitialOutput = "early output";
+        var output = new StringBuilder();
+        var execution = harness.Channel.ExecuteAsync(Request("fast"),
+            new GuestExecCallbacks(OnStandardOutput: data => output.Append(Encoding.UTF8.GetString(data.Span))),
+            harness.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+        process.Exit(0);
+        await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual("early output", output.ToString());
+    }
+
+    [TestMethod]
+    public async Task Cancellation_BlockedStandardInputDoesNotBlockStopOrItsAcknowledgement()
+    {
+        using var harness = new Harness(Interactive);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(harness.Token);
+        var operationId = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var output = new StringBuilder();
+        var execution = harness.Channel.ExecuteAsync(Request("blocked-input"),
+            new GuestExecCallbacks(
+                OnOperationId: id => operationId.TrySetResult(id),
+                OnStandardOutput: data => output.Append(Encoding.UTF8.GetString(data.Span))),
+            cancellation.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+        var writing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inputEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inputReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.OnStandardInput = async (_, _) =>
+        {
+            writing.TrySetResult();
+            try
+            {
+                // Synchronous Windows pipe handles can ignore cancellation until the child stops.
+                await inputReleased.Task;
+            }
+            finally
+            {
+                inputEnded.TrySetResult();
+            }
+        };
+        process.OnStop = async _ =>
+        {
+            stopping.TrySetResult();
+            inputReleased.TrySetResult();
+            await stopGate.Task;
+            await process.EmitAsync(GuestStreamId.StandardOutput, "finalized");
+        };
+
+        var id = await operationId.Task.WaitAsync(harness.Token);
+        await harness.Channel.SendStandardInputAsync(id, new byte[8192], harness.Token);
+        await writing.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancellation.CancelAsync();
+        try
+        {
+            await stopping.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await inputEnded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsFalse(execution.IsCompleted, "The host must wait for the guest's stop to finish.");
+            await harness.Channel.GetCapabilitiesAsync(harness.Token).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            inputReleased.TrySetResult();
+            stopGate.TrySetResult();
+        }
+
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(
+            () => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.AreEqual("finalized", output.ToString());
+        await WaitUntilAsync(() => process.Disposed, harness.Token);
+        await harness.Channel.GetCapabilitiesAsync(harness.Token).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [TestMethod]
+    public async Task StandardInput_OverflowFailsExplicitlyAndStopsTheProcess()
+    {
+        using var harness = new Harness(Interactive);
+        var operationId = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var execution = harness.Channel.ExecuteAsync(Request("blocked-input"),
+            new GuestExecCallbacks(OnOperationId: id => operationId.TrySetResult(id)), harness.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+        var inputEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.OnStandardInput = async (_, token) =>
+        {
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            }
+            finally
+            {
+                inputEnded.TrySetResult();
+            }
+        };
+
+        await harness.Channel.SendStandardInputAsync(
+            await operationId.Task.WaitAsync(harness.Token), new byte[5 * 1024 * 1024], harness.Token);
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        StringAssert.Contains(failure.Error.Message, "input buffer is full");
+        Assert.IsTrue(process.StopRequested);
+        Assert.IsTrue(inputEnded.Task.IsCompleted);
+        await WaitUntilAsync(() => process.Disposed, harness.Token);
+    }
+
+    [TestMethod]
+    public async Task Disconnect_CancelsBlockedInputAndReleasesTheProcess()
+    {
+        using var harness = new Harness(Interactive);
+        var operationId = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var execution = harness.Channel.ExecuteAsync(Request("blocked-input"),
+            new GuestExecCallbacks(OnOperationId: id => operationId.TrySetResult(id)), harness.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+        var writing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inputEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.OnStandardInput = async (_, token) =>
+        {
+            writing.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            }
+            finally
+            {
+                inputEnded.TrySetResult();
+            }
+        };
+        await harness.Channel.SendStandardInputAsync(
+            await operationId.Task.WaitAsync(harness.Token), new byte[8192], harness.Token);
+        await writing.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await harness.Channel.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => execution.WaitAsync(TimeSpan.FromSeconds(5)));
+        await inputEnded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => process.Disposed, harness.Token);
+        Assert.IsTrue(process.StopRequested);
+    }
+
+    [TestMethod]
+    public async Task ListFiles_ServerBatchesRealInventoryBelowTheFrameLimit()
+    {
+        var root = Path.Combine(Directory.GetCurrentDirectory(), $"guest-inventory-{Guid.NewGuid():N}");
+        var files = new GuestFileService(root);
+        var scope = new GuestPathScope(GuestRootNames.Deployment, "app");
+        var directory = files.ResolveScopeDirectory(scope, create: true);
+        try
+        {
+            for (var i = 0; i < 1800; i++)
+            {
+                await File.WriteAllBytesAsync(
+                    Path.Combine(directory, $"{new string('文', 120)}-{i:D5}.bin"), []);
+            }
+            using var harness = new Harness(Interactive, files: files);
+            var actual = await harness.Channel.ListFilesAsync(scope, harness.Token).WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.HasCount(1800, actual);
+            Assert.AreEqual($"{new string('文', 120)}-00000.bin", actual[0].RelativePath);
+            Assert.AreEqual($"{new string('文', 120)}-01799.bin", actual[^1].RelativePath);
+            Assert.HasCount(0, await harness.Channel.ListFilesAsync(
+                new GuestPathScope(GuestRootNames.Work, null), harness.Token));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
     [TestMethod]
     public async Task Execute_PreservesUnicodeAndArgumentBoundaries()
     {
@@ -781,9 +1002,11 @@ public class GuestCommandServerTests
             GuestSessionInfo session,
             ExecutionTargetEpoch? hostEpoch = null,
             IAppLauncherService? appLauncher = null,
-            IPackageRegistrationService? packageRegistration = null)
+            IPackageRegistrationService? packageRegistration = null,
+            Func<ReadOnlyMemory<byte>, CancellationToken, Task>? beforeGuestSend = null,
+            GuestFileService? files = null)
         {
-            var pair = new LoopbackTransportPair();
+            var pair = new LoopbackTransportPair(beforeGuestSend);
             Processes = new FakeGuestProcessHostFactory();
 
             _server = new GuestCommandServer(
@@ -792,7 +1015,7 @@ public class GuestCommandServerTests
                 Processes,
                 new StaticGuestSessionProbe(session),
                 Identity,
-                files: null,
+                files,
                 guestWinapp: null,
                 appLauncher,
                 packageRegistration);

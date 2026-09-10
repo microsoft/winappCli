@@ -222,10 +222,15 @@ public class GuestCommandChannelTests : IDisposable
     }
 
     [TestMethod]
-    public async Task Execute_Cancellation_AsksTheGuestToCancelGracefully()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Execute_Cancellation_AsksTheGuestToCancelGracefully(bool returnResult)
     {
         using var cancellation = new CancellationTokenSource();
-        var pending = _channel.ExecuteAsync(SampleRequest, callbacks: null, cancellation.Token);
+        var output = new StringBuilder();
+        var pending = _channel.ExecuteAsync(SampleRequest, new GuestExecCallbacks(
+            OnStandardOutput: bytes => output.Append(Encoding.UTF8.GetString(bytes.Span)),
+            ReturnResultOnCancellation: returnResult), cancellation.Token);
         var sent = await NextRequestAsync();
 
         await cancellation.CancelAsync();
@@ -237,7 +242,141 @@ public class GuestCommandChannelTests : IDisposable
         Assert.AreEqual(GuestMessageTypes.CancelRequest, cancelRequest.Type);
         Assert.AreEqual(sent.OperationId, cancelRequest.OperationId);
 
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () => await pending);
+        Assert.IsFalse(pending.IsCompleted, "Cancellation must wait until the guest finishes stopping.");
+        _transport.PeerSend(GuestPayloadCodec.EncodeStream(
+            Guid.Parse(sent.OperationId!), GuestStreamId.StandardOutput, "finalized"u8));
+        PeerReply(new GuestMessage
+        {
+            Type = GuestMessageTypes.ExecCompleted,
+            OperationId = sent.OperationId,
+            ExitCode = 0,
+        });
+        if (returnResult)
+        {
+            Assert.AreEqual(0, (await pending).ExitCode);
+        }
+        else
+        {
+            await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () => await pending);
+        }
+        Assert.AreEqual("finalized", output.ToString());
+
+        var next = _channel.ListFilesAsync(
+            new GuestPathScope(GuestRootNames.Artifacts, "capture"), TestContext.CancellationTokenSource.Token);
+        var nextRequest = await NextRequestAsync();
+        PeerReply(new GuestMessage
+        {
+            Type = GuestMessageTypes.ListFilesCompleted,
+            OperationId = nextRequest.OperationId,
+        });
+        await next.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Execute_CancellationWithoutAcknowledgement_FailsWithinTheBound(bool returnResult)
+    {
+        await using var transport = new FakeGuestTransport();
+        await using var channel = new GuestCommandChannel(transport, new ExecutionTargetEpoch(Epoch))
+        {
+            CancellationAcknowledgementTimeout = TimeSpan.FromMilliseconds(100),
+        };
+        channel.Start();
+        using var cancellation = new CancellationTokenSource();
+        var pending = channel.ExecuteAsync(SampleRequest,
+            new GuestExecCallbacks(ReturnResultOnCancellation: returnResult), cancellation.Token);
+        await transport.PeerInbox.ReadAsync(TestContext.CancellationTokenSource.Token);
+        await cancellation.CancelAsync();
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        StringAssert.Contains(failure.Error.Message, "did not acknowledge");
+        Assert.IsFalse(transport.IsConnected);
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => channel.GetCapabilitiesAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task GetFile_ThrowingDestination_FailsAllOperationsAndClosesTheChannel()
+    {
+        using var destination = new ThrowingOutputStream();
+        var download = _channel.GetFileAsync(
+            new GuestPathScope(GuestRootNames.Artifacts, "op"), "result.bin",
+            destination, CancellationToken.None);
+        var request = await NextRequestAsync();
+        var capabilities = _channel.GetCapabilitiesAsync(CancellationToken.None);
+        await NextRequestAsync();
+        _transport.PeerSend(GuestPayloadCodec.EncodeStream(
+            Guid.Parse(request.OperationId!), GuestStreamId.StandardOutput, "data"u8));
+
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => download.WaitAsync(TimeSpan.FromSeconds(5)));
+        StringAssert.Contains(failure.Error.Message, "disk is full");
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => capabilities.WaitAsync(TimeSpan.FromSeconds(5)));
+        await _channel.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(_transport.IsConnected);
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => _channel.ListFilesAsync(new GuestPathScope(GuestRootNames.Work, null), CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => _channel.SendStandardInputAsync(Guid.NewGuid(), "late"u8.ToArray(), CancellationToken.None));
+    }
+
+    private sealed class ThrowingOutputStream : MemoryStream
+    {
+        public override void Write(ReadOnlySpan<byte> buffer) => throw new IOException("The disk is full.");
+    }
+
+    [TestMethod]
+    public async Task Execute_CancelSendInterruptedWithoutAcknowledgement_IsNotOrdinaryCancellation()
+    {
+        await using var transport = new InterruptedExecutionTransport(GuestMessageTypes.CancelRequest);
+        await using var channel = new GuestCommandChannel(transport, new ExecutionTargetEpoch(Epoch));
+        channel.Start();
+        using var cancellation = new CancellationTokenSource();
+        var pending = channel.ExecuteAsync(SampleRequest, null, cancellation.Token);
+        await cancellation.CancelAsync();
+
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        StringAssert.Contains(failure.Error.Message, "before stopping the operation could be confirmed");
+        Assert.IsFalse(transport.IsConnected);
+    }
+
+    [TestMethod]
+    public async Task Execute_InitialSendInterruptedWithUncertainDelivery_IsNotOrdinaryCancellation()
+    {
+        await using var transport = new InterruptedExecutionTransport(GuestMessageTypes.ExecRequest);
+        await using var channel = new GuestCommandChannel(transport, new ExecutionTargetEpoch(Epoch));
+        channel.Start();
+
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => channel.ExecuteAsync(SampleRequest, null, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5)));
+        StringAssert.Contains(failure.Error.Message, "delivery could be confirmed");
+        Assert.IsFalse(transport.IsConnected);
+    }
+
+    private sealed class InterruptedExecutionTransport(string interruptedMessage) : IGuestTransport
+    {
+        private readonly FakeGuestTransport _inner = new();
+
+        public bool IsConnected => _inner.IsConnected;
+
+        public ValueTask SendFrameAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+        {
+            if (GuestPayloadCodec.TryDecodeJson(payload.Span)?.Type == interruptedMessage)
+            {
+                throw new OperationCanceledException("The transport write was interrupted.");
+            }
+            return _inner.SendFrameAsync(payload, cancellationToken);
+        }
+
+        public ValueTask<ReadOnlyMemory<byte>?> ReceiveFrameAsync(CancellationToken cancellationToken) =>
+            _inner.ReceiveFrameAsync(cancellationToken);
+
+        public ValueTask DisposeAsync() => _inner.DisposeAsync();
     }
 
     [TestMethod]
@@ -276,6 +415,10 @@ public class GuestCommandChannelTests : IDisposable
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(async () => await pending);
 
         Assert.AreEqual(ExecutionTargetErrorCodes.Terminated, failure.Error.Code);
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => _channel.ExecuteAsync(SampleRequest, null, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => _channel.GetCapabilitiesAsync(CancellationToken.None));
     }
 
     [TestMethod]
@@ -309,7 +452,7 @@ public class GuestCommandChannelTests : IDisposable
         // A compromised or buggy guest must not be able to crash the host's receive pump.
         _transport.PeerSend([]);
         _transport.PeerSend([99]);
-        _transport.PeerSend([(byte)GuestPayloadKind.Json, .."not json"u8]);
+        _transport.PeerSend([(byte)GuestPayloadKind.Json, .. "not json"u8]);
         _transport.PeerSend([(byte)GuestPayloadKind.Stream, 1, 2, 3]);
 
         PeerReply(new GuestMessage { Type = GuestMessageTypes.ExecCompleted, OperationId = sent.OperationId, ExitCode = 7 });
@@ -373,7 +516,7 @@ public class GuestCommandChannelTests : IDisposable
         Assert.IsFalse(GuestPayloadCodec.TryGetKind([0], out _));
         Assert.IsFalse(GuestPayloadCodec.TryGetKind([3], out _));
         Assert.IsFalse(GuestPayloadCodec.TryDecodeStream(new byte[] { (byte)GuestPayloadKind.Stream, 1 }, out _, out _, out _));
-        Assert.IsNull(GuestPayloadCodec.TryDecodeJson([(byte)GuestPayloadKind.Json, .."{"u8]));
+        Assert.IsNull(GuestPayloadCodec.TryDecodeJson([(byte)GuestPayloadKind.Json, .. "{"u8]));
     }
 
     [TestMethod]
@@ -384,6 +527,55 @@ public class GuestCommandChannelTests : IDisposable
         payload[17] = 9;
 
         Assert.IsFalse(GuestPayloadCodec.TryDecodeStream(payload, out _, out _, out _));
+    }
+
+    [TestMethod]
+    public async Task ListFiles_LargeUnicodeInventory_UsesBoundedFramesAndExplicitCompletion()
+    {
+        var expected = Enumerable.Range(0, 10_000)
+            .Select(i => new GuestFileInfo(
+                $@"日本語\{new string('文', 100)}-{i:D5}.bin", i, i, new string('a', 64)))
+            .ToList();
+        var pending = _channel.ListFilesAsync(
+            new GuestPathScope(GuestRootNames.Deployment, "app"), TestContext.CancellationTokenSource.Token);
+        var request = await NextRequestAsync();
+        var batches = GuestPayloadCodec.EncodeFileInventory(
+            Guid.Parse(request.OperationId!), Epoch, expected).ToList();
+        Assert.IsTrue(batches.Count > 1);
+
+        using var codec = new GuestFrameCodec(
+            new byte[GuestFrameCodec.KeySize], new byte[GuestFrameCodec.NoncePrefixSize]);
+        ulong sequence = 0;
+        foreach (var batch in batches)
+        {
+            Assert.IsTrue(batch.Length <= GuestFrameCodec.MaxPlaintextBytes);
+            var encoded = new byte[GuestFrameCodec.GetEncodedSize(batch.Length)];
+            Assert.AreEqual(encoded.Length, codec.Encode(batch, sequence++, encoded));
+            _transport.PeerSend(batch);
+        }
+
+        Assert.IsFalse(pending.IsCompleted, "A batch is not the completed inventory.");
+        PeerReply(new GuestMessage
+        {
+            Type = GuestMessageTypes.ListFilesCompleted,
+            OperationId = request.OperationId,
+        });
+        var actual = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        CollectionAssert.AreEqual(expected, actual.ToList());
+    }
+
+    [TestMethod]
+    public async Task ListFiles_EmptyInventory_CompletesWithoutABatch()
+    {
+        var pending = _channel.ListFilesAsync(
+            new GuestPathScope(GuestRootNames.Work, null), TestContext.CancellationTokenSource.Token);
+        var request = await NextRequestAsync();
+        PeerReply(new GuestMessage
+        {
+            Type = GuestMessageTypes.ListFilesCompleted,
+            OperationId = request.OperationId,
+        });
+        Assert.HasCount(0, await pending.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     /// <summary>MSTest injects this; used for per-test cancellation.</summary>

@@ -29,10 +29,11 @@ internal sealed class LoopbackTransportPair
         Channel.CreateUnbounded<ReadOnlyMemory<byte>>();
 
     /// <summary>Creates the pair.</summary>
-    public LoopbackTransportPair()
+    public LoopbackTransportPair(
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task>? beforeGuestSend = null)
     {
         Host = new End(_hostToGuest.Writer, _guestToHost.Reader);
-        Guest = new End(_guestToHost.Writer, _hostToGuest.Reader);
+        Guest = new End(_guestToHost.Writer, _hostToGuest.Reader, beforeGuestSend);
     }
 
     /// <summary>The end the host command channel owns.</summary>
@@ -44,34 +45,50 @@ internal sealed class LoopbackTransportPair
     /// <summary>One direction's send and the other's receive.</summary>
     private sealed class End(
         ChannelWriter<ReadOnlyMemory<byte>> outbound,
-        ChannelReader<ReadOnlyMemory<byte>> inbound) : IGuestTransport
+        ChannelReader<ReadOnlyMemory<byte>> inbound,
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task>? beforeSend = null) : IGuestTransport
     {
+        private readonly CancellationTokenSource _closed = new();
+        private int _disposed;
         /// <inheritdoc/>
         public bool IsConnected { get; private set; } = true;
 
         /// <inheritdoc/>
-        public ValueTask SendFrameAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+        public async ValueTask SendFrameAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
         {
+            if (payload.Length > GuestFrameCodec.MaxPlaintextBytes)
+            {
+                throw new InvalidOperationException("The loopback frame exceeds the real codec limit.");
+            }
+
+            if (beforeSend is not null)
+            {
+                await beforeSend(payload, cancellationToken).ConfigureAwait(false);
+            }
+
             if (!outbound.TryWrite(payload.ToArray()))
             {
                 throw ExecutionTargetException.Create(
                     ExecutionTargetErrorCodes.TransportFailed,
                     "The loopback transport is closed.");
             }
-
-            return ValueTask.CompletedTask;
         }
 
         /// <inheritdoc/>
         public async ValueTask<ReadOnlyMemory<byte>?> ReceiveFrameAsync(CancellationToken cancellationToken)
         {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _closed.Token);
             try
             {
-                return await inbound.ReadAsync(cancellationToken).ConfigureAwait(false);
+                return await inbound.ReadAsync(linked.Token).ConfigureAwait(false);
             }
             catch (ChannelClosedException)
             {
                 IsConnected = false;
+                return null;
+            }
+            catch (OperationCanceledException) when (_closed.IsCancellationRequested)
+            {
                 return null;
             }
         }
@@ -79,7 +96,14 @@ internal sealed class LoopbackTransportPair
         /// <inheritdoc/>
         public ValueTask DisposeAsync()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return ValueTask.CompletedTask;
+            }
+
             IsConnected = false;
+            _closed.Cancel();
+            _closed.Dispose();
             outbound.TryComplete();
             return ValueTask.CompletedTask;
         }
@@ -95,13 +119,13 @@ internal sealed class LoopbackTransportPair
 internal sealed class FakeGuestProcessHost : IGuestProcessHost
 {
     private readonly TaskCompletionSource<int> _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly Action<GuestStreamId, ReadOnlyMemory<byte>> _onOutput;
+    private readonly Func<GuestStreamId, ReadOnlyMemory<byte>, Task> _onOutput;
     private readonly Action<GuestExecRequest, int>? _onExit;
 
     /// <summary>Creates a host that reports <paramref name="processId"/>.</summary>
     public FakeGuestProcessHost(
         GuestExecRequest request,
-        Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput,
+        Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput,
         int processId,
         Action<GuestExecRequest, int>? onExit = null)
     {
@@ -133,8 +157,14 @@ internal sealed class FakeGuestProcessHost : IGuestProcessHost
     public bool Disposed { get; private set; }
 
     /// <summary>Emits a chunk on one of the child's output streams.</summary>
-    public void Emit(GuestStreamId stream, string text) =>
+    public Task EmitAsync(GuestStreamId stream, string text) =>
         _onOutput(stream, Encoding.UTF8.GetBytes(text));
+
+    public Func<ReadOnlyMemory<byte>, CancellationToken, Task>? OnStandardInput { get; set; }
+
+    public Func<CancellationToken, Task>? OnStop { get; set; }
+
+    public Task InitialOutput { get; set; } = Task.CompletedTask;
 
     /// <summary>Completes the child with <paramref name="exitCode"/>.</summary>
     public void Exit(int exitCode)
@@ -149,24 +179,32 @@ internal sealed class FakeGuestProcessHost : IGuestProcessHost
     public Task WriteStandardInputAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
         StandardInput.Add(data.ToArray());
-        return Task.CompletedTask;
+        return OnStandardInput?.Invoke(data, cancellationToken) ?? Task.CompletedTask;
     }
 
     /// <inheritdoc/>
     public void CloseStandardInput() => StandardInputClosed = true;
 
     /// <inheritdoc/>
-    public Task<int> WaitForExitAsync(CancellationToken cancellationToken) =>
-        _exit.Task.WaitAsync(cancellationToken);
+    public async Task<int> WaitForExitAsync(CancellationToken cancellationToken)
+    {
+        var exitCode = await _exit.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await InitialOutput.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return exitCode;
+    }
 
     /// <inheritdoc/>
-    public Task<int> StopAsync(TimeSpan gracefulTimeout, CancellationToken cancellationToken)
+    public async Task<int> StopAsync(TimeSpan gracefulTimeout, CancellationToken cancellationToken)
     {
         StopRequested = true;
+        if (OnStop is { } onStop)
+        {
+            await onStop(cancellationToken).ConfigureAwait(false);
+        }
 
         // A real host force-terminates after the timeout; the exit code below stands in for that.
         _exit.TrySetResult(-1);
-        return Task.FromResult(-1);
+        return -1;
     }
 
     /// <inheritdoc/>
@@ -205,10 +243,12 @@ internal sealed class FakeGuestProcessHostFactory : IGuestProcessHostFactory
     /// <summary>Optional side effect to run when a scripted guest process exits.</summary>
     public Action<GuestExecRequest, int>? OnExit { get; set; }
 
+    public string? InitialOutput { get; set; }
+
     /// <inheritdoc/>
     public IGuestProcessHost Start(
         GuestExecRequest request,
-        Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput)
+        Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput)
     {
         if (FailWith is { } error)
         {
@@ -222,6 +262,10 @@ internal sealed class FakeGuestProcessHostFactory : IGuestProcessHostFactory
             onOutput,
             Interlocked.Increment(ref _nextProcessId),
             OnExit);
+        if (InitialOutput is { } output)
+        {
+            host.InitialOutput = host.EmitAsync(GuestStreamId.StandardOutput, output);
+        }
         Started.Enqueue(host);
         StartSignal.Release();
         return host;

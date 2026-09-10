@@ -119,11 +119,12 @@ internal static class DotNetRuntimeInstaller
     /// </para>
     /// </remarks>
     /// <returns>True when the variable now names <paramref name="managedRoot"/>.</returns>
-    public static bool TryConfigureDiscovery(string managedRoot)
+    public static bool TryConfigureDiscovery(string managedRoot, string architecture)
     {
         try
         {
-            var existing = Environment.GetEnvironmentVariable(DiscoveryVariable, EnvironmentVariableTarget.User);
+            var variable = $"{DiscoveryVariable}_{architecture.ToUpperInvariant()}";
+            var existing = Environment.GetEnvironmentVariable(variable, EnvironmentVariableTarget.User);
 
             if (string.Equals(existing, managedRoot, StringComparison.OrdinalIgnoreCase))
             {
@@ -136,7 +137,7 @@ internal static class DotNetRuntimeInstaller
             }
 
             Environment.SetEnvironmentVariable(
-                DiscoveryVariable, managedRoot, EnvironmentVariableTarget.User);
+                variable, managedRoot, EnvironmentVariableTarget.User);
 
             return true;
         }
@@ -161,11 +162,10 @@ internal static class DotNetRuntimeInstaller
         ArgumentNullException.ThrowIfNull(requirement);
         ArgumentNullException.ThrowIfNull(probeRoots);
 
-        return probeRoots
+        return requirement.SelectVersion(probeRoots
+            .Where(root => DotNetLayout.MatchesArchitecture(root, requirement.Architecture))
             .SelectMany(root => DotNetLayout.InstalledVersions(root, requirement.Name))
-            .Where(requirement.IsSatisfiedBy)
-            .OrderByDescending(version => version)
-            .FirstOrDefault();
+            .Where(requirement.IsSatisfiedBy));
     }
 
     /// <summary>

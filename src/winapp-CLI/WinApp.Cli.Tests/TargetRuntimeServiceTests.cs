@@ -5,8 +5,6 @@ using System.IO.Compression;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 
-using WinApp.Cli.ExecutionTargets.WindowsSandbox;
-
 namespace WinApp.Cli.Tests;
 
 /// <summary>
@@ -17,7 +15,7 @@ namespace WinApp.Cli.Tests;
 /// <remarks>
 /// Everything the spec asks of this step is observable here without Windows Sandbox: staging into
 /// the guest, installing under the mutation lock, verifying the whole graph before every launch,
-/// journaling a partial install and repairing it, refusing to downgrade a shared runtime, and
+/// repairing a partial install, refusing to downgrade a shared runtime, and
 /// failing with the unsatisfied requirement rather than mutating the environment destructively.
 /// </remarks>
 [TestClass]
@@ -27,7 +25,6 @@ public partial class TargetRuntimeServiceTests
     private const string RequiredVersion = "8000.675.1142.0";
     private const string Publisher = "CN=Microsoft Corporation";
 
-    private static readonly ExecutionTargetRef Target = WindowsSandboxTarget.Default;
     private static readonly ExecutionTargetEpoch Epoch = ExecutionTargetEpoch.Create("sandbox-1", "nonce-a");
 
     private string _root = null!;
@@ -79,7 +76,6 @@ public partial class TargetRuntimeServiceTests
         Assert.IsTrue(result.Requirements.IsEmpty);
         Assert.IsTrue(result.AlreadySatisfied);
         Assert.AreEqual(0, harness.GuestInvocations);
-        Assert.IsNull(harness.ReadState());
     }
 
     [TestMethod]
@@ -108,9 +104,6 @@ public partial class TargetRuntimeServiceTests
         Assert.AreEqual(1, harness.GuestPackages.InstallPackageCalls.Count);
         StringAssert.StartsWith(harness.GuestPackages.InstallPackageCalls[0], scope);
 
-        var state = harness.ReadState();
-        Assert.IsFalse(state!.Dirty);
-        Assert.AreEqual(result.Requirements.PlanId, state.PlanId);
     }
 
     [TestMethod]
@@ -138,7 +131,6 @@ public partial class TargetRuntimeServiceTests
         // Confirms this failed before touching anything: no guest child was started and no
         // provisioning record was written.
         Assert.AreEqual(0, harness.GuestInvocations);
-        Assert.IsNull(harness.ReadState());
     }
 
     [TestMethod]
@@ -195,7 +187,6 @@ public partial class TargetRuntimeServiceTests
 
         var first = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken);
         Assert.IsTrue(first.Report!.Satisfied);
-        Assert.IsFalse(harness.ReadState()!.Dirty);
 
         // Something removed the runtime in this same generation — exactly what `sandbox exec` makes
         // possible. The clean record is now a statement about the past, not about the guest.
@@ -235,7 +226,7 @@ public partial class TargetRuntimeServiceTests
     }
 
     [TestMethod]
-    public async Task Ensure_AfterAPartialInstall_RebuildsTheStagingAreaBeforeLaunch()
+    public async Task Ensure_AfterAPartialInstall_ReplacesAnIncompletePayloadBeforeLaunch()
     {
         await WriteManifestAsync();
         var payload = await WritePayloadAsync(RuntimePackage, RequiredVersion);
@@ -249,22 +240,19 @@ public partial class TargetRuntimeServiceTests
 
         Assert.AreEqual(ExecutionTargetErrorCodes.RuntimeProvisionFailed, failure.Error.Code);
 
-        // The journal is what makes the next run repair rather than trust a half-applied pass.
-        var afterFailure = harness.ReadState();
-        Assert.IsTrue(afterFailure!.Dirty);
-
         var planId = RuntimeRequirementDiscovery
             .Discover(new DirectoryInfo(_hostSource), "x64").PlanId;
 
-        var stale = TestPaths.Under(_guestManaged, "runtimes", planId, "leftover.msix");
+        var stale = TestPaths.Under(_guestManaged, "runtimes", planId, RuntimeStaging.StagedFileName(payload));
         await File.WriteAllTextAsync(stale, "half-transferred", TestContext.CancellationToken);
 
         harness.GuestPackages.Installs(RuntimePackage, RequiredVersion);
         var repaired = await harness.EnsureAsync(_hostSource, TestContext.CancellationToken);
 
         Assert.IsTrue(repaired.Report!.Satisfied);
-        Assert.IsFalse(File.Exists(stale), "repair must rebuild the staging area rather than reconcile against it");
-        Assert.IsFalse(harness.ReadState()!.Dirty);
+        CollectionAssert.AreEqual(
+            await File.ReadAllBytesAsync(payload.File.FullName, TestContext.CancellationToken),
+            await File.ReadAllBytesAsync(stale, TestContext.CancellationToken));
     }
 
     [TestMethod]
@@ -465,9 +453,10 @@ public partial class TargetRuntimeServiceTests
     /// versioned folders a layout carries, and getting those wrong is precisely the failure this
     /// covers.
     /// </remarks>
-    private async Task<RuntimeFrameworkPayload> WriteLayoutAsync(string name, string version)
+    private async Task<RuntimeFrameworkPayload> WriteLayoutAsync(
+        string name, string version, string architecture = "x64", string? coreVersion = null)
     {
-        var path = TestPaths.Under(_hostCache, $"{name}_{version}.zip");
+        var path = TestPaths.Under(_hostCache, $"{name}_{version}_{architecture}.zip");
 
         await using (var stream = File.Create(path))
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
@@ -476,7 +465,7 @@ public partial class TargetRuntimeServiceTests
 
             if (name == "Microsoft.NETCore.App")
             {
-                await WriteEntryAsync(archive, $"shared/{name}/{version}/hostpolicy.dll", "mz"u8.ToArray());
+                await WriteEntryAsync(archive, $"shared/{name}/{version}/hostpolicy.dll", MinimalPe.ForArchitecture(architecture));
                 await WriteEntryAsync(archive, $"shared/{name}/{version}/coreclr.dll", "mz"u8.ToArray());
                 await WriteEntryAsync(
                     archive,
@@ -486,6 +475,9 @@ public partial class TargetRuntimeServiceTests
             }
             else if (name == "Microsoft.WindowsDesktop.App")
             {
+                await WriteEntryAsync(
+                    archive, $"shared/{name}/{version}/{name}.runtimeconfig.json",
+                    System.Text.Encoding.UTF8.GetBytes(DesktopRuntimeConfig(coreVersion ?? version)));
                 await WriteEntryAsync(archive, $"shared/{name}/{version}/WindowsBase.dll", "mz"u8.ToArray());
                 await WriteEntryAsync(
                     archive,
@@ -494,10 +486,25 @@ public partial class TargetRuntimeServiceTests
             }
         }
 
-        return new RuntimeFrameworkPayload(new FileInfo(path), name, version, "x64");
+        return new RuntimeFrameworkPayload(new FileInfo(path), name, version, architecture)
+        {
+            Dependencies = name == DotNetLayout.DesktopFramework
+                ? [new RuntimeFrameworkRequirement
+                {
+                    Name = DotNetLayout.CoreFramework,
+                    MinVersion = coreVersion ?? version,
+                    Architecture = architecture,
+                    RollForward = "LatestPatch",
+                }]
+                : [],
+        };
     }
 
-    private static void WriteInstalledFramework(string root, string name, string version)
+    private static string DesktopRuntimeConfig(string coreVersion) =>
+        $$"""{"runtimeOptions":{"rollForward":"LatestPatch","framework":{"name":"Microsoft.NETCore.App","version":"{{coreVersion}}"} } }""";
+
+    private static void WriteInstalledFramework(
+        string root, string name, string version, string architecture = "x64", string? coreVersion = null)
     {
         var directory = Path.Join(root, "shared", name, version);
         Directory.CreateDirectory(directory);
@@ -505,13 +512,19 @@ public partial class TargetRuntimeServiceTests
 
         if (name == "Microsoft.NETCore.App")
         {
-            File.WriteAllText(Path.Join(directory, "hostpolicy.dll"), "mz");
+            File.WriteAllBytes(Path.Join(directory, "hostpolicy.dll"), MinimalPe.ForArchitecture(architecture));
             File.WriteAllText(Path.Join(directory, "coreclr.dll"), "mz");
             File.WriteAllText(Path.Join(directory, "System.Private.CoreLib.dll"), "mz");
 
             var resolver = Path.Join(root, "host", "fxr", version);
             Directory.CreateDirectory(resolver);
             File.WriteAllText(Path.Join(resolver, "hostfxr.dll"), "mz");
+        }
+        else if (name == DotNetLayout.DesktopFramework)
+        {
+            File.WriteAllText(Path.Join(directory, "WindowsBase.dll"), "managed");
+            File.WriteAllText(Path.Join(directory, "System.Windows.Forms.dll"), "managed");
+            File.WriteAllText(Path.Join(directory, $"{name}.runtimeconfig.json"), DesktopRuntimeConfig(coreVersion ?? version));
         }
     }
 

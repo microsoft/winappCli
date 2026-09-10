@@ -73,7 +73,7 @@ internal sealed partial class UiRecordingService(
     /// fault arms, and cancellation timing races that require mutating real desktop windows or native
     /// WGC failures and are not safe to trigger on the shared coverage host.
     /// </remarks>
-    public async Task<RecordCaptureResult> RecordAsync(UiTarget uiTarget, string? elementId, RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
+    private async Task<RecordCaptureResult> RecordCoreAsync(UiTarget uiTarget, string? elementId, RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
     {
         // Validate before touching a window or creating output. The CLI rejects these at the command
         // layer, but that guard does not travel with the package: a direct library caller passing
@@ -389,11 +389,7 @@ internal sealed partial class UiRecordingService(
                     "window to the foreground and retry, or record the window directly instead of the screen.");
             }
 
-            // Never replace an existing recording. The CLI refuses up front ("recording never
-            // replaces existing artifacts"), but that guard does not travel with the package, and
-            // the previous video-only path silently overwrote OutputPath - running the readme
-            // sample twice destroyed the first take. This also covers a file that appears while
-            // recording is already in progress.
+            // Replacements are staged by RecordAsync; the encoder never clobbers its destination.
             using var encoder = Mp4SinkWriterEncoder.s_createNoClobber(
                 options.OutputPath, encoderW, encoderH, options.Fps, bitrate);
 

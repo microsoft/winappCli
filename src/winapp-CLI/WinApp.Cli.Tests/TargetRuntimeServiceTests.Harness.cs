@@ -42,7 +42,8 @@ public partial class TargetRuntimeServiceTests
             string guestManagedRoot,
             string stateRoot,
             ExecutionTargetEpoch? epoch = null,
-            string? sharedFrameworkRoot = null)
+            string? sharedFrameworkRoot = null,
+            string guestArchitecture = "x64")
         {
             var currentEpoch = epoch ?? Epoch;
 
@@ -65,24 +66,21 @@ public partial class TargetRuntimeServiceTests
             var channel = new GuestCommandChannel(pair.Host, currentEpoch);
             channel.Start();
 
-            var directories = new FixedTargetStateDirectoryProvider(stateRoot);
-            StateStore = new RuntimeProvisionStateStore(directories);
-
             // Runtime provisioning no longer acquires the mutation lock itself -- it trusts the
             // caller already holds it, exactly as production callers do via
             // ExecutionTargetOrchestrator.PrepareAsync(Mutating). The harness stands in for that
             // caller with a real, held lease over its own scratch lock file.
-            var mutationLockPath = TestPaths.TempFile("runtime-mutation-lock", ".lock");
+            var mutationLockPath = Path.Join(stateRoot, $"runtime-mutation-{Guid.NewGuid():N}.lock");
             var mutationStream = new FileStream(
                 mutationLockPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
             _mutationLease = new TargetMutationLease(mutationStream, wasAbandoned: false);
 
-            Prepared = new PreparedTarget(WindowsSandboxTarget.Default, 
+            Prepared = new PreparedTarget(WindowsSandboxTarget.Default,
                 channel,
                 currentEpoch,
                 new ExecutionTargetCapabilities
                 {
-                    Architecture = "x64",
+                    Architecture = guestArchitecture,
                     SupportsInteractiveDesktop = true,
                     SupportsRealInput = true,
                     SupportsScreenCapture = true,
@@ -94,7 +92,7 @@ public partial class TargetRuntimeServiceTests
                 Reused: false,
                 MutationLease: _mutationLease);
 
-            Service = new TargetRuntimeService(StateStore, Resolver, Frameworks);
+            Service = new TargetRuntimeService(Resolver, Frameworks);
         }
 
         /// <summary>Payloads the host is allowed to find, keyed by package identity name.</summary>
@@ -105,9 +103,6 @@ public partial class TargetRuntimeServiceTests
 
         /// <summary>What the guest believes is registered, and what installing changes.</summary>
         public GuestPackageState GuestPackages { get; }
-
-        /// <summary>The persisted provisioning journal.</summary>
-        public RuntimeProvisionStateStore StateStore { get; }
 
         /// <summary>The service under test.</summary>
         public TargetRuntimeService Service { get; }
@@ -121,16 +116,15 @@ public partial class TargetRuntimeServiceTests
         /// <summary>Roots the guest configured per-user .NET discovery for.</summary>
         public IReadOnlyList<string> ConfiguredDiscoveryRoots => _processes.ConfiguredDiscoveryRoots;
 
-        public Task<RuntimeProvisionResult> EnsureAsync(string sourceRoot, CancellationToken cancellationToken) =>
+        public Task<RuntimeProvisionResult> EnsureAsync(
+            string sourceRoot, CancellationToken cancellationToken, string applicationArchitecture = "x64") =>
             Service.EnsureAsync(
                 Prepared,
-                Target,
                 new DirectoryInfo(sourceRoot),
+                applicationArchitecture,
                 new DirectoryInfo(sourceRoot),
                 CreateTaskContext(),
                 cancellationToken);
-
-        public RuntimeProvisionState? ReadState() => StateStore.Read(Target);
 
         public async ValueTask DisposeAsync()
         {
@@ -157,22 +151,6 @@ public partial class TargetRuntimeServiceTests
 
         private static TaskContext CreateTaskContext() =>
             new(new GroupableTask("runtime-test", null), null, new TestConsole(), NullLogger.Instance, new Lock());
-    }
-
-    /// <summary>A state directory provider rooted at a test-owned folder.</summary>
-    private sealed class FixedTargetStateDirectoryProvider(string root) : ITargetStateDirectoryProvider
-    {
-        public DirectoryInfo GetTargetRoot(ExecutionTargetRef target, bool create)
-        {
-            var directory = new DirectoryInfo(TestPaths.Under(root, target.StateKey));
-
-            if (create)
-            {
-                directory.Create();
-            }
-
-            return directory;
-        }
     }
 
     /// <summary>A resolver that returns exactly the payloads a test decided exist.</summary>
@@ -228,12 +206,20 @@ public partial class TargetRuntimeServiceTests
     {
         public Dictionary<string, RuntimeFrameworkPayload> Layouts { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        public List<RuntimeFrameworkRequirement> Requests { get; } = [];
+
         public Task<RuntimeFrameworkPayload?> ResolveAsync(
             RuntimeFrameworkRequirement requirement,
             DirectoryInfo projectRoot,
             TaskContext taskContext,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(Layouts.GetValueOrDefault(requirement.Name));
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(requirement);
+            var payload = Layouts.GetValueOrDefault(requirement.Name);
+            return Task.FromResult(payload is not null &&
+                requirement.Architecture == payload.Architecture &&
+                requirement.IsSatisfiedBy(Version.Parse(payload.Version)) ? payload : null);
+        }
     }
 
     /// <summary>
@@ -353,7 +339,7 @@ public partial class TargetRuntimeServiceTests
 
         public IGuestProcessHost Start(
             GuestExecRequest request,
-            Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput)
+            Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput)
         {
             Interlocked.Increment(ref _invocations);
 
@@ -361,7 +347,7 @@ public partial class TargetRuntimeServiceTests
             {
                 // Never writes the test machine's own user environment; the launch environment the
                 // host derives from the report is what the framework tests assert on.
-                ConfigureDiscovery = root => { ConfiguredDiscoveryRoots.Add(root); return true; },
+                ConfigureDiscovery = (root, _) => { ConfiguredDiscoveryRoots.Add(root); return true; },
             };
 
             if (sharedFrameworkRoot is not null)
@@ -381,7 +367,7 @@ public partial class TargetRuntimeServiceTests
 
         public RuntimeGuestProcessHost(
             GuestExecRequest request,
-            Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput,
+            Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput,
             int processId,
             GuestRuntimeCommand.Handler handler)
         {
@@ -417,7 +403,7 @@ public partial class TargetRuntimeServiceTests
 
         private async Task RunAsync(
             GuestExecRequest request,
-            Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput,
+            Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput,
             GuestRuntimeCommand.Handler handler)
         {
             try
@@ -437,7 +423,7 @@ public partial class TargetRuntimeServiceTests
             }
             catch (SystemException ex)
             {
-                onOutput(GuestStreamId.StandardError, Encoding.UTF8.GetBytes(ex.Message));
+                await onOutput(GuestStreamId.StandardError, Encoding.UTF8.GetBytes(ex.Message));
                 _exit.TrySetResult(1);
             }
         }

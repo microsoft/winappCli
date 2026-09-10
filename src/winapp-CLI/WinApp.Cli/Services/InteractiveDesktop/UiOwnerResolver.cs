@@ -72,7 +72,7 @@ internal sealed class UiOwnerResolver : IUiOwnerResolver
             : ResolveWorkflow(raw);
     }
 
-    private static UiOwnerIdentity ResolveWorkflow(string raw)
+    internal static UiOwnerIdentity ResolveWorkflow(string raw)
     {
         // An explicitly-set-but-blank value is a scripting mistake (an unset variable expanded to ""),
         // not a request for an empty workflow. Failing here is far cheaper than silently merging every

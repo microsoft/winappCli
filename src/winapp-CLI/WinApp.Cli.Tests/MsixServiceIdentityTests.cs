@@ -1635,7 +1635,8 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     /// <summary>Junction creation needs no elevation, unlike a symbolic link.</summary>
-    private static bool TryCreateJunction(string linkPath, string target)    {
+    private static bool TryCreateJunction(string linkPath, string target)
+    {
         try
         {
             using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe")
@@ -1896,12 +1897,10 @@ public class MsixServiceIdentityTests : BaseCommandTests
     // ---- AddLooseLayoutIdentityAsync MSBuild workflow -----------------------------
 
     [TestMethod]
-    public async Task AddLooseLayoutIdentityAsync_RecipeLayout_StagesTheExecutionAlias()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RecipeLayout_StagesTheExecutionAliasBeforeRegistration(bool materializeOnly)
     {
-        // The recipe branch has its OWN staging path, so the alias mutation applied to the raw-manifest
-        // branch never reached it. Without this a recipe-backed console project registers fine and then
-        // fails to launch with "No execution alias found in the manifest" — the automatic console launch
-        // silently not applying to exactly the projects whose build emits an .appxrecipe.
         var srcDir = _tempDirectory.CreateSubdirectory("alias-build-output");
         var srcManifest = new FileInfo(Path.Join(srcDir.FullName, "AppxManifest.xml"));
         await File.WriteAllTextAsync(srcManifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
@@ -1920,9 +1919,19 @@ public class MsixServiceIdentityTests : BaseCommandTests
 
         var output = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "alias-layout"));
 
-        await _msixService.AddLooseLayoutIdentityAsync(
-            srcManifest, srcDir, output, TestTaskContext, ensureExecutionAlias: true,
-            cancellationToken: TestContext.CancellationToken);
+        if (materializeOnly)
+        {
+            await _msixService.MaterializeLooseLayoutAsync(
+                srcManifest, srcDir, output, TestTaskContext, LayoutReconciliation.Exact,
+                ensureExecutionAlias: true, cancellationToken: TestContext.CancellationToken);
+            Assert.IsEmpty(_fakeRegistration.RegisterLooseLayoutCalls);
+        }
+        else
+        {
+            await _msixService.AddLooseLayoutIdentityAsync(
+                srcManifest, srcDir, output, TestTaskContext, ensureExecutionAlias: true,
+                cancellationToken: TestContext.CancellationToken);
+        }
 
         var staged = await File.ReadAllTextAsync(
             Path.Join(output.FullName, "appxmanifest.xml"), TestContext.CancellationToken);

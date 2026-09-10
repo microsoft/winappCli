@@ -37,8 +37,8 @@ internal interface IGuestProcessHostFactory
 {
     /// <summary>Starts a child process for <paramref name="request"/>.</summary>
     /// <param name="request">What to run.</param>
-    /// <param name="onOutput">Receives each stdout and stderr chunk, in order.</param>
-    IGuestProcessHost Start(GuestExecRequest request, Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput);
+    /// <param name="onOutput">Receives each stdout and stderr chunk; the producer awaits delivery before reusing the buffer.</param>
+    IGuestProcessHost Start(GuestExecRequest request, Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput);
 }
 
 /// <summary>Starts real Windows processes inside Job Objects.</summary>
@@ -55,6 +55,6 @@ internal sealed class GuestProcessHostFactory : IGuestProcessHostFactory
     /// <inheritdoc/>
     public IGuestProcessHost Start(
         GuestExecRequest request,
-        Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput) =>
+        Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput) =>
         GuestProcessHost.Start(request, onOutput, BarrierExecutable);
 }

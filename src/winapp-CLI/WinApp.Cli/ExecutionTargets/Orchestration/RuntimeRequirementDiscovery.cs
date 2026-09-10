@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
@@ -18,13 +19,13 @@ internal sealed record RuntimeRequirements(
     string Architecture,
     IReadOnlyList<RuntimePackageRequirement> Packages,
     IReadOnlyList<RuntimeFrameworkRequirement> Frameworks,
-    string? WindowsAppSdkVersion = null)
+    string? WindowsAppRuntimeVersion = null)
 {
     /// <summary>Nothing to provision or verify.</summary>
     public bool IsEmpty =>
         Packages.Count == 0 &&
         Frameworks.Count == 0 &&
-        WindowsAppSdkVersion is null;
+        WindowsAppRuntimeVersion is null;
 
     /// <summary>
     /// Stable content identity of this requirement set.
@@ -49,10 +50,16 @@ internal sealed record RuntimeRequirements(
             foreach (var framework in Frameworks.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
             {
                 builder.Append("|fx:").Append(framework.Name).Append('@').Append(framework.MinVersion)
-                    .Append('/').Append(framework.Architecture);
+                    .Append('/').Append(framework.Architecture).Append('/').Append(framework.RollToHighestVersion);
+                foreach (var policy in framework.Policies.OrderBy(policy => policy.Version, StringComparer.Ordinal)
+                    .ThenBy(policy => policy.RollForward, StringComparer.Ordinal).ThenBy(policy => policy.ApplyPatches))
+                {
+                    builder.Append('/').Append(policy.Version).Append(':').Append(policy.RollForward)
+                        .Append(':').Append(policy.ApplyPatches);
+                }
             }
 
-            builder.Append("|wasdk:").Append(WindowsAppSdkVersion ?? string.Empty);
+            builder.Append("|wasdk:").Append(WindowsAppRuntimeVersion ?? string.Empty);
 
             var hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
             return Convert.ToHexStringLower(hash)[..32];
@@ -68,12 +75,8 @@ internal sealed record RuntimeRequirements(
 /// Reads what the build already produced rather than re-evaluating the project: the manifest in the
 /// materialized layout carries packaged framework dependencies, <c>.deps.json</c> carries the
 /// Windows App SDK version used by an unpackaged build, and <c>.runtimeconfig.json</c> carries the
-/// shared .NET frameworks the apphost will demand at startup.
-/// <para>
-/// Discovery is deliberately total: an artifact that is absent or unreadable yields no requirement
-/// rather than an error. A native C++ or Rust build has no runtime configuration and an unpackaged
-/// app has no manifest, and neither is a reason to refuse to run.
-/// </para>
+/// shared .NET frameworks and resolution policies the apphost will demand at startup.
+/// Absent artifacts impose no requirements; unsupported runtime configurations fail explicitly.
 /// </remarks>
 internal static class RuntimeRequirementDiscovery
 {
@@ -92,25 +95,50 @@ internal static class RuntimeRequirementDiscovery
     /// returns what it needs at runtime.
     /// </summary>
     /// <param name="sourceRoot">Host folder about to be deployed into the guest.</param>
-    /// <param name="fallbackArchitecture">
-    /// Architecture to attribute requirements to when the manifest does not state one, normally the
-    /// guest's own reported architecture.
+    /// <param name="applicationArchitecture">
+    /// Resolved build architecture, used when the manifest does not state one.
     /// </param>
-    public static RuntimeRequirements Discover(DirectoryInfo sourceRoot, string fallbackArchitecture)
+    /// <param name="windowsAppRuntimeVersion">Exact restored Runtime package version for native builds.</param>
+    public static RuntimeRequirements Discover(
+        DirectoryInfo sourceRoot,
+        string? applicationArchitecture,
+        string? windowsAppRuntimeVersion = null)
     {
         ArgumentNullException.ThrowIfNull(sourceRoot);
 
         var manifest = FindManifest(sourceRoot);
         var architecture =
             RunArchHelper.NormalizeArchitecture(manifest?.IdentityProcessorArchitecture)
-            ?? RunArchHelper.NormalizeArchitecture(fallbackArchitecture)
-            ?? RunArchHelper.DefaultArchitecture();
+            ?? RunArchHelper.NormalizeArchitecture(applicationArchitecture)
+            ?? ReadExecutableArchitecture(sourceRoot, manifest);
 
-        return new RuntimeRequirements(
-            architecture,
-            ReadPackageDependencies(manifest, architecture),
-            ReadSharedFrameworks(sourceRoot, architecture),
-            ReadWindowsAppSdkVersion(sourceRoot));
+        var requirementArchitecture = architecture ?? RuntimePackageRequirement.NeutralArchitecture;
+        var requirements = new RuntimeRequirements(
+            requirementArchitecture,
+            ReadPackageDependencies(manifest, requirementArchitecture),
+            ReadSharedFrameworks(sourceRoot, requirementArchitecture),
+            ReadWindowsAppRuntimeVersion(sourceRoot) ?? windowsAppRuntimeVersion);
+
+        if (architecture is null && !requirements.IsEmpty)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.RuntimeProvisionFailed,
+                "The application's architecture could not be determined for shared runtime provisioning.",
+                "Run the project with an explicit architecture or use a layout whose manifest declares its executable and architecture.");
+        }
+
+        return requirements;
+    }
+
+    private static string? ReadExecutableArchitecture(DirectoryInfo sourceRoot, AppxManifestDocument? manifest)
+    {
+        if (manifest?.ApplicationExecutable is not { Length: > 0 } executable)
+        {
+            return null;
+        }
+
+        return RunArchHelper.NormalizeArchitecture(PeHelper.DetectPeArchitecture(
+            TargetPathSafety.CombineInsideRoot(sourceRoot.FullName, executable)));
     }
 
     /// <summary>Loads the layout's manifest, or null when there is none to read.</summary>
@@ -187,98 +215,83 @@ internal static class RuntimeRequirementDiscovery
     /// </summary>
     /// <remarks>
     /// A folder can contain several <c>.runtimeconfig.json</c> files — one per assembly with an
-    /// apphost — so the union is taken and de-duplicated at the highest constraint. Taking only the
-    /// first would miss a requirement whenever the enumeration order changed.
+    /// apphost — so all references are retained, including policies on lower requested versions.
     /// </remarks>
     private static List<RuntimeFrameworkRequirement> ReadSharedFrameworks(
         DirectoryInfo sourceRoot,
         string architecture)
     {
-        var highest = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var requirements = new List<RuntimeFrameworkRequirement>();
 
         foreach (var file in EnumerateRuntimeConfigs(sourceRoot))
         {
-            var document = TryRead(file);
-            if (document?.RuntimeOptions is not { } options)
-            {
-                continue;
-            }
-
-            // A self-contained publish carries its frameworks in the payload, so it imposes no guest
-            // requirement at all — and must not inherit one from a sibling framework-dependent
-            // assembly's configuration either.
-            if (options.IncludedFrameworks is { Count: > 0 })
-            {
-                continue;
-            }
-
-            foreach (var framework in Declared(options))
-            {
-                if (string.IsNullOrWhiteSpace(framework.Name) || string.IsNullOrWhiteSpace(framework.Version))
-                {
-                    continue;
-                }
-
-                if (!highest.TryGetValue(framework.Name, out var existing) ||
-                    ComparableVersion(framework.Version) > ComparableVersion(existing))
-                {
-                    highest[framework.Name] = framework.Version;
-                }
-            }
+            requirements.AddRange(ReadFrameworkConfig(file, architecture));
         }
 
-        AddImpliedFrameworks(highest);
-
-        return
-        [
-            .. highest
-                .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(entry => new RuntimeFrameworkRequirement
-                {
-                    Name = entry.Key,
-                    MinVersion = entry.Value,
-                    Architecture = architecture,
-                }),
-        ];
+        return [.. requirements.GroupBy(requirement => requirement.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(RuntimeFrameworkRequirement.Combine)];
     }
 
-    /// <summary>
-    /// Adds the frameworks a declared one silently depends on.
-    /// </summary>
-    /// <remarks>
-    /// A WPF or WinForms application's runtime configuration names only
-    /// <c>Microsoft.WindowsDesktop.App</c>, but that framework is itself layered on
-    /// <c>Microsoft.NETCore.App</c> and cannot load without it. Provisioning only what was written
-    /// down would install a desktop framework into a guest with no runtime underneath it and then
-    /// report the graph satisfied — the failure would surface as an unexplained startup error.
-    /// <para>
-    /// The implied version is the declared one: the two ship as a matched pair, and the resolver's
-    /// roll-forward then picks the same servicing band for both.
-    /// </para>
-    /// </remarks>
-    private static void AddImpliedFrameworks(Dictionary<string, string> highest)
+    /// <summary>Reads framework references from an app or a selected shared framework.</summary>
+    internal static List<RuntimeFrameworkRequirement> ReadFrameworkConfig(string path, string architecture)
     {
-        foreach (var (dependent, implied) in ImpliedFrameworks)
+        var options = TryRead(path)?.RuntimeOptions;
+        if (options is null || options.IncludedFrameworks is { Count: > 0 })
         {
-            if (!highest.TryGetValue(dependent, out var version))
+            return [];
+        }
+
+        var declared = Declared(options).ToList();
+        var hasRollForward = options.RollForward is not null || declared.Any(framework => framework.RollForward is not null);
+        var hasLegacyPolicy = options.ApplyPatches is not null || options.RollForwardOnNoCandidateFx is not null ||
+            declared.Any(framework => framework.ApplyPatches is not null || framework.RollForwardOnNoCandidateFx is not null);
+        if (hasRollForward && hasLegacyPolicy)
+        {
+            throw UnsupportedConfig(path, "rollForward cannot be combined with applyPatches or rollForwardOnNoCandidateFx");
+        }
+
+        var requirements = new List<RuntimeFrameworkRequirement>();
+        foreach (var framework in declared)
+        {
+            if (string.IsNullOrWhiteSpace(framework.Name) ||
+                !Version.TryParse(framework.Version, out var version) || version.Build < 0 || version.Revision >= 0)
             {
-                continue;
+                throw UnsupportedConfig(path, "framework references must specify a name and a stable major.minor.patch version");
             }
 
-            if (!highest.TryGetValue(implied, out var existing) ||
-                ComparableVersion(version) > ComparableVersion(existing))
+            var rollForward = framework.RollForward ?? options.RollForward;
+            var legacyRollForward = framework.RollForwardOnNoCandidateFx ?? options.RollForwardOnNoCandidateFx;
+            var applyPatches = framework.ApplyPatches ?? options.ApplyPatches;
+            rollForward ??= legacyRollForward switch
             {
-                highest[implied] = version;
-            }
+                null or 1 => "Minor",
+                0 => "LatestPatch",
+                2 => "Major",
+                _ => throw UnsupportedConfig(path, "rollForwardOnNoCandidateFx must be 0, 1, or 2"),
+            };
+            var normalized = ((string[])["Disable", "LatestPatch", "Minor", "Major", "LatestMinor", "LatestMajor"])
+                .FirstOrDefault(value => value.Equals(rollForward, StringComparison.OrdinalIgnoreCase))
+                ?? throw UnsupportedConfig(path, $"unknown rollForward value '{rollForward}'");
+
+            requirements.Add(new RuntimeFrameworkRequirement
+            {
+                Name = framework.Name,
+                MinVersion = version.ToString(),
+                Architecture = architecture,
+                RollForward = normalized,
+                ApplyPatches = applyPatches ?? true,
+            });
         }
+
+        return requirements;
     }
 
-    /// <summary>Frameworks that cannot load without another shared framework beneath them.</summary>
-    private static readonly (string Dependent, string Implied)[] ImpliedFrameworks =
-    [
-        ("Microsoft.WindowsDesktop.App", "Microsoft.NETCore.App"),
-        ("Microsoft.AspNetCore.App", "Microsoft.NETCore.App"),
-    ];
+    private static ExecutionTargetException UnsupportedConfig(string path, string detail) =>
+        ExecutionTargetException.Create(
+            ExecutionTargetErrorCodes.RuntimeProvisionFailed,
+            $"Cannot provision the runtime configuration '{Path.GetFileName(path)}': {detail}.",
+            "Use a supported stable runtime configuration or publish the app self-contained.");
 
     private static IEnumerable<RuntimeConfigFramework> Declared(RuntimeConfigOptions options)
     {
@@ -308,14 +321,14 @@ internal static class RuntimeRequirementDiscovery
     }
 
     /// <summary>
-    /// Reads the Windows App SDK version restored into an unpackaged build.
+    /// Reads the Windows App SDK Runtime package version restored into an unpackaged build.
     /// </summary>
     /// <remarks>
     /// An unpackaged app has no PackageDependency manifest entry, but its <c>.deps.json</c> records
-    /// the exact <c>Microsoft.WindowsAppSDK</c> package the bootstrapper was built against. That is
+    /// the exact <c>Microsoft.WindowsAppSDK.Runtime</c> package. That is
     /// the authoritative key for selecting the matching Framework/DDLM/Main/Singleton inventory.
     /// </remarks>
-    private static string? ReadWindowsAppSdkVersion(DirectoryInfo sourceRoot)
+    private static string? ReadWindowsAppRuntimeVersion(DirectoryInfo sourceRoot)
     {
         string? highest = null;
 
@@ -333,7 +346,7 @@ internal static class RuntimeRequirementDiscovery
 
                 foreach (var library in libraries.EnumerateObject())
                 {
-                    const string Prefix = "Microsoft.WindowsAppSDK/";
+                    const string Prefix = "Microsoft.WindowsAppSDK.Runtime/";
                     if (!library.Name.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
@@ -379,12 +392,12 @@ internal static class RuntimeRequirementDiscovery
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            return null;
+            throw UnsupportedConfig(path, $"the file could not be read ({ex.Message})");
         }
     }
 
     /// <summary>
-    /// Compares framework versions, tolerating the prerelease suffixes runtime configurations carry.
+    /// Compares numeric version components for runtime and package identities.
     /// </summary>
     /// <remarks>
     /// <c>Version.TryParse</c> rejects <c>8.0.0-preview.1</c>, and an unparsed version would silently
@@ -419,6 +432,10 @@ internal sealed class RuntimeConfigDocument
 /// <summary>The framework references inside <c>runtimeOptions</c>.</summary>
 internal sealed class RuntimeConfigOptions
 {
+    public string? RollForward { get; init; }
+    public int? RollForwardOnNoCandidateFx { get; init; }
+    public bool? ApplyPatches { get; init; }
+
     /// <summary>Single framework reference, used when exactly one is declared.</summary>
     public RuntimeConfigFramework? Framework { get; init; }
 
@@ -432,6 +449,10 @@ internal sealed class RuntimeConfigOptions
 /// <summary>One framework reference.</summary>
 internal sealed class RuntimeConfigFramework
 {
+    public string? RollForward { get; init; }
+    public int? RollForwardOnNoCandidateFx { get; init; }
+    public bool? ApplyPatches { get; init; }
+
     /// <summary>Framework name, for example <c>Microsoft.NETCore.App</c>.</summary>
     public string? Name { get; init; }
 

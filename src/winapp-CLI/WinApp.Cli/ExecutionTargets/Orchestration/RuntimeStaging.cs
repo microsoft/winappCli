@@ -55,7 +55,6 @@ internal static class RuntimeStaging
     /// <param name="plan">Plan to publish, naming each staged payload.</param>
     /// <param name="packages">Resolved framework package payloads, in plan order.</param>
     /// <param name="frameworks">Resolved shared framework layouts, keyed by framework name.</param>
-    /// <param name="repair">True to discard the scope first, after an unfinished previous pass.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <remarks>
     /// Content is compared by hash against what the guest reports it holds, so a warm rerun of the
@@ -68,7 +67,6 @@ internal static class RuntimeStaging
         RuntimeProvisionPlan plan,
         IReadOnlyList<ResolvedRuntimePackage> packages,
         IReadOnlyDictionary<string, RuntimeFrameworkPayload> frameworks,
-        bool repair,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -76,16 +74,7 @@ internal static class RuntimeStaging
         ArgumentNullException.ThrowIfNull(packages);
         ArgumentNullException.ThrowIfNull(frameworks);
 
-        if (repair)
-        {
-            // A previous pass left the scope in an unknown state. Discarding it is cheaper to reason
-            // about than proving which of a partially transferred set is still intact.
-            await target.Operations.DeleteScopeAsync(scope, cancellationToken).ConfigureAwait(false);
-        }
-
-        var present = repair
-            ? []
-            : await target.Operations.ListFilesAsync(scope, cancellationToken).ConfigureAwait(false);
+        var present = await target.Operations.ListFilesAsync(scope, cancellationToken).ConfigureAwait(false);
 
         var byPath = present.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
 

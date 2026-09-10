@@ -22,7 +22,7 @@ internal interface IRecordFrameSink : IAsyncDisposable
 
 internal sealed class RecordFrameBundleConfiguration
 {
-    public const long DefaultMaximumBundleBytes = 1024L * 1024 * 1024;
+    public const long DefaultMaximumBundleBytes = RecordingArtifactPublisher.DefaultMaximumFrameBundleBytes;
 
     public required string FinalDirectory { get; init; }
     public required string VideoPath { get; init; }

@@ -14,7 +14,7 @@ namespace WinApp.Cli.Tests;
 /// comes back.
 /// </summary>
 [TestClass]
-public class TargetUiRoutingTests
+public partial class TargetUiRoutingTests
 {
     private const string GuestArtifacts = @"C:\WinAppGuest\artifacts\op1";
 
@@ -288,6 +288,7 @@ public class TargetUiRoutingTests
         Directory.CreateDirectory(directory);
 
         var path = TestPaths.Under(directory, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, contents, TestContext.CancellationToken);
         return path;
     }

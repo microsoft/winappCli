@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.Buffers.Binary;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WinApp.Cli.ExecutionTargets.Abstractions;
@@ -58,8 +57,11 @@ internal static class GuestMessageTypes
     /// <summary>Host asks the guest to enumerate a managed root.</summary>
     public const string ListFilesRequest = "list-files-request";
 
-    /// <summary>Guest returns the actual contents of a managed root.</summary>
+    /// <summary>Guest returns one bounded batch of a managed root's contents.</summary>
     public const string ListFilesResponse = "list-files-response";
+
+    /// <summary>Guest reports that all inventory batches have been sent.</summary>
+    public const string ListFilesCompleted = "list-files-completed";
 
     /// <summary>Host announces a file it is about to stream into a managed root.</summary>
     public const string PutFileRequest = "put-file-request";
@@ -334,6 +336,7 @@ internal sealed class GuestMessage
 
 /// <summary>Source-generated serializer context for guest control messages.</summary>
 [JsonSerializable(typeof(GuestMessage))]
+[JsonSerializable(typeof(GuestFileInfo))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
@@ -365,6 +368,52 @@ internal static class GuestPayloadCodec
         payload[0] = (byte)GuestPayloadKind.Json;
         json.CopyTo(payload.AsSpan(1));
         return payload;
+    }
+
+    internal static IEnumerable<byte[]> EncodeFileInventory(
+        Guid operationId,
+        string targetEpoch,
+        IReadOnlyList<GuestFileInfo> files)
+    {
+        var batch = new List<GuestFileInfo>();
+        var message = new GuestMessage
+        {
+            Type = GuestMessageTypes.ListFilesResponse,
+            OperationId = operationId.ToString(),
+            TargetEpoch = targetEpoch,
+            Files = batch,
+        };
+        var envelopeBytes = EncodeJson(message).Length;
+        var batchBytes = envelopeBytes;
+        foreach (var file in files)
+        {
+            // JSON escaping can make non-ASCII paths much larger than their character count.
+            var fileBytes = JsonSerializer.SerializeToUtf8Bytes(
+                file, GuestMessageJsonContext.Default.GuestFileInfo).Length;
+            if (envelopeBytes + fileBytes > GuestFrameCodec.MaxPlaintextBytes)
+            {
+                throw ExecutionTargetException.Create(
+                    ExecutionTargetErrorCodes.ArtifactFailed,
+                    $"The inventory entry for '{file.RelativePath}' exceeds the guest frame limit.");
+            }
+
+            var separatorBytes = batch.Count == 0 ? 0 : 1;
+            if (batchBytes + fileBytes + separatorBytes > GuestFrameCodec.MaxPlaintextBytes)
+            {
+                yield return EncodeJson(message);
+                batch.Clear();
+                batchBytes = envelopeBytes;
+                separatorBytes = 0;
+            }
+
+            batch.Add(file);
+            batchBytes += fileBytes + separatorBytes;
+        }
+
+        if (batch.Count != 0)
+        {
+            yield return EncodeJson(message);
+        }
     }
 
     /// <summary>Frames a chunk of one operation's stream.</summary>
@@ -459,16 +508,4 @@ internal static class GuestPayloadCodec
     /// </remarks>
     public static int MaxStreamChunkSize => GuestFrameCodec.MaxPlaintextBytes - StreamHeaderSize;
 
-    /// <summary>Reads a big-endian operation sequence, used by fencing checks.</summary>
-    internal static bool TryReadUInt32(ReadOnlySpan<byte> value, out uint result)
-    {
-        if (value.Length < sizeof(uint))
-        {
-            result = 0;
-            return false;
-        }
-
-        result = BinaryPrimitives.ReadUInt32BigEndian(value);
-        return true;
-    }
 }

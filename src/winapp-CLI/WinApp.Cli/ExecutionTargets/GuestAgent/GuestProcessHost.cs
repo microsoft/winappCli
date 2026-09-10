@@ -64,7 +64,7 @@ internal sealed class GuestProcessHost : IGuestProcessHost
     /// <exception cref="ExecutionTargetException">The process could not be started.</exception>
     public static GuestProcessHost Start(
         GuestExecRequest request,
-        Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput,
+        Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput,
         string? barrierExecutable = null)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -167,7 +167,7 @@ internal sealed class GuestProcessHost : IGuestProcessHost
             await _process.StandardInput.BaseStream.WriteAsync(data, cancellationToken).ConfigureAwait(false);
             await _process.StandardInput.BaseStream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
             // The child closed its input. That is the child's choice, not a transport failure.
         }
@@ -180,7 +180,7 @@ internal sealed class GuestProcessHost : IGuestProcessHost
         {
             _process.StandardInput.Close();
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
             // Already closed.
         }
@@ -214,7 +214,9 @@ internal sealed class GuestProcessHost : IGuestProcessHost
             return _process.ExitCode;
         }
 
-        CloseStandardInput();
+        // Process pipes may use synchronous handles: a full stdin write can hold their stream
+        // lock even after cancellation. Do not let closing that stream delay the kill deadline.
+        var inputClosed = Task.Run(CloseStandardInput, CancellationToken.None);
 
         try
         {
@@ -236,6 +238,7 @@ internal sealed class GuestProcessHost : IGuestProcessHost
             // The caller gave up waiting; the job still dies when this host is disposed.
         }
 
+        await inputClosed.ConfigureAwait(false);
         await _pumpTask.ConfigureAwait(false);
         return _process.HasExited ? _process.ExitCode : -1;
     }
@@ -263,15 +266,17 @@ internal sealed class GuestProcessHost : IGuestProcessHost
         {
             // The pipes died with the process.
         }
-
-        _process.Dispose();
+        finally
+        {
+            _process.Dispose();
+        }
     }
 
     /// <summary>Forwards one stream's bytes until it closes.</summary>
     private static async Task PumpAsync(
         Stream stream,
         GuestStreamId streamId,
-        Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput)
+        Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput)
     {
         var buffer = new byte[64 * 1024];
 
@@ -285,7 +290,7 @@ internal sealed class GuestProcessHost : IGuestProcessHost
                     return;
                 }
 
-                onOutput(streamId, buffer.AsMemory(0, read).ToArray());
+                await onOutput(streamId, buffer.AsMemory(0, read)).ConfigureAwait(false);
             }
         }
         catch (IOException)

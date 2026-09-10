@@ -12,20 +12,8 @@ internal partial class RunCommand
     public partial class Handler
     {
         /// <summary>
-        /// Handles <see cref="GuestLaunchCommand"/>: verifies the currently registered package for
-        /// the given identity is installed from exactly <see cref="GuestLaunchCommand.ExpectedLayoutOption"/>,
-        /// then launches it. Never registers or unregisters anything -- a mismatch is refused, not
-        /// repaired, and <c>--unregister-on-exit</c> is not accepted at all (the host handles it
-        /// separately, as its own locked, exact-layout-verified phase after this verb returns; see
-        /// <c>RunCommand.Sandbox.cs</c>'s <c>UnregisterDeploymentAfterExitAsync</c>).
+        /// Launches only when the current development registration matches the expected layout.
         /// </summary>
-        /// <remarks>
-        /// This method has no code path that calls <see cref="IPackageRegistrationService.InstallPackageAsync"/>,
-        /// <see cref="IMsixService.AddLooseLayoutIdentityAsync"/>, or any unregister API. That is
-        /// deliberate: it is what makes this verb safe to run entirely without the target mutation
-        /// lock. The ordinary <c>winapp run</c> cannot offer the same guarantee, because its
-        /// registration and launch are inseparable steps of one call.
-        /// </remarks>
         internal async Task<int> InvokeGuestLaunchAsync(
             System.CommandLine.ParseResult parseResult,
             CancellationToken cancellationToken)
@@ -38,6 +26,7 @@ internal partial class RunCommand
             var targetSelector = parseResult.GetValue(GuestLaunchCommand.TargetSelectorOption)!;
             var appArgs = parseResult.GetValue(GuestLaunchCommand.ArgsOption);
             var withAlias = parseResult.GetValue(GuestLaunchCommand.WithAliasOption);
+            var useAlias = withAlias || parseResult.GetValue(GuestLaunchCommand.PreferAliasOption);
             var debugOutput = parseResult.GetValue(GuestLaunchCommand.DebugOutputOption);
             var detach = parseResult.GetValue(GuestLaunchCommand.DetachOption);
             var useSymbols = parseResult.GetValue(GuestLaunchCommand.SymbolsOption);
@@ -83,7 +72,7 @@ internal partial class RunCommand
             // --json error envelope / human-readable message every other launch failure in this
             // command does -- never bare process stderr with no RunCommandResult at all.
             uint processId = 0;
-            if (!withAlias)
+            if (!useAlias)
             {
                 try
                 {
@@ -115,7 +104,7 @@ internal partial class RunCommand
 
             return await LaunchRegisteredApplicationAsync(
                 aumid, packageName, packageFullName, expectedLayout, payload, appArgs, processId,
-                withAlias, debugOutput, unregisterOnExit: false, detach, useSymbols, isJson,
+                useAlias, debugOutput, unregisterOnExit: false, detach, useSymbols, isJson,
                 familyName, aliasWasRequested: withAlias, targetSelector, cancellationToken);
         }
 

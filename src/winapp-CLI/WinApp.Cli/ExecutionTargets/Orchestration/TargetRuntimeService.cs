@@ -26,12 +26,16 @@ internal sealed record RuntimeProvisionResult(
     /// <remarks>
     /// A per-user .NET root is discoverable to an apphost through <c>DOTNET_ROOT</c> and nothing
     /// else without machine-wide registration, so the value has to reach the launched process
-    /// itself. Empty when the guest satisfied every framework on its own, which leaves the guest's
-    /// ordinary resolution untouched.
+    /// itself. The selected existing guest root is also pinned so launch uses the installation
+    /// that was actually verified.
     /// </remarks>
     public IReadOnlyDictionary<string, string> LaunchEnvironment =>
         Report?.DotNetRoot is { Length: > 0 } root
-            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["DOTNET_ROOT"] = root }
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["DOTNET_ROOT"] = root,
+                [$"DOTNET_ROOT_{Requirements.Architecture.ToUpperInvariant()}"] = root,
+            }
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }
 
@@ -56,7 +60,6 @@ internal sealed record RuntimeProvisionResult(
 /// </para>
 /// </remarks>
 internal sealed class TargetRuntimeService(
-    IRuntimeProvisionStateStore stateStore,
     IRuntimePayloadResolver payloadResolver,
     IRuntimeFrameworkResolver frameworkResolver)
 {
@@ -95,11 +98,12 @@ internal sealed class TargetRuntimeService(
     /// (already held by the caller from <see cref="ExecutionTargetOrchestrator.PrepareAsync"/>)
     /// this call relies on rather than reacquiring.
     /// </param>
-    /// <param name="targetRef">Target whose state root holds the provisioning record.</param>
     /// <param name="sourceRoot">Host folder about to be deployed — a layout or a build output.</param>
+    /// <param name="applicationArchitecture">Resolved build architecture, not the guest architecture.</param>
     /// <param name="projectRoot">Workspace root, used only when a payload has to be acquired.</param>
     /// <param name="taskContext">Status and debug sink.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="windowsAppRuntimeVersion">Exact restored Windows App SDK Runtime package version.</param>
     /// <exception cref="ExecutionTargetException">
     /// The required graph could not be satisfied without removing or downgrading a shared runtime.
     /// </exception>
@@ -107,12 +111,9 @@ internal sealed class TargetRuntimeService(
     /// <paramref name="target"/> was not prepared for mutation.
     /// </exception>
     /// <remarks>
-    /// The graph is verified before every launch, never inferred from a previous pass. A clean
-    /// journal proves what winapp did, not what the guest currently has: <c>sandbox exec</c> gives
-    /// any caller a way to install, remove, or replace packages and runtimes inside the same
-    /// generation, and a deployment that trusted the record would launch into a guest whose runtime
-    /// had been changed underneath it. The journal's job is narrower and unchanged — it says whether
-    /// a previous pass was interrupted, and therefore whether the staged area can be trusted.
+    /// The graph is verified before every launch. Staging compares hashes on every pass, so an
+    /// interrupted transfer is repaired without a separate runtime journal. Guest installation
+    /// publishes versioned folders atomically and re-probes completeness before skipping an install.
     /// <para>
     /// This no longer acquires the mutation lock itself: the caller already holds it for the whole
     /// mutating sequence (runtime provisioning, deployment reconciliation, package registration), via
@@ -122,18 +123,19 @@ internal sealed class TargetRuntimeService(
     /// </remarks>
     public async Task<RuntimeProvisionResult> EnsureAsync(
         PreparedTarget target,
-        ExecutionTargetRef targetRef,
         DirectoryInfo sourceRoot,
+        string? applicationArchitecture,
         DirectoryInfo projectRoot,
         TaskContext taskContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? windowsAppRuntimeVersion = null)
     {
         ArgumentNullException.ThrowIfNull(target);
-        ArgumentNullException.ThrowIfNull(targetRef);
         ArgumentNullException.ThrowIfNull(sourceRoot);
 
         var discoveryWatch = Stopwatch.StartNew();
-        var requirements = RuntimeRequirementDiscovery.Discover(sourceRoot, target.Capabilities.Architecture);
+        var requirements = RuntimeRequirementDiscovery.Discover(
+            sourceRoot, applicationArchitecture, windowsAppRuntimeVersion);
         Record(DiscoveryPhase, discoveryWatch);
 
         if (requirements.IsEmpty)
@@ -148,47 +150,29 @@ internal sealed class TargetRuntimeService(
 
         var planId = requirements.PlanId;
 
-        var existing = stateStore.Read(targetRef);
-
-        // Only an unfinished pass makes the staged area untrustworthy. A clean record for a
-        // different plan, or one from a previous generation, leaves nothing misleading behind — and
-        // wiping the scope for those would re-transfer tens of megabytes for no reason.
-        var repair = existing?.Dirty == true;
-
         var resolutionWatch = Stopwatch.StartNew();
 
         var packages = await payloadResolver
             .ResolveAsync(requirements, projectRoot, taskContext, cancellationToken)
             .ConfigureAwait(false);
 
-        var frameworks = await ResolveFrameworksAsync(requirements, projectRoot, taskContext, cancellationToken)
+        var (resolvedRequirements, frameworks) = await ResolveFrameworksAsync(
+            requirements, projectRoot, taskContext, cancellationToken)
             .ConfigureAwait(false);
 
         Record(CacheResolutionPhase, resolutionWatch);
 
         var dotNetRoot = TargetPathSafety.CombineInsideRoot(
-            target.Capabilities.ManagedRoot ?? throw MissingManagedRoot(), DotNetRootFolderName);
+            target.Capabilities.ManagedRoot ?? throw MissingManagedRoot(),
+            DotNetRootFolderName, TargetPathSafety.EnsureSafeSegment(requirements.Architecture));
 
-        var plan = BuildPlan(requirements, planId, dotNetRoot, packages, frameworks);
-
-        // Journalled before the first guest mutation, exactly as deployment is: a host that dies
-        // between installing the first package and the last must leave a record that says so.
-        var dirty = stateStore.Commit(
-            targetRef,
-            new RuntimeProvisionState
-            {
-                SchemaVersion = RuntimeProvisionStateStore.CurrentSchemaVersion,
-                Revision = existing?.Revision ?? 0,
-                TargetEpoch = target.Epoch.Value,
-                PlanId = planId,
-                Dirty = true,
-            },
-            existing?.Revision ?? 0);
+        var plan = BuildPlan(
+            requirements with { Frameworks = resolvedRequirements }, planId, dotNetRoot, packages, frameworks);
 
         var scope = new GuestPathScope(GuestRootNames.Runtimes, planId);
 
         var transferWatch = Stopwatch.StartNew();
-        await RuntimeStaging.StageAsync(target, scope, plan, packages, frameworks, repair, cancellationToken)
+        await RuntimeStaging.StageAsync(target, scope, plan, packages, frameworks, cancellationToken)
             .ConfigureAwait(false);
         Record(TransferPhase, transferWatch);
 
@@ -199,8 +183,6 @@ internal sealed class TargetRuntimeService(
 
         EnsureSatisfied(report);
 
-        stateStore.Commit(targetRef, dirty with { Dirty = false }, dirty.Revision);
-
         return new RuntimeProvisionResult(
             requirements,
             AlreadySatisfied: !report.Items.Any(item => item.Installed),
@@ -208,15 +190,18 @@ internal sealed class TargetRuntimeService(
     }
 
     /// <summary>Resolves a portable layout for every shared framework requirement that has one.</summary>
-    private async Task<Dictionary<string, RuntimeFrameworkPayload>> ResolveFrameworksAsync(
+    private async Task<(List<RuntimeFrameworkRequirement>, Dictionary<string, RuntimeFrameworkPayload>)> ResolveFrameworksAsync(
         RuntimeRequirements requirements,
         DirectoryInfo projectRoot,
         TaskContext taskContext,
         CancellationToken cancellationToken)
     {
         var payloads = new Dictionary<string, RuntimeFrameworkPayload>(StringComparer.OrdinalIgnoreCase);
+        var references = requirements.Frameworks.ToList();
 
-        foreach (var requirement in requirements.Frameworks)
+        // Resolve the layered framework first: its selected version, not the app's minimum,
+        // determines the core dependency (for example Desktop 8.0.12 requires Core 8.0.12).
+        foreach (var requirement in requirements.Frameworks.Where(requirement => requirement.Name != DotNetLayout.CoreFramework))
         {
             var payload = await frameworkResolver
                 .ResolveAsync(requirement, projectRoot, taskContext, cancellationToken)
@@ -230,9 +215,25 @@ internal sealed class TargetRuntimeService(
             }
 
             payloads[requirement.Name] = payload;
+            references.AddRange(payload.Dependencies.Select(dependency => dependency with
+            {
+                RollToHighestVersion = requirement.PrefersHighestVersion || dependency.RollToHighestVersion,
+            }));
         }
 
-        return payloads;
+        var combined = references.GroupBy(requirement => requirement.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(RuntimeFrameworkRequirement.Combine).ToList();
+        if (combined.FirstOrDefault(requirement => requirement.Name == DotNetLayout.CoreFramework) is { } core)
+        {
+            var payload = await frameworkResolver.ResolveAsync(core, projectRoot, taskContext, cancellationToken)
+                .ConfigureAwait(false);
+            if (payload is not null)
+            {
+                payloads[core.Name] = payload;
+            }
+        }
+
+        return (combined, payloads);
     }
 
     /// <summary>Builds the plan the guest reads, naming the staged file for each resolved payload.</summary>
@@ -267,16 +268,10 @@ internal sealed class TargetRuntimeService(
             ],
             Frameworks =
             [
-                .. requirements.Frameworks.Select(requirement => new RuntimeFrameworkRequirement
+                .. requirements.Frameworks.Select(requirement => requirement with
                 {
-                    Name = requirement.Name,
-                    MinVersion = requirement.MinVersion,
-                    Architecture = requirement.Architecture,
                     PayloadFile = frameworks.TryGetValue(requirement.Name, out var payload)
                         ? RuntimeStaging.StagedFileName(payload)
-                        : null,
-                    PayloadVersion = frameworks.TryGetValue(requirement.Name, out var resolved)
-                        ? resolved.Version
                         : null,
                 }),
             ],
@@ -433,8 +428,7 @@ internal sealed class TargetRuntimeService(
         ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.AgentIncompatible,
             "The guest agent did not report where it stores deployed applications.",
-            userAction: "Update winapp on this machine, then retry so the guest agent is replaced.",
-            nextCommand: new ExecutionTargetNextCommand { Command = "winapp update", Advisory = false });
+            userAction: "Update the winapp CLI on this machine, then retry so the guest agent is replaced.");
 
     private static ExecutionTargetException Failed(
         string message,

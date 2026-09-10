@@ -209,7 +209,7 @@ public class SandboxAdoptionTests
         var bootstrapShare = GuestSharePaths(harness)
             .Single(path => !path.StartsWith(@"C:\WinAppBootstrapResult", StringComparison.Ordinal));
 
-        StringAssert.Contains(rule, $@"{bootstrapShare}\{GuestAgentInstaller.BinaryName}", StringComparison.Ordinal);
+        StringAssert.Contains(rule, $@"{bootstrapShare}\{GuestAgentCommandNames.BinaryName}", StringComparison.Ordinal);
     }
 
     [TestMethod]

@@ -2,19 +2,13 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.ExecutionTargets.Orchestration;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Tests;
 
 /// <summary>
-/// Tests for Cooperative UI Turns owner-context forwarding
-/// (spec §"Owner-context forwarding", acceptance criterion 14).
+/// Workflow identity retains its grouping and anonymous semantics across the guest boundary.
 /// </summary>
-/// <remarks>
-/// The property under test is not "a token is produced" but that the <em>grouping</em> survives the
-/// hop into the guest. Every guest child shares one agent parent, so without this the guest would
-/// see a single owner and commands that must queue against each other would instead be treated as
-/// cooperating — silently allowing two workflows to drive the same desktop at once.
-/// </remarks>
 [TestClass]
 public class GuestOwnerContextTests
 {
@@ -55,22 +49,24 @@ public class GuestOwnerContextTests
     }
 
     [TestMethod]
-    public void NoExplicitWorkflow_IsAlwaysAnonymous()
+    public void NoExplicitWorkflow_IsNotForwardedAsANamedWorkflow()
     {
         var resolved = GuestOwnerContext.ResolveHostOwner(WithWorkflowVariable(null));
-
-        Assert.IsFalse(string.IsNullOrWhiteSpace(resolved));
-        StringAssert.StartsWith(resolved, "anonymous:");
+        Assert.IsNull(resolved);
     }
 
     [TestMethod]
-    public void Anonymous_OwnersAreUniquePerInvocation()
+    public void AbsentWorkflow_RemovesInheritedGroupingFromChildEnvironment()
     {
-        var blank = NoWorkflowVariable();
-        var first = GuestOwnerContext.ResolveHostOwner(blank);
-        var second = GuestOwnerContext.ResolveHostOwner(blank);
-
-        Assert.AreNotEqual(first, second);
+        var environment = GuestOwnerContext.WithWorkflow(
+            new Dictionary<string, string>
+            {
+                [GuestOwnerContext.WorkflowVariable] = "previous-workflow",
+                ["EXISTING"] = "kept",
+            },
+            GuestOwnerContext.ResolveHostOwner(NoWorkflowVariable()));
+        Assert.IsFalse(environment.ContainsKey(UiOwnerResolver.WorkflowIdVariable));
+        Assert.AreEqual("kept", environment["EXISTING"]);
     }
 
     [TestMethod]

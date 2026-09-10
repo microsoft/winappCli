@@ -18,18 +18,10 @@ internal partial class RunCommand
     public partial class Handler
     {
         /// <summary>
-        /// Runs a packaged app in the execution target: materialize on the host, reconcile into the
-        /// guest, then let guest winapp register, launch, and honour the option matrix.
+        /// Materializes a packaged app on the host, then registers and launches it in the guest.
         /// </summary>
         /// <remarks>
-        /// Nothing about this machine changes. Materialization stops before runtime provisioning and
-        /// registration, and the guest performs both — so a <c>--on sandbox</c> run leaves no package
-        /// registered here and installs no runtime here, which is the entire point of the flag.
-        /// <para>
-        /// The guest is asked to perform the ordinary <c>winapp run</c>. Every option in the matrix
-        /// is therefore the same implementation users already rely on locally rather than a second
-        /// one that can drift.
-        /// </para>
+        /// Materialization must not install runtimes or register packages on this machine.
         /// </remarks>
         private async Task<int> ExecutePackagedTargetRunAsync(
             DirectoryInfo inputFolder,
@@ -37,18 +29,19 @@ internal partial class RunCommand
             LayoutOutput layoutOutput,
             string? appArgs,
             bool noLaunch,
-            bool withAlias,
+            AliasLaunchDecision aliasDecision,
             bool debugOutput,
             bool unregisterOnExit,
             bool detach,
             bool clean,
+            bool useSymbols,
             string? executable,
             bool isJson,
+            string? runtimeArch,
             FileInfo? projectFile,
             string? framework,
             bool noRestore,
             bool selfContained,
-            bool ensureExecutionAlias,
             PackageGraphSource? packageGraph,
             CancellationToken cancellationToken)
         {
@@ -56,14 +49,7 @@ internal partial class RunCommand
             DirectoryInfo layout;
             MsixIdentityResult? identity = null;
 
-            // Held from materialization until the guest deployment has finished consuming the layout.
-            // Releasing it after materialization would leave a window in which a second run could
-            // rewrite the directory, and this run would then deploy the other run's files.
-            //
-            // It is released at the same points as the guest mutation lease, and for the same reason:
-            // once the layout has been copied into the guest and registered there, nothing this run
-            // does afterward reads the host directory again, and a long-running app must never keep
-            // another winapp workflow waiting on it.
+            // Prevent concurrent runs rewriting the host layout until guest deployment consumes it.
             LayoutLease? layoutLease = null;
 
             try
@@ -72,10 +58,7 @@ internal partial class RunCommand
                 {
                     resolvedManifest = ResolveManifestForSandbox(inputFolder, manifest);
 
-                    // Ownership travels with the path from the call site (see LayoutOutput). The
-                    // guest registration layout arrives here as WinappManaged: the host created it
-                    // beside the deployed payload, so it is winapp's to keep matching the build,
-                    // exactly like the generated AppX directory.
+                    // LayoutOutput retains whether this host directory is generated or user-supplied.
                     layout = layoutOutput.Resolve(() => new DirectoryInfo(
                         TargetPathSafety.CombineInsideRoot(inputFolder.FullName, "AppX")));
 
@@ -97,7 +80,7 @@ internal partial class RunCommand
                                 identity = await msixService.MaterializeLooseLayoutAsync(
                                     resolvedManifest, inputFolder, layout, taskContext, layoutOutput.Reconciliation,
                                     executable, projectFile, framework, noRestore,
-                                    selfContained, ensureExecutionAlias, packageGraph, ct);
+                                    selfContained, aliasDecision.UseAlias, packageGraph, ct);
                                 return (0, $"{identity.PackageName} ready to deploy");
                             }
                             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -126,60 +109,44 @@ internal partial class RunCommand
                     return Fail(ex.Message, isJson);
                 }
 
-            var options = new GuestRunOptions(
-                noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, isJson, appArgs);
+                var options = new GuestLaunchOptions(
+                    aliasDecision.UseAlias, debugOutput, detach, isJson, appArgs,
+                    AliasIsExplicit: aliasDecision.Explicit, Symbols: useSymbols);
 
-            // When this run also launches, RunInGuestAsync pulls registration out into its own
-            // locked call (see RegisterPackageAsync) so the mutation lease never has to keep
-            // covering the launch/wait that follows. The general guest `winapp run` is never used
-            // for that second, unlocked call: after releasing the lease, a different deployment
-            // sharing this package identity could register in the gap, and the general `run` would
-            // then see a mismatched install location and silently fall through to an unlocked
-            // unregister+register of its own -- reintroducing exactly the mutation this split exists
-            // to prevent, and disturbing the other deployment's registration in the process. The
-            // hidden guest-launch verb is structurally incapable of that: it has no code path that
-            // registers or unregisters anything, so a mismatch is refused outright instead of
-            // "repaired". See GuestLaunchPlanner/GuestLaunchCommand.
-            //
-            // --unregister-on-exit is likewise never forwarded to guest-launch (it has no such
-            // option at all): it is instead honored as a third, separate, host-orchestrated phase
-            // after the guest-launch call returns -- see UnregisterDeploymentAfterExitAsync.
-            //
-            // When noLaunch is requested there is no launch phase to split off, so registration
-            // (still under the same locked call inside RunInGuestAsync) is the whole operation.
-            return await RunInGuestAsync(
-                layout,
-                DeploymentIdFor(inputFolder, identity),
-                clean,
-                isJson,
-                requiresRealInput: !noLaunch,
-                identity,
-                noLaunch,
-                unregisterOnExit,
-                (deployment, ownerEnvironment) => new GuestExecRequest
-                {
-                    UseGuestWinapp = true,
-                    Arguments = GuestLaunchPlanner.BuildLaunchArguments(
-                        identity.PackageName,
-                        identity.Publisher,
-                        identity.ApplicationId,
-                        deployment.LayoutPath,
-                        deployment.PayloadPath,
-                        executionTargetOrchestrator.Target.Selector,
-                        options),
+                // Registration and exit cleanup own mutation leases; this launch-only request does not.
+                return await RunInGuestAsync(
+                    layout,
+                    DeploymentIdFor(inputFolder, identity),
+                    clean,
+                    isJson,
+                    requiresRealInput: !noLaunch,
+                    identity,
+                    noLaunch,
+                    unregisterOnExit,
+                    (deployment, ownerEnvironment) => new GuestExecRequest
+                    {
+                        UseGuestWinapp = true,
+                        Arguments = GuestLaunchPlanner.BuildLaunchArguments(
+                            identity.PackageName,
+                            identity.Publisher,
+                            identity.ApplicationId,
+                            deployment.LayoutPath,
+                            deployment.PayloadPath,
+                            executionTargetOrchestrator.Target.Selector,
+                            options),
 
-                    // The payload folder, so a guest app that resolves files relative to its working
-                    // directory sees its own deployment rather than the agent's location.
-                    WorkingDirectory = deployment.PayloadPath,
-                    Environment = ownerEnvironment,
-                    RequiresRealInput = !noLaunch,
-                },
-                cancellationToken,
-                // --with-alias is documented as running the app "in the current terminal with
-                // inherited stdin/stdout/stderr". Output already came back; without this, stdin did
-                // not, so a console app launched this way could never be driven.
-                forwardStandardInput: withAlias,
-                layoutLease: layoutLease);
+                        // The payload folder, so a guest app that resolves files relative to its working
+                        // directory sees its own deployment rather than the agent's location.
+                        WorkingDirectory = deployment.PayloadPath,
+                        Environment = ownerEnvironment,
+                        RequiresRealInput = !noLaunch,
+                    },
+                    cancellationToken,
+                    forwardStandardInput: aliasDecision.UseAlias,
+                    layoutLease: layoutLease,
+                    applicationArchitecture: runtimeArch,
+                    packageGraph: selfContained ? null : packageGraph,
+                    framework: framework);
             }
             finally
             {
@@ -212,7 +179,7 @@ internal partial class RunCommand
 
             try
             {
-                GuestRunPlanner.EnsureSupportedForUnpackaged(new GuestRunOptions(DebugOutput: debugOutput));
+                GuestRunPlanner.EnsureSupportedForUnpackaged(debugOutput);
                 executableRelativePath = ResolveGuestRelativeExecutable(targetDir, resolution.RunCommand!, csproj);
             }
             catch (ExecutionTargetException ex)
@@ -246,11 +213,16 @@ internal partial class RunCommand
                     Detach = detach,
                 },
                 cancellationToken,
-                guestProducesRunResult: false);
+                guestProducesRunResult: false,
+                applicationArchitecture: resolution.Architecture,
+                packageGraph: !resolution.SelfContained && resolution.ProjectAssetsFile is { } assetsFile
+                    ? new PackageGraphSource(new FileInfo(assetsFile), resolution.ProjectAssetsRuntimeIdentifier)
+                    : null,
+                framework: resolution.Framework);
         }
 
         /// <summary>
-        /// The shared half of every <c>run --on sandbox</c>: prepare, deploy, run, relay.
+        /// Prepares and deploys under a mutation lease, then releases it before running the app.
         /// </summary>
         /// <param name="sourceRoot">Host folder to reconcile into the guest.</param>
         /// <param name="deploymentId">Internal deployment identity.</param>
@@ -258,25 +230,8 @@ internal partial class RunCommand
         /// <param name="isJson">Whether the invoking command is in machine-readable mode.</param>
         /// <param name="requiresRealInput">Whether the guest command needs a usable input desktop.</param>
         /// <param name="identity">Package identity to record ownership for, when there is one.</param>
-        /// <param name="noLaunch">
-        /// True when the caller asked only to deploy and register, never to launch. Irrelevant when
-        /// <paramref name="identity"/> is null (an unpackaged run has no registration phase at all).
-        /// For a packaged run, registration (see <see cref="RegisterPackageAsync"/>) always happens
-        /// first, under the mutation lease, regardless of this value -- it is the only guest package
-        /// mutation any packaged run performs, so it can never be skipped or deferred to an unlocked
-        /// call. This flag only decides what happens *after* registration succeeds: true means
-        /// registration was the whole operation and its own result is published as final; false
-        /// means <paramref name="buildRequest"/> builds a further, unlocked launch-only call.
-        /// </param>
-        /// <param name="unregisterOnExit">
-        /// True when the caller asked the deployment unregistered once its application exits.
-        /// Applies only when <paramref name="identity"/> is not null and <paramref name="noLaunch"/>
-        /// is false (the combination with <paramref name="noLaunch"/> is already rejected before
-        /// this method is reached). Honored as a third, separate, host-orchestrated phase after
-        /// <paramref name="buildRequest"/>'s call returns -- see
-        /// <see cref="UnregisterDeploymentAfterExitAsync"/> -- never inside the unlocked launch call
-        /// itself, which has no unregister capability at all.
-        /// </param>
+        /// <param name="noLaunch">Return after registration instead of starting the app.</param>
+        /// <param name="unregisterOnExit">Remove this run's registration after guest termination.</param>
         /// <param name="buildRequest">Builds the guest request once the guest paths are known.</param>
         /// <param name="cancellationToken">Cancellation.</param>
         /// <param name="guestProducesRunResult">
@@ -301,7 +256,10 @@ internal partial class RunCommand
             CancellationToken cancellationToken,
             bool guestProducesRunResult = true,
             bool forwardStandardInput = false,
-            LayoutLease? layoutLease = null)
+            LayoutLease? layoutLease = null,
+            string? applicationArchitecture = null,
+            PackageGraphSource? packageGraph = null,
+            string? framework = null)
         {
             try
             {
@@ -322,7 +280,8 @@ internal partial class RunCommand
                         cancellationToken);
                 }
 
-                var provisioning = await ProvisionRuntimesAsync(target, sourceRoot, cancellationToken);
+                var provisioning = await ProvisionRuntimesAsync(
+                    target, sourceRoot, applicationArchitecture, packageGraph, framework, cancellationToken);
 
                 WriteProgress(isJson, "Deploying the application into the Windows Sandbox...");
 
@@ -344,12 +303,7 @@ internal partial class RunCommand
                         Aumid = $"{familyName}!{identity.ApplicationId}",
                     });
 
-                    // Registration is the only guest package mutation any packaged sandbox run ever
-                    // performs, and it always happens here, under the mutation lease, whether or not
-                    // the caller also asked to launch. A --no-launch run has no further guest call to
-                    // make at all -- registration IS the whole operation -- so it must never be sent
-                    // unlocked "because nothing else needs the lock afterward": the registration
-                    // mutation itself is exactly what the lock exists to protect.
+                    // Even --no-launch registers under the mutation lease.
                     WriteProgress(isJson, "Registering the application in the Windows Sandbox...");
 
                     var registration = await RegisterPackageAsync(target, deployment, clean, isJson, cancellationToken);
@@ -389,13 +343,8 @@ internal partial class RunCommand
 
                         if (noLaunch)
                         {
-                            // Registration succeeded and there is no launch phase to follow: release
-                            // the lease now and publish this call's own result as the final one,
-                            // exactly as an unsplit call's success would have been.
                             target.ReleaseMutationLease();
 
-                            // The layout has been deployed and registered -- consumed -- so this run
-                            // no longer depends on the host directory holding still.
                             layoutLease?.Dispose();
 
                             if (isJson && registration.CapturedOutput is not null)
@@ -412,16 +361,9 @@ internal partial class RunCommand
                     }
                 }
 
-                // Every guest mutation this run needed -- runtime provisioning, deployment
-                // reconciliation, and (for a packaged run) package registration -- is done. What is
-                // left is starting and running the application, which the mutation lock must never
-                // cover: a long-running app would otherwise block every other winapp workflow
-                // against this target.
+                // A running app must not retain either the guest mutation lease or host layout lease.
                 target.ReleaseMutationLease();
 
-                // Same boundary for the host layout: deployment copied it into the guest and
-                // registration consumed it there. Holding it across the application's lifetime would
-                // block every other run against this build output for as long as the app stays open.
                 layoutLease?.Dispose();
 
                 var ownerEnvironment = GuestOwnerContext.WithWorkflow(
@@ -429,26 +371,16 @@ internal partial class RunCommand
                     GuestOwnerContext.ResolveGuestToken(
                         target.Reference.StateKey, target.Epoch.Value));
 
-                // A per-user .NET installation is discoverable to an apphost through DOTNET_ROOT and
-                // nothing else without machine-wide registration, so the root provisioning created
-                // has to reach the launched process itself. Merged rather than assigned, so the
-                // owner context this launch also depends on is not lost — and only present at all
-                // when the guest reported that the managed root is what satisfies a framework.
+                // Apphosts need the verified per-user runtime root as well as the workflow context.
                 foreach (var (name, value) in provisioning.LaunchEnvironment)
                 {
                     ownerEnvironment[name] = value;
                 }
 
-                // Under --json the guest's payload is captured rather than relayed, so the additive
-                // execution-target members can be merged into the document the caller parses. It is
-                // never reformatted blind: anything that does not parse is written through exactly
-                // as the guest produced it, because corrupting a result is worse than omitting a
-                // field.
+                // Merge target metadata into guest JSON; direct executables get a host-built envelope.
                 using var capturedOutput = isJson && guestProducesRunResult ? new MemoryStream() : null;
                 var request = buildRequest(deployment, ownerEnvironment);
 
-                // Registration and activation happen inside the guest and can take several seconds
-                // for a packaged app, so the last silent stretch gets a line too.
                 WriteProgress(isJson, "Starting the application in the Windows Sandbox...");
 
                 GuestRunOutcome run;
@@ -484,7 +416,8 @@ internal partial class RunCommand
                                     WriteRawToConsole(Console.OpenStandardError(), data);
                                 }
                             }),
-                        cancellationToken);
+                        cancellationToken,
+                        onStateChanged: updated => state = updated);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -496,10 +429,7 @@ internal partial class RunCommand
                     throw;
                 }
 
-                // The application has now fully exited (the guest-launch call above does not
-                // return until it does). --unregister-on-exit is honored only now, as a third,
-                // separate, host-orchestrated phase -- never inside the launch call itself, and
-                // never covering any part of the application's own lifetime.
+                // Cleanup rechecks this run's revision under a fresh mutation lease.
                 if (identity is not null && unregisterOnExit)
                 {
                     await UnregisterDeploymentAfterExitAsync(target, identity, run.State);
@@ -523,9 +453,8 @@ internal partial class RunCommand
         }
 
         /// <summary>
-        /// Registers the packaged application in the guest without launching it -- the only guest
-        /// package mutation any packaged sandbox run performs -- while the mutation lease from
-        /// <see cref="ExecutionTargetOrchestrator.PrepareAsync"/> is still held.
+        /// Registers under the caller's mutation lease. The later guest-launch command can only
+        /// verify and launch this registration, never repair a mismatch by registering again.
         /// </summary>
         /// <param name="target">Prepared target whose mutation lease this call relies on.</param>
         /// <param name="deployment">The deployment just reconciled into the guest.</param>
@@ -539,33 +468,6 @@ internal partial class RunCommand
         /// The outcome. Ownership of <see cref="GuestPackagePhaseResult.CapturedOutput"/> passes to
         /// the caller, which must dispose it once done with it -- whether or not it was published.
         /// </returns>
-        /// <remarks>
-        /// Guest <c>winapp run --no-launch</c>: the same production code every local
-        /// registration-only run already uses, never a bespoke reimplementation. This call always
-        /// happens, whether or not the caller also asked to launch -- a <c>--no-launch</c> run has no
-        /// further guest call to make at all, so its registration cannot be sent unlocked "because
-        /// nothing else needs the lock afterward"; the registration mutation itself is exactly what
-        /// the lock exists to protect, and the caller publishes this call's own result as final in
-        /// that case.
-        /// <para>
-        /// When the caller also launches, a further call follows once registration succeeds and the
-        /// lease is released -- deliberately <em>not</em> the general guest <c>run</c>, which
-        /// registers and launches inseparably: if a different deployment sharing this package
-        /// identity registers in the gap after this call returns, the general <c>run</c> would see
-        /// the now-mismatched install location and silently fall through to an unlocked
-        /// unregister+register, disturbing the other deployment's registration. That further call is
-        /// instead the hidden guest-launch verb (<see cref="GuestLaunchPlanner"/>/
-        /// <see cref="GuestLaunchCommand"/>), which has no code path that registers or unregisters
-        /// anything: it verifies the currently registered package is installed from exactly this
-        /// call's layout and refuses to launch otherwise, rather than "repairing" the mismatch. In
-        /// that case this call's own success result is not published -- the launch call's is.
-        /// </para>
-        /// <para>
-        /// Non-JSON output streams live exactly as a single, unsplit call already would. The started
-        /// guest process here is the short-lived registration-only <c>winapp.exe</c>, not the
-        /// application, so it is never committed as the deployment's running process.
-        /// </para>
-        /// </remarks>
         private static async Task<GuestPackagePhaseResult> RegisterPackageAsync(
             PreparedTarget target,
             GuestDeployment deployment,
@@ -578,10 +480,10 @@ internal partial class RunCommand
             var request = new GuestExecRequest
             {
                 UseGuestWinapp = true,
-                Arguments = GuestRunPlanner.BuildRunArguments(
+                Arguments = GuestRunPlanner.BuildRegistrationArguments(
                     deployment.PayloadPath,
                     deployment.LayoutPath,
-                    new GuestRunOptions(NoLaunch: true, Clean: clean, Json: isJson)),
+                    clean, isJson),
                 WorkingDirectory = deployment.PayloadPath,
             };
 
@@ -618,53 +520,11 @@ internal partial class RunCommand
         private readonly record struct GuestPackagePhaseResult(int ExitCode, int ProcessId, MemoryStream? CapturedOutput);
 
         /// <summary>
-        /// Honors <c>--unregister-on-exit</c> for a packaged sandbox run as a third, separate,
-        /// host-orchestrated phase -- run only after the application has fully exited.
+        /// Rechecks ownership under a fresh mutation lease after confirmed guest termination.
         /// </summary>
-        /// <param name="target">
-        /// This run's own prepared target. Its channel is still live -- <see
-        /// cref="ExecutionTargetOrchestrator.PrepareAsync"/> released only the connection lock, not
-        /// the connection -- even though this run's own mutation lease was already released before
-        /// the launch phase. This phase reacquires only a fresh mutation lease, over that same live
-        /// connection.
-        /// </param>
-        /// <param name="identity">The package identity whose current ownership must be re-proven.</param>
-        /// <param name="state">This deployment's current host-side record.</param>
-        /// <param name="cancellationToken">Cancellation.</param>
         /// <remarks>
-        /// The hidden guest-launch verb (the unlocked launch phase) has no unregister capability at
-        /// all, by design (see <see cref="GuestLaunchCommand"/>/<see cref="GuestLaunchPlanner"/>): if
-        /// a different deployment sharing this package identity registered from a different layout
-        /// while this run's application was still executing, unregistering by name alone -- the
-        /// guest's original, pre-existing <c>UnregisterDevPackageAsync</c> behavior that the local
-        /// (non-sandbox) run still uses -- would remove that OTHER deployment's registration instead.
-        /// This phase closes that gap by querying Windows again under the fresh lease, requiring that
-        /// the actual registration still belongs to this deployment, removing only its exact package
-        /// full name, and clearing ownership only after a final query proves absence.
-        /// <para>
-        /// A fresh mutation lease is acquired here rather than reusing the one this run already
-        /// released: by the time the application exits, an unbounded amount of time may have passed,
-        /// and the lease must never be held across that window. Acquiring, using, and releasing it
-        /// only now -- strictly after the wait -- is what keeps this phase from reintroducing the
-        /// hazard the registration/launch split exists to avoid.
-        /// </para>
-        /// <para>
-        /// Deliberately <see cref="ExecutionTargetOrchestrator.AcquireMutationLease"/> rather than a
-        /// second <see cref="ExecutionTargetOrchestrator.PrepareAsync"/> call: <paramref name="target"/>
-        /// itself is still alive at this point (its own <c>await using</c> scope has not exited yet),
-        /// so its channel is already established and this phase needs nothing from the connection
-        /// lock at all. Re-preparing would re-establish a connection that already exists, and would
-        /// do so under a new epoch rather than the one this deployment's own state is fenced on.
-        /// Reusing <paramref name="target"/>'s live channel and acquiring only a fresh mutation lease
-        /// keeps both the channel and the epoch identical.
-        /// </para>
-        /// <para>
-        /// Best-effort and silent on the primary output: its outcome is never published to stdout and
-        /// never affects this run's own exit code, matching the pre-existing local
-        /// <c>UnregisterDevPackageAsync</c>'s behavior exactly. The application already ran to
-        /// completion, and a failed best-effort cleanup afterward is not a reason to report the run
-        /// itself as failed.
-        /// </para>
+        /// Reuse the live channel and its epoch. The recorded revision rejects cleanup from a run
+        /// superseded while it was waiting. Cleanup has its own deadline and preserves the app's exit code.
         /// </remarks>
         private async Task UnregisterDeploymentAfterExitAsync(
             PreparedTarget target,
@@ -687,7 +547,7 @@ internal partial class RunCommand
                     identity.Publisher,
                     familyName,
                     state.DeploymentId,
-                    requiredRevision: null,
+                    state.Revision,
                     cancellationToken: cleanupToken).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -724,6 +584,9 @@ internal partial class RunCommand
         private async Task<RuntimeProvisionResult> ProvisionRuntimesAsync(
             PreparedTarget target,
             DirectoryInfo sourceRoot,
+            string? applicationArchitecture,
+            PackageGraphSource? packageGraph,
+            string? framework,
             CancellationToken cancellationToken)
         {
             ExecutionTargetException? failure = null;
@@ -737,16 +600,18 @@ internal partial class RunCommand
                     {
                         var result = await targetRuntimeService.EnsureAsync(
                             target,
-                            target.Reference,
                             sourceRoot,
+                            applicationArchitecture ?? ResolveTargetApplicationArchitecture(sourceRoot, target.Capabilities.Architecture),
                             new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory()),
                             taskContext,
-                            ct);
+                            ct,
+                            windowsAppRuntimeVersion: ResolveRestoredWindowsAppRuntimeVersion(packageGraph, framework));
 
                         provisioned = result;
 
                         return (0, DescribeProvisioning(result));
                     }
+
                     catch (OperationCanceledException) when (ct.IsCancellationRequested)
                     {
                         throw;
@@ -784,6 +649,60 @@ internal partial class RunCommand
                 ExecutionTargetErrorCodes.RuntimeProvisionFailed,
                 "winapp could not verify the shared runtimes the app needs inside Windows Sandbox.",
                 userAction: "Retry the command. If it keeps failing, close Windows Sandbox so a fresh guest is created.");
+        }
+
+        private static string ResolveTargetApplicationArchitecture(DirectoryInfo sourceRoot, string guestArchitecture)
+        {
+            var manifest = FindManifest(sourceRoot.FullName);
+            if (manifest.Exists)
+            {
+                var document = AppxManifestDocument.Load(manifest.FullName);
+                if (document.ApplicationExecutable is { } executable
+                    && PeHelper.DetectPeArchitecture(
+                        TargetPathSafety.CombineInsideRoot(sourceRoot.FullName, executable)) is { } detected)
+                {
+                    return detected;
+                }
+
+                if (document.IdentityProcessorArchitecture is "x86" or "x64" or "arm64")
+                {
+                    return document.IdentityProcessorArchitecture;
+                }
+            }
+
+            // A neutral layout has no fixed machine architecture; use the guest's native runtime.
+            return guestArchitecture;
+        }
+
+        internal static string? ResolveRestoredWindowsAppRuntimeVersion(PackageGraphSource? graph, string? framework)
+        {
+            if (graph is null)
+            {
+                return null;
+            }
+
+            var packages = ProjectAssetsFileReader.TryRead(graph.AssetsFile, graph.RuntimeIdentifier)
+                ?? throw ExecutionTargetException.Create(
+                    ExecutionTargetErrorCodes.RuntimeProvisionFailed,
+                    $"The restored package graph at '{graph.AssetsFile.FullName}' could not be read.",
+                    userAction: "Restore and rebuild the project, then retry.");
+            var versions = packages.Projects
+                .SelectMany(project => project.Frameworks)
+                .Where(target => framework is null || string.Equals(target.Framework, framework, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(target => target.TopLevelPackages.Concat(target.TransitivePackages))
+                .Where(package => string.Equals(package.Id, "Microsoft.WindowsAppSDK.Runtime", StringComparison.OrdinalIgnoreCase))
+                .Select(package => package.ResolvedVersion)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            return versions.Length switch
+            {
+                0 => null,
+                1 => versions[0],
+                _ => throw ExecutionTargetException.Create(
+                    ExecutionTargetErrorCodes.RuntimeProvisionFailed,
+                    "The restored graph contains different Windows App Runtime versions for multiple target frameworks.",
+                    userAction: "Pass --framework to select the framework you built."),
+            };
         }
 
         /// <summary>Summarises one provisioning pass for the progress line.</summary>

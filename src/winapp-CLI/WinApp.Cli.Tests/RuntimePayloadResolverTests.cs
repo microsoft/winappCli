@@ -199,6 +199,27 @@ public class RuntimePayloadResolverTests
     }
 
     [TestMethod]
+    public async Task Resolve_ComponentOnlyDepsSelectRuntimeVersionNotTheWinUiOrUmbrellaVersion()
+    {
+        const string runtimeVersion = "1.8.260209005";
+        WritePayload(runtimeVersion, "x64", PackageName, "8000.800.0.0");
+        WritePayload("1.8.260317003", "x64", PackageName, "8000.900.0.0");
+        await File.WriteAllTextAsync(Path.Join(_root, "App.deps.json"), """
+            {"libraries":{
+                "Microsoft.WindowsAppSDK.WinUI/1.8.260317003":{"type":"package"},
+                "Microsoft.WindowsAppSDK.Runtime/1.8.260209005":{"type":"package"}
+            }}
+            """, TestContext.CancellationToken);
+        var requirements = RuntimeRequirementDiscovery.Discover(new DirectoryInfo(_root), "x64");
+
+        var resolved = await _resolver.ResolveAsync(
+            requirements, new DirectoryInfo(_root), CreateTaskContext(), TestContext.CancellationToken);
+
+        Assert.AreEqual("8000.800.0.0", resolved.Single().Payload!.Version);
+        Assert.IsEmpty(_installer.EnsurePackageCalls);
+    }
+
+    [TestMethod]
     public async Task Resolve_TakesTheInventoryFromTheRuntimeThatSatisfiesTheDeclaredFramework()
     {
         WritePayload("1.8.250916003", "x64", PackageName, "8000.600.0.0");

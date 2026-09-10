@@ -88,6 +88,12 @@ test('buildUiRecordArgs: minimal options (only durationSec)', () => {
   assert.deepEqual(args, ['ui', 'record', '--duration-sec', '5']);
 });
 
+test('buildUiRecordArgs: overwrite is forwarded only when explicitly enabled', () => {
+  assert.ok(buildUiRecordArgs({ durationSec: 1, overwrite: true }).includes('--overwrite'));
+  assert.ok(!buildUiRecordArgs({ durationSec: 1, overwrite: false }).includes('--overwrite'));
+  assert.ok(!buildUiRecordArgs({ durationSec: 1 }).includes('--overwrite'));
+});
+
 test('buildUiRecordArgs: all options produce correct arg list', () => {
   const opts: UiRecordOptions = {
     app: 'myapp',

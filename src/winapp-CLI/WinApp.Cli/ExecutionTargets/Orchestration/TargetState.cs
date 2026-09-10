@@ -82,12 +82,6 @@ internal sealed record TargetState
     /// </remarks>
     public string? BootstrappedEpoch { get; init; }
 
-    /// <summary>Version of the guest agent last known to be installed.</summary>
-    public string? AgentVersion { get; init; }
-
-    /// <summary>Hash of the guest agent binary last known to be installed.</summary>
-    public string? AgentBinaryHash { get; init; }
-
     /// <summary>
     /// IP address the managed instance last answered on.
     /// </summary>

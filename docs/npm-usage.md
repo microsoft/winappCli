@@ -1201,7 +1201,7 @@ Record an execution target's entire desktop to an H.264 MP4 on this machine.
 
 **`durationSec` is required and must be > 0.** Unbounded recording (`durationSec == 0`) is only
 supported from the CLI, where Ctrl+C or closing redirected stdin ends it; this wrapper has no
-way to stop the spawned process, so an unbounded call would never return.
+graceful stop channel. Aborting can leave partial output.
 Set `frames` to write timestamped JPEG evidence beside the MP4.
 
 ```typescript
@@ -1505,7 +1505,7 @@ This type is the public surface of `uiRecord`; the generated type has it optiona
 Survives regeneration because it is defined here in the hand-written guard module.
 
 ```typescript
-type UiRecordOptions = Omit<GeneratedUiRecordOptions, "durationSec"> & { durationSec: number; }
+type UiRecordOptions = Omit<GeneratedUiRecordOptions, "durationSec"> & { durationSec: number; overwrite?: boolean; }
 ```
 
 ### `TargetRecordOptions`
@@ -1515,7 +1515,7 @@ This type is the public surface of `targetRecord`; the generated type has it opt
 Survives regeneration because it is defined here in the hand-written guard module.
 
 ```typescript
-type TargetRecordOptions = Omit<GeneratedTargetRecordOptions, "durationSec"> & { durationSec: number; }
+type TargetRecordOptions = Omit<GeneratedTargetRecordOptions, "durationSec"> & { durationSec: number; overwrite?: boolean; }
 ```
 
 ### `IfExists`

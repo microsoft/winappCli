@@ -22,7 +22,7 @@ internal sealed class HostWinappBinaryProvider : IHostWinappBinaryProvider
         if (processPath is not { Length: > 0 } ||
             !string.Equals(
                 Path.GetFileName(processPath),
-                GuestAgentInstaller.BinaryName,
+                GuestAgentCommandNames.BinaryName,
                 StringComparison.OrdinalIgnoreCase) ||
             !File.Exists(processPath))
         {

@@ -14,23 +14,7 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-/// <summary>
-/// Captures a target's whole rendered desktop, without naming anything inside it.
-/// </summary>
-/// <remarks>
-/// The difference from <c>winapp ui screenshot --on &lt;target&gt;</c> is what is captured, not where
-/// the file lands: that routes into the guest and captures one application's window, while this
-/// captures the guest desktop exactly as it is being drawn, including the shell, dialogs owned by no
-/// app winapp deployed, and anything an application put on screen before it could be named. That is
-/// the picture worth having when a command failed and nobody knows why.
-/// <para>
-/// The client window is captured where it is, which for a managed Sandbox is parked off-screen. No
-/// window is activated and no focus is taken — and that is a hard rule, not an intention: if the
-/// window cannot be captured where it sits, the command fails and says so rather than bringing it to
-/// the front to get a picture. Running this while something else on the desktop is being used never
-/// interrupts it.
-/// </para>
-/// </remarks>
+/// <summary>Captures the rendered target desktop on the host without activating its client window.</summary>
 internal class TargetScreenshotCommand : Command, IShortDescription
 {
     /// <inheritdoc/>
@@ -82,19 +66,13 @@ internal class TargetScreenshotCommand : Command, IShortDescription
 
             try
             {
-                // Interactive, because a desktop nobody is attached to renders nothing worth
-                // capturing. Preparing this way reconnects a closed client first, so the picture is
-                // of a live desktop rather than of whatever was last left on screen.
+                // Capture needs a rendering desktop, but must not activate the client window.
                 await using var target = await orchestrator
                     .PrepareAsync(PrepareTargetOptions.Interactive, cancellationToken)
                     .ConfigureAwait(false);
 
                 var surface = orchestrator.ResolveDesktopSurface(TargetDesktopUse.PixelCapture);
 
-                // Strictly no activation. The ordinary screenshot path recovers from a blank frame by
-                // foregrounding the window and trying again, which for a parked Sandbox client means
-                // yanking it onto the user's screen -- the exact thing this command promises not to
-                // do. Here a blank frame ends the command instead.
                 var frame = await windowCapture
                     .TryCaptureWindowWithoutActivationAsync(surface.WindowHandle, cancellationToken)
                     .ConfigureAwait(false);
@@ -120,10 +98,7 @@ internal class TargetScreenshotCommand : Command, IShortDescription
                     Directory.CreateDirectory(directory);
                 }
 
-                // Published by rename, so the destination is only ever absent or a whole PNG. A
-                // direct write would truncate an existing screenshot the moment capture started and
-                // leave it truncated if the write failed or was cancelled -- destroying the last
-                // good picture of a target in the middle of diagnosing why the target went wrong.
+                // Keep the previous screenshot intact until replacement is ready.
                 await AtomicFile.WriteAllBytesAsync(filePath, png, cancellationToken).ConfigureAwait(false);
 
                 if (json)
@@ -168,19 +143,7 @@ internal class TargetScreenshotCommand : Command, IShortDescription
     }
 }
 
-/// <summary>
-/// Records a target's whole rendered desktop to an MP4 on this machine.
-/// </summary>
-/// <remarks>
-/// The recording half of <see cref="TargetScreenshotCommand"/>, and the same distinction applies: it
-/// captures the guest desktop rather than one application's window, so a launch that fails before
-/// any window exists is still on the video.
-/// <para>
-/// Everything about how the recording is made and reported — cadence, downscaling, frame artifacts,
-/// stop conditions, partial-output handling, and the JSON contract — is <c>winapp ui record</c>'s,
-/// reused rather than reimplemented. Only what is being recorded differs.
-/// </para>
-/// </remarks>
+/// <summary>Records the rendered target desktop through the shared host recording pipeline.</summary>
 internal class TargetRecordCommand : Command, IShortDescription
 {
     /// <inheritdoc/>
@@ -203,24 +166,11 @@ internal class TargetRecordCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.MaxEdgeOption);
         Options.Add(SharedUiOptions.OutputOption);
         Options.Add(UiRecordCommand.FramesOption);
+        Options.Add(UiRecordCommand.OverwriteOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
-    /// <summary>
-    /// Records the target's desktop window through the ordinary recording pipeline.
-    /// </summary>
-    /// <remarks>
-    /// The guest channel is opened only long enough to validate the target and resolve which window
-    /// on this machine is its desktop, then released before a single frame is captured. Recording is
-    /// entirely host-side — Windows Graphics Capture reads the client window, not the guest — so
-    /// holding a channel for the length of a take would occupy one of the few the agent allows for
-    /// hours, and block deployments and other commands the whole time, in exchange for nothing.
-    /// <para>
-    /// The window can therefore close mid-take. That is reported the way the recording pipeline
-    /// already reports it: the take ends early, the frames captured so far are published, and the
-    /// result says the target closed.
-    /// </para>
-    /// </remarks>
+    /// <summary>Releases the guest channel before host-side recording starts.</summary>
     public class Handler(
         ExecutionTargetOrchestrator orchestrator,
         IUiTargetResolver targetResolver,
@@ -252,22 +202,6 @@ internal class TargetRecordCommand : Command, IShortDescription
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selector = parseResult.GetValue(SelectorArgument);
 
-            // Preserve the target-command error contract while still letting the coordinated base
-            // perform the same validation before it creates a desktop participant.
-            if (UiRecordOptionValidator.Validate(parseResult, out _) is { } optionError)
-            {
-                return TargetOutput.RejectOptions(
-                    Output,
-                    json,
-                    ExecutionTargetException.Create(
-                        ExecutionTargetErrorCodes.TargetInvalidArguments,
-                        optionError.Message,
-                        userAction: optionError.RecoveryHint ??
-                            "Correct the option and run the command again.",
-                        example:
-                            $"winapp target record {selector} -o .\\desktop.mp4 --duration-sec 10").Error);
-            }
-
             if (base.Preflight(parseResult) is { } baseFailure)
             {
                 return baseFailure;
@@ -284,6 +218,14 @@ internal class TargetRecordCommand : Command, IShortDescription
                 return TargetOutput.RejectSelection(Output, json, ex.Error);
             }
         }
+
+        protected override int ReportOptionError(ParseResult parseResult, UiRecordOptionError error) =>
+            TargetOutput.RejectOptions(
+                Output, parseResult.GetValue(WinAppRootCommand.JsonOption),
+                ExecutionTargetException.Create(
+                    ExecutionTargetErrorCodes.TargetInvalidArguments, error.Message,
+                    userAction: error.RecoveryHint ?? "Correct the option and run the command again.",
+                    example: "winapp target record sandbox -o .\\desktop.mp4 --duration-sec 10").Error);
 
         /// <inheritdoc/>
         protected override async Task<int> ExecuteAsync(
@@ -343,20 +285,11 @@ internal class TargetRecordCommand : Command, IShortDescription
         protected override string? ElementSelector(ParseResult parseResult) => null;
 
         /// <inheritdoc/>
-        /// <remarks>
-        /// Never. Screen capture reads host screen coordinates, and a managed client window is
-        /// parked off-screen precisely so it is not on them — capturing that region would record the
-        /// user's desktop instead of the target's.
-        /// </remarks>
+        /// <remarks>Host screen coordinates would capture the user's desktop, not the parked client.</remarks>
         protected override bool CaptureScreen(ParseResult parseResult) => false;
 
         /// <inheritdoc/>
-        /// <remarks>
-        /// Always. This verb records a machine the user is not looking at, from a host window they
-        /// did not open and may not know exists, so restoring or foregrounding it would interrupt
-        /// whatever they are actually doing. A window that can only be recorded by activating it is
-        /// reported as uncapturable instead.
-        /// </remarks>
+        /// <remarks>An uncapturable client must fail rather than take focus from the user.</remarks>
         protected override bool NoActivation(ParseResult parseResult) => true;
 
         /// <inheritdoc/>

@@ -94,7 +94,6 @@ internal sealed class TargetDeploymentService(IDeploymentStateStore stateStore)
                 DeploymentId = deploymentId,
                 TargetEpoch = epoch.Value,
                 Dirty = true,
-                Desired = desired.Files,
                 Package = carried?.Package,
                 WasPackaged = carried is not null && (carried.WasPackaged || carried.Package is not null),
 

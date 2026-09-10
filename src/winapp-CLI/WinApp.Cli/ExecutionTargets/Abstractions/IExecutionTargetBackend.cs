@@ -85,7 +85,7 @@ internal interface IExecutionTargetBackend
     ExecutionTargetRef Target { get; }
 
     /// <summary>
-    /// Cheaply determines whether this host can run the target, without mutating anything.
+    /// Ensures target prerequisites before the application is built. Setup may require user consent.
     /// </summary>
     /// <remarks>
     /// Called before application build so a missing prerequisite fails fast rather than after a
@@ -98,8 +98,8 @@ internal interface IExecutionTargetBackend
     /// existing managed instance when one is healthy.
     /// </summary>
     /// <exception cref="ExecutionTargetException">
-    /// The target could not be ensured. An instance that winapp cannot prove it owns is reported,
-    /// never adopted and never stopped.
+    /// The target could not be ensured. Existing instances may be adopted without discarding their
+    /// contents; an unowned instance is never stopped.
     /// </exception>
     Task<TargetConnection> EnsureConnectedAsync(
         EnsureTargetOptions options,

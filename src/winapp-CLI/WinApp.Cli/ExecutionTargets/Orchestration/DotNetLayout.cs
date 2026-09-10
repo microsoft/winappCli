@@ -43,6 +43,7 @@ internal static class DotNetLayout
 
     /// <summary>The framework whose payload also carries the host resolver.</summary>
     internal const string CoreFramework = "Microsoft.NETCore.App";
+    internal const string DesktopFramework = "Microsoft.WindowsDesktop.App";
 
     /// <summary>Files a layout must contain before it is worth staging.</summary>
     /// <remarks>
@@ -66,10 +67,9 @@ internal static class DotNetLayout
     /// </remarks>
     public static IEnumerable<string> DefaultRoots()
     {
-        // DOTNET_ROOT first, and exclusively when it is set: that is the apphost's own precedence,
-        // and mirroring it is what keeps a verification result equal to what the launch will find.
+        // The caller selects a complete architecture-correct root and pins launch to that root.
         foreach (var root in ((string[])
-            ["DOTNET_ROOT", "DOTNET_ROOT(x86)", "DOTNET_ROOT_X64", "DOTNET_ROOT_ARM64"])
+            ["DOTNET_ROOT", "DOTNET_ROOT(x86)", "DOTNET_ROOT_X86", "DOTNET_ROOT_X64", "DOTNET_ROOT_ARM64"])
             .Select(Environment.GetEnvironmentVariable)
             .OfType<string>()
             .Where(value => value.Length > 0))
@@ -83,6 +83,7 @@ internal static class DotNetLayout
             .Where(value => value.Length > 0))
         {
             yield return Path.Join(programFiles, "dotnet");
+            yield return Path.Join(programFiles, "dotnet", "x64");
         }
 
         // A per-user install, which is what the dotnet-install script produces by default.
@@ -105,6 +106,7 @@ internal static class DotNetLayout
     /// </remarks>
     public static bool MatchesArchitecture(string root, string architecture)
     {
+        var found = false;
         foreach (var framework in SafeDirectories(Path.Join(root, SharedFolder)))
         {
             foreach (var probe in SafeDirectories(framework)
@@ -115,21 +117,27 @@ internal static class DotNetLayout
                     continue;
                 }
 
-                return string.Equals(
+                if (!string.Equals(
                     PeHelper.DetectPeArchitecture(probe),
                     RunArchHelper.NormalizeArchitecture(architecture),
-                    StringComparison.OrdinalIgnoreCase);
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                found = true;
             }
         }
 
-        return false;
+        return found;
     }
 
     /// <summary>Versions of one shared framework installed under a .NET root.</summary>
     public static IEnumerable<Version> InstalledVersions(string root, string frameworkName) =>
         SafeDirectories(Path.Join(root, SharedFolder, frameworkName))
             .Where(directory => IsUsableInstalledFramework(root, frameworkName, directory))
-            .Select(directory => RuntimeRequirementDiscovery.ComparableVersion(Path.GetFileName(directory)))
+            .Select(directory => StableVersion(Path.GetFileName(directory)))
+            .OfType<Version>()
             .Where(version => version > new Version(0, 0));
 
     /// <summary>
@@ -156,7 +164,8 @@ internal static class DotNetLayout
 
         if (!IsCore(frameworkName))
         {
-            return true;
+            return frameworkName != DesktopFramework ||
+                File.Exists(Path.Join(directory, $"{frameworkName}.runtimeconfig.json"));
         }
 
         return SafeDirectories(Path.Join(root, HostFxrFolder))
@@ -172,8 +181,8 @@ internal static class DotNetLayout
 
         foreach (var directory in SafeDirectories(Path.Join(root, SharedFolder, requirement.Name)))
         {
-            var version = RuntimeRequirementDiscovery.ComparableVersion(Path.GetFileName(directory));
-            if (!requirement.IsSatisfiedBy(version))
+            var version = StableVersion(Path.GetFileName(directory));
+            if (version is null || !requirement.IsSatisfiedBy(version))
             {
                 continue;
             }
@@ -211,8 +220,8 @@ internal static class DotNetLayout
 
         foreach (var directory in SafeDirectories(packRoot.FullName))
         {
-            var version = RuntimeRequirementDiscovery.ComparableVersion(Path.GetFileName(directory));
-            if (!requirement.IsSatisfiedBy(version))
+            var version = StableVersion(Path.GetFileName(directory));
+            if (version is null || !requirement.IsSatisfiedBy(version))
             {
                 continue;
             }
@@ -281,7 +290,7 @@ internal static class DotNetLayout
                 }
             }
 
-            File.Move(staged, archivePath, overwrite: true);
+            AtomicFile.Publish(staged, archivePath);
         }
         catch
         {
@@ -289,6 +298,97 @@ internal static class DotNetLayout
             throw;
         }
     }
+
+    /// <summary>Dependency references from the selected payload, not from the app's minimum version.</summary>
+    internal static List<RuntimeFrameworkRequirement> ReadDependencies(
+        DotNetLayoutSource source, string architecture)
+    {
+        if (IsCore(source.Name))
+        {
+            return [];
+        }
+
+        var config = source.Entries.FirstOrDefault(entry => entry.EntryPath.EndsWith(
+            $"/{source.Name}.runtimeconfig.json", StringComparison.OrdinalIgnoreCase));
+        return ReadDependencies(source.Name, config?.SourcePath, architecture);
+    }
+
+    private static List<RuntimeFrameworkRequirement> ReadDependencies(
+        string frameworkName, string? configPath, string architecture)
+    {
+        var dependencies = configPath is not null && File.Exists(configPath)
+            ? RuntimeRequirementDiscovery.ReadFrameworkConfig(configPath, architecture)
+            : [];
+
+        if (frameworkName == DesktopFramework && !dependencies.Any(dependency => IsCore(dependency.Name)))
+        {
+            throw new InvalidDataException(
+                $"The {frameworkName} runtime configuration does not declare its core runtime dependency.");
+        }
+
+        if (dependencies.Any(dependency => !IsCore(dependency.Name)))
+        {
+            throw new InvalidDataException(
+                $"Runtime provisioning does not support the nested framework dependencies of '{frameworkName}'.");
+        }
+
+        return dependencies;
+    }
+
+    /// <summary>Resolves a complete graph from one architecture-correct installation.</summary>
+    internal static Dictionary<string, Version>? ResolveInstalledGraph(
+        string root, IReadOnlyList<RuntimeFrameworkRequirement> requirements)
+    {
+        if (requirements.Any(requirement => !MatchesArchitecture(root, requirement.Architecture)))
+        {
+            return null;
+        }
+
+        var selected = new Dictionary<string, Version>(StringComparer.OrdinalIgnoreCase);
+        var core = requirements.Where(requirement => IsCore(requirement.Name)).ToList();
+        foreach (var requirement in requirements.Where(requirement => !IsCore(requirement.Name)))
+        {
+            var version = requirement.SelectVersion(InstalledVersions(root, requirement.Name));
+            if (version is null)
+            {
+                return null;
+            }
+
+            selected[requirement.Name] = version;
+            try
+            {
+                core.AddRange(ReadDependencies(
+                    requirement.Name,
+                    Path.Join(root, SharedFolder, requirement.Name, version.ToString(),
+                        $"{requirement.Name}.runtimeconfig.json"),
+                    requirement.Architecture).Select(dependency => dependency with
+                    {
+                        RollToHighestVersion = requirement.PrefersHighestVersion || dependency.RollToHighestVersion,
+                    }));
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
+
+        if (core.Count > 0)
+        {
+            var requirement = RuntimeFrameworkRequirement.Combine(core);
+            var version = requirement.SelectVersion(InstalledVersions(root, CoreFramework));
+            if (version is null)
+            {
+                return null;
+            }
+
+            selected[CoreFramework] = version;
+        }
+
+        return selected;
+    }
+
+    private static Version? StableVersion(string version) =>
+        Version.TryParse(version, out var parsed) && parsed.Build >= 0 && parsed.Revision < 0 ? parsed : null;
 
     /// <summary>Returns the entries when they form a usable framework, or null when they do not.</summary>
     internal static IReadOnlyList<DotNetLayoutEntry>? TryValidate(

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using Microsoft.Extensions.Logging;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
@@ -291,50 +292,33 @@ public class SandboxUxRegressionTests
 
     // ---- Slow phases must announce themselves ----
 
-    /// <summary>Progress is reported to the error stream, never to standard output.</summary>
-    /// <remarks>
-    /// The stream is injected rather than redirected globally: replacing <see cref="Console.Out"/>
-    /// would race every other test in this parallel run, and a flaky assertion about output would be
-    /// worse than none.
-    /// </remarks>
     [TestMethod]
-    public void StandardErrorProgress_WritesToTheErrorStreamNeverStandardOutput()
+    public void TargetProgress_WritesToItsErrorStreamWhenInformationIsEnabled()
     {
+        var logger = new CapturingLogger<LoggerTargetProgress>();
         using var error = new StringWriter();
-
-        new StandardErrorTargetProgress(() => error).Report("Starting Windows Sandbox...");
-
+        new LoggerTargetProgress(logger, () => error).Report("Starting Windows Sandbox...");
         StringAssert.Contains(error.ToString(), "Starting Windows Sandbox...");
     }
 
-    /// <summary>The production default targets standard error rather than standard output.</summary>
-    /// <remarks>
-    /// A progress line on stdout would corrupt the single JSON document a <c>--json</c> caller
-    /// parses, so the default destination is asserted directly.
-    /// </remarks>
     [TestMethod]
-    public async Task StandardErrorProgress_DefaultsToConsoleError()
+    [DataRow(LogLevel.Warning)]
+    [DataRow(LogLevel.None)]
+    public void TargetProgress_HonorsQuietAndJsonFilters(LogLevel minimumLevel)
     {
-        var source = await File.ReadAllTextAsync(
-            Path.Join(
-                FindRepositoryRoot(),
-                "src", "winapp-CLI", "WinApp.Cli", "ExecutionTargets", "Abstractions", "ITargetProgress.cs"),
-            TestContext.CancellationToken);
-
-        StringAssert.Contains(source, "() => Console.Error");
-        Assert.IsFalse(
-            source.Contains("Console.Out", StringComparison.Ordinal),
-            "Progress must never be written to standard output.");
+        var logger = new CapturingLogger<LoggerTargetProgress> { MinLevel = minimumLevel };
+        using var error = new StringWriter();
+        new LoggerTargetProgress(logger, () => error).Report("Starting Windows Sandbox...");
+        Assert.IsEmpty(error.ToString());
     }
 
     /// <summary>An empty message is not written at all.</summary>
     [TestMethod]
-    public void StandardErrorProgress_IgnoresEmptyMessages()
+    public void TargetProgress_IgnoresEmptyMessages()
     {
+        var logger = new CapturingLogger<LoggerTargetProgress>();
         using var error = new StringWriter();
-
-        new StandardErrorTargetProgress(() => error).Report("   ");
-
+        new LoggerTargetProgress(logger, () => error).Report("   ");
         Assert.IsEmpty(error.ToString());
     }
 
@@ -387,7 +371,7 @@ public class SandboxUxRegressionTests
 
         StringAssert.Contains(
             source,
-            "catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)",
+            "catch (OperationCanceledException) when (!interrupt.IsCancellationRequested)",
             "An internal timeout must be distinguished from the user pressing Ctrl+C.");
     }
 
@@ -450,8 +434,6 @@ public class SandboxUxRegressionTests
                     TargetId = target.Id,
                     InstanceId = "sandbox-1",
                     BootNonce = "nonce-1",
-                    AgentVersion = "1.2.3",
-                    AgentBinaryHash = "abc123",
                     GuestAddress = "172.27.0.9",
                 },
                 expectedRevision: 0);
@@ -462,8 +444,6 @@ public class SandboxUxRegressionTests
             Assert.IsNotNull(persisted);
             Assert.AreEqual("sandbox-1", persisted.InstanceId);
             Assert.AreEqual("nonce-1", persisted.BootNonce);
-            Assert.AreEqual("1.2.3", persisted.AgentVersion);
-            Assert.AreEqual("abc123", persisted.AgentBinaryHash);
             Assert.AreEqual("172.27.0.9", persisted.GuestAddress);
         }
         finally

@@ -49,8 +49,7 @@ internal static class GuestPaths
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.AgentIncompatible,
                 "The guest agent did not report where it stores deployed applications.",
-                userAction: "Update winapp on this machine, then retry so the guest agent is replaced.",
-                nextCommand: new ExecutionTargetNextCommand { Command = "winapp update", Advisory = false });
+                userAction: "Update your winapp installation. If the guest is still incompatible, save any guest work and close Windows Sandbox before retrying.");
         }
 
         var root = TargetPathSafety.CombineInsideRoot(capabilities.ManagedRoot, GuestRootNames.FolderFor(scope.Root));

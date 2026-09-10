@@ -209,6 +209,12 @@ internal partial class MsixService
             }
 
             var identity = ParseAppxManifestAsync(manifestContent);
+            var registrationManifest = ResolveLayoutRegistrationManifest(outputAppXDirectory);
+
+            if (ensureExecutionAlias)
+            {
+                EnsureStagedExecutionAlias(registrationManifest, taskContext);
+            }
 
             if (outcome == LooseLayoutOutcome.Materialized)
             {
@@ -225,24 +231,6 @@ internal partial class MsixService
             {
                 var msbuildPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
-            }
-
-            // Resolve the manifest that will be registered (issue #537 / TrySkipRegistration).
-            // Prefer the canonical appxmanifest.xml directly rather than probing: the staging cleanup that
-            // removes a stale Package.appxmanifest is best-effort, so a locked leftover would otherwise win
-            // ManifestHelper.FindManifest's name preference and register the wrong manifest. Fall back to
-            // the probe when the canonical file is absent, so a genuinely missing manifest still surfaces
-            // through RegisterLooseLayoutPackageAsync's error.
-            var registrationManifest = ResolveLayoutRegistrationManifest(outputAppXDirectory);
-
-            // Stage the alias into the manifest the recipe just laid down. This branch has its own
-            // staging path, so the mutation applied to the raw-manifest branch below does not reach it —
-            // without this, a recipe-backed project asking for alias launch registers fine and then fails
-            // with "No execution alias found in the manifest". Applied BEFORE the skip check so a run that
-            // adds an alias is not mistaken for an unchanged one.
-            if (ensureExecutionAlias)
-            {
-                EnsureStagedExecutionAlias(registrationManifest, taskContext);
             }
 
             var skipResult = TrySkipRegistration(

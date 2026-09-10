@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -64,7 +65,7 @@ internal sealed class TargetStateStore(ITargetStateDirectoryProvider directoryPr
         TargetState? state;
         try
         {
-            using var stream = File.OpenRead(file);
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             state = JsonSerializer.Deserialize(stream, TargetStateJsonContext.Default.TargetState);
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -84,13 +85,12 @@ internal sealed class TargetStateStore(ITargetStateDirectoryProvider directoryPr
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.TargetAmbiguous,
                 $"Windows Sandbox state was written by a newer version of winapp (schema {state.SchemaVersion}, this build supports {CurrentSchemaVersion}).",
-                userAction: "Update winapp to the newest version, then retry.",
+                userAction: "Update your winapp installation to the newest version, then retry.",
                 context: new Dictionary<string, string>
                 {
                     ["stateSchemaVersion"] = state.SchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ["supportedSchemaVersion"] = CurrentSchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                },
-                nextCommand: new ExecutionTargetNextCommand { Command = "winapp update", Advisory = false });
+                });
         }
 
         // The record names the target it was written for, and it must be the one being asked about.
@@ -137,34 +137,17 @@ internal sealed class TargetStateStore(ITargetStateDirectoryProvider directoryPr
                 });
         }
 
-        // Every persisted field is listed explicitly rather than copied with `with`, so the
-        // committed record cannot inherit a revision or schema version from the caller. That does
-        // mean a new field must be added here as well as to the record — omitting it silently
-        // discards the caller's value on every commit.
-        var committed = new TargetState
+        var committed = state with
         {
             SchemaVersion = CurrentSchemaVersion,
             Revision = currentRevision + 1,
             TargetKind = target.Kind,
             TargetId = target.Id,
-            InstanceId = state.InstanceId,
-            BootNonce = state.BootNonce,
-            PendingInstanceId = state.PendingInstanceId,
-            PendingStartedUtc = state.PendingStartedUtc,
-            InstanceOrigin = state.InstanceOrigin,
-            BootstrappedEpoch = state.BootstrappedEpoch,
-            AgentVersion = state.AgentVersion,
-            AgentBinaryHash = state.AgentBinaryHash,
-            GuestAddress = state.GuestAddress,
-            ClientWindowHandle = state.ClientWindowHandle,
-            ClientProcessId = state.ClientProcessId,
-            ClientProcessStartTicksUtc = state.ClientProcessStartTicksUtc,
-            ClientOwnedByWinapp = state.ClientOwnedByWinapp,
             UpdatedUtc = DateTimeOffset.UtcNow,
         };
 
         var file = GetStateFile(target, create: true);
-        WriteAtomic(file, JsonSerializer.Serialize(committed, TargetStateJsonContext.Default.TargetState));
+        AtomicFile.WriteAllText(file, JsonSerializer.Serialize(committed, TargetStateJsonContext.Default.TargetState));
         return committed;
     }
 
@@ -184,51 +167,6 @@ internal sealed class TargetStateStore(ITargetStateDirectoryProvider directoryPr
         TargetPathSafety.CombineInsideRoot(
             directoryProvider.GetTargetRoot(target, create).FullName,
             StateFileName);
-
-    /// <summary>
-    /// Writes <paramref name="contents"/> so readers observe either the previous file or the new
-    /// one, never a partial write. The temporary file is a sibling so the replace stays on one
-    /// volume and is therefore atomic.
-    /// </summary>
-    private static void WriteAtomic(string path, string contents)
-    {
-        var directory = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(directory);
-
-        var temporary = TargetPathSafety.CombineInsideRoot(
-            directory,
-            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-        try
-        {
-            File.WriteAllText(temporary, contents);
-            File.Move(temporary, path, overwrite: true);
-        }
-        catch
-        {
-            TryDelete(temporary);
-            throw;
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (IOException)
-        {
-            // Best effort: a leftover temporary file is harmless and is overwritten by name on the
-            // next attempt. Failing cleanup must never mask the original error.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same reasoning as above.
-        }
-    }
 
     private static ExecutionTargetException Unreadable(
         ExecutionTargetRef target,

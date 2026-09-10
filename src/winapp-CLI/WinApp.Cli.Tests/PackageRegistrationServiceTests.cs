@@ -559,7 +559,7 @@ public class PackageRegistrationServiceTests
         [
             View("Other.App"),
             View("Contoso.App", fullName: "Contoso.App_1.2.3.4_x64__abc", maj: 1, min: 2, bld: 3, rev: 4,
-                dev: true, loc: () => @"C:\dev\contoso"),
+                dev: true, loc: () => @"C:\dev\contoso") with { Publisher = "CN=Contoso" },
         ];
 
         var results = svc.FindDevPackages("Contoso.App");
@@ -570,6 +570,7 @@ public class PackageRegistrationServiceTests
         Assert.AreEqual("1.2.3.4", results[0].Version);
         Assert.AreEqual(@"C:\dev\contoso", results[0].InstallLocation);
         Assert.IsTrue(results[0].IsDevelopmentMode);
+        Assert.AreEqual("CN=Contoso", results[0].Publisher);
     }
 
     [TestMethod]

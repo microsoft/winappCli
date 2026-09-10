@@ -25,20 +25,7 @@ internal sealed record UiRecordResolvedOptions(
     int DurationSec,
     int Fps);
 
-/// <summary>
-/// Checks everything about a recording request that can be checked before anything is started.
-/// </summary>
-/// <remarks>
-/// Extracted so that every caller rejects the same inputs at the same point: before the subject is
-/// resolved. For <c>winapp ui record</c> that only saves a window lookup, but for
-/// <c>winapp target record</c> the subject is an execution target, and "resolving" it can start a
-/// Windows Sandbox, connect a client, and bootstrap an agent. Validating afterwards would let
-/// <c>--fps 0</c> spend a minute booting a virtual machine before saying that 0 is not a cadence.
-/// <para>
-/// Nothing here touches the file system beyond asking whether paths already exist, so it is safe to
-/// run before the caller has decided to do any work at all.
-/// </para>
-/// </remarks>
+/// <summary>Validates recording options before taking a desktop turn or preparing a target.</summary>
 internal static class UiRecordOptionValidator
 {
     /// <summary>Longest recording, in seconds. Beyond a day the request is a mistake.</summary>
@@ -73,6 +60,7 @@ internal static class UiRecordOptionValidator
         var maxEdgeExplicit = parseResult.GetResult(SharedUiOptions.MaxEdgeOption)?.Implicit == false;
         var output = parseResult.GetValue(SharedUiOptions.OutputOption);
         var frames = parseResult.GetValue(UiRecordCommand.FramesOption);
+        var overwrite = parseResult.GetValue(UiRecordCommand.OverwriteOption);
 
         if (durationSec < 0)
         {
@@ -118,9 +106,11 @@ internal static class UiRecordOptionValidator
 
         try
         {
-            // Avoid collisions between concurrent recordings using the default path.
-            filePath = Path.GetFullPath(
-                output ?? $"recording-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.mp4");
+            if (output is not null && Path.EndsInDirectorySeparator(output))
+            {
+                return Invalid($"Invalid output path: '{output}' names a directory, not a file.");
+            }
+            filePath = Path.GetFullPath(output ?? DefaultOutputPath());
             framesDirectory = frames ? UiRecordCommand.Handler.GetFramesDirectory(filePath) : null;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
@@ -128,23 +118,31 @@ internal static class UiRecordOptionValidator
             return Invalid($"Invalid output path: {ex.Message}");
         }
 
-        if (framesDirectory is not null)
+        if (Directory.Exists(filePath))
         {
-            if (Path.Exists(filePath))
-            {
-                return new UiRecordOptionError(
-                    UiJsonError.CodeOutputExists,
-                    $"MP4 output already exists: {filePath}",
-                    "Choose a new --output path; recording never replaces existing artifacts.");
-            }
+            return Invalid($"Invalid output path: '{filePath}' is an existing directory.");
+        }
 
-            if (Path.Exists(framesDirectory))
-            {
-                return new UiRecordOptionError(
-                    UiJsonError.CodeOutputExists,
-                    $"Frame artifact output already exists: {framesDirectory}",
-                    "Choose a new --output path; the derived frame directory already exists and is never replaced.");
-            }
+        var pairedDirectory = UiRecordCommand.Handler.GetFramesDirectory(filePath);
+        if (File.Exists(pairedDirectory))
+        {
+            return Invalid($"Frame artifact output is an existing file: {pairedDirectory}");
+        }
+        if (!overwrite && (Path.Exists(filePath) || Path.Exists(pairedDirectory)))
+        {
+            return new UiRecordOptionError(
+                UiJsonError.CodeOutputExists,
+                $"Recording output already exists: {(Path.Exists(filePath) ? filePath : pairedDirectory)}",
+                "Choose a new --output path or pass --overwrite to replace the recording after it finishes.");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return Invalid($"Invalid output path: {ex.Message}");
         }
 
         resolved = new UiRecordResolvedOptions(filePath, framesDirectory, maxEdge, durationSec, fps);
@@ -153,4 +151,7 @@ internal static class UiRecordOptionValidator
 
     private static UiRecordOptionError Invalid(string message) =>
         new(UiJsonError.CodeInvalidArguments, message);
+
+    internal static string DefaultOutputPath() =>
+        $"recording-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.mp4";
 }

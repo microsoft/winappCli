@@ -107,6 +107,26 @@ test('buildTargetRecordArgs: a minimal call names the target after the -- termin
   ]);
 });
 
+test('buildTargetRecordArgs: overwrite is forwarded only when explicitly enabled', () => {
+  assert.ok(buildTargetRecordArgs({ target: 'sandbox', durationSec: 1, overwrite: true }).includes('--overwrite'));
+  assert.ok(!buildTargetRecordArgs({ target: 'sandbox', durationSec: 1, overwrite: false }).includes('--overwrite'));
+  assert.ok(!buildTargetRecordArgs({ target: 'sandbox', durationSec: 1 }).includes('--overwrite'));
+});
+
+test('targetRecord passes cancellation and workflow without changing process state', async () => {
+  const controller = new AbortController();
+  let invoked = false;
+  await _targetRecordWithCapture({
+    target: 'sandbox', durationSec: 1, signal: controller.signal, workflowId: 'recording-test',
+  }, async (_args, options) => {
+    invoked = true;
+    assert.equal(options.signal, controller.signal);
+    assert.equal(options.workflowId, 'recording-test');
+    return { exitCode: 0, stdout: '', stderr: '' };
+  });
+  assert.ok(invoked);
+});
+
 test('buildTargetRecordArgs: every option reaches the CLI', () => {
   const args = buildTargetRecordArgs({
     target: 'sandbox',

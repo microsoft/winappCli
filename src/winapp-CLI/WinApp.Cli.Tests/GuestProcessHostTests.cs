@@ -41,6 +41,7 @@ public class GuestProcessHostTests
             {
                 target.Append(Encoding.UTF8.GetString(data.Span));
             }
+            return Task.CompletedTask;
         });
 
         return (host, captured);
@@ -138,6 +139,7 @@ public class GuestProcessHostTests
             {
                 output.Append(Encoding.UTF8.GetString(data.Span));
             }
+            return Task.CompletedTask;
         });
 
         await using (host)
@@ -147,7 +149,6 @@ public class GuestProcessHostTests
             StringAssert.Contains(output.ToString(), "workflow=token-123", StringComparison.Ordinal);
         }
     }
-
     [TestMethod]
     public async Task WaitForExit_DrainsOutputBeforeReturning()
     {
@@ -161,6 +162,43 @@ public class GuestProcessHostTests
 
             StringAssert.Contains(output.StandardOutput.ToString(), "line-400", StringComparison.Ordinal);
         }
+    }
+
+    [TestMethod]
+    public async Task WaitForExit_AwaitsOutputDeliveryBeforeReadingMore()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbacks = 0;
+        var output = new StringBuilder();
+        await using var host = GuestProcessHost.Start(
+            new GuestExecRequest
+            {
+                Executable = CommandInterpreter,
+                Arguments = ["/c", "for /L %i in (1,1,10000) do @echo line-%i"],
+            },
+            async (_, data) =>
+            {
+                Interlocked.Increment(ref callbacks);
+                entered.TrySetResult();
+                await gate.Task;
+                output.Append(Encoding.UTF8.GetString(data.Span));
+            });
+        var completion = host.WaitForExitAsync(TestContext.CancellationTokenSource.Token);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(100, TestContext.CancellationTokenSource.Token);
+            Assert.AreEqual(1, Volatile.Read(ref callbacks));
+            Assert.IsFalse(completion.IsCompleted);
+        }
+        finally
+        {
+            gate.TrySetResult();
+        }
+
+        await completion.WaitAsync(TimeSpan.FromSeconds(10));
+        StringAssert.Contains(output.ToString(), "line-10000");
     }
 
     [TestMethod]
@@ -184,6 +222,7 @@ public class GuestProcessHostTests
                     output.Append(Encoding.UTF8.GetString(data.Span));
                 }
             }
+            return Task.CompletedTask;
         });
 
         await using (host)
@@ -216,6 +255,21 @@ public class GuestProcessHostTests
     }
 
     [TestMethod]
+    public async Task Stop_FullStandardInputPipeDoesNotDelayTheKillDeadline()
+    {
+        var (host, _) = Start("/c", "ping -n 120 127.0.0.1 > nul");
+        await using (host)
+        {
+            var write = host.WriteStandardInputAsync(new byte[4 * 1024 * 1024], CancellationToken.None);
+            await Task.Delay(100, TestContext.CancellationTokenSource.Token);
+            Assert.IsFalse(write.IsCompleted, "The child must have a full, unread stdin pipe.");
+            await host.StopAsync(TimeSpan.FromMilliseconds(200), TestContext.CancellationTokenSource.Token)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            await write.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [TestMethod]
     public async Task Dispose_KillsTheWholeProcessTree()
     {
         // A grandchild is what actually matters here. Killing only the tracked process ID orphans
@@ -234,7 +288,7 @@ public class GuestProcessHostTests
             Arguments = ["-NoProfile", "-NonInteractive", "-Command", script],
         };
 
-        var host = GuestProcessHost.Start(request, (_, _) => { });
+        var host = GuestProcessHost.Start(request, (_, _) => Task.CompletedTask);
         var processId = host.ProcessId;
 
         try
@@ -338,8 +392,8 @@ public class GuestProcessHostTests
         var cancelledMarker = TestPaths.TempFile("cancelled-grandchild", ".pid");
         var survivorMarker = TestPaths.TempFile("survivor-grandchild", ".pid");
 
-        var cancelled = GuestProcessHost.Start(SpawningRequest(cancelledMarker), (_, _) => { }, barrier);
-        var survivor = GuestProcessHost.Start(SpawningRequest(survivorMarker), (_, _) => { }, barrier);
+        var cancelled = GuestProcessHost.Start(SpawningRequest(cancelledMarker), (_, _) => Task.CompletedTask, barrier);
+        var survivor = GuestProcessHost.Start(SpawningRequest(survivorMarker), (_, _) => Task.CompletedTask, barrier);
 
         try
         {
@@ -434,7 +488,8 @@ public class GuestProcessHostTests
     }
 
     [TestMethod]
-    public void Start_MissingExecutable_ReportsStructuredFailure()    {
+    public void Start_MissingExecutable_ReportsStructuredFailure()
+    {
         var request = new GuestExecRequest
         {
             Executable = TestPaths.TempFile("does-not-exist", ".exe"),
@@ -442,7 +497,7 @@ public class GuestProcessHostTests
         };
 
         var failure = Assert.ThrowsExactly<ExecutionTargetException>(
-            () => GuestProcessHost.Start(request, (_, _) => { }));
+            () => GuestProcessHost.Start(request, (_, _) => Task.CompletedTask));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, failure.Error.Code);
         Assert.IsNotNull(failure.Error.UserAction);

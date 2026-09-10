@@ -2,14 +2,8 @@
 // Licensed under the MIT License.
 
 /**
- * Hand-written guard wrapper for `targetRecord`.
- *
- * `winapp-commands.ts` is AUTO-GENERATED. The raw generated delegate for `target record` is
- * intentionally NOT exported (underscore-prefixed, module-internal) so it cannot bypass this
- * guard, exactly as `ui record` does — recording an execution target's desktop has the same
- * problem as recording a window: a programmatic caller has no way to stop an unbounded run.
- *
- * This file must NOT be edited by the code generator; it is hand-maintained.
+ * Hand-maintained public wrapper. A finite duration is required: AbortSignal kills the
+ * child on Windows and cannot guarantee MP4 finalization. The generated delegate is private.
  */
 
 import { callWinappCliCapture } from './winapp-cli-utils';
@@ -24,6 +18,8 @@ import { assertBoundedRecordDuration } from './record-duration';
  */
 export type TargetRecordOptions = Omit<GeneratedTargetRecordOptions, 'durationSec'> & {
   durationSec: number;
+  /** Replace an existing recording only after the new take finishes. */
+  overwrite?: boolean;
 };
 
 type TargetRecordArgSpec = {
@@ -39,6 +35,7 @@ export const TARGET_RECORD_ARG_SPECS: readonly TargetRecordArgSpec[] = [
   { property: 'json', flag: '--json', kind: 'boolean' },
   { property: 'maxEdge', flag: '--max-edge', kind: 'value' },
   { property: 'output', flag: '--output', kind: 'value' },
+  { property: 'overwrite', flag: '--overwrite', kind: 'boolean' },
   { property: 'quiet', flag: '--quiet', kind: 'boolean' },
   { property: 'verbose', flag: '--verbose', kind: 'boolean' },
 ] as const;
@@ -70,7 +67,7 @@ export function buildTargetRecordArgs(options: TargetRecordOptions): string[] {
  *
  * **`durationSec` is required and must be > 0.** Unbounded recording (`durationSec == 0`) is only
  * supported from the CLI, where Ctrl+C or closing redirected stdin ends it; this wrapper has no
- * way to stop the spawned process, so an unbounded call would never return.
+ * graceful stop channel. Aborting can leave partial output.
  * Set `frames` to write timestamped JPEG evidence beside the MP4.
  *
  * @throws {Error} if `options.durationSec` is missing or is not a finite integer in [1, 86400].
@@ -80,6 +77,8 @@ export async function targetRecord(options: TargetRecordOptions): Promise<Winapp
 
   const args = buildTargetRecordArgs(options);
   const captureOpts: CallWinappCliCaptureOptions = options.cwd ? { cwd: options.cwd } : {};
+  if (options.signal) captureOpts.signal = options.signal;
+  if (options.workflowId !== undefined) captureOpts.workflowId = options.workflowId;
   const result = await callWinappCliCapture(args, captureOpts);
   return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
 }
@@ -96,6 +95,8 @@ export async function _targetRecordWithCapture(
   assertBoundedRecordDuration('targetRecord', options);
   const args = buildTargetRecordArgs(options);
   const captureOpts: CallWinappCliCaptureOptions = options.cwd ? { cwd: options.cwd } : {};
+  if (options.signal) captureOpts.signal = options.signal;
+  if (options.workflowId !== undefined) captureOpts.workflowId = options.workflowId;
   const result = await capture(args, captureOpts);
   return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
 }

@@ -748,6 +748,25 @@ public class TargetCaptureCommandTests
         Assert.AreEqual(1, recording.LastRecordOptions.DurationSec);
     }
 
+    [TestMethod]
+    public async Task Record_ExplicitOverwriteReachesTheSharedPipelineWithoutChangingCapturePolicy()
+    {
+        await using var harness = new Harness(GuestWindows());
+        var recording = new FakeUiRecordingService();
+        var destination = TestPaths.Under(_root, "overwrite.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        await File.WriteAllTextAsync(destination, "old video", TestContext.CancellationToken);
+
+        var exitCode = await RunRecordAsync(
+            harness, new TestConsole(), recording, "sandbox", "-o", destination,
+            "--duration-sec", "1", "--overwrite", "--json");
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(recording.LastRecordOptions!.Overwrite);
+        Assert.IsTrue(recording.LastRecordOptions.NoActivation);
+        Assert.IsFalse(recording.LastRecordOptions.CaptureScreen);
+    }
+
     /// <summary>
     /// A guest connection is a scarce, single-occupant channel, and a recording can legitimately run
     /// for hours. Everything a recording needs is a host window handle read once up front, so the
@@ -1016,7 +1035,6 @@ public class TargetCaptureCommandTests
             DeploymentId = deploymentId,
             TargetEpoch = Epoch.Value,
             Dirty = false,
-            Desired = [],
             Package = packaged
                 ? new PackageOwnership
                 {
@@ -1228,13 +1246,13 @@ public class TargetCaptureCommandTests
     {
         public IGuestProcessHost Start(
             GuestExecRequest request,
-            Action<GuestStreamId, ReadOnlyMemory<byte>> onOutput)
+            Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput)
         {
             var host = new FakeGuestProcessHost(request, onOutput, processId: 4321);
 
             if (stdout.Length > 0)
             {
-                host.Emit(GuestStreamId.StandardOutput, stdout);
+                host.InitialOutput = host.EmitAsync(GuestStreamId.StandardOutput, stdout);
             }
 
             host.Exit(exitCode);

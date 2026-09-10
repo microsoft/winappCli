@@ -9,23 +9,8 @@ using WinApp.Cli.Services;
 namespace WinApp.Cli.Tests;
 
 /// <summary>
-/// Proves the SBX-009 follow-up finding is closed: the hidden guest-launch verb -- the unlocked
-/// half of a launching packaged <c>run --on sandbox</c>, after registration itself completed under
-/// the mutation lease -- is structurally incapable of registering, unregistering, or otherwise
-/// mutating package state, under any option combination, including when a mismatch is exactly the
-/// scenario the mutation-lock split was meant to protect against (another deployment sharing the
-/// same package identity registering during the gap between phase 1 and phase 2).
+/// Verifies launch-only behavior against guest package state, including mismatched registrations.
 /// </summary>
-/// <remarks>
-/// Driven directly through <see cref="RunCommand.Handler.InvokeAsync"/> for a parsed
-/// <see cref="GuestLaunchCommand"/> -- the same dispatch a guest exec request reaches -- with
-/// <see cref="FakePackageRegistrationService"/> standing in for the guest's package state. Every
-/// test asserts all five of that fake's mutation call lists
-/// (<c>InstallPackageCalls</c>/<c>UnregisterCalls</c>/<c>UnregisterByFullNameCalls</c>/
-/// <c>RegisterLooseLayoutCalls</c>/<c>RegisterSparseCalls</c>) stay empty, because the point being
-/// proven is not "this particular flag combination happens not to mutate" but "there is no code
-/// path in this verb that can reach any of them at all".
-/// </remarks>
 [TestClass]
 public class GuestLaunchCommandTests : BaseCommandTests
 {
@@ -54,7 +39,8 @@ public class GuestLaunchCommandTests : BaseCommandTests
         bool debugOutput = false,
         bool detach = true,
         bool json = false,
-        string? appArgs = null)
+        string? appArgs = null,
+        bool preferAlias = false)
     {
         var command = new GuestLaunchCommand();
 
@@ -71,6 +57,11 @@ public class GuestLaunchCommandTests : BaseCommandTests
         if (withAlias)
         {
             arguments.Add("--with-alias");
+        }
+
+        if (preferAlias)
+        {
+            arguments.Add("--prefer-alias");
         }
 
         if (debugOutput)
@@ -292,6 +283,26 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count, "--with-alias must never launch by AUMID.");
+        AssertNoMutationCalls();
+    }
+
+    [TestMethod]
+    public async Task InferredAlias_MissingAliasFallsBackToActivationWithoutMutation()
+    {
+        var layout = Path.Join(_tempDirectory.FullName, "layout");
+        var payload = _tempDirectory.CreateSubdirectory("inferredAliasPayload").FullName;
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("Pkg_1.0.0.0_x64__ddd", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
+        ];
+
+        var parsed = Parse("Pkg", "CN=Test", "App", layout, payload, preferAlias: true, detach: false);
+        Assert.IsEmpty(parsed.Value.Errors);
+        var exitCode = await GetRequiredService<RunCommand.Handler>()
+            .InvokeAsync(parsed.Value, TestContext.CancellationToken);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.HasCount(1, _fakeAppLauncherService.LaunchCalls);
         AssertNoMutationCalls();
     }
 

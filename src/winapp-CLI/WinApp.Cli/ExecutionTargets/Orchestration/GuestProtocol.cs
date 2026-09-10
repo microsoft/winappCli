@@ -15,10 +15,10 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 internal static class GuestProtocol
 {
     /// <summary>Oldest protocol revision this build can speak.</summary>
-    public const int MinimumVersion = 1;
+    public const int MinimumVersion = 2;
 
     /// <summary>Newest protocol revision this build can speak.</summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     /// <summary>Bytes of per-connection random each side contributes to key derivation.</summary>
     public const int HandshakeRandomSize = 32;

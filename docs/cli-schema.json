@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "0.6.3",
+  "version": "1.0.0",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
@@ -717,7 +717,7 @@
           "description": "Path to the .exe (embeds identity into its side-by-side manifest via mt.exe) or an .xml/.manifest side-by-side manifest file (inserts/replaces the <msix> element; created if it doesn't exist).",
           "order": 0,
           "hidden": false,
-          "valueType": "System.String",
+          "valueType": "System.IO.FileInfo",
           "hasDefaultValue": false,
           "arity": {
             "minimum": 1,
@@ -2664,6 +2664,19 @@
               "required": false,
               "recursive": false
             },
+            "--overwrite": {
+              "description": "Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--quiet": {
               "description": "Suppress progress messages",
               "hidden": false,
@@ -4278,6 +4291,19 @@
               "hasDefaultValue": false,
               "arity": {
                 "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--overwrite": {
+              "description": "Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
                 "maximum": 1
               },
               "required": false,
