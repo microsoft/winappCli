@@ -547,14 +547,12 @@ internal partial class MsixService
         }
 
         var deleted = 0;
-        foreach (var stalePath in staleFiles.Select(
-                     relativePath => ResolveRecipeDestination(outputDir, relativePath)))
+        foreach (var stalePath in staleFiles
+                     .Select(relativePath => ResolveRecipeDestination(outputDir, relativePath))
+                     .Where(File.Exists))
         {
-            if (File.Exists(stalePath))
-            {
-                File.Delete(stalePath);
-                deleted++;
-            }
+            File.Delete(stalePath);
+            deleted++;
         }
 
         foreach (var directory in staleFiles
