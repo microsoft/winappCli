@@ -807,6 +807,8 @@ public sealed class ApiMetadataServiceTests
         Assert.AreEqual("After", result.Data!.ProjectName);
     }
 
+    private static readonly string[] OnlyTheProjectStillOnDisk = ["Present"];
+
     [TestMethod]
     public void Projects_OmitsAProjectThatIsNoLongerOnDisk()
     {
@@ -817,7 +819,7 @@ public sealed class ApiMetadataServiceTests
 
         var result = CreateService().Projects();
 
-        CollectionAssert.AreEquivalent(new[] { "Present" }, result.Projects.ConvertAll(p => p.Name));
+        CollectionAssert.AreEquivalent(OnlyTheProjectStillOnDisk, result.Projects.ConvertAll(p => p.Name));
     }
 
     [TestMethod]
