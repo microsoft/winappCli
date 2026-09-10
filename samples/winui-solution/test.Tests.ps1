@@ -53,7 +53,7 @@ Describe 'winui-solution sample' {
         }
     }
 
-    # Phase 1 exercises `winapp run` SOLUTION MODE against a multi-project .sln from a
+    # Phase 1 exercises `winapp run` SOLUTION MODE against a multi-project .slnx from a
     # clean directory. The solution contains a packaged WinUI app (App) and a
     # test-shaped project (App.Tests: WinExe + TestContainer capability + MSTest, no
     # IsTestProject). winapp run must auto-select the runnable App and skip the test
@@ -90,7 +90,7 @@ Describe 'winui-solution sample' {
             # App.Tests. --no-launch builds the loose layout + registers a debug identity
             # without launching (deterministic in CI). Invoke-WinappCommand throws on a
             # non-zero exit, so an ambiguity error (which is non-zero) would fail here.
-            Invoke-WinappCommand -Arguments 'run WinUISolution.sln --no-launch'
+            Invoke-WinappCommand -Arguments 'run WinUISolution.slnx --no-launch'
 
             # Prove App (not App.Tests) is the project that got built.
             (Get-ChildItem -Path 'App\bin' -Recurse -Filter 'App.dll' -ErrorAction SilentlyContinue) |
@@ -105,6 +105,14 @@ Describe 'winui-solution sample' {
             # throw proves explicit selection reached App.Tests.
             { Invoke-WinappCommand -Arguments 'run WinUISolution.sln --project App.Tests --no-launch' } |
                 Should -Throw
+        }
+
+        It 'Restores a configuration-free slnx without requesting a solution Platform' -Skip:$script:skip {
+            # App.Tests declares the host architecture, so winapp resolves a project Platform. That
+            # Platform must stay on project-targeted passes: passing it to this configuration-free .slnx
+            # makes real MSBuild print MSB4126 before winapp falls back to individual restores.
+            $output = Invoke-WinappCommand -Arguments 'run WinUISolution.slnx --project App.Tests --detach'
+            ($output -join [Environment]::NewLine) | Should -Not -Match 'MSB4126'
         }
     }
 
