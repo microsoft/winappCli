@@ -205,6 +205,53 @@ public class PathSafetyTests
     }
 
     // Creates a junction when the host permits it; callers mark false as inconclusive.
+    [TestMethod]
+    public void RedirectsToNetwork_OrdinaryLocalPath_ReturnsFalse()
+    {
+        string nested = Path.Combine(_tempDir.FullName, "packages", "lib");
+        Directory.CreateDirectory(nested);
+
+        Assert.IsFalse(PathSafety.RedirectsToNetwork(nested));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_UncPath_ReturnsTrue()
+    {
+        Assert.IsTrue(PathSafety.RedirectsToNetwork(@"\\server\share\packages"));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_JunctionToAnotherLocalDirectory_ReturnsFalse()
+    {
+        // Relocating a package cache with a junction is a normal developer setup. This
+        // check exists to stop a redirection leaving the machine, not to ban redirection,
+        // so a local target must stay allowed.
+        string real = Path.Combine(_tempDir.FullName, "RealCache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(Path.Combine(real, "pkg"));
+        if (!TryCreateJunction(link, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(Path.Combine(link, "pkg")));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_MissingPath_IsNotARedirection()
+    {
+        // A path that does not exist yet is not a redirection; callers still have to
+        // handle it being absent.
+        Assert.IsFalse(PathSafety.RedirectsToNetwork(Path.Combine(_tempDir.FullName, "nope", "still-nope")));
+    }
+
     private static bool TryCreateJunction(string link, string target)
     {
         try

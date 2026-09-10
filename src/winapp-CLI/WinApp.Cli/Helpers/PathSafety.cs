@@ -138,6 +138,90 @@ internal static class PathSafety
     }
 
     /// <summary>
+    /// Whether any component of <paramref name="path"/> is a link that resolves to a
+    /// network location. Unlike <see cref="IsNetworkPath"/>, which reads the path as
+    /// written, this follows the redirection: a junction at <c>D:\packages</c> pointing at
+    /// <c>\\server\share</c> is not network-shaped as a string, but reading through it
+    /// still authenticates outward to a host the value's author chose.
+    /// </summary>
+    /// <remarks>
+    /// Only redirections that leave the machine are refused. A junction that relocates a
+    /// package cache onto another local volume is a normal developer setup, which is why
+    /// this is not simply a reparse-point check — that is
+    /// <see cref="CrossesReparsePoint"/>, and applying it to a user-configured location
+    /// outside the repository would reject ordinary machines.
+    /// </remarks>
+    public static bool RedirectsToNetwork(string path)
+    {
+        string normalized;
+        string? root;
+        try
+        {
+            string full = Path.GetFullPath(path);
+            if (IsNetworkPath(full))
+            {
+                return true;
+            }
+            normalized = NormalizeForContainment(full);
+            root = Path.GetPathRoot(normalized);
+        }
+        catch
+        {
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(root))
+        {
+            return true;
+        }
+
+        string current = root;
+        string[] segments = normalized[Math.Min(root.Length, normalized.Length)..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        foreach (string segment in segments)
+        {
+            current = Path.Combine(current, segment);
+            if (LinkLeavesMachine(current))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a single component is a link whose final target is a network location. A
+    /// component that does not exist yet is not a redirection; a link that cannot be
+    /// resolved is refused, because an unreadable link is one that cannot be cleared.
+    /// </summary>
+    private static bool LinkLeavesMachine(string path)
+    {
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReparsePoint) == 0)
+            {
+                return false;
+            }
+
+            FileSystemInfo info = attributes.HasFlag(FileAttributes.Directory)
+                ? new DirectoryInfo(path)
+                : new FileInfo(path);
+            string? resolved = info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? info.LinkTarget;
+            return resolved is not null && IsNetworkPath(resolved);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
     /// True when <paramref name="path"/> is <paramref name="root"/> itself or lives beneath
     /// it. Pure string containment: this answers "does the repository control this location",
     /// not "is it safe to touch" — pair it with <see cref="CrossesReparsePoint"/> for that.

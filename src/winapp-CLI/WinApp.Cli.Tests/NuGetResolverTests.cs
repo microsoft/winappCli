@@ -604,6 +604,75 @@ public sealed class NuGetResolverTests
         }
     }
 
+    [TestMethod]
+    public void FindProjectAssetsJson_AssetsFileItselfIsALink_IsNotFollowed()
+    {
+        // Guarding `obj` leaves the last segment unguarded: the directory is ordinary and
+        // only `project.assets.json` inside it is a link. Reading it is the same outbound
+        // reach a redirected `obj` would be, chosen the same way — by cloning a repo.
+        string projectDir = Path.Combine(_dir, "LinkedAssetsFile");
+        string outsideDir = Path.Combine(_dir, "ElsewhereAssetsFile");
+        Directory.CreateDirectory(Path.Combine(projectDir, "obj"));
+        Directory.CreateDirectory(outsideDir);
+
+        string outsideAssets = Path.Combine(outsideDir, "project.assets.json");
+        File.WriteAllText(outsideAssets, "{}");
+
+        string link = Path.Combine(projectDir, "obj", "project.assets.json");
+        try
+        {
+            File.CreateSymbolicLink(link, outsideAssets);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive("Could not create a file symbolic link on this machine.");
+        }
+
+        // No project file, so the ownership check cannot be what rejects it.
+        Assert.IsNull(
+            NuGetResolver.FindProjectAssetsJson(projectDir),
+            "a redirected assets file must not be read");
+    }
+
+    [TestMethod]
+    public void ReadAssemblyName_PlainName_IsUsed()
+    {
+        Assert.AreEqual("MyLib", NuGetResolver.ReadAssemblyName(WriteProject("MyLib")));
+    }
+
+    [TestMethod]
+    public void ReadAssemblyName_UnexpandedProperty_IsIgnored()
+    {
+        Assert.IsNull(NuGetResolver.ReadAssemblyName(WriteProject("$(MSBuildProjectName).Core")));
+    }
+
+    [TestMethod]
+    [DataRow(@"..\redirect\Poison", DisplayName = "climbs out of the output directory")]
+    [DataRow(@"sub\Poison", DisplayName = "names a subdirectory")]
+    [DataRow(@"C:\absolute\Poison", DisplayName = "is rooted")]
+    [DataRow("*", DisplayName = "wildcard matches every dependency")]
+    [DataRow("Poison?", DisplayName = "single-character wildcard")]
+    [DataRow("..", DisplayName = "the parent directory itself")]
+    public void ReadAssemblyName_ValueIsNotAPlainFileName_IsIgnored(string assemblyName)
+    {
+        // The value becomes a search pattern, and a search pattern is not confined to the
+        // directory it is rooted at: Directory.GetFiles(bin, @"..\redirect\Poison.dll")
+        // returns that file. Falling back to the project file name keeps the scan inside
+        // the referenced project's own output.
+        Assert.IsNull(NuGetResolver.ReadAssemblyName(WriteProject(assemblyName)));
+    }
+
+    private string WriteProject(string assemblyName)
+    {
+        string dir = Path.Combine(_dir, "AsmName", Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        string projectFile = Path.Combine(dir, "Lib.csproj");
+        File.WriteAllText(
+            projectFile,
+            $"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><AssemblyName>{assemblyName}</AssemblyName></PropertyGroup></Project>");
+        return projectFile;
+    }
+
     /// <summary>Creates a directory junction (<c>mklink /J</c>), which needs no elevation.</summary>
     private static bool TryCreateJunction(string link, string target)
     {

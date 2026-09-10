@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -620,7 +621,16 @@ internal static partial class NuGetResolver
     /// as absent: evaluating them needs the whole MSBuild engine, and guessing produces a
     /// file name that matches nothing.
     /// </summary>
-    private static string? ReadAssemblyName(string projectFile)
+    /// <remarks>
+    /// The result becomes a search pattern, and a search pattern is not confined to the
+    /// directory it is rooted at: <c>Directory.GetFiles(bin, @"..\redirect\Poison.dll")</c>
+    /// returns that file, and <c>..\..\*.dll</c> climbs further still. Since the value comes
+    /// from a <c>.csproj</c> in the cloned tree, cloning a repository would otherwise be
+    /// enough to point metadata reading at a file outside the referenced project's output.
+    /// A wildcard is refused for the same reason the caller takes only the project's own
+    /// output: <c>*</c> would pull in every dependency copied next to it.
+    /// </remarks>
+    internal static string? ReadAssemblyName(string projectFile)
     {
         try
         {
@@ -631,13 +641,36 @@ internal static partial class NuGetResolver
                 .Where(e => e.Name.LocalName == "AssemblyName")
                 .Select(e => e.Value.Trim())
                 .LastOrDefault(v => v.Length > 0 && !v.Contains("$("));
-            return string.IsNullOrEmpty(value) ? null : value;
+            return IsLiteralFileName(value) ? value : null;
         }
         catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// Whether a value is a plain file name — no directory part, no wildcard, and nothing
+    /// the file system would reject — so it can be used as a search pattern without
+    /// reaching outside the directory being searched.
+    /// </summary>
+    private static bool IsLiteralFileName([NotNullWhen(true)] string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+        // GetFileName strips any directory part, so a value that survives it unchanged has
+        // none. It leaves `..` alone, which is the escape that matters here, so that is
+        // rejected by name.
+        if (!string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal) || value == ".." || value == ".")
+        {
+            return false;
+        }
+        return value.IndexOfAny(WildcardOrInvalidFileNameChars) < 0;
+    }
+
+    private static readonly char[] WildcardOrInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '*', '?'];
 
     /// <summary>
     /// Last write time, or <see cref="DateTime.MinValue"/> for a file that cannot be read —
@@ -780,7 +813,14 @@ internal static partial class NuGetResolver
         // asked about keeps its own under a nested BaseIntermediateOutputPath. Returning
         // the sibling's file reports that project's restore time, and a query then answers
         // from an index that its own restore already invalidated.
-        if (File.Exists(direct) && (projectFile is null || OwnsAssetsFile(direct, projectFile)))
+        //
+        // The file is checked as well as the directory holding it. Guarding `obj` alone
+        // leaves the last segment unguarded, and `project.assets.json` committed as a
+        // symlink is enough to make the read follow it elsewhere — File.Exists on a
+        // redirected path has already reached whatever it names.
+        if (!PathSafety.CrossesReparsePoint(direct, projectDir)
+            && File.Exists(direct)
+            && (projectFile is null || OwnsAssetsFile(direct, projectFile)))
         {
             return direct;
         }
@@ -1556,8 +1596,10 @@ internal static partial class NuGetResolver
     /// committed along the way redirects the probe onto a share without the value ever
     /// looking network-shaped. Such a value must be reachable without crossing a reparse
     /// point. A value outside <paramref name="root"/> — most often a NuGet cache on another
-    /// volume — was configured by the user rather than named by the repository, and only the
-    /// network check applies; requiring containment there would reject every normal machine.
+    /// volume — was configured by the user rather than named by the repository, so it may
+    /// legitimately be reached through a junction and containment is not required. It still
+    /// may not be redirected off the machine: a link resolving to a share reaches the same
+    /// host a network-shaped value would, and the lexical check cannot see it.
     /// </remarks>
     private static bool IsProbeablePath(string? path, string root)
     {
@@ -1565,7 +1607,9 @@ internal static partial class NuGetResolver
         {
             return false;
         }
-        return !PathSafety.IsUnder(path, root) || !PathSafety.CrossesReparsePoint(path, root);
+        return PathSafety.IsUnder(path, root)
+            ? !PathSafety.CrossesReparsePoint(path, root)
+            : !PathSafety.RedirectsToNetwork(path);
     }
 
     /// <summary>
