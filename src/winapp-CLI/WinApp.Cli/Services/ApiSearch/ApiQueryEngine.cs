@@ -1208,7 +1208,7 @@ internal static class ApiQueryEngine
     {
         Name = member.Name,
         Kind = member.Kind,
-        Signature = SubstituteTypeParameters(member.Signature, substitution),
+        Signature = SubstituteSignature(member, substitution),
         ReturnType = member.ReturnType is null ? null : SubstituteTypeParameters(member.ReturnType, substitution),
         Parameters = member.Parameters?
             .Select(p => new WinMdParameterInfo { Name = p.Name, Type = SubstituteTypeParameters(p.Type, substitution) })
@@ -1218,6 +1218,64 @@ internal static class ApiQueryEngine
         Description = member.Description,
         DeprecatedMessage = member.DeprecatedMessage,
     };
+
+    /// <summary>
+    /// Substitutes type arguments into a member's rendered signature without touching the
+    /// names it declares. A rendered signature spells types and names the same way, so a
+    /// blind identifier rewrite corrupts any name spelled like a type parameter:
+    /// <c>void Add(T T)</c> reached through <c>Base&lt;String&gt;</c> would render as
+    /// <c>void Add(String String)</c>, naming a parameter that does not exist. The
+    /// signature is the whole of what a caller sees for a member, so there is no correct
+    /// field left to fall back on when that happens.
+    /// </summary>
+    private static string SubstituteSignature(WinMdMemberInfo member, IReadOnlyDictionary<string, string> substitution)
+    {
+        string signature = member.Signature;
+
+        // Only a name spelled like a substituted parameter can be corrupted, and that is
+        // rare enough that everything else keeps the plain rewrite verbatim.
+        bool nameCollides = !string.IsNullOrEmpty(member.Name)
+            && (substitution.ContainsKey(member.Name)
+                || (member.Parameters?.Any(p => substitution.ContainsKey(p.Name)) ?? false));
+        if (string.IsNullOrEmpty(signature) || !nameCollides)
+        {
+            return SubstituteTypeParameters(signature, substitution);
+        }
+
+        // Every renderer in WinMdParser puts the member's types ahead of its name:
+        // `static IVector<T> Add<T>(T item)`, `T Value { get; set; }`, `event H Changed`.
+        // So only the head needs substituting, and a parameter list is rebuilt from the
+        // parameters themselves rather than parsed back out of the string.
+        int paren = signature.IndexOf('(', StringComparison.Ordinal);
+        int brace = signature.IndexOf('{', StringComparison.Ordinal);
+        int cut = paren >= 0 && brace >= 0 ? Math.Min(paren, brace)
+            : paren >= 0 ? paren
+            : brace >= 0 ? brace
+            : signature.Length;
+
+        string head = signature[..cut];
+        string tail = signature[cut..];
+        int nameAt = head.LastIndexOf(member.Name, StringComparison.Ordinal);
+        if (nameAt < 0 || (paren >= 0 && cut == paren && member.Parameters is null))
+        {
+            // An undecodable signature the parser wrote a placeholder for. Nothing here
+            // is worth guessing at, so fall back rather than reshape it.
+            return SubstituteTypeParameters(signature, substitution);
+        }
+
+        string types = SubstituteTypeParameters(head[..nameAt], substitution);
+        string name = head[nameAt..];
+
+        if (paren < 0 || cut != paren)
+        {
+            return types + name + tail;
+        }
+
+        string parameters = string.Join(
+            ", ",
+            member.Parameters!.Select(p => SubstituteTypeParameters(p.Type, substitution) + " " + p.Name));
+        return types + name + "(" + parameters + ")";
+    }
 
     /// <summary>
     /// Replaces whole identifiers named by <paramref name="substitution"/>, so

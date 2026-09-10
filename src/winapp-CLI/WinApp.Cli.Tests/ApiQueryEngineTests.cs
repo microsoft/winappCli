@@ -1598,6 +1598,90 @@ public sealed class ApiQueryEngineTests
         }
     }
 
+    /// <summary>
+    /// Metadata parameter and member names are whatever the author wrote, including the
+    /// letters used for type parameters. Substituting the rendered signature blindly
+    /// renames them: `void Add(T T)` becomes `void Add(String String)`, and the signature
+    /// is the whole of what a caller sees for a member.
+    /// </summary>
+    [TestMethod]
+    public void Members_InheritedMemberWhoseNamesLookLikeTypeParameters_KeepsThoseNames()
+    {
+        string cacheDir = NewCacheDir();
+        try
+        {
+            var namespaces = new Dictionary<string, List<WinMdTypeInfo>>(StringComparer.Ordinal)
+            {
+                ["Nm.Ns"] =
+                [
+                    new WinMdTypeInfo
+                    {
+                        Namespace = "Nm.Ns",
+                        Name = "Derived",
+                        FullName = "Nm.Ns.Derived",
+                        Kind = TypeKind.Class,
+                        BaseType = "Nm.Ns.Base<String>",
+                        SourceFile = "nm.winmd",
+                        Members = [],
+                    },
+                    new WinMdTypeInfo
+                    {
+                        Namespace = "Nm.Ns",
+                        Name = "Base<T>",
+                        FullName = "Nm.Ns.Base<T>",
+                        Kind = TypeKind.Class,
+                        SourceFile = "nm.winmd",
+                        Members =
+                        [
+                            new WinMdMemberInfo
+                            {
+                                Name = "Add",
+                                Kind = MemberKind.Method,
+                                Signature = "void Add(T T)",
+                                ReturnType = "void",
+                                Parameters = [new WinMdParameterInfo { Name = "T", Type = "T" }],
+                            },
+                            new WinMdMemberInfo
+                            {
+                                Name = "T",
+                                Kind = MemberKind.Property,
+                                Signature = "T T { get; set; }",
+                                ReturnType = "T",
+                            },
+                        ],
+                    },
+                ],
+            };
+            WriteSyntheticPackage(cacheDir, "Nm.Pkg", namespaces);
+
+            var manifest = new ProjectManifest
+            {
+                ProjectName = "NmApp",
+                ProjectDir = Path.Combine(cacheDir, "src"),
+                ProjectFile = "NmApp.csproj",
+                Packages = [new ProjectPackageRef { Id = "Nm.Pkg", Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
+                GeneratedAt = DateTime.UtcNow.ToString("o"),
+            };
+            string projectsDir = Path.Combine(cacheDir, "projects");
+            Directory.CreateDirectory(projectsDir);
+            File.WriteAllText(
+                Path.Combine(projectsDir, "NmApp.json"),
+                JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
+
+            var method = ApiQueryEngine.Members("Nm.Ns.Derived", "Add", cacheDir, manifest);
+            Assert.AreEqual(ApiQueryOutcome.Ok, method.Outcome, method.Message);
+            Assert.AreEqual("void Add(String T)", method.Data!.Methods.Single().Signature);
+
+            var property = ApiQueryEngine.Members("Nm.Ns.Derived", "T", cacheDir, manifest);
+            Assert.AreEqual(ApiQueryOutcome.Ok, property.Outcome, property.Message);
+            Assert.AreEqual("String T { get; set; }", property.Data!.Properties.Single().Signature);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
     #endregion
 
     #region Public fields
