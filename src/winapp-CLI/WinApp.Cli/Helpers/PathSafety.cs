@@ -119,6 +119,25 @@ internal static class PathSafety
     }
 
     /// <summary>
+    /// True when <paramref name="path"/> itself is a reparse point (junction/symlink), without
+    /// following it, or is network-shaped. Unlike <see cref="CrossesReparsePoint"/> this checks
+    /// only the single node, so a package folder a developer relocated with a junction can be
+    /// trusted while a redirected child beneath it is still rejected.
+    /// </summary>
+    public static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            string full = Path.GetFullPath(path);
+            return IsNetworkPath(full) || IsReparseOrProbeUnknown(NormalizeForContainment(full));
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
     /// True when <paramref name="path"/> is <paramref name="root"/> itself or lives beneath
     /// it. Pure string containment: this answers "does the repository control this location",
     /// not "is it safe to touch" — pair it with <see cref="CrossesReparsePoint"/> for that.

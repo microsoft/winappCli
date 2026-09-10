@@ -347,15 +347,16 @@ internal static partial class NuGetResolver
             // `metadata` and `lib` are named beneath a repo-controlled package folder, so a
             // junction planted as either child would send this doc probe onto whatever host
             // it points at — File.Exists/Directory.Exists authenticate before returning.
-            // Check the route before touching it, and enumerate without following reparse
-            // points among the files inside.
-            if (!PathSafety.CrossesReparsePoint(metadataDir, packageFolder) && Directory.Exists(metadataDir))
+            // Reject a redirected child before touching it (the package folder itself may be a
+            // legitimately relocated cache), and enumerate without following reparse points
+            // among the files inside.
+            if (!PathSafety.IsReparsePoint(metadataDir) && Directory.Exists(metadataDir))
             {
                 xmlFiles.AddRange(GetFilesNoReparse(metadataDir, "*.xml"));
             }
 
             string libDir = Path.Combine(packageFolder, "lib");
-            if (!PathSafety.CrossesReparsePoint(libDir, packageFolder) && Directory.Exists(libDir))
+            if (!PathSafety.IsReparsePoint(libDir) && Directory.Exists(libDir))
             {
                 foreach (var xml in GetFilesNoReparse(libDir, "*.xml"))
                 {
@@ -493,20 +494,18 @@ internal static partial class NuGetResolver
                 {
                     continue;
                 }
-                // A conditional reference is active only for some configurations, and
-                // evaluating that needs the MSBuild engine. With restore output present its
-                // reference list is authoritative, so a conditional raw reference is skipped
-                // rather than indexed for a configuration it may not belong to.
-                if (hasRestoreOutput && HasBuildCondition(element))
-                {
-                    continue;
-                }
                 // An analyzer or source-generator reference builds a .dll into the referenced
                 // project's bin like any other, but the referencing project cannot call into
                 // it — indexing it answers "yes, that API exists" for code that will not
                 // compile. MSBuild marks these with OutputItemType="Analyzer" or
                 // ReferenceOutputAssembly="false".
                 bool isBuildOnly = ProjectReferenceMetadata.IsBuildOnly(element);
+                // A conditional reference is active only in some configurations, which needs
+                // the MSBuild engine to evaluate. With restore output present its reference
+                // list is authoritative, so the conditional raw reference is not added for a
+                // configuration it may not belong to — but its build-only status is still
+                // recorded below so the transitive closure cannot reinstate it.
+                bool deferToRestore = hasRestoreOutput && HasBuildCondition(element);
                 // One Include may name several projects, semicolon-separated. Treating the
                 // whole value as a single path finds no file, so every project it names goes
                 // unindexed and their types all answer "does not exist".
@@ -518,9 +517,11 @@ internal static partial class NuGetResolver
                     }
                     if (isBuildOnly)
                     {
+                        // Recorded even when conditional, so the transitive closure below
+                        // cannot reinstate an analyzer/source-generator as callable API.
                         buildOnly.Add(resolved);
                     }
-                    else if (seen.Add(resolved))
+                    else if (!deferToRestore && seen.Add(resolved))
                     {
                         references.Add(resolved);
                     }
@@ -1011,12 +1012,13 @@ internal static partial class NuGetResolver
                     .Select(packageFolder =>
                         TryResolveUnderRoot(packageFolder, relativePath, out string dir)
                         // Containment settles the *name*; this settles the *route*. The
-                        // id/version directory beneath the package folder is named by the
-                        // same repo-controlled file, so the route from the package folder
-                        // down to it is checked for a junction — regardless of whether the
-                        // package folder is inside the project tree, because a solution-level
-                        // `packages` folder is repo-controlled too.
-                        && !PathSafety.CrossesReparsePoint(dir, packageFolder)
+                        // id/version segments beneath the package folder are named by the
+                        // same repo-controlled file, so each is checked for a junction —
+                        // regardless of whether the package folder is inside the project
+                        // tree, because a solution-level `packages` folder is repo-controlled
+                        // too. The package folder itself is excluded: a developer may relocate
+                        // the global NuGet cache with a junction, which is legitimate.
+                        && !RepoNamedSegmentIsRedirected(packageFolder, dir)
                             ? dir : null)
                     .Where(dir => dir != null && IsProbeablePath(dir, probeRoot) && Directory.Exists(dir))
                     .Select(dir => dir!)
@@ -1603,32 +1605,104 @@ internal static partial class NuGetResolver
     }
 
     /// <summary>
-    /// Whether a <c>&lt;ProjectReference&gt;</c> is gated by an MSBuild <c>Condition</c> —
-    /// on the element itself or an enclosing <c>&lt;ItemGroup&gt;</c>. Such a reference is
-    /// active only for some configurations, which cannot be judged without the MSBuild
-    /// engine.
+    /// Whether a <c>&lt;ProjectReference&gt;</c> is gated by an MSBuild <c>Condition</c> — on
+    /// the element itself or any ancestor (<c>&lt;ItemGroup&gt;</c>, <c>&lt;When&gt;</c>,
+    /// <c>&lt;Choose&gt;</c>, <c>&lt;Target&gt;</c>). Such a reference is active only for some
+    /// configurations, which cannot be judged without the MSBuild engine.
     /// </summary>
     private static bool HasBuildCondition(XElement element) =>
-        element.Attribute("Condition") is not null
-        || element.Ancestors().Any(a =>
-            a.Name.LocalName == "ItemGroup" && a.Attribute("Condition") is not null);
+        element.AncestorsAndSelf().Any(e => e.Attribute("Condition") is not null);
+
+    private static readonly string[] ImportedPackageRefFiles =
+        ["Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props"];
 
     /// <summary>
-    /// Whether a project file declares at least one <c>&lt;PackageReference Include=…&gt;</c>.
-    /// A non-XML or unreadable project file (an Electron app's <c>winapp.yaml</c>) declares
-    /// none, so it is never mistaken for an unrestored NuGet project.
+    /// Whether a project declares at least one <c>&lt;PackageReference Include=…&gt;</c>, either
+    /// directly or through a shared <c>Directory.Build.props</c>/<c>Directory.Build.targets</c>
+    /// or central <c>Directory.Packages.props</c> imported from an ancestor directory. A
+    /// non-XML or unreadable project file (an Electron app's <c>winapp.yaml</c>) declares none,
+    /// so it is never mistaken for an unrestored NuGet project.
     /// </summary>
     private static bool ProjectDeclaresPackageReferences(string projectFile)
     {
+        if (FileDeclaresPackageReference(projectFile))
+        {
+            return true;
+        }
+        // Evaluating imports needs the MSBuild engine, so scan the well-known shared files up
+        // the tree instead — enough to catch the common shapes (Directory.Build.props, CPM).
         try
         {
-            return XDocument.Load(projectFile)
+            for (DirectoryInfo? dir = new DirectoryInfo(Path.GetDirectoryName(Path.GetFullPath(projectFile))!);
+                 dir is not null;
+                 dir = dir.Parent)
+            {
+                // Do not follow a junction up the tree onto another host.
+                if (dir.Exists && dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    break;
+                }
+                foreach (string name in ImportedPackageRefFiles)
+                {
+                    string candidate = Path.Combine(dir.FullName, name);
+                    if (File.Exists(candidate) && FileDeclaresPackageReference(candidate))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or System.Security.SecurityException)
+        {
+        }
+        return false;
+    }
+
+    private static bool FileDeclaresPackageReference(string file)
+    {
+        try
+        {
+            return XDocument.Load(file)
                 .Descendants()
-                .Any(e => e.Name.LocalName == "PackageReference" && e.Attribute("Include") is not null);
+                .Any(e => (e.Name.LocalName == "PackageReference" || e.Name.LocalName == "PackageVersion")
+                    && e.Attribute("Include") is not null);
         }
         catch (Exception ex) when (ex is XmlException or IOException or UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// True when any path segment the repo-controlled metadata names <em>below</em>
+    /// <paramref name="packageFolder"/> — down to and including <paramref name="dir"/> — is a
+    /// reparse point. The package folder itself is excluded, so a developer who relocated the
+    /// global NuGet cache with a junction keeps working, while a junction planted on an
+    /// id/version segment (which would redirect the probe onto another host) is rejected.
+    /// </summary>
+    private static bool RepoNamedSegmentIsRedirected(string packageFolder, string dir)
+    {
+        try
+        {
+            string full = Path.GetFullPath(dir);
+            string root = Path.GetFullPath(packageFolder);
+            if (!PathSafety.IsUnder(full, root)
+                || string.Equals(full, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            // Start the reparse walk at the first segment below the package folder, so the
+            // package folder itself is never the flagged node.
+            string relative = full[root.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string firstSegment = relative.Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries)[0];
+            return PathSafety.CrossesReparsePoint(full, Path.Combine(root, firstSegment));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return true;
         }
     }
 }

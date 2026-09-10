@@ -449,6 +449,53 @@ public sealed class NuGetResolverTests
     }
 
     [TestMethod]
+    public void FindWinMdFromProjectReferences_ConditionalBuildOnlyReference_StaysExcludedViaRestoreClosure()
+    {
+        // A reference that is BOTH conditional and build-only (an analyzer). Deferring the
+        // conditional reference to restore output must still record its build-only status, or
+        // the transitive restore closure reinstates it and reports the generator's own types
+        // as callable API.
+        WriteReferencedLibrary("GenCond", "GenCond.dll");
+        string appProject = WriteApp("""
+                <ProjectReference Include="..\GenCond\GenCond.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Condition="'$(TargetFramework)' == 'net8.0'" />
+            """, "net8.0");
+        WriteAssetsWithProjectLibraries(appProject, "../GenCond/GenCond.csproj");
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(0, packages.Count, "a conditional build-only reference must not be reinstated by the restore closure");
+    }
+
+    [TestMethod]
+    public void FindWinMdFromProjectReferences_ConditionInChooseWhen_IsHonoredWhenRestoreOutputPresent()
+    {
+        // The gating Condition sits on an enclosing <When>, not the reference or its
+        // <ItemGroup>. It must still be recognized so the inactive reference is deferred to
+        // restore output rather than indexed for a configuration it does not belong to.
+        WriteReferencedLibrary("WhenLib", "WhenLib.dll");
+        string appDir = Path.Combine(_dir, "App");
+        Directory.CreateDirectory(appDir);
+        string appProject = Path.Combine(appDir, "App.csproj");
+        File.WriteAllText(appProject, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+              <Choose>
+                <When Condition="'$(TargetFramework)' == 'net8.0-windows'">
+                  <ItemGroup>
+                    <ProjectReference Include="..\WhenLib\WhenLib.csproj" />
+                  </ItemGroup>
+                </When>
+              </Choose>
+            </Project>
+            """);
+        WriteAssetsWithProjectLibraries(appProject);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindWinMdFromProjectReferences(appProject);
+
+        Assert.AreEqual(0, packages.Count, "a reference gated by Choose/When is deferred to restore output");
+    }
+
+    [TestMethod]
     public void FindProjectAssetsJson_LoneUnownedAssetsFile_IsNotReturned()
     {
         // A single obj\project.assets.json can belong to a colocated sibling. Returning it
@@ -1069,6 +1116,64 @@ public sealed class NuGetResolverTests
         finally
         {
             Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void FindPackagesFromAssets_PackageFolderRootIsAJunction_StillResolves()
+    {
+        // A developer may relocate the global NuGet cache onto another volume with a junction
+        // (e.g. %USERPROFILE%\.nuget\packages -> D:\nuget). The junction is the package-folder
+        // *root*, not a repo-named id/version segment, so packages under it must still resolve
+        // — rejecting them would make every NuGet API disappear for that configuration.
+        string projectDir = Path.Combine(_dir, "proj");
+        Directory.CreateDirectory(projectDir);
+
+        string realCache = Path.Combine(_dir, "realcache");
+        string selected = Path.Combine(realCache, "contoso.metadata", "1.0.0", "lib", "net8.0-windows10.0.26100.0");
+        Directory.CreateDirectory(selected);
+        File.WriteAllText(Path.Combine(selected, "Contoso.winmd"), "x");
+
+        string linkedCache = Path.Combine(_dir, "linkedcache");
+        if (!TryCreateJunction(linkedCache, realCache))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            string path = WriteAssets(JsonSerializer.Serialize(new
+            {
+                packageFolders = new Dictionary<string, object> { [linkedCache] = new { } },
+                targets = new Dictionary<string, object>
+                {
+                    ["net8.0-windows10.0.26100.0"] = new Dictionary<string, object>
+                    {
+                        ["Contoso.Metadata/1.0.0"] = new
+                        {
+                            compile = new Dictionary<string, object>
+                            {
+                                ["lib/net8.0-windows10.0.26100.0/Contoso.winmd"] = new { },
+                            },
+                        },
+                    },
+                },
+                libraries = new Dictionary<string, object>
+                {
+                    ["Contoso.Metadata/1.0.0"] = new { type = "package", path = "contoso.metadata/1.0.0" },
+                },
+            }));
+
+            List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromAssets(path, projectDir: projectDir);
+
+            Assert.AreEqual(1, packages.Count, "a package under a junctioned cache root must still resolve");
+            CollectionAssert.AreEquivalent(
+                SelectedWinmdOnly,
+                packages[0].WinMdFiles.Select(Path.GetFileName).ToArray());
+        }
+        finally
+        {
+            Directory.Delete(linkedCache);
         }
     }
 
