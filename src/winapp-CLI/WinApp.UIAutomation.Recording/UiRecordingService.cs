@@ -317,8 +317,6 @@ internal sealed partial class UiRecordingService(
 
             var frameDurationHns = 10_000_000L / options.Fps;
             var totalFrames = options.DurationSec > 0 ? (long)options.DurationSec * options.Fps : (long?)null;
-            var stopwatch = Stopwatch.StartNew();
-            var startedUtc = DateTimeOffset.UtcNow;
             var frameIndex = 0;
             long lastEncodedVersion = -1;
             var startedSignaled = false;
@@ -330,11 +328,18 @@ internal sealed partial class UiRecordingService(
                 frameOutput = CreateRecordFrameArtifactCoordinator(new RecordFrameArtifactSetup
                 {
                     Options = options,
-                    StartedUtc = startedUtc,
                     EncoderWidth = encoderW,
                     EncoderHeight = encoderH,
                 });
             }
+
+            // The capture clock starts here, after frame artifact setup has created its staging
+            // directory and opened the manifest and index writers. Starting it before that setup
+            // charged the filesystem work to --duration, so on a loaded machine a short recording
+            // could spend its whole budget before capturing anything. startedUtc marks the same
+            // instant, so a frame's elapsedMs is an offset from the manifest's startedUtc.
+            var stopwatch = Stopwatch.StartNew();
+            var startedUtc = DateTimeOffset.UtcNow;
 
             async ValueTask CommitFrameAsync(byte[] processedFrame)
             {
@@ -375,7 +380,12 @@ internal sealed partial class UiRecordingService(
                         break;
                     }
 
-                    if (totalFrames.HasValue && stopwatch.Elapsed.TotalSeconds >= options.DurationSec)
+                    // Elapsed time only ends a recording that has already captured something.
+                    // Reaching the requested duration before the first frame is committed means
+                    // capture was slow to start, not that the recording is done; ending here handed
+                    // the caller an empty MP4 and a zero-frame manifest instead of a recording.
+                    // Cancellation is unaffected and still ends the loop at zero frames.
+                    if (totalFrames.HasValue && frameIndex > 0 && stopwatch.Elapsed.TotalSeconds >= options.DurationSec)
                     {
                         break;
                     }
@@ -518,6 +528,7 @@ internal sealed partial class UiRecordingService(
                         {
                             Status = "partial",
                             StopReason = stopReason,
+                            StartedUtc = startedUtc,
                             ElapsedMs = elapsedMs,
                             AchievedFps = frameAchievedFps,
                             CadenceRatio = frameCadenceRatio,
@@ -557,6 +568,7 @@ internal sealed partial class UiRecordingService(
                     {
                         Status = "complete",
                         StopReason = stopReason,
+                        StartedUtc = startedUtc,
                         ElapsedMs = elapsedMs,
                         AchievedFps = achievedFps,
                         CadenceRatio = cadenceRatio,

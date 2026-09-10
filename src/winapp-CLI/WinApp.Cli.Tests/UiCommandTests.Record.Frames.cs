@@ -450,7 +450,6 @@ public partial class UiCommandTests
         {
             FinalDirectory = finalDirectory,
             VideoPath = Path.Join(_tempDirectory.FullName, "video.mp4"),
-            StartedUtc = DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
             Width = 64,
             Height = 64,
             MaximumBundleBytes = maximumBundleBytes,
@@ -476,6 +475,7 @@ public partial class UiCommandTests
         {
             Status = "complete",
             StopReason = "cancelled",
+            StartedUtc = DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
             ElapsedMs = 300,
             AchievedFps = 10,
             CadenceRatio = 1,
