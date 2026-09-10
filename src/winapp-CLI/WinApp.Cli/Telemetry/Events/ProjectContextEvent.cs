@@ -156,6 +156,7 @@ internal sealed class ProjectContextEvent : EventBase
     {
         ProjectExecutionMode.Project => "project",
         ProjectExecutionMode.Folder => "folder",
+        ProjectExecutionMode.SingleFile => "singlefile",
         _ => "none",
     };
 }

@@ -10,8 +10,12 @@
  *
  * The guard validates that `durationSec` is provided and positive before calling the
  * CLI, because unbounded recording (durationSec == 0) is only supportable via the CLI
- * with Ctrl+C or piped stdin — the npm wrapper has no mechanism to stop an unbounded
- * spawn (no AbortSignal, no stdin pass-through).
+ * with Ctrl+C or piped stdin, which the npm wrapper has no way to drive.
+ *
+ * `CommonOptions.signal` (issue #764) does NOT relax this. An `AbortSignal` force-terminates the
+ * child, so it can stop an unbounded recording only by killing it — leaving partial or invalid MP4
+ * output with no graceful finalization. A finite `durationSec` remains required so the normal path
+ * always produces a valid recording.
  *
  * This file must NOT be edited by the code generator; it is hand-maintained.
  */
@@ -112,7 +116,10 @@ export async function uiRecord(options: UiRecordOptions): Promise<WinappResult> 
   }
 
   const args = buildUiRecordArgs(options);
-  const captureOpts: CallWinappCliCaptureOptions = options.cwd ? { cwd: options.cwd } : {};
+  const captureOpts: CallWinappCliCaptureOptions = {};
+  if (options.cwd) captureOpts.cwd = options.cwd;
+  if (options.signal) captureOpts.signal = options.signal;
+  if (options.workflowId !== undefined) captureOpts.workflowId = options.workflowId;
   const result = await callWinappCliCapture(args, captureOpts);
   return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
 }
@@ -147,7 +154,10 @@ export async function _uiRecordWithCapture(
     );
   }
   const args = buildUiRecordArgs(options);
-  const captureOpts: CallWinappCliCaptureOptions = options.cwd ? { cwd: options.cwd } : {};
+  const captureOpts: CallWinappCliCaptureOptions = {};
+  if (options.cwd) captureOpts.cwd = options.cwd;
+  if (options.signal) captureOpts.signal = options.signal;
+  if (options.workflowId !== undefined) captureOpts.workflowId = options.workflowId;
   const result = await capture(args, captureOpts);
   return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
 }

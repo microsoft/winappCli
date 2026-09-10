@@ -75,6 +75,25 @@ Want to inspect or interact with a running app's UI?
 ├─ Inject pen/stylus ink stroke or tap → winapp ui pen <selector> -a <appname> --path "10,10 200,200"
 └─ List app windows → winapp ui list-windows -a <appname> [--show-hidden]
 
+Driving a UI while other workflows may be running?
+├─ Turn-taking is ALWAYS on — no setup needed, and two agents can never type into each other's
+│  windows
+├─ Set $env:WINAPP_UI_WORKFLOW_ID once per logical workflow and inject the SAME value into every
+│  cooperating call — that is what keeps the desktop across commands. Without it each call is a
+│  one-shot that releases the desktop immediately (each tool call usually gets a fresh shell, and
+│  there is no process-ancestry fallback)
+├─ A workflow with an id keeps the desktop for 4s after its last command; that covers a tight
+│  script but intentionally expires while you reason. It is a fallback, not the way to finish
+├─ Finished a known sequence? → winapp ui yield   (hands the desktop over immediately instead of
+│  making a waiting workflow sit out the 4s grace; needs WINAPP_UI_WORKFLOW_ID; safe to repeat)
+├─ `set-value`, `scroll-into-view` and `scroll --direction`/`--to` never take the desktop, so they
+│  stay headless/locked-session friendly — but they DO wait behind another workflow, because they
+│  change what the app shows, and behind an earlier exclusive command of your OWN workflow
+├─ `ui record` shares its turn only with the SAME workflow id — a no-id recording blocks everyone
+│  else for its whole duration
+└─ After a reasoning gap, reopen/re-navigate and re-resolve before acting — another workflow may
+   have used the desktop, so transient UI (menus, flyouts) is gone
+
 Building a WinUI 3 UI and need to find the right control or a working sample?
 └─ winapp find-ui "<what you want>"   (search WinUI 3 Gallery + Community Toolkit; Reactor is opt-in via --source reactor)
    ├─ Then fetch full code for a match → winapp find-ui --id <scenario-id>
@@ -175,26 +194,28 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 **Requires:** a sparse `appxmanifest.xml` + the target `.exe` or `.xml`/`.manifest`
 
 ### `winapp run [<input>]`
-**Purpose:** Build and/or package a Windows app and launch it — for **packaged** apps this simulates a full MSIX install with package identity; for **unpackaged** apps it launches the built `.exe` directly (no package identity). Returns the launched process ID for debugger attachment. Operates in one of two modes, auto-selected from the input:
+**Purpose:** Build and/or package a Windows app and launch it — for **packaged** apps this simulates a full MSIX install with package identity; for **unpackaged** apps it launches the built `.exe` directly (no package identity). Returns the launched process ID for debugger attachment. Operates in one of three modes, auto-selected from the input:
 - **Folder mode** — input is a build-output folder (contains `Package.appxmanifest`/`AppxManifest.xml`). Creates a loose-layout package, registers it with Windows, and launches it. Original behavior, unchanged.
 - **Project mode** — input is a `.csproj`, a `.sln`/`.slnx` solution, or a directory containing one (including `.`). Builds the project with `dotnet build`, installs the matching-architecture Windows App Runtime if the app uses the Windows App SDK, then launches it. Supports both **packaged** (`WindowsPackageType=MSIX` → loose-layout + AUMID) and **unpackaged** (`WindowsPackageType=None` → launch the built `.exe` directly) WinUI apps, detected from the effective `WindowsPackageType` MSBuild property. Input defaults to the current directory when omitted (like `dotnet run`). Requires .NET SDK 8.0.100+.
-**When to use:** The **preferred command** for iterative development and debugging with package identity (.NET, C++, Rust, Flutter, Tauri). Point it at a project/solution to build-and-run in one step, or at a build-output folder to package-and-run existing output.
+- **Single-file mode** — input is a `.cs` .NET file-based app (a single file configured by `#:` directives, no project file). Builds it, **generates a manifest** from its `#:property` values, and launches it packaged with identity — so **no `winapp init` or `manifest generate` step is needed**. Configure identity with `#:property WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription` (all optional), and declare capabilities for gated APIs with `WinAppCapabilities` (e.g. `systemAIModels` for the Windows AI APIs; names are placed in the correct XML namespace automatically). A console app (`OutputType=Exe`) launches through an execution alias by default so its output reaches the terminal. Supports packaged and unpackaged (`WindowsPackageType=None`) just like project mode, and builds for the current winapp process architecture by default. Requires .NET SDK 10.0.300+.
+**When to use:** The **preferred command** for iterative development and debugging with package identity (.NET, C++, Rust, Flutter, Tauri). Point it at a project/solution to build-and-run in one step, at a `.cs` file-based app, or at a build-output folder to package-and-run existing output.
 **Key options:**
-- `--manifest <path>` — path to `appxmanifest.xml` (folder mode and packaged project mode; default: auto-detect)
+- `--manifest <path>` — path to `appxmanifest.xml` (folder mode, packaged project mode, and single-file mode; default: auto-detect, or generated in single-file mode)
 - `--args <string>` — command-line arguments to pass to the app. Alternatively pass app args after `--` (e.g., `winapp run . -- --flag value`)
 - `--no-launch` — register/prepare without launching
-- `--with-alias` — launch via execution alias (console apps run in current terminal)
-- `-c, --configuration <name>` — (project mode) build configuration; default `Debug`
-- `--arch <x64|arm64|x86>` — (project mode) target architecture; default: current process arch. Sets both the build RID and the Windows App Runtime arch
-- `-r, --runtime <rid>` — (project mode) target .NET RID (e.g. `win-x64`); **only the RID's architecture is used** — project mode reduces it and always builds the canonical `win-<arch>` RID, so a version-specific or non-Windows RID is not forwarded (a non-Windows RID like `linux-x64` is rejected). Overrides `--arch`.
-- `-f, --framework <tfm>` — (project mode) target framework for multi-targeted projects
-- `--project <name-or-path>` — (project mode) select which project to launch when a solution/directory has multiple runnable app projects (errors listing candidates if ambiguous)
-- `--no-build` / `--no-restore` — (project mode) skip build / restore
-- `-p, --property <Name=Value>` — (project mode) MSBuild property forwarded to build + evaluation; repeatable (e.g. `-p WindowsPackageType=None`)
+- `--with-alias` — force execution-alias launch for a windowed app (console apps already do this by default, so it is rarely needed)
+- `--without-alias` — force AUMID activation for a console app, which then runs without a console and prints nothing to the terminal
+- `-c, --configuration <name>` — (project + single-file mode) build configuration; default `Debug`
+- `--arch <x64|arm64|x86>` — (project mode) target architecture; default: current process arch. Sets the build RID and Windows App Runtime arch, and selects a matching platform-dependent publish profile when required. Honored in single-file mode too, where it defaults to the current winapp process architecture.
+- `-r, --runtime <rid>` — (project mode) target .NET RID (e.g. `win-x64`); **only the RID's architecture is used** — project mode reduces it and always builds the canonical `win-<arch>` RID, so a version-specific or non-Windows RID is not forwarded (a non-Windows RID like `linux-x64` is rejected). Overrides `--arch` and can select the required publish profile. Honored in single-file mode too, where it defaults to the current winapp process architecture.
+- `-f, --framework <tfm>` — (project mode) target framework for multi-targeted projects. **Rejected in single-file mode** — declare `#:property TargetFramework=…` instead
+- `--project <name-or-path>` — (project mode) select which project to launch when a solution/directory has multiple runnable app projects (errors listing candidates if ambiguous). **Rejected in single-file mode** — the `.cs` file is the project
+- `--no-build` / `--no-restore` — (project + single-file mode) skip build / restore
+- `-p, --property <Name=Value>` — (project + single-file mode) MSBuild property forwarded to build + evaluation; repeatable. Use `%3B` or `%2C` for a literal semicolon or comma in a value
 - `--debug-output` — capture `OutputDebugString` messages and first-chance exceptions (prevents other debuggers like VS/VS Code from attaching). For WinUI apps it also auto-runs a stowed-exception (`0xC000027B`) triage pass (`!xamlstowed`/`!xamltriage`) that recovers the originating HRESULT and native XAML dispatch stack. The first triage run downloads debugger components (engine bits from NuGet + `JsProvider.dll` from the WinDbg CDN) and caches them under `~\.winapp\dbgtools\`; if downloads are blocked, install Debugging Tools for Windows or point `WINAPP_DBGTOOLS_DIR` at a debugger directory containing `dbgeng.dll` and `JsProvider.dll`.
 - `--symbols` — with `--debug-output`, download Microsoft public symbols for richer native crash stacks (first run downloads and caches them)
 - `--output-appx-directory <path>` — custom output directory for the loose layout
-**Requires:** Folder mode — built app output directory + `appxmanifest.xml`. Project mode — a `.csproj`/`.sln`/`.slnx` (or directory containing one) + .NET SDK 8.0.100+.
+**Requires:** Folder mode — built app output directory + `appxmanifest.xml`. Project mode — a `.csproj`/`.sln`/`.slnx` (or directory containing one) + .NET SDK 8.0.100+. Single-file mode — a `.cs` file-based app + .NET SDK 10.0.300+ (no manifest needed).
 
 ### `winapp cert generate`
 **Purpose:** Create a self-signed PFX certificate for local testing.
@@ -291,7 +312,7 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `ui inspect -a <app> [--depth N] [--interactive] [--hide-disabled] [--hide-offscreen]` — view element tree with semantic slugs and 2-space indentation. `--interactive` filters to invokable elements only (auto-depth 8) — ideal for discovering clickable elements
 - `ui search <selector> -a <app> [--max N]` — find elements; output shows semantic slugs. Surfaces invokable ancestor for all non-invokable results
 - `ui get-property <selector> -a <app> [-p <prop>]` — read UIA properties (including ToggleState, Value, IsSelected, ExpandCollapseState)
-- `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window.
+- `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window. **`--capture-screen` needs exactly one window** — it reads whatever is in front, and only one window can be. `-w <hwnd>` selects one: that window's screen region, including any dialog or overlay visibly on top of it. If `-a` matches several top-level or owned windows there is no such selection and it fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. If a capture reports `foreground_not_target`, the window could not be brought to the front — do the same thing: list the windows and target one with `-w <hwnd>`.
 - `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--capture-screen] [--json]` — record window or element region to an H.264 MP4 using Windows Graphics Capture + Media Foundation. Default is 0 — records until stopped (Ctrl+C interactively, or a newline/EOF on stdin for programmatic callers); use `--duration-sec N` for a timed run. Add `--frames` to retain timestamped JPEGs, `frames.ndjson`, and `manifest.json` under `<output-name>.frames`. JSON results include `elapsedMs`, `achievedFps`, `cadenceRatio`, `stopReason`, optional `frameArtifacts`, and the capture `mode` (`"wgc"`, `"screen"`, or `"printwindow"`).
 - `ui invoke <selector> -a <app>` — activate element by slug or text search. Auto-walks to invokable ancestor for non-invokable elements.
 - `ui hover <selector> -a <app> [--dwell-time <ms>]` — move mouse to element center to trigger tooltips, flyouts, and hover states. Use with `ui screenshot --capture-screen` to capture the result.
@@ -306,6 +327,7 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `ui wait-for <selector> -a <app> --timeout <ms> [--gone] [--value Y] [--property X --value Y]` — wait for element value or property match
 - `ui list-windows -a <app> [--show-hidden]` — list windows, popups, and dialogs with HWNDs (untitled zero-size windows hidden by default)
 - `ui get-focused -a <app>` — show the element with keyboard focus
+- `ui yield` — release this workflow's UI turn early instead of waiting out the 4s idle grace. Requires `WINAPP_UI_WORKFLOW_ID`; takes no app or selector. Idempotent, never releases another workflow's turn, and fails with `ui_turn_busy` if your own workflow still has a command running.
 
 ## Framework-specific guidance
 

@@ -103,10 +103,13 @@ $extraProps  </PropertyGroup>
                 [string]$WinAppLaunchArgs = "",
                 [string]$WinAppRunArgs = "",
                 [switch]$WinAppRunDetach,
+                [switch]$WinAppRunNoLaunch,
                 [switch]$WinAppRunUnregisterOnExit,
                 [switch]$WinAppRunClean,
                 [switch]$WinAppRunSymbols,
                 [string]$WinAppRunExecutable = "",
+                [string]$WinAppRunUseExecutionAlias = "",
+                [string]$OutputType = "WinExe",
                 [switch]$UseWinUI,
                 [switch]$UseWPF,
                 [switch]$UseWindowsForms,
@@ -127,10 +130,12 @@ $extraProps  </PropertyGroup>
             if ($WinAppLaunchArgs) { $extraProps += "    <WinAppLaunchArgs>$WinAppLaunchArgs</WinAppLaunchArgs>`n" }
             if ($WinAppRunArgs) { $extraProps += "    <WinAppRunArgs>$WinAppRunArgs</WinAppRunArgs>`n" }
             if ($WinAppRunDetach) { $extraProps += "    <WinAppRunDetach>true</WinAppRunDetach>`n" }
+            if ($WinAppRunNoLaunch) { $extraProps += "    <WinAppRunNoLaunch>true</WinAppRunNoLaunch>`n" }
             if ($WinAppRunUnregisterOnExit) { $extraProps += "    <WinAppRunUnregisterOnExit>true</WinAppRunUnregisterOnExit>`n" }
             if ($WinAppRunClean) { $extraProps += "    <WinAppRunClean>true</WinAppRunClean>`n" }
             if ($WinAppRunSymbols) { $extraProps += "    <WinAppRunSymbols>true</WinAppRunSymbols>`n" }
             if ($WinAppRunExecutable) { $extraProps += "    <WinAppRunExecutable>$WinAppRunExecutable</WinAppRunExecutable>`n" }
+            if ($WinAppRunUseExecutionAlias) { $extraProps += "    <WinAppRunUseExecutionAlias>$WinAppRunUseExecutionAlias</WinAppRunUseExecutionAlias>`n" }
             if ($UseWinUI) { $extraProps += "    <UseWinUI>true</UseWinUI>`n" }
             if ($UseWPF) { $extraProps += "    <UseWPF>true</UseWPF>`n" }
             if ($UseWindowsForms) { $extraProps += "    <UseWindowsForms>true</UseWindowsForms>`n" }
@@ -140,7 +145,7 @@ $extraProps  </PropertyGroup>
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <OutputType>WinExe</OutputType>
+    <OutputType>$OutputType</OutputType>
 $extraProps  </PropertyGroup>
   <Import Project="$($script:propsPath)" />
   <Import Project="$($script:targetsPath)" />
@@ -153,6 +158,97 @@ $extraProps  </PropertyGroup>
             }
             ($out | Select-Object -Last 1).ToString().Trim()
         }
+
+        # Runs _WinAppIncludeGeneratedXamlCompileItemsForDesignTime against a synthesized project
+        # and returns the file names it contributed to @(Compile) -- i.e. exactly what the C# Dev
+        # Kit language service would be handed on a design-time build. Only items under the
+        # intermediate output are returned, so the SDK's own defaults don't add noise.
+        function script:Get-DesignTimeCompileItems {
+            param(
+                [string]$CaseName,
+                [string]$ObjRelativePath = 'obj\Debug\net10.0-windows10.0.19041.0',
+                [string[]]$GeneratedFiles = @('MainWindow.g.cs', 'App.g.i.cs'),
+                [string]$WinUIStub = '',                  # '' | 'has-target' | 'no-target'
+                [string]$CompilerGeneratedSubPath = '',
+                [string]$PreCompiled = '',
+                [string]$ExtraProps = '',
+                [string]$Platform = '',
+                [switch]$BuildingInsideVisualStudio,
+                [switch]$NoDesignTimeBuild,
+                [switch]$NoWinUI
+            )
+            $dir = Join-Path $script:tempRoot $CaseName
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -Path (Join-Path $dir "appxmanifest.xml") -Value '<x/>'
+
+            # Stand in for the intermediate output of a prior real build.
+            foreach ($f in $GeneratedFiles) {
+                $full = Join-Path $dir (Join-Path $ObjRelativePath $f)
+                New-Item -ItemType Directory -Path (Split-Path $full -Parent) -Force | Out-Null
+                Set-Content -Path $full -Value '// generated'
+            }
+
+            $props = $ExtraProps
+            if (-not $NoWinUI) { $props += "    <UseWinUI>true</UseWinUI>`n" }
+            if ($CompilerGeneratedSubPath) {
+                # The SDK blanks CompilerGeneratedFilesOutputPath unless EmitCompilerGeneratedFiles
+                # is on, so both are needed for the source-generator exclude to be exercised.
+                $props += "    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>`n"
+                $props += "    <CompilerGeneratedFilesOutputPath>$(Join-Path $ObjRelativePath $CompilerGeneratedSubPath)</CompilerGeneratedFilesOutputPath>`n"
+            }
+            if ($WinUIStub) {
+                # WinUI sets $(XamlCompilerPropsAndTargetsDirectory) in its own props and ships
+                # Microsoft.WinUI.targets alongside. Stub that pair so the "does the platform
+                # already provide this target" probe has something real to read.
+                $stub = Join-Path $dir 'winui-stub'
+                New-Item -ItemType Directory -Path $stub -Force | Out-Null
+                $stubBody = if ($WinUIStub -eq 'has-target') {
+                    '<Project><Target Name="IncludeGeneratedXamlCompileItemsForDesignTime" /></Project>'
+                } else {
+                    '<Project><!-- older WinUI: no design-time XAML compile items target --></Project>'
+                }
+                Set-Content -Path (Join-Path $stub 'Microsoft.WinUI.targets') -Value $stubBody
+                $props += "    <XamlCompilerPropsAndTargetsDirectory>$stub\</XamlCompilerPropsAndTargetsDirectory>`n"
+            }
+
+            $preCompiledItem = ""
+            if ($PreCompiled) {
+                $preCompiledItem = "  <ItemGroup>`n    <Compile Include=`"$(Join-Path $ObjRelativePath $PreCompiled)`" />`n  </ItemGroup>`n"
+            }
+
+            $csproj = @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+$props  </PropertyGroup>
+$preCompiledItem  <Import Project="$($script:propsPath)" />
+  <Import Project="$($script:targetsPath)" />
+</Project>
+"@
+            Set-Content -Path (Join-Path $dir "test.csproj") -Value $csproj
+
+            $msbuildArgs = @(
+                (Join-Path $dir "test.csproj")
+                '-t:_WinAppIncludeGeneratedXamlCompileItemsForDesignTime'
+                '-getItem:Compile'
+                '-nologo'
+            )
+            if (-not $NoDesignTimeBuild) { $msbuildArgs += '-p:DesignTimeBuild=true' }
+            if ($BuildingInsideVisualStudio) { $msbuildArgs += '-p:BuildingInsideVisualStudio=true' }
+            if ($Platform) { $msbuildArgs += "-p:Platform=$Platform" }
+
+            $out = (& dotnet msbuild @msbuildArgs 2>&1) | Out-String
+            $start = $out.IndexOf('{')
+            if ($start -lt 0) { throw "No JSON from msbuild for '$CaseName':`n$out" }
+            $compile = ($out.Substring($start) | ConvertFrom-Json).Items.Compile
+
+            # Only report what lives under the intermediate output; that is the target's business.
+            @($compile |
+                Where-Object { $_.Identity -like "*$ObjRelativePath*" } |
+                ForEach-Object { Split-Path $_.Identity -Leaf })
+        }
     }
 
     AfterAll {
@@ -162,6 +258,15 @@ $extraProps  </PropertyGroup>
     }
 
     Context "Active scenarios - packaged Windows apps" {
+        It "Ships props and targets that are well-formed XML" {
+            # XML forbids '--' inside a comment, and MSBuild reports that as MSB4024 "could not be
+            # loaded" on EVERY consuming project — so a comment mentioning a CLI switch by name breaks
+            # every build, not just this file. Parsing here catches it before it reaches a consumer.
+            foreach ($file in @($script:propsPath, $script:targetsPath)) {
+                { [xml](Get-Content $file -Raw) } | Should -Not -Throw -Because "$file must be well-formed XML"
+            }
+        }
+
         It "Activates for WinUI app (OutputType=WinExe, manifest in project dir)" {
             Get-GateValue -CaseName 'winui' -TargetFramework 'net10.0-windows10.0.19041.0' -OutputType 'WinExe' -ProjectDirManifest $true | Should -Be 'true'
         }
@@ -251,6 +356,117 @@ $extraProps  </PropertyGroup>
         }
     }
 
+    Context "Design-time generated XAML compile items" {
+        # Outside Visual Studio the XAML markup compiler never runs at design time, so the
+        # language service can't see InitializeComponent and reports false errors. These tests
+        # pin down which files _WinAppIncludeGeneratedXamlCompileItemsForDesignTime re-surfaces,
+        # and - just as importantly - which ones it must leave alone.
+        It "Surfaces the generated XAML code-behind on a non-VS design-time build" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-basic'
+
+            $items | Should -Contain 'MainWindow.g.cs'
+            $items | Should -Contain 'App.g.i.cs'
+        }
+
+        It "Finds the intermediate output when the project builds for a specific platform" {
+            # Real WinUI apps set <Platforms>x86;x64;ARM64</Platforms> and build as x64, which
+            # puts the intermediate output in obj\x64\Debug\<tfm> rather than obj\Debug\<tfm>.
+            # $(IntermediateOutputPath) already accounts for that; a hand-built obj\$(Configuration)
+            # \$(TargetFramework) path does not and silently surfaces nothing.
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-x64' `
+                -ObjRelativePath 'obj\x64\Debug\net10.0-windows10.0.19041.0' `
+                -ExtraProps '    <Platforms>x64</Platforms>' -Platform 'x64'
+
+            $items | Should -Contain 'MainWindow.g.cs'
+            $items | Should -Contain 'App.g.i.cs'
+        }
+
+        It "Leaves the SDK's own generated assembly-info and global-usings files alone" {
+            # These are already in @(Compile); adding them again is CS0579 duplicate attributes.
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-sdk-generated' -GeneratedFiles @(
+                'MainWindow.g.cs', 'proj.AssemblyInfo.g.cs', 'proj.AssemblyAttributes.g.cs', 'proj.GlobalUsings.g.cs')
+
+            $items | Should -Contain 'MainWindow.g.cs'
+            $items | Should -Not -Contain 'proj.AssemblyInfo.g.cs'
+            $items | Should -Not -Contain 'proj.AssemblyAttributes.g.cs'
+            $items | Should -Not -Contain 'proj.GlobalUsings.g.cs'
+        }
+
+        It "Leaves the intermediate XAML and generated sub-folders alone" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-subfolders' -GeneratedFiles @(
+                'MainWindow.g.cs', 'generated\Nested.g.cs', 'intermediatexaml\Ix.g.cs')
+
+            $items | Should -Contain 'MainWindow.g.cs'
+            $items | Should -Not -Contain 'Nested.g.cs'
+            $items | Should -Not -Contain 'Ix.g.cs'
+        }
+
+        It "Leaves Roslyn source-generator output alone when CompilerGeneratedFilesOutputPath is set" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-sourcegen' `
+                -GeneratedFiles @('MainWindow.g.cs', 'sg\FromGenerator.g.cs') `
+                -CompilerGeneratedSubPath 'sg'
+
+            $items | Should -Contain 'MainWindow.g.cs'
+            $items | Should -Not -Contain 'FromGenerator.g.cs'
+        }
+
+        It "Ignores intermediate .cs files that are not generated code-behind" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-plain-cs' -GeneratedFiles @('MainWindow.g.cs', 'NotGenerated.cs')
+
+            $items | Should -Contain 'MainWindow.g.cs'
+            $items | Should -Not -Contain 'NotGenerated.cs'
+        }
+
+        It "Adds nothing when the referenced WinUI already ships IncludeGeneratedXamlCompileItemsForDesignTime" {
+            # The platform owns the job on a newer WinUI, so this target must stand down.
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-winui-has' -WinUIStub 'has-target'
+
+            $items | Should -Not -Contain 'MainWindow.g.cs'
+        }
+
+        It "Still runs on a WinUI version that does not ship that target" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-winui-lacks' -WinUIStub 'no-target'
+
+            $items | Should -Contain 'MainWindow.g.cs'
+        }
+
+        It "Adds nothing from this target when EnableWinUIDesignTimeGeneratedXamlCompileItems is false" {
+            # Scoped to this target on purpose. WinUI's 2.x servicing build gates its own
+            # target on the same switch, but its 3.0 build ships that target ungated, so
+            # setting this to false cannot be promised to suppress the platform's items.
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-optout' `
+                -ExtraProps '    <EnableWinUIDesignTimeGeneratedXamlCompileItems>false</EnableWinUIDesignTimeGeneratedXamlCompileItems>'
+
+            $items | Should -Not -Contain 'MainWindow.g.cs'
+        }
+
+        It "Adds nothing inside Visual Studio, where real design-time markup compilation runs" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-inside-vs' -BuildingInsideVisualStudio
+
+            $items | Should -Not -Contain 'MainWindow.g.cs'
+        }
+
+        It "Adds nothing on a normal (non design-time) build" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-normal-build' -NoDesignTimeBuild
+
+            $items | Should -Not -Contain 'MainWindow.g.cs'
+        }
+
+        It "Adds nothing for a project that is not a WinUI app" {
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-not-winui' -NoWinUI
+
+            $items | Should -Not -Contain 'MainWindow.g.cs'
+        }
+
+        It "Never contributes a file that is already in @(Compile)" {
+            # This is what makes running alongside WinUI's target safe in either import order:
+            # whichever runs second sees the other's items in @(Compile) and adds nothing.
+            $items = Get-DesignTimeCompileItems -CaseName 'dt-no-dupes' -PreCompiled 'MainWindow.g.cs'
+
+            @($items | Where-Object { $_ -eq 'MainWindow.g.cs' }).Count | Should -Be 1
+        }
+    }
+
     Context "Run option properties" {
         It "Emits no optional switches when every property is left at its default" {
             $args = Get-ComputedRunArgs -CaseName 'run-defaults'
@@ -318,6 +534,67 @@ $extraProps  </PropertyGroup>
             $args = Get-ComputedRunArgs -CaseName 'run-raw-empty'
 
             $args | Should -Match ' --caller nuget-package$'
+        }
+
+        It "Forwards neither alias switch when the property is unset" {
+            # The console default is winapp's to make: it reads the built binary's subsystem and treats
+            # its own inference as a DEFAULT, which degrades to AUMID when the alias is unavailable.
+            # Forwarding a switch here would spell that as an explicit request and turn it into an error.
+            $args = Get-ComputedRunArgs -CaseName 'run-alias-unset'
+
+            $args | Should -Not -Match ' --with-alias'
+            $args | Should -Not -Match ' --without-alias'
+        }
+
+        It "Forwards neither alias switch for a console app either - winapp infers it" {
+            $args = Get-ComputedRunArgs -CaseName 'run-alias-console' -OutputType 'Exe'
+
+            $args | Should -Not -Match ' --with-alias'
+            $args | Should -Not -Match ' --without-alias'
+        }
+
+        It "Maps WinAppRunUseExecutionAlias=true to --with-alias" {
+            $args = Get-ComputedRunArgs -CaseName 'run-alias-true' -WinAppRunUseExecutionAlias 'true'
+
+            $args | Should -Match ' --with-alias'
+            $args | Should -Not -Match ' --without-alias'
+        }
+
+        It "Drops the alias-launch switch when a launch switch already excludes it" {
+            # WinAppRunNoLaunch and WinAppRunDetach describe launches an alias cannot express. winapp
+            # resolves that by letting the launch switch win over a declared preference, so forwarding
+            # both would instead hit the CLI's mutual-exclusion check and fail a run that works when
+            # invoked directly - the same property meaning different things per invocation path.
+            $noLaunch = Get-ComputedRunArgs -CaseName 'run-alias-true-nolaunch' -WinAppRunUseExecutionAlias 'true' -WinAppRunNoLaunch
+            $detach = Get-ComputedRunArgs -CaseName 'run-alias-true-detach' -WinAppRunUseExecutionAlias 'true' -WinAppRunDetach
+
+            $noLaunch | Should -Match ' --no-launch'
+            $noLaunch | Should -Not -Match ' --with-alias'
+            $detach | Should -Match ' --detach'
+            $detach | Should -Not -Match ' --with-alias'
+        }
+
+        It "Maps WinAppRunUseExecutionAlias=false to --without-alias, even for a console app" {
+            $args = Get-ComputedRunArgs -CaseName 'run-alias-false' -WinAppRunUseExecutionAlias 'false' -OutputType 'Exe'
+
+            $args | Should -Match ' --without-alias'
+            $args | Should -Not -Match ' --with-alias '
+        }
+
+        It "Does not add an alias switch alongside detach - the CLI rejects that pair" {
+            # Neither detach nor no-launch waits on a process this terminal owns, so an alias cannot
+            # express them. Since nothing is inferred here, these combinations stay usable.
+            $args = Get-ComputedRunArgs -CaseName 'run-alias-detach' -OutputType 'Exe' -WinAppRunDetach
+
+            $args | Should -Match ' --detach'
+            $args | Should -Not -Match ' --with-alias'
+        }
+
+        It "Does not add an alias switch alongside no-launch" {
+            $args = Get-ComputedRunArgs -CaseName 'run-alias-nolaunch' -OutputType 'Exe' -WinAppRunNoLaunch
+
+            $args | Should -Match ' --no-launch'
+            $args | Should -Not -Match ' --with-alias'
         }
     }
 

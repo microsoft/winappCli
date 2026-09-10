@@ -45,6 +45,32 @@ internal static class PeHelper
     }
 
     /// <summary>
+    /// Returns whether a PE image is a console (character-mode) executable, or <see langword="null"/>
+    /// when the file cannot be read as a PE image.
+    /// </summary>
+    /// <remarks>
+    /// This is what <c>OutputType</c> compiles down to: <c>Exe</c> produces
+    /// <c>IMAGE_SUBSYSTEM_WINDOWS_CUI</c> and <c>WinExe</c> produces <c>IMAGE_SUBSYSTEM_WINDOWS_GUI</c>.
+    /// Reading it from the built binary lets folder mode make the same console/windowed decision that
+    /// project and single-file mode make from the evaluated property, without a project to evaluate.
+    /// </remarks>
+    internal static bool? IsConsoleSubsystem(string filePath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            using var peReader = new PEReader(stream);
+
+            var peHeader = peReader.PEHeaders.PEHeader;
+            return peHeader is null ? null : peHeader.Subsystem == Subsystem.WindowsCui;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Maps a COFF machine value and optional COR flags to an MSIX-style architecture string.
     /// Extracted as a pure function (no file I/O) so every native/managed/mixed-mode branch can be
     /// unit tested directly.

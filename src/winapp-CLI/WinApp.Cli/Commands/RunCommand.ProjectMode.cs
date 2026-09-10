@@ -37,7 +37,7 @@ internal partial class RunCommand
         /// <see cref="RunUnpackagedProjectAsync"/> so both reject the exact same set (issue #676).
         /// </summary>
         private static List<string> CollectUnpackagedIncompatibleOptions(
-            bool noLaunch, bool withAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable)
+            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable)
         {
             var rejected = new List<string>();
             if (noLaunch)
@@ -47,6 +47,13 @@ internal partial class RunCommand
             if (withAlias)
             {
                 rejected.Add("--with-alias");
+            }
+            // An unpackaged app launches its apphost directly and has no manifest to declare an alias in,
+            // so opting OUT of one is as meaningless as opting in — silently accepting it would make a
+            // packaging mistake look supported.
+            if (withoutAlias)
+            {
+                rejected.Add("--without-alias");
             }
             if (unregisterOnExit)
             {
@@ -78,6 +85,24 @@ internal partial class RunCommand
                $"'{csprojName}' resolves to an unpackaged WinUI app (WindowsPackageType=None). Remove them, or make the app packaged to use them.";
 
         /// <summary>
+        /// Validates every repeatable <c>-p Name=Value</c> before it becomes an MSBuild argument. Shared by
+        /// project and single-file mode so both reject the exact same malformed input with the same message.
+        /// </summary>
+        /// <param name="errorExitCode">The exit code to return when validation fails; meaningless otherwise.</param>
+        /// <returns><see langword="true"/> when every property is well-formed.</returns>
+        private bool TryValidateProperties(IReadOnlyList<string> properties, bool isJson, out int errorExitCode)
+        {
+            if (MsBuildPropertyValidator.Validate(properties) is { } error)
+            {
+                errorExitCode = Fail(error, isJson);
+                return false;
+            }
+
+            errorExitCode = 0;
+            return true;
+        }
+
+        /// <summary>
         /// Project-mode entry point: build the <c>.csproj</c>, resolve its MSBuild
         /// output properties, then launch it as packaged (loose-layout register + AUMID, reusing the
         /// shared folder pipeline) or unpackaged (launch the apphost <c>.exe</c> directly). Folder
@@ -107,34 +132,15 @@ internal partial class RunCommand
             var framework = ProjectRunService.ResolveExplicitFramework(parseResult.GetValue(FrameworkOption), properties);
 
             // Reject malformed -p values early so they never become a nonsensical MSBuild argument.
-            foreach (var property in properties)
+            if (!TryValidateProperties(properties, isJson, out var propertyError))
             {
-                // MSBuild splits a -p token on ';' into MULTIPLE properties, which would smuggle a
-                // dedicated-flag property (e.g. RuntimeIdentifier) past the name-only ForwardableProperties
-                // filter and override the arch winapp conveys via the RID. Reject packing; '%3B' escapes a
-                // literal ';' in a value.
-                if (property.Contains(';'))
-                {
-                    // Show the name only — the value may hold a secret.
-                    var name = property[..property.IndexOfAny(['=', ';'])];
-                    return Fail(
-                        $"Invalid --property '{name}'. A single -p cannot pack multiple properties with ';'. " +
-                        "Pass one property per repeatable -p (for example: -p A=1 -p B=2), or escape a literal ';' in a value as '%3B'.",
-                        isJson);
-                }
-
-                var separator = property.IndexOf('=');
-                if (separator <= 0 || string.IsNullOrWhiteSpace(property[..separator]))
-                {
-                    // Show the name only — the value may hold a secret.
-                    var shown = separator > 0 ? property[..separator] : (separator == 0 ? "(empty)" : property);
-                    return Fail($"Invalid --property '{shown}'. Expected Name=Value (for example: -p WindowsPackageType=None).", isJson);
-                }
+                return propertyError;
             }
 
             // Shared launch/identity options (validity depends on packaging, checked below).
             var noLaunch = parseResult.GetValue(NoLaunchOption);
             var withAlias = parseResult.GetValue(WithAliasOption);
+            var withoutAlias = parseResult.GetValue(WithoutAliasOption);
             var debugOutput = parseResult.GetValue(DebugOutputOption);
             var unregisterOnExit = parseResult.GetValue(UnregisterOnExitOption);
             var detach = parseResult.GetValue(DetachOption);
@@ -190,7 +196,7 @@ internal partial class RunCommand
             // --no-build (no build cost to save).
             if (!noBuild)
             {
-                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
                 if (incompatible.Count > 0
                     && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
                 {
@@ -224,11 +230,11 @@ internal partial class RunCommand
             return resolution.Packaging == ProjectPackaging.Packaged
                 ? await RunPackagedProjectAsync(
                     resolution, csproj, manifest, outputAppXDirectory, appArgs,
-                    noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
+                    noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
                     cancellationToken)
                 : await RunUnpackagedProjectAsync(
                     resolution, csproj, appArgs,
-                    noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, manifest, outputAppXDirectory, isJson,
+                    noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, manifest, outputAppXDirectory, isJson,
                     cancellationToken);
         }
 
@@ -245,6 +251,7 @@ internal partial class RunCommand
             string? appArgs,
             bool noLaunch,
             bool withAlias,
+            bool withoutAlias,
             bool debugOutput,
             bool unregisterOnExit,
             bool detach,
@@ -272,10 +279,18 @@ internal partial class RunCommand
                 return Fail(message, isJson);
             }
 
+            // A console project (OutputType=Exe) launches through its execution alias by default so its
+            // output reaches this terminal; --without-alias opts back into AUMID activation, and the
+            // project's own WinAppRunUseExecutionAlias overrides the default in either direction.
+            var aliasDecision = ResolveAliasLaunch(
+                withAlias, withoutAlias, noLaunch, detach, isJson,
+                resolution.OutputType, resolution.PreferExecutionAlias);
+
             return await ExecuteRunPipelineAsync(
                 targetDir, manifest, outputAppXDirectory, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
-                runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, cancellationToken);
+                runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
+                aliasDecision, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier));
         }
 
         /// <summary>
@@ -289,6 +304,7 @@ internal partial class RunCommand
             string? appArgs,
             bool noLaunch,
             bool withAlias,
+            bool withoutAlias,
             bool debugOutput,
             bool unregisterOnExit,
             bool detach,
@@ -303,7 +319,7 @@ internal partial class RunCommand
             // AUTHORITATIVE gate — rejects packaged-only options once packaging is definitively known.
             // RunProjectModeAsync fails fast on the definitively-unpackaged case before building (issue
             // #676); this still catches the indeterminate-then-unpackaged case that only resolves here.
-            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
             if (rejected.Count > 0)
             {
                 return Fail(BuildUnpackagedIncompatibleMessage(rejected, csproj.Name), isJson);
@@ -335,7 +351,7 @@ internal partial class RunCommand
                             // Report whether the runtime was actually prepared: a plain console/desktop app
                             // with no Windows App SDK reference is skipped inside, so claiming "ready" would
                             // be a lie. Surface the skip honestly instead.
-                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ct);
+                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), ct);
                             return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference — runtime not needed");
                         }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested)

@@ -4,6 +4,7 @@
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -353,7 +354,7 @@ public partial class UiCommandTests
                 Interlocked.Exchange(ref unhandled, null);
 
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
-                var handler = new UiRecordCommand.Handler(null!, null!, null!, null!);
+                var handler = new UiRecordCommand.Handler(null!, null!, null!, null!, null!, null!, NullLogger<UiRecordCommand>.Instance);
 
                 cts.Dispose();
 

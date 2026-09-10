@@ -51,7 +51,13 @@ internal interface IPackageRegistrationService
     /// for packages registered in development mode.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default);
+    /// <returns>
+    /// <see langword="true"/> when Windows confirmed the removal; <see langword="false"/> when it
+    /// reported an error. A caller that tells the user something was removed must check this — Windows
+    /// reports a refused removal as error text rather than an exception, so ignoring the result claims
+    /// success for a package that is still registered.
+    /// </returns>
+    Task<bool> UnregisterByFullNameAsync(string packageFullName, bool preserveAppData = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Installs an MSIX/APPX package file, optionally forcing application shutdown.
@@ -112,6 +118,19 @@ internal interface IPackageRegistrationService
     /// <param name="packageName">The package identity name to search for.</param>
     /// <returns>A list of matching dev-mode packages.</returns>
     List<DevPackageInfo> FindDevPackages(string packageName);
+
+    /// <summary>
+    /// Finds every development-mode package whose install location no longer resolves — a registration
+    /// left behind after its files were deleted.
+    /// </summary>
+    /// <remarks>
+    /// These can never launch: Windows keeps the identity and its Start-menu entry, but activation
+    /// silently does nothing. They accumulate whenever a build output, project tree, or (for a
+    /// file-based app) the SDK's <c>%TEMP%\dotnet\runfile</c> directory is cleaned while the package
+    /// stays registered.
+    /// </remarks>
+    /// <returns>A list of dev-mode packages whose files are gone.</returns>
+    List<DevPackageInfo> FindOrphanedDevPackages();
 }
 
 /// <summary>

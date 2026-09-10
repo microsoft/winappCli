@@ -158,11 +158,17 @@ internal interface IDotNetService
     /// <summary>
     /// Runs `dotnet list package --format json` and returns the parsed result.
     /// </summary>
-    /// <param name="csprojFile">The .csproj file to query.</param>
+    /// <param name="projectOrFile">
+    /// The project to query. A <c>.cs</c> .NET file-based app is also accepted and is queried through
+    /// the SDK 10 <c>dotnet package list --file</c> form.
+    /// </param>
     /// <param name="includeTransitive">When true, includes transitive package references in the output.</param>
     /// <param name="noRestore">When true, pass <c>--no-restore</c> so the query doesn't trigger an implicit restore.</param>
+    /// <param name="projectAssetsFile">The <c>project.assets.json</c> the build consumed. When it exists,
+    /// the graph is read from it, because that is restore's output for the build's actual inputs; the
+    /// command itself accepts no <c>-c</c>/<c>-r</c>/<c>-p</c> and so cannot reproduce them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo csprojFile, bool includeTransitive = true, bool noRestore = false, CancellationToken cancellationToken = default);
+    Task<DotNetPackageListJson?> GetPackageListAsync(FileInfo projectOrFile, bool includeTransitive = true, bool noRestore = false, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Ensures the .csproj has <c>&lt;EnableMsixTooling&gt;true&lt;/EnableMsixTooling&gt;</c>.

@@ -96,6 +96,23 @@ internal sealed partial class UiRecordingService(
         {
             global::Windows.Win32.PInvoke.SetForegroundWindow(hwnd);
             await Task.Delay(150, ct).ConfigureAwait(false);
+
+            // SetForegroundWindow is advisory. If it was refused, every screen-DC frame would record
+            // whichever window is really in front and the caller would get a perfectly playable MP4 of
+            // the wrong app. Verify after the activation delay and before any frame is captured. Capture
+            // safety, not coordination: it says nothing about who else may be driving the desktop.
+            //
+            // The capture predicate, not the injection one: a modal dialog the target owns is part of
+            // its UI and is sitting on the pixels being recorded, which is the reason to record the
+            // screen rather than the window. An unrelated foreground window is still refused, and a
+            // refusal still produces no artifact.
+            if (!ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
+            {
+                throw new ForegroundLostException(
+                    "The target window is not in the foreground, so a screen recording would capture " +
+                    "whatever window is actually in front. Bring the window to the foreground and retry, " +
+                    "or record the window directly instead of the screen.");
+            }
         }
 
         global::Windows.Win32.PInvoke.GetWindowRect(hwnd, out var rect);
@@ -273,6 +290,23 @@ internal sealed partial class UiRecordingService(
             var (encoderW, encoderH, displayW, displayH) = ComputeTargetSize(cropW, cropH, options.MaxEdge);
             var bitrate = (uint)Math.Clamp((long)encoderW * encoderH * options.Fps / 8, 1_000_000, 24_000_000);
 
+            // Last foreground check before any file exists. The earlier one ran right after the
+            // activation delay; selector resolution between the two can take long enough for another
+            // window to steal the foreground, and every screen-DC frame would then be of that window.
+            // It deliberately sits above the encoder rather than next to the first frame read: creating
+            // the encoder creates OutputPath, so refusing after that point would leave an empty MP4 and
+            // break the "no artifact on refusal" contract the CLI states for foreground_not_target.
+            //
+            // Same capture predicate as the first check — the two must agree, or a modal dialog the
+            // target owns would pass one and fail the other.
+            if (options.CaptureScreen && !ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
+            {
+                throw new ForegroundLostException(
+                    "The target window lost the foreground while the recording was being prepared, so a " +
+                    "screen recording would capture whatever window is actually in front. Bring the " +
+                    "window to the foreground and retry, or record the window directly instead of the screen.");
+            }
+
             // Never replace an existing recording. The CLI refuses up front ("recording never
             // replaces existing artifacts"), but that guard does not travel with the package, and
             // the previous video-only path silently overwrote OutputPath - running the readme
@@ -283,8 +317,6 @@ internal sealed partial class UiRecordingService(
 
             var frameDurationHns = 10_000_000L / options.Fps;
             var totalFrames = options.DurationSec > 0 ? (long)options.DurationSec * options.Fps : (long?)null;
-            var stopwatch = Stopwatch.StartNew();
-            var startedUtc = DateTimeOffset.UtcNow;
             var frameIndex = 0;
             long lastEncodedVersion = -1;
             var startedSignaled = false;
@@ -296,11 +328,18 @@ internal sealed partial class UiRecordingService(
                 frameOutput = CreateRecordFrameArtifactCoordinator(new RecordFrameArtifactSetup
                 {
                     Options = options,
-                    StartedUtc = startedUtc,
                     EncoderWidth = encoderW,
                     EncoderHeight = encoderH,
                 });
             }
+
+            // The capture clock starts here, after frame artifact setup has created its staging
+            // directory and opened the manifest and index writers. Starting it before that setup
+            // charged the filesystem work to --duration, so on a loaded machine a short recording
+            // could spend its whole budget before capturing anything. startedUtc marks the same
+            // instant, so a frame's elapsedMs is an offset from the manifest's startedUtc.
+            var stopwatch = Stopwatch.StartNew();
+            var startedUtc = DateTimeOffset.UtcNow;
 
             async ValueTask CommitFrameAsync(byte[] processedFrame)
             {
@@ -341,7 +380,12 @@ internal sealed partial class UiRecordingService(
                         break;
                     }
 
-                    if (totalFrames.HasValue && stopwatch.Elapsed.TotalSeconds >= options.DurationSec)
+                    // Elapsed time only ends a recording that has already captured something.
+                    // Reaching the requested duration before the first frame is committed means
+                    // capture was slow to start, not that the recording is done; ending here handed
+                    // the caller an empty MP4 and a zero-frame manifest instead of a recording.
+                    // Cancellation is unaffected and still ends the loop at zero frames.
+                    if (totalFrames.HasValue && frameIndex > 0 && stopwatch.Elapsed.TotalSeconds >= options.DurationSec)
                     {
                         break;
                     }
@@ -484,6 +528,7 @@ internal sealed partial class UiRecordingService(
                         {
                             Status = "partial",
                             StopReason = stopReason,
+                            StartedUtc = startedUtc,
                             ElapsedMs = elapsedMs,
                             AchievedFps = frameAchievedFps,
                             CadenceRatio = frameCadenceRatio,
@@ -523,6 +568,7 @@ internal sealed partial class UiRecordingService(
                     {
                         Status = "complete",
                         StopReason = stopReason,
+                        StartedUtc = startedUtc,
                         ElapsedMs = elapsedMs,
                         AchievedFps = achievedFps,
                         CadenceRatio = cadenceRatio,

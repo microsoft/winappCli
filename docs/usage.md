@@ -666,10 +666,11 @@ winapp manifest update-assets mylogo.png --verbose
 
 Create a loose layout package from a build output folder, register it with Windows using the `Windows.Management.Deployment.PackageManager` API, and launch the application — simulating a full MSIX install for debugging. Returns the process ID for debugger attachment.
 
-`winapp run` operates in one of two modes, chosen automatically from the input:
+`winapp run` operates in one of three modes, chosen automatically from the input:
 
 - **Folder mode** — the input is a build-output folder (contains a `Package.appxmanifest`/`AppxManifest.xml`).
 - **Project mode** — the input is a `.csproj`, a `.sln`/`.slnx` solution, or a directory containing one. `winapp run` builds the project and launches it, supporting both **packaged** and **unpackaged** WinUI apps. See [Project mode](#project-mode-net-sdk-projects) below.
+- **Single-file mode** — the input is a `.cs` [.NET file-based app](#single-file-mode-net-file-based-apps). `winapp run` builds it, generates a manifest from its `#:property` directives, and launches it with package identity.
 
 > [!TIP]
 > Mode selection is silent by default. If a directory was treated as a build-output folder when you
@@ -686,7 +687,7 @@ winapp run [<input>] [options]
 
 **Arguments:**
 
-- `input` - The app to run: a build-output folder (folder mode), a `.csproj` project, a `.sln`/`.slnx` solution, or a directory containing one of those at its top level (project mode; the directory is not searched recursively). Use `.` to build/run the project in the current directory. **Optional — defaults to the current directory when omitted** (matches `dotnet run`).
+- `input` - The app to run: a build-output folder (folder mode), a `.cs` .NET file-based app (single-file mode), a `.csproj` project, a `.sln`/`.slnx` solution, or a directory containing one of those at its top level (project mode; the directory is not searched recursively). Use `.` to build/run the project in the current directory. **Optional — defaults to the current directory when omitted** (matches `dotnet run`).
 
 **Options:**
 
@@ -694,7 +695,8 @@ winapp run [<input>] [options]
 - `--output-appx-directory <path>` - Output directory for the loose layout package (default: `AppX` inside the input folder directory)
 - `--args <string>` - Command-line arguments to pass to the application. Alternatively, use `--` followed by arguments to avoid escaping (e.g., `winapp run . -- --flag value`).
 - `--no-launch` - Only create the debug identity and register the package without launching the application
-- `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Requires a `uap5:ExecutionAlias` in the manifest (use `winapp manifest add-alias` to add one). Cannot be combined with `--no-launch`. Cannot be combined with `--json`.
+- `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Rarely needed: an app with `OutputType=Exe` already launches this way by default. winapp adds the required `uap5:ExecutionAlias` to the manifest it stages in the AppX layout, so no change to your checked-in manifest is needed; an alias the app declares itself is used as-is. Cannot be combined with `--no-launch`, `--detach`, `--without-alias`, or `--json`.
+- `--without-alias` - Force AUMID activation for an app that would otherwise launch through an execution alias. A console app then runs without a console and prints nothing to this terminal. Cannot be combined with `--with-alias`.
 - `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`.
 - `--symbols` - Download PDB symbols from Microsoft Symbol Server for richer native crash analysis with resolved function names. Only used with `--debug-output`. If omitted and a native crash occurs, the output will suggest adding this flag. This flag also improves the WinUI stowed-exception triage stack for WinUI 3 apps. First run downloads symbols and caches them locally; subsequent runs use the cache.
 - `--unregister-on-exit` - Unregister the development package after the application exits. Only removes packages registered in development mode. Cannot be combined with `--no-launch`.
@@ -778,16 +780,16 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 
 **Project-mode options** (ignored in folder mode):
 
-- `-c, --configuration <name>` - Build configuration. Default: `Debug`.
-- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines both the build RID and the architecture of the Windows App Runtime that gets installed.
-- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch`.
-- `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`).
-- `--project <name-or-path>` - When the input is a solution (`.sln`/`.slnx`) or a directory with multiple runnable app projects, selects which project to launch (by project name or path).
-- `--no-build` - Skip building and run the existing build output (still evaluates output properties).
-- `--no-restore` - Skip restoring the project before building.
-- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeatable (e.g. `-p WindowsPackageType=None`).
+- `-c, --configuration <name>` - Build configuration. Default: `Debug`. *(Also honored in single-file mode.)*
+- `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build. *(Also honored in single-file mode.)*
+- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`). Project mode uses only the RID's architecture, always builds the canonical `win-<arch>`, and rejects non-Windows RIDs (e.g. `linux-x64`). Its architecture overrides `--arch` and can select the required publish profile. *(Also honored in single-file mode, where it overrides a `#:property RuntimeIdentifier` declared by the file.)*
+- `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`). *(Rejected in single-file mode — use `#:property TargetFramework=...`.)*
+- `--project <name-or-path>` - When the input is a solution (`.sln`/`.slnx`) or a directory with multiple runnable app projects, selects which project to launch (by project name or path). *(Rejected in single-file mode — a `.cs` file-based app is itself the project.)*
+- `--no-build` - Skip building and run the existing build output (still evaluates output properties). *(Also honored in single-file mode.)*
+- `--no-restore` - Skip restoring before building. *(Also honored in single-file mode.)*
+- `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** the project is built in two steps — a `dotnet build` whose output **streams live** to your console, followed by a fast property-evaluation pass. winapp prints the exact `dotnet build …` invocation before the output, and streams warnings even on a successful build. Verbosity:
+**Build output & verbosity:** restore and build output stream live. Displayed commands and output redact credentials from authenticated feed URLs. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
@@ -795,7 +797,7 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 | `--verbose` | `minimal` | winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
-Under `--json` or `--quiet` the invocation and build output go to stderr so stdout stays pure JSON / clean.
+Under `--json`, each invocation and its child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean.
 
 **Option applicability:** the identity/loose-layout options (`--manifest`, `--output-appx-directory`, `--no-launch`, `--with-alias`, `--unregister-on-exit`, `--clean`, `--executable`) apply to packaged apps only. They are rejected with a clear error for unpackaged apps (which have no MSIX package). Launch/debug options (`--args`/`--`, `--detach`, `--debug-output`, `--symbols`, `--json`) work in both.
 
@@ -830,6 +832,268 @@ winapp run . --verbose
 winapp run . --detach -- --my-flag value
 ```
 
+#### Single-file mode (.NET file-based apps)
+
+.NET 10 lets you run a single `.cs` file with no project file, configuring it with `#:` directives at
+the top. Point `winapp run` at that file and it builds the app, generates an appxmanifest for it, and
+launches it **with package identity** — so `Windows.ApplicationModel.Package.Current` works, the app
+gets a real AUMID and a Start-menu entry, and the APIs that simply require identity (app notifications,
+`ApplicationData`, on-device AI) work.
+
+Shell integrations such as protocol handlers, file associations, share targets, and startup tasks need
+a declared `<Extensions>` entry, which the generated manifest does not contain. To add one, author your
+own manifest — see [Bring your own manifest](#bring-your-own-manifest) below.
+
+```bash
+winapp run counter.cs
+```
+
+You do not author a manifest. Describe the package with `#:property` directives instead:
+
+```csharp
+#:package Microsoft.UI.Reactor@0.1.0-preview.13
+#:property OutputType=WinExe
+#:property TargetFramework=net10.0-windows10.0.22621.0
+#:property UseWinUI=true
+#:property RuntimeIdentifier=win-x64
+
+#:property WinAppPackageName=com.contoso.counter
+#:property WinAppDisplayName=Contoso Counter
+#:property WinAppDescription=Counts things, one click at a time
+#:property Version=1.2.3
+
+using static Microsoft.UI.Reactor.Factories;
+ReactorApp.Run<MyApp>("Hello");
+```
+
+**Manifest properties.** All are optional; each falls back to a sensible default:
+
+| Property | Sets | Default |
+|----------|------|---------|
+| `WinAppPackageName` | `Identity/@Name` (the package identity) | the file name, sanitized to `[-.A-Za-z0-9]`, plus a short hash of the file's path (`counter.cs` → `counter-a1b2c3d4`) |
+| `WinAppDisplayName` | The name shown in Start and Settings | the file name without its extension |
+| `WinAppPublisher` | `Identity/@Publisher` | `CN=<your Windows user name>`. A bare name is wrapped as `CN=<name>`. |
+| `WinAppVersion` | `Identity/@Version` | `$(Version)`, normalized (see below) |
+| `WinAppDescription` | The description shown during install and in Settings | the display name |
+| `WinAppCapabilities` | Capabilities to declare, separated by `;` or `,` | none |
+
+**Version.** A package version must be exactly four numbers, each 0–65535. `WinAppVersion` (or, if you
+don't set it, the standard `Version` property) is normalized to fit: any `-preview`/`-rc` suffix is
+dropped and missing components are filled with zeros, so `#:property Version=1.2.3-preview.4` becomes
+`1.2.3.0` and sets your assembly version and package version together. A value that can't be made to
+fit — a component above 65535, or more than four components — is **rejected with an error** rather
+than silently changed.
+
+##### Capabilities
+
+Your app runs full-trust with identity, which satisfies APIs that only require a packaged app. But some
+APIs are gated on a declared capability regardless — the Windows AI APIs are the common case. (Shell
+integrations such as protocol handlers and file associations are a third case: those need authored
+`<Extensions>` entries, not a capability, so use [your own manifest](#bring-your-own-manifest) for
+them.)
+
+```csharp
+#:property WinAppCapabilities=systemAIModels
+```
+
+That is all Phi Silica and the other on-device model APIs need from the manifest. Declare several by
+separating them:
+
+```csharp
+#:property WinAppCapabilities=systemAIModels;internetClient;microphone
+```
+
+winapp writes each one into the element and XML namespace it actually requires, declares that
+namespace, and raises `MaxVersionTested` when the capability needs a newer one. This matters more than
+it sounds: capabilities are spread across several different elements, and the same list above becomes
+three *different* shapes —
+
+```xml
+<systemai:Capability Name="systemAIModels" />
+<Capability Name="internetClient" />
+<DeviceCapability Name="microphone" />
+```
+
+Names winapp knows are written for you. For anything else — the restricted set grows over time —
+qualify it yourself with the namespace prefix:
+
+| Prefix | Emits |
+|--------|-------|
+| `rescap:` | `<rescap:Capability>` — restricted capabilities |
+| `uap:`, `uap6:`, `uap7:`, `uap11:` | `<uap*:Capability>` |
+| `systemai:` | `<systemai:Capability>` |
+| `device:` | `<DeviceCapability>` |
+| `app:` | `<Capability>` in the default namespace |
+
+```csharp
+#:property WinAppCapabilities=rescap:broadFileSystemAccess
+```
+
+An unrecognized bare name is **rejected with an error** naming these prefixes, rather than guessed at —
+a capability emitted in the wrong namespace produces a manifest Windows either refuses to register or
+accepts while silently not granting it.
+
+##### Bring your own manifest
+
+If you need something the properties don't cover — a protocol handler, a file association, an execution alias — author a manifest
+and `winapp run` will use it verbatim instead of generating one. It is picked up from, in order:
+
+1. `--manifest <path>` on the command line.
+2. `#:property WinAppManifestPath=<path>` in the `.cs` file.
+3. A manifest sitting next to the `.cs` file, named `<filename>.appxmanifest` (for example
+   `counter.appxmanifest` beside `counter.cs`).
+
+Only that per-file name is picked up automatically. A `Package.appxmanifest` or `appxmanifest.xml` in
+the same folder is deliberately ignored — several `.cs` files can share a folder, and adopting a
+shared name would silently run one app under another's identity. To use one manifest for several
+files, name it explicitly with `--manifest` or `WinAppManifestPath`.
+
+Otherwise a `Package.appxmanifest` is generated into the build output, along with the default image
+assets, and refreshed on every run.
+
+**Options.** Every folder-mode option works: `--no-launch`, `--with-alias`, `--without-alias`, `--detach`,
+`--clean`, `--debug-output`, `--symbols`, `--unregister-on-exit`, `--args`/`--`, `--json`, `--executable`,
+`--manifest`, `--output-appx-directory`, plus `-c/--configuration`, `--no-build`, `--no-restore`, and
+`-p/--property`.
+
+> [!TIP]
+> **A console app prints to your terminal by default.** A packaged app launched through AUMID has no
+> console, so a console-only app would run correctly and print nothing. winapp avoids that: an app with
+> `OutputType=Exe` is launched through an execution alias instead, which inherits this terminal's
+> stdin/stdout/stderr. You still get package identity, and you don't have to ask for it:
+>
+> ```bash
+> winapp run counter.cs
+> ```
+>
+> Pass `--without-alias` to force AUMID activation instead — the app then runs without a console and
+> prints nothing here. A windowed app (`WinExe`) shows a window, so it keeps AUMID activation; pass
+> `--with-alias` if you want one in this terminal anyway. To fix the choice in the file rather than on
+> every command line, set the same property a `.csproj` uses:
+>
+> ```csharp
+> #:property WinAppRunUseExecutionAlias=false
+> ```
+
+The alias winapp declares is named after the **package family name**, with a `winapp-` prefix — so
+`com.contoso.counter` published by `CN=You` gets `winapp-com.contoso.counter_gspb8g6x97k2t.exe`. That
+trailing part is the publisher hash Windows derives, so two apps sharing a name under different
+publishers still get different aliases. The prefix keeps the name clear of real commands: an app in
+`python.cs` gets a `winapp-…` alias, never `python.exe`. If you author your own manifest, the alias you
+declare there is used as-is and winapp adds nothing.
+
+That applies to the alias only. Registration itself is keyed on the package *name*, so running a second
+app that declares the same `WinAppPackageName` under a different publisher replaces the first
+registration rather than sitting alongside it. Give each app its own name if you want both registered
+at once.
+
+`winapp run` prints the alias it registered, so you don't have to compute the hash to find it.
+
+The alias is a command on your PATH that lasts as long as the package stays registered. If some other
+package already owns the name, winapp says so. When it inferred the alias for you it launches via AUMID
+instead, rather than starting the wrong app; when you asked for one explicitly — with `--with-alias` or
+`#:property WinAppRunUseExecutionAlias=true` — it fails instead of quietly doing something else.
+
+Two project-mode options do **not** apply, because a file-based app configures itself. They are
+rejected with a message naming the directive to use instead:
+
+| Option | Use instead |
+|--------|-------------|
+| `-f/--framework` | `#:property TargetFramework=net10.0-windows10.0.22621.0` |
+| `--project` | nothing — the `.cs` file *is* the project |
+
+`--arch` and `-r/--runtime` work as they do in project mode. When you don't pass either, winapp builds
+for **your machine's architecture** — which is what a self-contained Windows App SDK app needs, since
+without it the SDK builds `AnyCPU` and fails with `WindowsAppSDKSelfContained requires a supported
+Windows architecture`. A `#:property RuntimeIdentifier=win-arm64` in the file is respected; an explicit
+`--arch`/`--runtime` overrides it.
+
+**Packaged and unpackaged both work**, detected from the effective `WindowsPackageType` exactly as in
+project mode: the default registers a loose layout and launches it with identity, while
+`#:property WindowsPackageType=None` builds the app, installs the matching Windows App Runtime, and
+launches the `.exe` directly. (A packaged app is launched through its execution alias or through AUMID
+activation — see the console note above; that choice is separate from whether it is packaged.) The
+identity options (`--no-launch`, `--with-alias`, `--without-alias`, `--clean`, `--unregister-on-exit`,
+`--manifest`, `--output-appx-directory`) apply to packaged apps only.
+
+Single-file mode requires the **.NET SDK 10.0.300 or newer**.
+
+**The registration outlives the run.** `winapp run counter.cs` leaves the package registered after the
+app exits, exactly like folder and project mode — so `LocalState` survives, and re-running the same
+file reuses the same identity rather than piling up registrations. winapp says so the first time it
+registers an app, and `winapp unregister` takes the `.cs` itself:
+
+```bash
+# Remove the registration (resolves the same identity `winapp run` registered)
+winapp unregister counter.cs
+
+# Or remove it as soon as the app exits
+winapp run counter.cs --unregister-on-exit
+```
+
+`winapp unregister counter.cs` needs no manifest path: it evaluates the file's `#:property` values the
+same way `run` does, and removes only a package registered from *that* file's build output. A
+same-named app registered from a different folder is refused unless you pass `--force`. If the run used
+an option that shapes the identity or the layout, pass the same one to `unregister`:
+
+```bash
+winapp run counter.cs -p WinAppPackageName=com.contoso.alt
+winapp unregister counter.cs -p WinAppPackageName=com.contoso.alt
+
+winapp run counter.cs -c Release --arch arm64
+winapp unregister counter.cs -c Release --arch arm64
+```
+
+`-p` overrides the file's own directives, and a `Directory.Build.props` beside the `.cs` can key
+`WinAppPackageName` off `$(Configuration)` or `$(RuntimeIdentifier)` — so each of these can change which
+package gets registered.
+
+Once the SDK's temp output has been cleaned, `winapp unregister counter.cs` can no longer confirm the
+registration came from that file and will skip it — use `winapp unregister --prune` to clear
+registrations whose files are gone, or `--force` to remove a specific one anyway. If the run used
+`--output-appx-directory`, pass the same directory to `unregister` so it can recognize the layout.
+
+The same applies to a custom output path: ownership is confirmed from the SDK's standard
+`<root>\bin\<configuration>` layout, so a run built with `-p OutputPath=<somewhere-else>` cannot be
+matched to its source file. `unregister` skips it rather than guessing at a wider directory — name the
+layout with `--output-appx-directory`, or use `--force`.
+
+**Single-file examples:**
+
+```bash
+# Build and run a file-based app with package identity
+winapp run counter.cs
+
+# Register identity without launching (e.g. to attach Visual Studio)
+winapp run counter.cs --no-launch
+
+# Release build, detached, printing the PID as JSON
+winapp run counter.cs -c Release --detach --json
+
+# Capture OutputDebugString output and crash diagnostics
+winapp run counter.cs --debug-output
+
+# Forward arguments to the app
+winapp run counter.cs -- --verbose --input data.json
+
+# Wipe the app's LocalState and start fresh
+winapp run counter.cs --clean
+
+# Remove the package it registered
+winapp unregister counter.cs
+```
+
+> [!NOTE]
+> The default identity includes a short hash of the file's path — `counter.cs` becomes something like
+> `counter-a1b2c3d4` — so two `counter.cs` files in different folders are different apps and keep their
+> own settings and `LocalState`. The hash is derived from the path, so it survives edits and re-runs and
+> only changes if you move the file. Set `#:property WinAppPackageName=<name>` to choose a stable
+> identity yourself; it is normalized to what `Identity/@Name` allows — characters outside
+> `[-.A-Za-z0-9]` are dropped, names shorter than 3 characters are padded with `1`, and the result is
+> capped at 50 characters, so `My App` registers as `MyApp`. Either way the Start menu and Settings show
+> your `WinAppDisplayName` (default: the file name), not the identity. Identity is always scoped to your
+> user account, so it never collides with another user on the same machine.
+
 **MSBuild properties (NuGet package):**
 
 When using the `Microsoft.Windows.SDK.BuildTools.WinApp` NuGet package, `dotnet run` automatically invokes `winapp run`.
@@ -854,7 +1118,7 @@ The following MSBuild properties can be set in your `.csproj` to control behavio
 |----------|---------|-------------|
 | `EnableWinAppRunSupport` | `true` | Enable/disable the run support functionality |
 | `WinAppLaunchArgs` | (empty) | Arguments to pass to the app on launch |
-| `WinAppRunUseExecutionAlias` | `false` | Launch via execution alias instead of AUMID activation |
+| `WinAppRunUseExecutionAlias` | inferred from the app | Launch via execution alias instead of AUMID activation. Left unset, winapp infers it: a console app uses an alias so its output reaches the terminal, a windowed app uses AUMID. Set `true` or `false` to decide it yourself. |
 | `WinAppRunNoLaunch` | `false` | Only register identity without launching |
 | `WinAppRunDebugOutput` | `false` | Capture `OutputDebugString` messages and first-chance exceptions. Only one debugger can attach at a time (prevents VS/VS Code). Use `WinAppRunNoLaunch` instead to attach a different debugger. |
 | `WinAppRunDetach` | `false` | Return immediately after launching instead of waiting for the app to exit. Prints the PID. |
@@ -870,8 +1134,14 @@ conflicting pair fails the run with `--X and --Y cannot be used together`:
 
 | Property | Cannot be combined with |
 |----------|-------------------------|
-| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunUseExecutionAlias`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
-| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunUseExecutionAlias`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunNoLaunch` | `WinAppRunDetach`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+| `WinAppRunDetach` | `WinAppRunNoLaunch`, `WinAppRunDebugOutput`, `WinAppRunUnregisterOnExit` |
+
+`WinAppRunUseExecutionAlias` is deliberately **not** in that list, in either direction. `false` asks
+for AUMID activation, which no-launch and detach already use; `true` is simply not applied when
+either is set, because an execution alias needs a tracked, running process. So a project that checks
+in `<WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>` still runs cleanly under
+`dotnet run -p:WinAppRunDetach=true`, launching via AUMID rather than failing.
 
 `WinAppRunUseExecutionAlias`, `WinAppRunDebugOutput`, and `WinAppRunUnregisterOnExit` can be combined
 with each other. `WinAppRunClean`, `WinAppRunSymbols`, `WinAppRunExecutable`, and `WinAppLaunchArgs`
@@ -892,22 +1162,51 @@ is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `W
 Unregister a sideloaded development package. Only removes packages that were registered in development mode (e.g., via `winapp run` or `create-debug-identity`). Store-installed or MSIX-installed packages are never removed.
 
 ```bash
-winapp unregister [options]
+winapp unregister [input] [options]
 ```
+
+**Arguments:**
+
+- `input` - Path to a .NET file-based app (a single `.cs`) whose package should be unregistered. Its identity is resolved the same way `winapp run` resolves it — from an authored manifest if the app has one, otherwise from its `#:property` values — so no manifest path is needed. Omit to use `--manifest` or auto-detect a manifest in the current directory. Cannot be combined with `--manifest`, which names the package a different way and can resolve to a different one.
 
 **Options:**
 
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from current directory)
-- `--force` - Skip the install-location directory check and unregister even if the package was registered from a different project tree
+- `--force` - Skip the ownership check and unregister even if the package was registered from a different project tree, or if its install location cannot be resolved. With `--prune`, also skips the confirmation prompt. **Candidates are matched by `Identity/@Name` alone**, so `--force` also removes a same-named package from a *different publisher*, along with its application data — for registrations whose files are gone, prefer `--prune`, which preserves application data.
+- `--prune` - Remove every development-mode registration whose files are gone. Cannot be combined with an input, `--manifest`, `--property`, `--configuration`, `--arch`, `--runtime`, or `--output-appx-directory`.
+- `-p, --property <Name=Value>` - MSBuild property used when resolving a `.cs` file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. `-p WinAppPackageName=...`), since a command-line property overrides the file's own `#:property` directives. Only applies to a `.cs` input.
+- `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
+- `--arch <x64|arm64|x86>` - Target architecture used when resolving a `.cs` file-based app's identity. Default: the current process architecture. Pass the same architecture the run used, since identity can also be keyed off `$(RuntimeIdentifier)`. Only applies to a `.cs` input.
+- `-r, --runtime <rid>` - Target .NET runtime identifier (e.g. `win-x64`) used when resolving a `.cs` file-based app's identity. Only its architecture is used, and it overrides `--arch`. Only applies to a `.cs` input.
+- `--output-appx-directory <path>` - The AppX layout directory the package was registered from. Only needed when the run used `--output-appx-directory`, since nothing on the package records which run option produced its layout.
 - `--json` - Format output as JSON
 
 **What it does:**
 
-- Reads the package name from the manifest
+- Determines the package name — from the `.cs` file's resolved identity, or by reading the manifest
 - Searches for both `{name}` and `{name}.debug` packages (the debug variant is created by `create-debug-identity`)
 - Verifies each package was registered in development mode (`IsDevelopmentMode == true`)
-- Verifies the package's install location is under the current directory tree (unless `--force`)
+- Verifies the package belongs to the app you named (unless `--force`) — its install location must sit under a directory you identified: the `.cs` file's own build output, the manifest's directory, the current directory, or an explicit `--output-appx-directory`. A package whose install location cannot be resolved (its files were deleted) is **skipped**, because identity alone is not proof of ownership: two apps that both set `#:property WinAppPackageName=counter` register the same identity from different folders. Use `--prune` to clear registrations whose files are gone.
 - Unregisters matching packages
+
+**Cleaning up dead registrations (`--prune`):**
+
+A registration outlives its files. Delete a build output, project tree, or (for a file-based app) let
+Windows clean `%LOCALAPPDATA%\Temp`, and the package stays registered: Windows keeps the identity and
+its Start menu entry, but activation **silently does nothing**. These accumulate invisibly.
+
+```bash
+# List dev registrations whose files are gone, then confirm before removing
+winapp unregister --prune
+
+# Skip the prompt (required for non-interactive/CI use)
+winapp unregister --prune --force
+```
+
+Only development-mode registrations are considered, and each is removed by its full package name, so a
+same-named package still installed from a live location is untouched. The prompt exists because a
+missing install location is *usually* a deleted folder but also describes a package registered from a
+disconnected network share or removable drive — review the list before confirming.
 
 **Examples:**
 
@@ -915,11 +1214,17 @@ winapp unregister [options]
 # Unregister from current directory (auto-detects manifest)
 winapp unregister
 
+# Unregister a .NET file-based app by its source file
+winapp unregister counter.cs
+
 # Unregister with explicit manifest
 winapp unregister --manifest ./Package.appxmanifest
 
 # Force unregister even if registered from a different project tree
 winapp unregister --force
+
+# Remove every dev registration whose files are gone
+winapp unregister --prune
 
 # JSON output for scripting
 winapp unregister --json
@@ -1469,6 +1774,27 @@ To make this permanent:
 [System.Environment]::SetEnvironmentVariable('WINAPP_CLI_UPDATE_CHECK', '0', 'User')
 ```
 
+### UI workflow identity
+
+`winapp ui` commands that drive the physical desktop always take cooperative turns, so two workflows
+running at once cannot steal each other's focus or dismiss each other's menus. That arbitration needs
+no setup and cannot be switched off.
+
+What is optional is *continuity*. By default each command is a self-contained one-shot that releases
+the desktop as soon as it finishes. To keep the desktop across several commands, give them all the
+same workflow id:
+
+```pwsh
+$env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString()
+```
+
+Use the *same* value for cooperating processes (for example a recording and the clicks it should
+capture) and *different* values for independent workflows. Every command without an id is its own
+one-shot workflow, even when several are launched from one shell, so hosts that start a fresh shell
+per command must inject the same explicit value into each one. The value is opaque, is never treated
+as a credential, and is only ever persisted as a SHA-256 hash. See
+[UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
+
 ### ui
 
 Inspect and interact with running Windows app UIs using UI Automation (UIA).
@@ -1538,3 +1864,9 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
+
+
+
+
+
+
