@@ -613,6 +613,18 @@ public sealed class FindApiCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task CheckProperty_AttachedReadOnly_Json_CarriesWritableFalse()
+    {
+        // --json is what an agent reads, and it is the only place the answer can be acted
+        // on without parsing prose.
+        int exit = await ParseAndInvokeWithCaptureAsync(
+            Command, ["check-property", "Gadget", FakeApiMetadataService.AttachedReadOnlyProperty, "--json"]);
+
+        Assert.AreEqual(0, exit);
+        StringAssert.Contains(TestAnsiConsole.Output, "\"writable\": false");
+    }
+
+    [TestMethod]
     public async Task CheckProperty_SingleProperty_KeepsOriginalBehaviour()
     {
         int exit = await ParseAndInvokeWithCaptureAsync(Command, ["check-property", "InfoBar", "Severity"]);
