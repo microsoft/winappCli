@@ -227,6 +227,29 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void RedactSecretsForDisplay_RedactsSecretSegmentOfCommaPackedProperty()
+    {
+        var line = "build -p:A=1,SigningPassword=s3cr3t,B=2";
+
+        var redacted = ProjectRunService.RedactSecretsForDisplay(line);
+
+        StringAssert.Contains(redacted, "A=1,SigningPassword=***,B=2");
+        Assert.IsFalse(redacted.Contains("s3cr3t"));
+    }
+
+    [TestMethod]
+    public void RedactSecretsForDisplay_MasksMalformedSecretContinuation()
+    {
+        var line = "build -p:PackageCertificatePassword=p@ss,w0rd,B=2";
+
+        var redacted = ProjectRunService.RedactSecretsForDisplay(line);
+
+        Assert.IsFalse(redacted.Contains("p@ss"), $"secret prefix should be masked: {redacted}");
+        Assert.IsFalse(redacted.Contains("w0rd"), $"secret continuation should be masked: {redacted}");
+        StringAssert.Contains(redacted, "PackageCertificatePassword=***,***,B=2");
+    }
+
+    [TestMethod]
     public void RedactSecretsForDisplay_MasksQuotedSecretWithSpaces()
     {
         var line = "build \"-p:PackageCertificatePassword=pass word\" -c Debug";
@@ -553,6 +576,37 @@ public class ProjectRunServiceTests
             "conflicting user -p:RuntimeIdentifier must be dropped, not forwarded");
         StringAssert.Contains(args, "-p:Configuration=Debug");
         StringAssert.Contains(args, "-p:RuntimeIdentifier=win-x64");
+    }
+
+    [TestMethod]
+    public void BuildEvaluateArguments_CommaPackedDedicatedProperty_IsDropped()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions(
+            "Debug",
+            "x64",
+            null,
+            NoBuild: false,
+            NoRestore: false,
+            Properties: ["Flavor=Retail,RuntimeIdentifier=win-arm64"]);
+
+        var args = ProjectRunService.BuildEvaluateArguments(csproj, options);
+
+        Assert.IsFalse(
+            args.Contains("Flavor=Retail", StringComparison.Ordinal),
+            "the entire packed token must be dropped when any segment conflicts with a dedicated switch");
+        Assert.IsFalse(args.Contains("RuntimeIdentifier=win-arm64", StringComparison.Ordinal));
+        StringAssert.Contains(args, "-p:RuntimeIdentifier=win-x64");
+    }
+
+    [TestMethod]
+    public void ResolveExplicitFramework_CommaPackedProperty_PromotesTargetFramework()
+    {
+        var framework = ProjectRunService.ResolveExplicitFramework(
+            frameworkOption: null,
+            ["Flavor=Retail,TargetFramework=net10.0-windows10.0.26100.0"]);
+
+        Assert.AreEqual("net10.0-windows10.0.26100.0", framework);
     }
 
     [TestMethod]
@@ -3002,16 +3056,7 @@ public class ProjectRunServiceTests
         string? evalArgs = null;
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = a =>
-            {
-                if (a.StartsWith("msbuild ", StringComparison.Ordinal))
-                {
-                    evalArgs = a;
-                }
-                return a == "--version"
-                    ? (0, "10.0.303", string.Empty)
-                    : (0, PackagedPropertiesJson(), string.Empty);
-            },
+            RunDotnetCommandHandler = a => { evalArgs = a; return (0, PackagedPropertiesJson(), string.Empty); },
         };
         var service = NewServiceWith(dotnet, LogLevel.Information, out _);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
@@ -3103,15 +3148,20 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_BuildFailure_ShortCircuitsBeforeEvaluate()
+    public async Task BuildAndResolveAsync_BuildFailure_ShortCircuitsBeforePostBuildEvaluate()
     {
-        // Change #1: a failed build pass must propagate its exit code and NOT evaluate properties.
+        // A failed build pass must propagate its exit code and skip the post-build evaluate. The
+        // publish-profile preflight still evaluates once before the build.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
-        var evaluated = false;
+        var evaluationCount = 0;
         var dotnet = new FakeDotNetService
         {
             RunDotnetStreamingHandler = (_, _, _) => 7,
-            RunDotnetCommandHandler = _ => { evaluated = true; return (0, PackagedPropertiesJson(), string.Empty); },
+            RunDotnetCommandHandler = _ =>
+            {
+                evaluationCount++;
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
         };
         var service = NewServiceWith(dotnet, LogLevel.Information, out _);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
@@ -3120,7 +3170,7 @@ public class ProjectRunServiceTests
 
         Assert.IsNull(outcome.Resolution, "a failed build must not resolve");
         Assert.AreEqual(7, outcome.ExitCode, "the build exit code must propagate");
-        Assert.IsFalse(evaluated, "a failed build must short-circuit before the evaluate pass");
+        Assert.AreEqual(1, evaluationCount, "a failed build must skip the post-build evaluate");
     }
 
     [TestMethod]

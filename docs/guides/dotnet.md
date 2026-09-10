@@ -115,29 +115,21 @@ dotnet list package
 
 You should see `Microsoft.WindowsAppSDK` and `Microsoft.Windows.SDK.BuildTools` in the output.
 
-### Add Execution Alias (for console apps)
+### Console output (nothing to do)
 
-Because we're building a console app, we need to make sure `dotnet run` keeps console output in the current terminal. By default, `dotnet run` launches the packaged app via AUMID activation, which opens a new window — and the window closes immediately when the console app finishes, swallowing any output.
+Because we're building a console app, console output needs to stay in the current terminal. AUMID activation gives a packaged app no console, so a console app would run correctly and print nothing.
 
-To fix this, you'll add an execution alias to the manifest and tell the run integration to launch via that alias instead.
+winapp handles this for you: an app with `OutputType=Exe` is launched through an execution alias instead, which inherits your terminal's stdin/stdout/stderr. It adds the required `uap5:ExecutionAlias` to the manifest it stages, so there is nothing to configure.
 
-> **Skip this step if you're building a UI app** (WPF, WinForms, WinUI). Those apps render their own window, so the default AUMID launch is what you want.
+> **UI apps** (WPF, WinForms, WinUI) render their own window, so they keep AUMID activation.
 
-1. Add the execution alias to your manifest:
+To force AUMID for a console app anyway, set the following inside any `<PropertyGroup>` in `dotnet-app.csproj` — the app then runs without a console and prints nothing to the terminal:
 
-   ```powershell
-   winapp manifest add-alias
-   ```
+```xml
+<WinAppRunUseExecutionAlias>false</WinAppRunUseExecutionAlias>
+```
 
-   This adds a `uap5:ExecutionAlias` to `Package.appxmanifest` (defaulting to your project's exe name) so the app can be launched by name from a terminal.
-
-2. Tell the `dotnet run` integration to use the alias. Open `dotnet-app.csproj` and add the following inside any `<PropertyGroup>` (or create a new `<PropertyGroup>` if needed):
-
-   ```xml
-   <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
-   ```
-
-   With this property set, `dotnet run` launches the app via its execution alias and inherits the current terminal's stdin/stdout/stderr so you see console output inline.
+If you'd rather choose the command name yourself, run `winapp manifest add-alias` to declare one in `Package.appxmanifest`; an alias you author is used as-is.
 
 ## 5. Debug with Identity
 
@@ -195,10 +187,16 @@ winapp run .
 
 # ...or run a specific project / configuration / architecture
 winapp run .\dotnet-app.csproj -c Debug --arch x64
-
-# Publish and run the exact PublishDir artifact
-winapp run .\dotnet-app.csproj --publish -c Release -r win-x64 --detach
 ```
+
+To test the app with Native AOT, set `<PublishAot>true</PublishAot>` in the project and run:
+
+```powershell
+winapp run . --aot
+winapp run . --aot -c Release
+```
+
+Use x64 or ARM64. For a one-time override, append `-p PublishAot=true`.
 
 You can still point `winapp run` at a pre-built output folder if you prefer (folder mode):
 
@@ -209,31 +207,7 @@ winapp run .\bin\Debug\net10.0-windows10.0.26100.0
 
 Project mode supports both **packaged** and **unpackaged** WinUI apps — it detects which from the project's `WindowsPackageType` and installs the matching-architecture Windows App Runtime automatically. To force an unpackaged run of a packaged project, add `-p WindowsPackageType=None`.
 
-To enforce a Native AOT publish, set the property in the runnable app project so it does not propagate to referenced libraries:
-
-```xml
-<PropertyGroup>
-  <PublishAot>true</PublishAot>
-</PropertyGroup>
-```
-
-Then run:
-
-```powershell
-winapp run .\dotnet-app.csproj --verify-native-aot -c Release -r win-x64 --detach
-```
-
-Before a long publish, check the project settings and restored Native AOT pack without changing anything:
-
-```powershell
-winapp run .\dotnet-app.csproj --verify-native-aot -c Release -r win-x64 --dry-run
-```
-
-If the dry run says `RestoreRequired`, run the printed `dotnet restore` command and repeat it. Windows Native AOT supports `win-x64` and `win-arm64` and requires Desktop development with C++ in Visual Studio or Visual Studio Build Tools. Dry run validates the requested linker on either an x64 or ARM64 host and checks the matching Windows SDK libraries. If `vswhere.exe` is installed in the standard Visual Studio Installer directory but is not on `PATH`, WinApp adds that directory only for the publish process. WinApp does not install missing workloads. `--no-build` keeps .NET CLI semantics: it skips the build in normal mode, but with `--publish` it is forwarded to `dotnet publish --no-build`.
-
-WinApp rejects .NET single-file bundles during Native AOT verification. A self-contained single-file JIT app can contain CoreCLR inside the executable and omit the usual runtime sidecars, so missing DLLs alone are not accepted as proof. If startup verification reports an exit code, re-run without `--verify-native-aot` and `--detach`, then add `--debug-output --symbols`.
-
-**Multi-project apps** (an app referencing class libraries) build correctly: winapp negotiates each project reference's platform automatically, so referencing an `AnyCPU`/`netstandard2.0` library doesn't fail with `CS0006` "metadata file could not be found".
+**Multi-project apps** (an app referencing class libraries) build correctly: winapp keeps `AnyCPU`/`netstandard2.0` references on their compatible platform instead of forcing the app's architecture across the graph. RID-only remains the default; when the effective configuration requires a self-contained profile (for example, a trimmed Release build), winapp selects the matching profile without changing referenced libraries' platforms.
 
 The `dotnet build` output streams live, with the exact invocation printed first. Add `--verbose` for winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
 

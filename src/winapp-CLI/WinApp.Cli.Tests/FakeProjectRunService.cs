@@ -24,6 +24,7 @@ internal sealed class FakeProjectRunService : IProjectRunService
 
     /// <summary>Returned from <see cref="BuildAndResolveAsync"/> when no exception is configured.</summary>
     public ProjectBuildOutcome? BuildOutcome { get; set; }
+    public ProjectBuildOutcome? AotOutcome { get; set; }
 
     /// <summary>When set, <see cref="BuildAndResolveAsync"/> throws it (simulates a guardrail violation).</summary>
     public ProjectRunException? BuildThrows { get; set; }
@@ -31,14 +32,23 @@ internal sealed class FakeProjectRunService : IProjectRunService
     /// <summary>Returned from <see cref="IsDefinitivelyUnpackagedAsync"/>. Default false = indeterminate/packaged (fall through to the post-build gate).</summary>
     public bool DefinitivelyUnpackaged { get; set; }
 
+    /// <summary>Returned from <see cref="CheckSingleFileSdkAsync"/>. Null = capable SDK.</summary>
+    public string? SingleFileSdkError { get; set; }
+
+    /// <summary>Returned from <see cref="BuildAndResolveSingleFileAsync"/> when no exception is configured.</summary>
+    public SingleFileBuildOutcome? SingleFileBuildOutcome { get; set; }
+
+    /// <summary>When set, <see cref="BuildAndResolveSingleFileAsync"/> throws it (simulates a guardrail violation).</summary>
+    public ProjectRunException? SingleFileBuildThrows { get; set; }
+
     public List<FileSystemInfo> ResolveInputCalls { get; } = [];
     public List<string?> ResolveInputSelectors { get; } = [];
     public List<ProjectClassificationInputs?> ResolveInputClassificationInputs { get; } = [];
     public List<FileInfo> BuildAndResolveCalls { get; } = [];
     public List<ProjectRunOptions> BuildOptions { get; } = [];
-    public List<ProjectPreparationOperation> PreparationOperations { get; } = [];
-
-    public ProjectPreparationOutcome? PreparationOutcome { get; set; }
+    public List<ProjectRunOptions> AotOptions { get; } = [];
+    public List<FileInfo> BuildAndResolveSingleFileCalls { get; } = [];
+    public List<SingleFileRunOptions> SingleFileBuildOptions { get; } = [];
 
     /// <summary>Records each <see cref="IsDefinitivelyUnpackagedAsync"/> invocation (for asserting the pre-flight probe fired or was skipped).</summary>
     public List<FileInfo> IsDefinitivelyUnpackagedCalls { get; } = [];
@@ -63,6 +73,15 @@ internal sealed class FakeProjectRunService : IProjectRunService
             return Task.FromResult(new RunInputResolution(WinAppRunMode.Project, file, file.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory())));
         }
 
+        if (input is FileInfo singleFile && string.Equals(singleFile.Extension, ".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult(new RunInputResolution(
+                WinAppRunMode.SingleFile,
+                null,
+                singleFile.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory()),
+                SingleFile: singleFile));
+        }
+
         var dir = input as DirectoryInfo ?? new DirectoryInfo(input.FullName);
         return Task.FromResult(new RunInputResolution(WinAppRunMode.Folder, null, dir));
     }
@@ -70,50 +89,75 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public Task<string?> CheckSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
         => Task.FromResult(SdkError);
 
-    public Task<ProjectPreparationOutcome> PrepareAndResolveAsync(
-       FileInfo csproj,
-       ProjectRunOptions options,
-       ProjectPreparationOperation operation,
-       CancellationToken cancellationToken)
+    public Task<string?> CheckSingleFileSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
+        => Task.FromResult(SingleFileSdkError);
+
+    public Task<ProjectBuildOutcome> BuildAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         BuildAndResolveCalls.Add(csproj);
         BuildOptions.Add(options);
-       PreparationOperations.Add(operation);
         if (BuildThrows != null)
         {
             throw BuildThrows;
         }
 
-       if (PreparationOutcome is not null)
-       {
-           return Task.FromResult(PreparationOutcome);
-       }
-
-       var build = BuildOutcome
-           ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured.");
-       return Task.FromResult(new ProjectPreparationOutcome(
-           build.Resolution,
-           build.ExitCode,
-           Executed: !options.DryRun,
-           Ready: build.Resolution is not null));
+        return Task.FromResult(BuildOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured."));
     }
 
-    public async Task<ProjectBuildOutcome> BuildAndResolveAsync(
-       FileInfo csproj,
-       ProjectRunOptions options,
-       CancellationToken cancellationToken)
+    public Task<ProjectBuildOutcome> PublishAotAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
-       var outcome = await PrepareAndResolveAsync(
-           csproj,
-           options,
-           ProjectPreparationOperation.Build,
-           cancellationToken);
-       return new ProjectBuildOutcome(outcome.Resolution, outcome.ExitCode);
+        BuildAndResolveCalls.Add(csproj);
+        AotOptions.Add(options);
+        if (BuildThrows != null)
+        {
+            throw BuildThrows;
+        }
+
+        return Task.FromResult(AotOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.AotOutcome was not configured."));
     }
 
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         IsDefinitivelyUnpackagedCalls.Add(csproj);
         return Task.FromResult(DefinitivelyUnpackaged);
+    }
+
+    public Task<SingleFileBuildOutcome> BuildAndResolveSingleFileAsync(FileInfo singleFile, SingleFileRunOptions options, CancellationToken cancellationToken)
+    {
+        BuildAndResolveSingleFileCalls.Add(singleFile);
+        SingleFileBuildOptions.Add(options);
+        if (SingleFileBuildThrows != null)
+        {
+            throw SingleFileBuildThrows;
+        }
+
+        return Task.FromResult(SingleFileBuildOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.SingleFileBuildOutcome was not configured."));
+    }
+
+    /// <summary>Returned from <see cref="ResolveSingleFileIdentityAsync"/> when no exception is configured.</summary>
+    public SingleFileIdentityResolution? SingleFileIdentity { get; set; }
+
+    /// <summary>When set, <see cref="ResolveSingleFileIdentityAsync"/> throws it.</summary>
+    public ProjectRunException? SingleFileIdentityThrows { get; set; }
+
+    public List<FileInfo> ResolveSingleFileIdentityCalls { get; } = [];
+
+    /// <summary>Records the identity-shaping inputs each resolution received.</summary>
+    public List<SingleFileIdentityInputs> ResolveSingleFileIdentityInputs { get; } = [];
+
+    public Task<SingleFileIdentityResolution> ResolveSingleFileIdentityAsync(FileInfo singleFile, SingleFileIdentityInputs inputs, CancellationToken cancellationToken)
+    {
+        ResolveSingleFileIdentityCalls.Add(singleFile);
+        ResolveSingleFileIdentityInputs.Add(inputs);
+        if (SingleFileIdentityThrows != null)
+        {
+            throw SingleFileIdentityThrows;
+        }
+
+        return Task.FromResult(SingleFileIdentity
+            ?? throw new InvalidOperationException("FakeProjectRunService.SingleFileIdentity was not configured."));
     }
 }

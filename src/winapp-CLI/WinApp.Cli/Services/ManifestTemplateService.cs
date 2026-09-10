@@ -111,13 +111,22 @@ internal partial class ManifestTemplateService : IManifestTemplateService
         string publisherName,
         string publisherDN,
         string version,
-        string description)
+        string description,
+        string? displayName,
+        string? applicationId)
     {
-        var applicationId = FixAsciiWindowsId(ToCamelCase(packageName));
+        // Both overrides default to the pre-existing derivation, so callers that don't supply them
+        // (manifest generate, init, sparse identity) produce byte-identical output to before.
+        var resolvedApplicationId = string.IsNullOrWhiteSpace(applicationId)
+            ? FixAsciiWindowsId(ToCamelCase(packageName))
+            : FixAsciiWindowsId(applicationId);
+
+        var resolvedDisplayName = string.IsNullOrWhiteSpace(displayName) ? packageName : displayName;
 
         var result = template
             .Replace("{PackageName}", packageName)
-            .Replace("{ApplicationId}", applicationId)
+            .Replace("{DisplayName}", PublisherDnHelper.XmlEscape(resolvedDisplayName))
+            .Replace("{ApplicationId}", resolvedApplicationId)
             .Replace("{PublisherDN}", PublisherDnHelper.XmlEscape(publisherDN))
             .Replace("{PublisherName}", PublisherDnHelper.XmlEscape(publisherName))
             .Replace("Version=\"1.0.0.0\"", $"Version=\"{version}\"")
@@ -237,6 +246,8 @@ internal partial class ManifestTemplateService : IManifestTemplateService
         TaskContext taskContext,
         string manifestFileName = "Package.appxmanifest",
         string? executableName = null,
+        string? displayName = null,
+        string? applicationId = null,
         CancellationToken cancellationToken = default)
     {
         // Normalize publisher to a valid distinguished name
@@ -262,7 +273,9 @@ internal partial class ManifestTemplateService : IManifestTemplateService
             publisherDisplayName,
             publisherDN,
             version,
-            description);
+            description,
+            displayName,
+            applicationId);
 
         // When a concrete executable name is provided (e.g. sparse identity packages
         // that reference an external exe), replace the $targetnametoken$ build token so

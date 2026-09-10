@@ -23,8 +23,7 @@ internal static class IncrementalCopyHelper
     internal static SyncResult SyncDirectory(
         DirectoryInfo sourceDir,
         DirectoryInfo destDir,
-        HashSet<string>? protectedFileNames = null,
-        Func<FileInfo, bool>? includeFile = null)
+        HashSet<string>? protectedFileNames = null)
     {
         if (DirectoryRelationship.IsSameOrAncestor(destDir, sourceDir))
         {
@@ -55,11 +54,6 @@ internal static class IncrementalCopyHelper
             }
 
             var relativePath = Path.GetRelativePath(sourceDir.FullName, file.FullName);
-            if (includeFile is not null && !includeFile(file))
-            {
-                continue;
-            }
-
             sourceRelativePaths.Add(relativePath);
             var destFile = new FileInfo(Path.Combine(destDir.FullName, relativePath));
 

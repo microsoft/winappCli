@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Text;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
@@ -45,6 +46,8 @@ internal sealed partial class ProjectRunService
         {
             tokens.Add($"-p:Platform={options.Platform}");
         }
+
+        AppendInferredPublishProfile(tokens, csproj, options);
 
         // Drop dedicated-flag user -p (RID/Configuration/TFM) so the restored graph can't diverge from
         // what the --no-restore build resolves; WarnOnOverriddenFlags surfaces the conflict.
@@ -122,6 +125,8 @@ internal sealed partial class ProjectRunService
             tokens.Add($"-p:Platform={options.Platform}");
         }
 
+        AppendInferredPublishProfile(tokens, csproj, options);
+
         AppendSolutionProperties(tokens, options);
 
         // SHIM (temporary): inject the resolved ref-pack winmd folder so cswinrt.exe finds contract winmds
@@ -134,12 +139,7 @@ internal sealed partial class ProjectRunService
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
 
-    /// <summary>
-    /// Builds the tokenized <c>dotnet publish</c> invocation. Unlike build mode,
-    /// <see cref="ProjectRunOptions.NoBuild"/> does not skip this operation; it is forwarded as
-    /// <c>--no-build</c>, matching the .NET CLI contract.
-    /// </summary>
-    internal static IReadOnlyList<string> BuildPublishPassArguments(
+    internal static IReadOnlyList<string> BuildAotPublishArguments(
         FileInfo csproj,
         ProjectRunOptions options,
         string verbosity,
@@ -151,18 +151,9 @@ internal sealed partial class ProjectRunService
             csproj.FullName,
             "-c",
             options.Configuration,
+            "-r",
+            RunArchHelper.ToRuntimeIdentifier(options.Architecture),
         };
-
-        if (!options.OmitRuntimeIdentifier)
-        {
-            tokens.Add("-r");
-            tokens.Add(RunArchHelper.ToRuntimeIdentifier(options.Architecture));
-        }
-
-        if (options.NoBuild)
-        {
-            tokens.Add("--no-build");
-        }
 
         if (options.NoRestore)
         {
@@ -189,6 +180,7 @@ internal sealed partial class ProjectRunService
             tokens.Add($"-p:Platform={options.Platform}");
         }
 
+        AppendInferredPublishProfile(tokens, csproj, options);
         AppendSolutionProperties(tokens, options);
 
         if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
@@ -196,50 +188,12 @@ internal sealed partial class ProjectRunService
             tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
         }
 
+        tokens.Add("-p:IncludePublishItemsOutputGroup=true");
+        foreach (var name in RequestedProperties)
+        {
+            tokens.Add($"--getProperty:{name}");
+        }
         return tokens;
-    }
-
-    /// <summary>
-    /// Builds the exact restore command suggested by an indeterminate Native AOT dry run.
-    /// It mirrors publish globals and explicitly carries <c>PublishAot=true</c> when that value was
-    /// evaluated rather than supplied by the caller.
-    /// </summary>
-    internal static string BuildDryRunRestoreArguments(
-        FileInfo csproj,
-        ProjectRunOptions options,
-        bool publishAot)
-    {
-        var tokens = new List<string>
-        {
-            "restore",
-            csproj.FullName,
-        };
-
-        if (publishAot || !options.OmitRuntimeIdentifier)
-        {
-            tokens.Add("-r");
-            tokens.Add(RunArchHelper.ToRuntimeIdentifier(options.Architecture));
-        }
-        tokens.Add($"-p:Configuration={options.Configuration}");
-
-        if (!string.IsNullOrWhiteSpace(options.Framework))
-        {
-            tokens.Add($"-p:TargetFramework={options.Framework}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(options.Platform))
-        {
-            tokens.Add($"-p:Platform={options.Platform}");
-        }
-
-        var forwarded = ForwardableProperties(options.Properties).ToList();
-        foreach (var property in forwarded)
-        {
-            tokens.Add($"-p:{property}");
-        }
-
-        AppendSolutionProperties(tokens, options);
-        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
 
     /// <summary>
@@ -249,7 +203,8 @@ internal sealed partial class ProjectRunService
     /// <c>RunCommand</c> match what was built. <c>dotnet msbuild</c> rejects <c>-c</c>/<c>-r</c> (MSB1001),
     /// so Configuration/RID/TFM/Platform go as <c>-p:</c> emitted LAST (MSBuild last-wins beats a
     /// conflicting user <c>-p</c>). <paramref name="includeRuntimeIdentifier"/> and
-    /// <paramref name="includePlatform"/> are <see langword="false"/> only for the <c>--no-build</c>
+    /// <paramref name="includePlatform"/> and <paramref name="includePublishProfile"/> are
+    /// <see langword="false"/> only for the <c>--no-build</c>
     /// output-discovery fallback (see <c>BuildAndResolveAsync</c>): an app previously built by Visual Studio
     /// or a plain <c>dotnet build</c> injects NEITHER a RID nor a Platform, so its output sits at
     /// <c>bin\&lt;cfg&gt;\&lt;tfm&gt;\</c> — which only resolves when both are omitted.
@@ -260,7 +215,8 @@ internal sealed partial class ProjectRunService
         string? csWinRTMetadataFolder = null,
         bool includeRuntimeIdentifier = true,
         bool includePlatform = true,
-        bool forceRuntimeIdentifier = false)
+        bool includePublishProfile = true,
+        bool aotPublishContext = false)
     {
         var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
 
@@ -280,7 +236,7 @@ internal sealed partial class ProjectRunService
         AppendSolutionProperties(tokens, options);
 
         tokens.Add($"-p:Configuration={options.Configuration}");
-        if (includeRuntimeIdentifier && (forceRuntimeIdentifier || !options.OmitRuntimeIdentifier))
+        if (includeRuntimeIdentifier && !options.OmitRuntimeIdentifier)
         {
             tokens.Add($"-p:RuntimeIdentifier={rid}");
         }
@@ -296,10 +252,18 @@ internal sealed partial class ProjectRunService
             tokens.Add($"-p:Platform={options.Platform}");
         }
 
+        AppendInferredPublishProfile(tokens, csproj, options, includePublishProfile);
+
         // SHIM (temporary): keep the evaluate pass's inputs identical to the build pass.
         if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
         {
             tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
+        }
+
+        if (aotPublishContext)
+        {
+            tokens.Add("-p:_IsPublishing=true");
+            tokens.Add("-p:IncludePublishItemsOutputGroup=true");
         }
 
         foreach (var name in RequestedProperties)
@@ -309,6 +273,181 @@ internal sealed partial class ProjectRunService
 
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
+
+    /// <summary>
+    /// Builds the arguments for the single-file BUILD pass: <c>dotnet build &lt;file&gt;.cs</c>.
+    /// <para>
+    /// No <c>-p:Platform</c> is ever injected — a file-based app accepts <c>Platform</c> but ignores it
+    /// for RID selection. A <c>-r win-&lt;arch&gt;</c> IS injected when
+    /// <see cref="SingleFileRunOptions.InjectedRuntimeIdentifier"/> is set, which is what lets a plain
+    /// <c>winapp run app.cs</c> build a self-contained Windows App SDK app instead of failing as
+    /// <c>AnyCPU</c>. That is safe because <see cref="BuildSingleFileEvaluateArguments"/> emits the SAME
+    /// set from the same options, so the evaluate reads back the RID-qualified directory this pass wrote
+    /// rather than the two disagreeing about where the app is.
+    /// </para>
+    /// </summary>
+    internal static string BuildSingleFileBuildPassArguments(
+        FileInfo singleFile,
+        SingleFileRunOptions options,
+        string verbosity,
+        bool nativeTerminal = false)
+    {
+        var tokens = new List<string>
+        {
+            "build",
+            singleFile.FullName,
+            "-c",
+            options.Configuration,
+        };
+
+        AppendSingleFileRuntimeIdentifier(tokens, options);
+
+        if (options.NoRestore)
+        {
+            tokens.Add("--no-restore");
+        }
+
+        tokens.Add("-v");
+        tokens.Add(verbosity);
+
+        // Same terminal-logger regime as the .csproj build pass: pin -tl:off when winapp redirects the
+        // output, omit it on a real TTY so dotnet's native live display renders.
+        if (!nativeTerminal)
+        {
+            tokens.Add("-tl:off");
+        }
+
+        // Reserve Configuration, which winapp owns via -c, plus RuntimeIdentifier whenever a RID is being
+        // injected — MSBuild is last-wins and these -p tokens are emitted AFTER -r, so forwarding a
+        // conflicting RuntimeIdentifier would silently override the architecture winapp resolved.
+        // TargetFramework is deliberately NOT reserved: single-file mode rejects --framework, so -p is the
+        // only way to express it, and reusing project mode's wider filter would drop it from both passes
+        // and silently ignore what the user asked for.
+        foreach (var property in SingleFileForwardableProperties(options.Properties, options.InjectedRuntimeIdentifier is not null))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Builds the arguments for the single-file EVALUATE pass.
+    /// <para>
+    /// This uses <c>dotnet build … --getProperty:…</c> rather than <c>dotnet msbuild</c> — which the
+    /// <c>.csproj</c> evaluate pass uses — because MSBuild has no <c>.cs</c> project loader and rejects a
+    /// file-based app with <c>MSB4025: The project file could not be loaded</c>. The virtual-project
+    /// synthesis only exists inside the <c>dotnet build</c>/<c>dotnet run</c> CLI path. Passing
+    /// <c>--getProperty</c> makes the invocation evaluate WITHOUT building, so this stays cheap.
+    /// </para>
+    /// Fed the SAME Configuration, injected RID, and user <c>-p</c> as the build pass so the properties it
+    /// reads describe the output that was actually written.
+    /// </summary>
+    internal static string BuildSingleFileEvaluateArguments(FileInfo singleFile, SingleFileRunOptions options, bool includeRuntimeIdentifier = true)
+    {
+        var tokens = new List<string>
+        {
+            "build",
+            singleFile.FullName,
+            "-c",
+            options.Configuration,
+        };
+
+        if (includeRuntimeIdentifier)
+        {
+            AppendSingleFileRuntimeIdentifier(tokens, options);
+        }
+
+        // Same reservation as the build pass, so both passes agree on the RID.
+        foreach (var property in SingleFileForwardableProperties(options.Properties, includeRuntimeIdentifier && options.InjectedRuntimeIdentifier is not null))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        foreach (var name in SingleFileRequestedProperties)
+        {
+            tokens.Add($"--getProperty:{name}");
+        }
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Builds a cheap, side-effect-free probe that reads ONE evaluated property from a file-based app.
+    /// Deliberately omits the injected RuntimeIdentifier, since the probe exists to discover whether the
+    /// app declares one of its own.
+    /// </summary>
+    internal static string BuildSingleFileProbeArguments(FileInfo singleFile, SingleFileRunOptions options, string propertyName)
+    {
+        var tokens = new List<string>
+        {
+            "build",
+            singleFile.FullName,
+            "-c",
+            options.Configuration,
+        };
+
+        // No ridInjected filter here on purpose: the probe omits -r entirely, so a user
+        // -p:RuntimeIdentifier is exactly what it needs to see to answer "does the app declare one?".
+        foreach (var property in SingleFileForwardableProperties(options.Properties))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        tokens.Add($"--getProperty:{propertyName}");
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Conveys the target architecture to a single-file pass as <c>-r win-&lt;arch&gt;</c>, matching what
+    /// project mode injects. Both single-file passes call this with the same options, so the evaluate
+    /// reads back the same RID-qualified output directory the build wrote. No-op when the app declares
+    /// its own <c>RuntimeIdentifier</c> (see <c>ResolveSingleFileRuntimeIdentifierAsync</c>).
+    /// </summary>
+    private static void AppendSingleFileRuntimeIdentifier(List<string> tokens, SingleFileRunOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.InjectedRuntimeIdentifier))
+        {
+            return;
+        }
+
+        tokens.Add("-r");
+        tokens.Add(options.InjectedRuntimeIdentifier);
+    }
+
+    /// <summary>
+    /// The user <c>-p</c> properties a single-file pass forwards.
+    /// </summary>
+    /// <remarks>
+    /// <c>Configuration</c> is always filtered because <c>-c</c> already sets it.
+    /// <para>
+    /// <c>RuntimeIdentifier</c> is filtered ONLY when a RID is being injected. MSBuild is last-wins and
+    /// the forwarded <c>-p</c> is emitted after <c>-r</c>, so leaving it in would let
+    /// <c>--arch x64 -p RuntimeIdentifier=win-arm64</c> build arm64 while winapp provisions an x64
+    /// Windows App Runtime — a silently mismatched app. This mirrors project mode's dedicated-flag
+    /// precedence. When NO RID is injected the property is forwarded untouched, because that is exactly
+    /// the case where the user owns the choice (see <c>ResolveSingleFileRuntimeIdentifierAsync</c>).
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// The MSBuild property names a single <c>-p</c> token sets, trimmed.
+    /// </summary>
+    /// <remarks>
+    /// Shared so every decision keyed on "does the user set property X?" parses the token identically.
+    /// They previously diverged: the RID-injection check used a raw <c>StartsWith</c> while this filter
+    /// trimmed, so <c>-p " RuntimeIdentifier=win-arm64"</c> was invisible to the first (winapp injected
+    /// the host RID over it) and visible to the second (which then dropped the user's value) — the app
+    /// built for the wrong architecture.
+    /// </remarks>
+    internal static IEnumerable<string> PropertyNames(string property) =>
+        property.Split(';').Select(segment => segment.Split('=', 2)[0].Trim());
+
+    private static IEnumerable<string> SingleFileForwardableProperties(IReadOnlyList<string> properties, bool ridInjected = false) =>
+        properties.Where(p => !PropertyNames(p)
+            .Any(name => name.Equals("Configuration", StringComparison.OrdinalIgnoreCase)
+                || (ridInjected && name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))));
+
 
     /// <summary>
     /// Appends the <c>Solution*</c> MSBuild properties a solution build normally sets — most importantly
@@ -383,7 +522,8 @@ internal sealed partial class ProjectRunService
 
     /// <summary>True when the user passed a <c>-p Name=Value</c> for <paramref name="name"/> (case-insensitive).</summary>
     private static bool UserSpecifiesProperty(IReadOnlyList<string> properties, string name) =>
-        properties.Any(p => p.StartsWith(name + "=", StringComparison.OrdinalIgnoreCase));
+        properties.SelectMany(PropertySegments)
+            .Any(segment => PropertyName(segment).Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Reads the effective value of the user's <c>-p Name=Value</c> for <paramref name="name"/>
@@ -397,14 +537,17 @@ internal sealed partial class ProjectRunService
         var found = false;
         foreach (var property in properties)
         {
-            var equals = property.IndexOf('=');
-            if (equals > 0 && property[..equals].Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+            foreach (var segment in PropertySegments(property))
             {
-                var candidate = property[(equals + 1)..].Trim();
-                if (candidate.Length > 0)
+                var equals = segment.IndexOf('=');
+                if (equals > 0 && segment[..equals].Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
                 {
-                    value = candidate;
-                    found = true;
+                    var candidate = segment[(equals + 1)..].Trim();
+                    if (candidate.Length > 0)
+                    {
+                        value = candidate;
+                        found = true;
+                    }
                 }
             }
         }
@@ -435,17 +578,32 @@ internal sealed partial class ProjectRunService
     /// Configuration/RID/TFM in both the build and evaluate passes.
     /// </summary>
     private static IEnumerable<string> ForwardableProperties(IReadOnlyList<string> properties) =>
-        properties.Where(p => !IsDedicatedFlagProperty(p));
+        properties.Where(property => !IsDedicatedFlagProperty(property));
 
     /// <summary>
     /// True when a <c>Name=Value</c> property names a dedicated-switch property (case-insensitive). Splits
-    /// on ';' too and matches ANY packed segment, so a smuggled <c>RuntimeIdentifier</c>/<c>Configuration</c>/
-    /// <c>TargetFramework</c> in a packed <c>-p</c> can never override the switch winapp sets.
+    /// on both MSBuild property separators and matches ANY packed segment, so a smuggled
+    /// <c>RuntimeIdentifier</c>/<c>Configuration</c>/<c>TargetFramework</c> in a packed <c>-p</c> can never
+    /// override the switch winapp sets.
     /// </summary>
     private static bool IsDedicatedFlagProperty(string property) =>
-        property.Split(';')
-            .Select(segment => segment.Split('=', 2)[0].Trim())
-            .Any(name => DedicatedFlagProperties.Any(d => name.Equals(d, StringComparison.OrdinalIgnoreCase)));
+        PropertySegments(property)
+            .Select(PropertyName)
+            .Any(name => DedicatedFlagProperties.Any(
+                dedicated => name.Equals(dedicated, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Enumerates the properties packed into one <c>-p</c> value. MSBuild accepts both separators; literal
+    /// separator characters in a value must be percent-escaped before they reach this boundary.
+    /// </summary>
+    private static IEnumerable<string> PropertySegments(string property) =>
+        property.Split([';', ','], StringSplitOptions.RemoveEmptyEntries);
+
+    private static string PropertyName(string segment)
+    {
+        var equals = segment.IndexOf('=');
+        return (equals > 0 ? segment[..equals] : segment).Trim();
+    }
 
     /// <summary>Extracts the property name from a <c>-p:Name=Value</c> token (e.g. <c>SolutionDir</c>).</summary>
     private static string SolutionPropertyName(string token)
@@ -484,13 +642,37 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>
+    /// Adds an inferred profile and scopes its import to the selected app. The .NET SDK honors
+    /// <c>ProjectToOverrideProjectExtensionsPath</c> by setting <c>PublishProfileImported=false</c> in every
+    /// referenced project whose <c>MSBuildProjectFullPath</c> differs, so the global property cannot activate
+    /// a same-named profile elsewhere in the project graph.
+    /// </summary>
+    private static void AppendInferredPublishProfile(
+        List<string> tokens,
+        FileInfo project,
+        ProjectRunOptions options,
+        bool include = true)
+    {
+        if (!include || string.IsNullOrWhiteSpace(options.PublishProfile))
+        {
+            return;
+        }
+
+        tokens.Add($"-p:PublishProfile={EscapeMsBuildPropertyValue(options.PublishProfile)}");
+        tokens.Add(
+            $"-p:ProjectToOverrideProjectExtensionsPath={EscapeMsBuildPropertyValue(project.FullName)}");
+    }
+
+    /// <summary>
     /// Percent-escapes the characters MSBuild treats specially in a <c>-p:Name=Value</c> property value —
-    /// <c>;</c> (property separator) and <c>%</c> (escape lead-in, escaped first to stay idempotent-safe).
+    /// <c>;</c>/<c>,</c> (property separators) and <c>%</c> (escape lead-in, escaped first to stay
+    /// idempotent-safe).
     /// Other special chars are inert here and left as-is so paths stay readable in logs.
     /// </summary>
     private static string EscapeMsBuildPropertyValue(string value) =>
         value.Replace("%", "%25", StringComparison.Ordinal)
-             .Replace(";", "%3B", StringComparison.Ordinal);
+             .Replace(";", "%3B", StringComparison.Ordinal)
+             .Replace(",", "%2C", StringComparison.Ordinal);
 
     /// <summary>Name fragments that mark a <c>-p:Name=Value</c> property whose value must not be echoed.</summary>
     private static readonly string[] SecretPropertyNameFragments =
@@ -532,26 +714,58 @@ internal sealed partial class ProjectRunService
         return anyChanged ? WindowsCommandLine.JoinArguments(redacted) ?? commandLine : commandLine;
     }
 
+    /// <summary>
+    /// Masks a secret-looking value in a single <c>Name=Value</c> MSBuild property, using the same policy
+    /// as <see cref="RedactSecretsForDisplay"/>.
+    /// </summary>
+    /// <remarks>
+    /// For a property echoed on its own rather than inside a command line — a <c>-p</c> value repeated back
+    /// in guidance, say — where the <c>-p:</c> token prefix that drives the command-line form is absent.
+    /// </remarks>
+    internal static string RedactSecretPropertyForDisplay(string property) =>
+        RedactPropertySegments(property, out _);
+
     private static string RedactPropertySegments(string body, out bool changed)
     {
         changed = false;
-        var segments = body.Split(';');
-        for (int i = 0; i < segments.Length; i++)
+        var result = new StringBuilder(body.Length);
+        var segmentStart = 0;
+        var secretContinuation = false;
+        for (int i = 0; i <= body.Length; i++)
         {
-            var equals = segments[i].IndexOf('=', StringComparison.Ordinal);
-            if (equals <= 0)
+            if (i < body.Length && body[i] is not (';' or ','))
             {
                 continue;
             }
 
-            if (IsSecretPropertyName(segments[i][..equals]))
+            var segment = body[segmentStart..i];
+            var equals = segment.IndexOf('=', StringComparison.Ordinal);
+            if (equals > 0 && IsSecretPropertyName(segment[..equals]))
             {
-                segments[i] = segments[i][..equals] + "=***";
+                result.Append(segment[..equals]).Append("=***");
+                changed = true;
+                secretContinuation = true;
+            }
+            else if (equals <= 0 && secretContinuation)
+            {
+                result.Append("***");
                 changed = true;
             }
+            else
+            {
+                result.Append(segment);
+                secretContinuation = false;
+            }
+
+            if (i < body.Length)
+            {
+                result.Append(body[i]);
+            }
+
+            segmentStart = i + 1;
         }
 
-        return changed ? string.Join(';', segments) : body;
+        return changed ? result.ToString() : body;
     }
 
     private static bool IsSecretPropertyName(string name) =>

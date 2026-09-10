@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
@@ -20,8 +21,6 @@ public class RunCommandProjectModeTests : BaseCommandTests
     private FakeAppLauncherService _fakeAppLauncherService = null!;
     private FakeDebugOutputService _fakeDebugOutputService = null!;
     private FakeProjectRunService _fakeProjectRunService = null!;
-    private FakeNativeAotVerifier _fakeNativeAotVerifier = null!;
-    private FakePackageRegistrationService _fakePackageRegistrationService = null!;
 
     private const string TestManifestContent = """
         <?xml version="1.0" encoding="utf-8"?>
@@ -57,21 +56,17 @@ public class RunCommandProjectModeTests : BaseCommandTests
         _fakeAppLauncherService = new FakeAppLauncherService();
         _fakeDebugOutputService = new FakeDebugOutputService();
         _fakeProjectRunService = new FakeProjectRunService();
-        _fakeNativeAotVerifier = new FakeNativeAotVerifier();
-        _fakePackageRegistrationService = new FakePackageRegistrationService();
         return services
             .AddSingleton<IMsixService>(_fakeMsixService)
             .AddSingleton<IAppLauncherService>(_fakeAppLauncherService)
             .AddSingleton<IDebugOutputService>(_fakeDebugOutputService)
             .AddSingleton<IProjectRunService>(_fakeProjectRunService)
-            .AddSingleton<INativeAotVerifier>(_fakeNativeAotVerifier)
-            .AddSingleton<IPackageRegistrationService>(_fakePackageRegistrationService)
             .AddSingleton<INugetService, FakeNugetService>();
     }
 
     private FileInfo CreateCsproj(string name = "App.csproj")
     {
-        var path = TempPath(name);
+        var path = Path.Combine(_tempDirectory.FullName, name);
         File.WriteAllText(path, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
         return new FileInfo(path);
     }
@@ -81,14 +76,14 @@ public class RunCommandProjectModeTests : BaseCommandTests
         var dir = _tempDirectory.CreateSubdirectory($"bin_{Guid.NewGuid():N}");
         if (withManifest)
         {
-            File.WriteAllText(ChildPath(dir.FullName, "appxmanifest.xml"), TestManifestContent);
+            File.WriteAllText(Path.Combine(dir.FullName, "appxmanifest.xml"), TestManifestContent);
         }
         return dir;
     }
 
     private void SetUnpackagedOutcome(FileInfo csproj, DirectoryInfo targetDir, bool selfContained, string arch = "x64")
     {
-        var exe = ChildPath(targetDir.FullName, "App.exe");
+        var exe = Path.Combine(targetDir.FullName, "App.exe");
         _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
             new ProjectRunResolution(csproj, targetDir.FullName, exe, ProjectPackaging.Unpackaged, selfContained, arch), 0);
     }
@@ -113,7 +108,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
     private FileInfo WriteRejectionManifest()
     {
-        var path = TempPath($"manifest_{Guid.NewGuid():N}.xml");
+        var path = Path.Combine(_tempDirectory.FullName, $"manifest_{Guid.NewGuid():N}.xml");
         File.WriteAllText(path, TestManifestContent);
         return new FileInfo(path);
     }
@@ -124,30 +119,25 @@ public class RunCommandProjectModeTests : BaseCommandTests
             new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, arch), 0);
     }
 
-    private void SetPublishOutcome(
-       FileInfo csproj,
-       DirectoryInfo publishDirectory,
-       ProjectPackaging packaging,
-       bool publishAot,
-       bool selfContained = true)
+    private void SetPackagedAotOutcome(
+        FileInfo csproj,
+        DirectoryInfo publishDirectory,
+        FileInfo manifest,
+        FileInfo recipe,
+        string arch = "x64")
     {
-       var executable = ChildPath(publishDirectory.FullName, "App.exe");
-       File.WriteAllText(executable, "fixture");
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               publishDirectory.FullName,
-               executable,
-               packaging,
-               selfContained,
-               "x64",
-               Operation: ProjectPreparationOperation.Publish,
-               PublishDirectory: publishDirectory.FullName,
-               PublishAot: publishAot,
-               RuntimeIdentifier: "win-x64",
-               SourceExecutable: executable,
-               DotnetSdk: "10.0.303"),
-           0);
+        _fakeProjectRunService.AotOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(
+                csproj,
+                publishDirectory.FullName,
+                Path.Join(publishDirectory.FullName, "App.exe"),
+                ProjectPackaging.Packaged,
+                SelfContained: true,
+                Architecture: arch,
+                IsAot: true,
+                AppxManifestPath: manifest.FullName,
+                AppxRecipePath: recipe.FullName),
+            0);
     }
 
     #region Unpackaged
@@ -199,7 +189,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         // flag has to reach EnsureWindowsAppRuntimeInstalledAsync (which forwards it to dotnet list package).
         var csproj = CreateCsproj();
         var targetDir = CreateTargetDir(withManifest: false);
-        var exe = ChildPath(targetDir.FullName, "App.exe");
+        var exe = Path.Combine(targetDir.FullName, "App.exe");
         _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
             new ProjectRunResolution(csproj, targetDir.FullName, exe, ProjectPackaging.Unpackaged, false, "x64", NoRestore: true), 0);
         var command = GetRequiredService<RunCommand>();
@@ -485,6 +475,81 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("Exe", null, true, DisplayName = "console app defaults to alias launch")]
+    [DataRow("Exe", false, false, DisplayName = "console app can opt out via the property")]
+    [DataRow("WinExe", null, false, DisplayName = "windowed app defaults to AUMID")]
+    [DataRow("WinExe", true, true, DisplayName = "windowed app can opt in via the property")]
+    public async Task ProjectMode_Packaged_HonorsTheProjectsExecutionAliasPreference(
+        string outputType, bool? preferAlias, bool expectAlias)
+    {
+        // WinAppRunUseExecutionAlias must mean the same thing however the project is launched. Running
+        // the .csproj directly previously ignored it, so the same property behaved differently than it
+        // does through `dotnet run` or in a .cs file.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                null, false, null, outputType, preferAlias), 0);
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(1, _fakeMsixService.AddLooseLayoutEnsureAliasCalls.Count);
+        Assert.AreEqual(expectAlias, _fakeMsixService.AddLooseLayoutEnsureAliasCalls[0],
+            $"OutputType={outputType} with WinAppRunUseExecutionAlias={preferAlias?.ToString() ?? "unset"}");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task ProjectMode_InferredAliasUnavailable_WarnsThatOutputWillNotAppear()
+    {
+        // Plain `winapp run` now promises a console app's output reaches the terminal. When the inferred
+        // alias cannot be used, falling back to AUMID launches it into a process with no console, so it
+        // prints nothing — the exact silent success this feature exists to remove. The run still succeeds,
+        // but a Debug-level line leaves the user with no way to diagnose the missing output.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                null, false, null, "Exe", null), 0);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => null;
+        var command = GetRequiredService<RunCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode, "An inferred alias that cannot be used must not fail the run");
+        var output = System.Text.RegularExpressions.Regex.Replace(
+            $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        StringAssert.Contains(output, "not print to this terminal",
+            "The user has to be told why the console output is missing");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Packaged_ReadsThePackageGraphFromTheBuildsAssetsFile()
+    {
+        // `dotnet package list` re-evaluates the project and takes no -c/-r/-p, and the environment is not
+        // a substitute: MSBuild ranks environment properties BELOW a value the project assigns, while the
+        // build's own -c/-r/-p outrank it. So the only faithful source is project.assets.json — restore's
+        // output for the inputs the build actually ran with. Without it, a PackageReference conditioned on
+        // Configuration, RID, or a user -p is invisible, and the manifest's framework dependency and
+        // runtime provisioning are decided from a graph that does not describe the binary.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        var assetsFile = Path.Join(targetDir.FullName, "obj", "project.assets.json");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
+                null, false, null, "WinExe", null, assetsFile),
+            0);
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release", "--arch", "arm64"]);
+
+        Assert.AreEqual(assetsFile, _fakeMsixService.AddLooseLayoutAssetsFileCalls.Single(),
+            "The build's own assets file must reach package discovery");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Packaged_NoManifestInOutput_Errors()
     {
         var csproj = CreateCsproj();
@@ -497,32 +562,6 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(1, exitCode, "A packaged app with no AppxManifest.xml in the output is a misconfiguration");
         Assert.AreEqual(0, _fakeMsixService.AddLooseLayoutCalls.Count);
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count);
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_Packaged_NoManifestInOutput_JsonPreservesExecuted()
-    {
-        var csproj = CreateCsproj();
-        var targetDir = CreateTargetDir(withManifest: false);
-        SetPackagedOutcome(csproj, targetDir);
-        var command = GetRequiredService<RunCommand>();
-
-        var exitCode = await ParseAndInvokeWithCaptureAsync(
-            command,
-            [csproj.FullName, "--detach", "--json"]);
-
-        Assert.AreEqual(1, exitCode);
-        var jsonStart = TestAnsiConsole.Output.IndexOf('{');
-        var jsonEnd = TestAnsiConsole.Output.LastIndexOf('}');
-        using var json = System.Text.Json.JsonDocument.Parse(
-            TestAnsiConsole.Output[jsonStart..(jsonEnd + 1)]);
-        Assert.IsTrue(
-            json.RootElement.GetProperty("Executed").GetBoolean(),
-            "A failure after successful project preparation must preserve Executed=true.");
-        Assert.IsFalse(json.RootElement.GetProperty("Ready").GetBoolean());
-        Assert.AreEqual(
-            "GeneratedManifestMissing",
-            json.RootElement.GetProperty("ErrorCode").GetString());
     }
 
     #endregion
@@ -578,60 +617,6 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "An unsupported --arch must fail before building");
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_EarlyJsonErrorPreservesProjectSchema()
-    {
-        var csproj = CreateCsproj();
-        var command = GetRequiredService<RunCommand>();
-
-        var exitCode = await ParseAndInvokeWithCaptureAsync(
-            command,
-            [csproj.FullName, "--runtime", "linux-x64", "--json"]);
-
-        Assert.AreNotEqual(0, exitCode);
-        var jsonStart = TestAnsiConsole.Output.IndexOf('{');
-        var jsonEnd = TestAnsiConsole.Output.LastIndexOf('}');
-        Assert.IsTrue(jsonStart >= 0 && jsonEnd > jsonStart);
-        using var json = System.Text.Json.JsonDocument.Parse(
-            TestAnsiConsole.Output[jsonStart..(jsonEnd + 1)]);
-        var root = json.RootElement;
-        Assert.AreEqual(1, root.GetProperty("SchemaVersion").GetInt32());
-        Assert.AreEqual("Build", root.GetProperty("Operation").GetString());
-        Assert.IsFalse(root.GetProperty("Executed").GetBoolean());
-        Assert.IsFalse(root.GetProperty("Ready").GetBoolean());
-        Assert.IsFalse(root.TryGetProperty("RuntimeIdentifier", out _));
-        Assert.IsFalse(root.TryGetProperty("Platform", out _));
-        Assert.AreEqual(csproj.FullName, root.GetProperty("ProjectPath").GetString());
-        Assert.AreEqual("InvalidArchitecture", root.GetProperty("ErrorCode").GetString());
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_NormalOutputShowsResolvedDotnetSdk()
-    {
-        var csproj = CreateCsproj();
-        var outputDirectory = CreateTargetDir(withManifest: false);
-        var executable = ChildPath(outputDirectory.FullName, "App.exe");
-        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
-            new ProjectRunResolution(
-                csproj,
-                outputDirectory.FullName,
-                executable,
-                ProjectPackaging.Unpackaged,
-                SelfContained: true,
-                Architecture: "x64",
-                SourceExecutable: executable,
-                DotnetSdk: "10.0.303"),
-            0);
-        var command = GetRequiredService<RunCommand>();
-
-        var exitCode = await ParseAndInvokeWithCaptureAsync(
-            command,
-            [csproj.FullName, "--detach"]);
-
-        Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, ".NET SDK 10.0.303");
     }
 
     [TestMethod]
@@ -817,564 +802,201 @@ public class RunCommandProjectModeTests : BaseCommandTests
         StringAssert.Contains(error.GetString(), "';'", "Error must explain the ';' packing is not allowed");
     }
 
+    [TestMethod]
+    public async Task ProjectMode_CommaPackedProperty_IsRejectedWithoutEchoingSecret()
+    {
+        var csproj = CreateCsproj();
+        SetUnpackagedOutcome(csproj, CreateTargetDir(withManifest: false), selfContained: false);
+        var command = GetRequiredService<RunCommand>();
+        TestAnsiConsole.Profile.Width = 1000;
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--json", "-p", "PackageCertificatePassword=p@ss,w0rd"]);
+
+        Assert.AreEqual(1, exitCode, "A comma-packed -p must fail");
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        Assert.IsFalse(
+            TestAnsiConsole.Output.Contains("p@ss", StringComparison.Ordinal)
+            || TestAnsiConsole.Output.Contains("w0rd", StringComparison.Ordinal),
+            "the validation error must not echo any part of a possible secret value");
+        StringAssert.Contains(TestAnsiConsole.Output, "cannot pack multiple properties");
+    }
+
     #endregion
 
-    #region Publish and Native AOT
+    #region Native AOT
 
     [TestMethod]
-    public async Task ProjectMode_Publish_UsesPublishOperationAndLaunchesFromPublishDirectory()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       SetPublishOutcome(csproj, publishDirectory, ProjectPackaging.Unpackaged, publishAot: false);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--publish", "--detach"]);
-
-       Assert.AreEqual(0, exitCode);
-       Assert.AreEqual(ProjectPreparationOperation.Publish, _fakeProjectRunService.PreparationOperations.Single());
-       Assert.AreEqual(
-           ChildPath(publishDirectory.FullName, "App.exe"),
-           _fakeAppLauncherService.LaunchExecutableCalls.Single().ExePath);
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_NormalJsonReportsOnlyEvaluatedPlatformAndRuntime()
-    {
-       var csproj = CreateCsproj();
-       var targetDirectory = CreateTargetDir(withManifest: false);
-       var executable = ChildPath(targetDirectory.FullName, "App.exe");
-       File.WriteAllText(executable, "fixture");
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               targetDirectory.FullName,
-               executable,
-               ProjectPackaging.Unpackaged,
-               SelfContained: true,
-               Architecture: "x64",
-               RuntimeIdentifier: null,
-               EvaluatedPlatform: "AnyCPU"),
-           0);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--detach", "--json"]);
-
-       Assert.AreEqual(0, exitCode);
-       using var json = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-       var root = json.RootElement;
-       Assert.AreEqual("AnyCPU", root.GetProperty("Platform").GetString());
-       Assert.IsFalse(root.TryGetProperty("RuntimeIdentifier", out _));
-       Assert.IsFalse(
-           root.TryGetProperty("Alive", out _),
-           "Alive must remain absent when no liveness verification was performed.");
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_FrameworkDependentUnpackagedPublishUsesEvaluatedAssetsFile()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       var executable = ChildPath(publishDirectory.FullName, "App.exe");
-       var projectAssetsFile = ChildPath(publishDirectory.FullName, "project.assets.json");
-       File.WriteAllText(executable, "fixture");
-       File.WriteAllText(projectAssetsFile, "{}");
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               publishDirectory.FullName,
-               executable,
-               ProjectPackaging.Unpackaged,
-               SelfContained: false,
-               Architecture: "arm64",
-               Framework: "net10.0-windows10.0.26100.0",
-               Operation: ProjectPreparationOperation.Publish,
-               PublishDirectory: publishDirectory.FullName,
-               PublishAot: false,
-               RuntimeIdentifier: "win-arm64",
-               SourceExecutable: executable,
-               ProjectAssetsFile: projectAssetsFile),
-           0);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--publish", "--detach"]);
-
-       Assert.AreEqual(0, exitCode);
-       var runtimeCall = _fakeMsixService.EnsureRuntimeInstalledCalls.Single();
-       Assert.AreEqual(projectAssetsFile, runtimeCall.ProjectAssetsFile);
-       Assert.AreEqual("arm64", runtimeCall.Architecture);
-       Assert.AreEqual("net10.0-windows10.0.26100.0", runtimeCall.Framework);
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_ApphostFreePublishReportsDotnetAsProcessPath()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       var managedAssembly = ChildPath(publishDirectory.FullName, "App.dll");
-       File.WriteAllText(managedAssembly, "fixture");
-       var dotnetHost = Path.Join(
-           Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-           "dotnet",
-           "dotnet.exe");
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               publishDirectory.FullName,
-               dotnetHost,
-               ProjectPackaging.Unpackaged,
-               SelfContained: true,
-               Architecture: "x64",
-               RunArguments: $"exec \"{managedAssembly}\"",
-               Operation: ProjectPreparationOperation.Publish,
-               PublishDirectory: publishDirectory.FullName,
-               PublishAot: false,
-               SourceExecutable: managedAssembly),
-           0);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--publish", "--detach", "--json"]);
-
-       Assert.AreEqual(0, exitCode);
-       using var json = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-       Assert.AreEqual(dotnetHost, json.RootElement.GetProperty("ProcessPath").GetString());
-       Assert.AreEqual(managedAssembly, json.RootElement.GetProperty("SourceExecutable").GetString());
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_PublishNoBuild_ForwardsNoBuildWithoutSkippingPublishPreparation()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       SetPublishOutcome(csproj, publishDirectory, ProjectPackaging.Unpackaged, publishAot: false);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--publish", "--no-build", "--detach"]);
-
-       Assert.AreEqual(0, exitCode);
-       Assert.AreEqual(1, _fakeProjectRunService.BuildAndResolveCalls.Count);
-       Assert.IsTrue(_fakeProjectRunService.BuildOptions.Single().NoBuild);
-       Assert.AreEqual(ProjectPreparationOperation.Publish, _fakeProjectRunService.PreparationOperations.Single());
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_PackagedPublishStagesPublishDirWithEvaluatedGeneratedManifest()
-    {
-       var csproj = CreateCsproj();
-       var targetDirectory = CreateTargetDir(withManifest: true);
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       var executable = ChildPath(publishDirectory.FullName, "TestApp.exe");
-       File.WriteAllText(executable, "fixture");
-       var generatedManifest = ChildPath(targetDirectory.FullName, "appxmanifest.xml");
-       var projectAssetsFile = ChildPath(targetDirectory.FullName, "project.assets.json");
-       File.WriteAllText(projectAssetsFile, "{}");
-       var defaultStaging = Directory.CreateDirectory(
-           Path.Join(publishDirectory.FullName, "AppX"));
-       File.WriteAllText(ChildPath(defaultStaging.FullName, "TestApp.exe"), "fixture");
-       File.WriteAllText(
-           ChildPath(defaultStaging.FullName, "appxmanifest.xml"),
-           TestManifestContent);
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               targetDirectory.FullName,
-               null,
-               ProjectPackaging.Packaged,
-               SelfContained: false,
-               Architecture: "x64",
-               Operation: ProjectPreparationOperation.Publish,
-               PublishDirectory: publishDirectory.FullName,
-               PublishAot: false,
-               RuntimeIdentifier: "win-x64",
-               SourceExecutable: executable,
-               FinalAppxManifestPath: generatedManifest,
-               ProjectAssetsFile: projectAssetsFile),
-           0);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--publish", "--detach"]);
-
-       Assert.AreEqual(0, exitCode);
-       Assert.AreEqual(publishDirectory.FullName, _fakeMsixService.AddLooseLayoutInputDirectories.Single());
-       Assert.AreEqual(generatedManifest, _fakeMsixService.AddLooseLayoutCalls.Single().ManifestPath);
-       Assert.AreEqual(projectAssetsFile, _fakeMsixService.AddLooseLayoutRuntimeCalls.Single().ProjectAssetsFile);
-       Assert.IsTrue(_fakeMsixService.AddLooseLayoutDeploymentCalls.Single().RequireExactRuntimeDependency);
-       Assert.IsTrue(_fakeMsixService.AddLooseLayoutDeploymentCalls.Single().ExcludeSymbolsFromLayout);
-       Assert.IsFalse(_fakeMsixService.AddLooseLayoutDeploymentCalls.Single().SelfContained);
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_PackagedPublishJsonReportsStagedProcessPath()
-    {
-       var csproj = CreateCsproj();
-       var targetDirectory = CreateTargetDir(withManifest: true);
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       var sourceExecutable = ChildPath(publishDirectory.FullName, "TestApp.exe");
-       File.WriteAllText(sourceExecutable, "fixture");
-       var generatedManifest = ChildPath(targetDirectory.FullName, "appxmanifest.xml");
-       var stagingDirectory = _tempDirectory.CreateSubdirectory("json-stage");
-       var stagedExecutable = ChildPath(stagingDirectory.FullName, "TestApp.exe");
-       File.WriteAllText(stagedExecutable, "fixture");
-       File.WriteAllText(ChildPath(stagingDirectory.FullName, "appxmanifest.xml"), TestManifestContent);
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               targetDirectory.FullName,
-               null,
-               ProjectPackaging.Packaged,
-               SelfContained: true,
-               Architecture: "x64",
-               Operation: ProjectPreparationOperation.Publish,
-               PublishDirectory: publishDirectory.FullName,
-               PublishAot: false,
-               RuntimeIdentifier: "win-x64",
-               SourceExecutable: sourceExecutable,
-               FinalAppxManifestPath: generatedManifest),
-           0);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [
-               csproj.FullName,
-               "--publish",
-               "--detach",
-               "--json",
-               "--output-appx-directory",
-               stagingDirectory.FullName,
-           ]);
-
-       Assert.AreEqual(0, exitCode);
-           var output = TestAnsiConsole.Output;
-           var jsonStart = output.IndexOf('{');
-           var jsonEnd = output.LastIndexOf('}');
-           using var json = System.Text.Json.JsonDocument.Parse(
-               output[jsonStart..(jsonEnd + 1)]);
-       Assert.AreEqual(
-           stagedExecutable,
-           json.RootElement.GetProperty("ProcessPath").GetString());
-       Assert.AreEqual(
-           sourceExecutable,
-           json.RootElement.GetProperty("SourceExecutable").GetString());
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_PackagedPublishRejectsStagingDirectoryContainingPublishDir()
-    {
-       var csproj = CreateCsproj();
-       var targetDirectory = CreateTargetDir(withManifest: true);
-       var projectDirectory = csproj.Directory!;
-       var publishDirectory = projectDirectory.CreateSubdirectory("publish");
-       var executable = ChildPath(publishDirectory.FullName, "TestApp.exe");
-       File.WriteAllText(executable, "fixture");
-       var generatedManifest = ChildPath(targetDirectory.FullName, "appxmanifest.xml");
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               targetDirectory.FullName,
-               null,
-               ProjectPackaging.Packaged,
-               SelfContained: true,
-               Architecture: "x64",
-               Operation: ProjectPreparationOperation.Publish,
-               PublishDirectory: publishDirectory.FullName,
-               PublishAot: false,
-               RuntimeIdentifier: "win-x64",
-               SourceExecutable: executable,
-               FinalAppxManifestPath: generatedManifest),
-           0);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [
-               csproj.FullName,
-               "--publish",
-               "--output-appx-directory",
-               projectDirectory.FullName,
-               "--detach",
-           ]);
-       Assert.AreEqual(1, exitCode);
-       Assert.AreEqual(1, exitCode);
-       Assert.IsTrue(csproj.Exists, "The project must not be deleted by staging validation.");
-       Assert.IsTrue(File.Exists(executable), "The published executable must remain intact.");
-       Assert.AreEqual(0, _fakeMsixService.AddLooseLayoutCalls.Count);
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_DryRun_DoesNotPublishRegisterOrLaunch()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       SetPublishOutcome(csproj, publishDirectory, ProjectPackaging.Unpackaged, publishAot: false);
-       _fakeProjectRunService.PreparationOutcome =
-           _fakeProjectRunService.PreparationOutcome! with { Executed = false, Ready = true };
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--publish", "--dry-run"]);
-
-       Assert.AreEqual(0, exitCode);
-       Assert.IsTrue(_fakeProjectRunService.BuildOptions.Single().DryRun);
-       Assert.AreEqual(0, _fakeMsixService.AddLooseLayoutCalls.Count);
-       Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
-       StringAssert.Contains(TestAnsiConsole.Output, "No restore, build, publish, registration, or launch");
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_VerifyNativeAot_ImpliesPublishAndEmitsJsonProvenance()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       SetPublishOutcome(csproj, publishDirectory, ProjectPackaging.Unpackaged, publishAot: true);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--verify-native-aot", "--detach", "--json"]);
-
-       Assert.AreEqual(0, exitCode);
-       Assert.AreEqual(ProjectPreparationOperation.Publish, _fakeProjectRunService.PreparationOperations.Single());
-       Assert.AreEqual(1, _fakeNativeAotVerifier.StaticCalls.Count);
-       Assert.AreEqual(1, _fakeNativeAotVerifier.RuntimeCalls.Count);
-
-       using var json = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-       var root = json.RootElement;
-       Assert.AreEqual("Publish", root.GetProperty("Operation").GetString());
-       Assert.AreEqual(publishDirectory.FullName, root.GetProperty("PublishDirectory").GetString());
-       Assert.AreEqual(
-           ChildPath(publishDirectory.FullName, "App.exe"),
-           root.GetProperty("SourceExecutable").GetString());
-       Assert.IsTrue(root.GetProperty("NativeAotVerified").GetBoolean());
-       Assert.IsTrue(root.GetProperty("Verification").GetProperty("RuntimeModules").GetBoolean());
-       Assert.IsTrue(root.GetProperty("Verification").GetProperty("ProcessProvenance").GetBoolean());
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_IndeterminateDryRun_EmitsReadyNullAndRestoreCommand()
-    {
-       var csproj = CreateCsproj();
-       _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           null,
-           1,
-           Executed: false,
-           Ready: null,
-           Reason: "RestoreRequired",
-           SuggestedCommand: $"dotnet restore {csproj.FullName} -r win-x64 -p:PublishAot=true",
-           ErrorCode: "RestoreRequired",
-           Error: "Restored Native AOT assets are unavailable.");
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--verify-native-aot", "--dry-run", "--json"]);
-
-       Assert.AreNotEqual(0, exitCode);
-       using var json = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-       var root = json.RootElement;
-       Assert.AreEqual(System.Text.Json.JsonValueKind.Null, root.GetProperty("Ready").ValueKind);
-       Assert.AreEqual("RestoreRequired", root.GetProperty("Reason").GetString());
-       StringAssert.Contains(root.GetProperty("SuggestedCommand").GetString(), "dotnet restore");
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_VerifyNativeAot_RejectsJitPayloadBeforeLaunch()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       SetPublishOutcome(csproj, publishDirectory, ProjectPackaging.Unpackaged, publishAot: true);
-       _fakeNativeAotVerifier.StaticResult = new(
-           Succeeded: false,
-           ForbiddenFiles: [ChildPath(publishDirectory.FullName, "App.dll")]);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--verify-native-aot", "--detach"]);
-
-       Assert.AreNotEqual(0, exitCode);
-       Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
-       StringAssert.Contains(ConsoleStdErr.ToString(), "Forbidden files");
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_VerifyNativeAot_ReportsSingleFileBundleErrorCode()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       SetPublishOutcome(csproj, publishDirectory, ProjectPackaging.Unpackaged, publishAot: true);
-       _fakeNativeAotVerifier.StaticResult = new NativeAotStaticVerification(
-           Succeeded: false,
-           ForbiddenFiles: [ChildPath(publishDirectory.FullName, "App.exe")],
-           Error: "The published executable is a .NET single-file bundle.",
-           SingleFileBundle: true);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--verify-native-aot", "--json"]);
-
-       Assert.AreNotEqual(0, exitCode);
-       using var json = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-       Assert.AreEqual(
-           "DotNetSingleFileBundleDetected",
-           json.RootElement.GetProperty("ErrorCode").GetString());
-       Assert.IsFalse(json.RootElement.GetProperty("Ready").GetBoolean());
-       StringAssert.Contains(json.RootElement.GetProperty("Error").GetString(), "single-file bundle");
-       Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_VerifyNativeAot_ProcessExitsDuringWindowFailsAndDoesNotCertify()
-    {
-       var csproj = CreateCsproj();
-       var publishDirectory = CreateTargetDir(withManifest: false);
-       SetPublishOutcome(csproj, publishDirectory, ProjectPackaging.Unpackaged, publishAot: true);
-       _fakeNativeAotVerifier.RuntimeResult = new NativeAotRuntimeVerification(
-           Succeeded: false,
-           Alive: false,
-           RuntimeModules: false,
-           ProcessProvenance: false,
-           PackageRegistration: null,
-           ProcessPath: null,
-           LoadedModules: [],
-           MainWindowHandle: 0,
-           MainWindowTitle: string.Empty,
-           Error: "The app exited with exit code 42 before Native AOT verification completed. Re-run without --verify-native-aot and --detach, then add --debug-output; add --symbols for native crash details.",
-           ExitCode: 42);
-       var command = GetRequiredService<RunCommand>();
-
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [csproj.FullName, "--verify-native-aot", "--detach", "--json"]);
-
-       Assert.AreNotEqual(0, exitCode);
-       Assert.IsNotNull(_fakeAppLauncherService.LastLaunchedProcess);
-       Assert.IsTrue(_fakeAppLauncherService.LastLaunchedProcess!.Killed);
-       using var json = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
-       Assert.IsFalse(json.RootElement.GetProperty("NativeAotVerified").GetBoolean());
-       Assert.AreEqual(42, json.RootElement.GetProperty("ProcessExitCode").GetInt32());
-       StringAssert.Contains(json.RootElement.GetProperty("Error").GetString(), "--debug-output");
-       StringAssert.Contains(json.RootElement.GetProperty("Error").GetString(), "--symbols");
-       Assert.AreEqual(
-           "ProcessExitedDuringVerification",
-           json.RootElement.GetProperty("ErrorCode").GetString());
-       Assert.IsFalse(json.RootElement.GetProperty("Ready").GetBoolean());
-    }
-
-    [TestMethod]
-    public async Task ProjectMode_PackagedVerificationFailure_TerminatesAndUnregistersOnlyCurrentStage()
+    public async Task ProjectMode_AotUsesPublishResolverAndExplicitRecipe()
     {
         var csproj = CreateCsproj();
         var publishDirectory = CreateTargetDir(withManifest: false);
-        var sourceExecutable = ChildPath(publishDirectory.FullName, "TestApp.exe");
-        File.WriteAllText(sourceExecutable, "native fixture");
-        var generatedManifest = TempPath("generated-AppxManifest.xml");
-        File.WriteAllText(generatedManifest, TestManifestContent);
-        var stagingDirectory = _tempDirectory.CreateSubdirectory("verification-failure-stage");
-        File.WriteAllText(ChildPath(stagingDirectory.FullName, "appxmanifest.xml"), TestManifestContent);
-        File.Copy(sourceExecutable, ChildPath(stagingDirectory.FullName, "TestApp.exe"));
-        _fakeProjectRunService.PreparationOutcome = new ProjectPreparationOutcome(
-           new ProjectRunResolution(
-               csproj,
-               publishDirectory.FullName,
-               null,
-               ProjectPackaging.Packaged,
-               SelfContained: true,
-               Architecture: "x64",
-               Operation: ProjectPreparationOperation.Publish,
-               PublishDirectory: publishDirectory.FullName,
-               PublishAot: true,
-               RuntimeIdentifier: "win-x64",
-               SourceExecutable: sourceExecutable,
-               FinalAppxManifestPath: generatedManifest),
-           0);
-        _fakeNativeAotVerifier.RuntimeResult = new NativeAotRuntimeVerification(
-           Succeeded: false,
-           Alive: true,
-           RuntimeModules: false,
-           ProcessProvenance: true,
-           PackageRegistration: true,
-           ProcessPath: ChildPath(stagingDirectory.FullName, "TestApp.exe"),
-           LoadedModules: ["coreclr.dll"],
-           MainWindowHandle: 0,
-           MainWindowTitle: string.Empty,
-           Error: "The running process loaded managed runtime modules: coreclr.dll.");
-        _fakeAppLauncherService.FakePackageFullName =
-           "TestPackage_1.0.0.0_x64__fakefamily";
-        _fakePackageRegistrationService.FakeDevPackages =
-        [
-           new DevPackageInfo(
-               _fakeAppLauncherService.FakePackageFullName,
-               "TestPackage",
-               "1.0.0.0",
-               stagingDirectory.FullName,
-               IsDevelopmentMode: true),
-           new DevPackageInfo(
-               "TestPackage_1.0.0.0_x64__unrelated",
-               "TestPackage",
-               "1.0.0.0",
-               TempPath("unrelated-stage"),
-               IsDevelopmentMode: true),
-        ];
+        File.WriteAllText(
+            Path.Join(publishDirectory.FullName, "Package.appxmanifest"),
+            TestManifestContent.Replace("TestPackage", "StalePackage", StringComparison.Ordinal));
+        var generatedDirectory = _tempDirectory.CreateSubdirectory("generated");
+        var manifest = new FileInfo(Path.Join(generatedDirectory.FullName, "AppxManifest.xml"));
+        File.WriteAllText(manifest.FullName, TestManifestContent);
+        var recipe = new FileInfo(Path.Join(generatedDirectory.FullName, "App.build.appxrecipe"));
+        File.WriteAllText(recipe.FullName, "<Project />");
+        SetPackagedAotOutcome(csproj, publishDirectory, manifest, recipe);
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [
-               csproj.FullName,
-               "--verify-native-aot",
-               "--unregister-on-exit",
-               "--output-appx-directory",
-               stagingDirectory.FullName,
-               "--json",
-           ]);
+            command,
+            [csproj.FullName, "--aot", "--no-launch"]);
 
-        Assert.AreNotEqual(0, exitCode);
-        Assert.AreEqual(1, _fakeAppLauncherService.TerminateCalls.Count);
-        Assert.AreEqual(_fakeAppLauncherService.FakeProcessId,
-           _fakeAppLauncherService.TerminateCalls.Single().ProcessId);
-        Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeProjectRunService.AotOptions.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildOptions.Count);
+        Assert.AreEqual("Debug", _fakeProjectRunService.AotOptions.Single().Configuration);
         Assert.AreEqual(
-           _fakeAppLauncherService.FakePackageFullName,
-           _fakePackageRegistrationService.UnregisterByFullNameCalls.Single().PackageFullName);
-        var jsonStart = TestAnsiConsole.Output.IndexOf('{');
-        var jsonEnd = TestAnsiConsole.Output.LastIndexOf('}');
-        Assert.IsTrue(jsonStart >= 0 && jsonEnd > jsonStart);
-        using var json = System.Text.Json.JsonDocument.Parse(
-            TestAnsiConsole.Output[jsonStart..(jsonEnd + 1)]);
+            RunArchHelper.DefaultArchitecture(),
+            _fakeProjectRunService.AotOptions.Single().Architecture);
+        Assert.AreEqual(manifest.FullName, _fakeMsixService.AddLooseLayoutCalls.Single().ManifestPath);
+        Assert.AreEqual(recipe.FullName, _fakeMsixService.AddLooseLayoutRecipeCalls.Single());
+        Assert.AreEqual(publishDirectory.FullName, _fakeMsixService.AddLooseLayoutDirectoryCalls.Single().InputDirectory);
         Assert.AreEqual(
-           _fakeAppLauncherService.FakeProcessId,
-           json.RootElement.GetProperty("ProcessId").GetUInt32());
-        StringAssert.Contains(json.RootElement.GetProperty("Error").GetString(), "was terminated");
+            Path.Join(publishDirectory.FullName, "AppX"),
+            _fakeMsixService.AddLooseLayoutDirectoryCalls.Single().OutputDirectory);
     }
 
     [TestMethod]
-    public async Task FolderMode_RejectsProjectOnlyPublishOptions()
+    public async Task ProjectMode_AotForwardsConfigurationArchitectureFrameworkAndProperties()
     {
-       File.WriteAllText(TempPath("appxmanifest.xml"), TestManifestContent);
-       var command = GetRequiredService<RunCommand>();
+        var csproj = CreateCsproj();
+        var publishDirectory = CreateTargetDir(withManifest: false);
+        var exe = Path.Join(publishDirectory.FullName, "Custom.exe");
+        _fakeProjectRunService.AotOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(
+                csproj,
+                publishDirectory.FullName,
+                exe,
+                ProjectPackaging.Unpackaged,
+                SelfContained: true,
+                Architecture: "arm64",
+                IsAot: true),
+            0);
+        var command = GetRequiredService<RunCommand>();
 
-       var exitCode = await ParseAndInvokeWithCaptureAsync(
-           command,
-           [_tempDirectory.FullName, "--publish"]);
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [
+                csproj.FullName,
+                "--aot",
+                "-c", "Release",
+                "--arch", "arm64",
+                "-f", "net10.0-windows10.0.26100.0",
+                "-p", "PublishAot=true",
+                "--no-restore",
+                "--detach",
+            ]);
 
-       Assert.AreEqual(1, exitCode);
-       Assert.AreEqual(0, _fakeMsixService.AddLooseLayoutCalls.Count);
-       StringAssert.Contains(ConsoleStdErr.ToString(), "can only be used");
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeProjectRunService.AotOptions.Single();
+        Assert.AreEqual("Release", options.Configuration);
+        Assert.AreEqual("arm64", options.Architecture);
+        Assert.AreEqual("net10.0-windows10.0.26100.0", options.Framework);
+        Assert.IsTrue(options.NoRestore);
+        CollectionAssert.Contains(options.Properties.ToList(), "PublishAot=true");
+        Assert.AreEqual(exe, _fakeAppLauncherService.LaunchExecutableCalls.Single().ExePath);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_AotRejectsNoBuildAndX86BeforePublishing()
+    {
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<RunCommand>();
+
+        var noBuildExit = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--aot", "--no-build"]);
+        var x86Exit = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--aot", "--arch", "x86"]);
+
+        Assert.AreEqual(1, noBuildExit);
+        Assert.AreEqual(1, x86Exit);
+        Assert.AreEqual(0, _fakeProjectRunService.AotOptions.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_AotRuntimeArchitectureOverridesArch()
+    {
+        var csproj = CreateCsproj();
+        var publishDirectory = CreateTargetDir(withManifest: false);
+        _fakeProjectRunService.AotOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(
+                csproj,
+                publishDirectory.FullName,
+                Path.Join(publishDirectory.FullName, "App.exe"),
+                ProjectPackaging.Unpackaged,
+                SelfContained: true,
+                Architecture: "arm64",
+                IsAot: true),
+            0);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [
+                csproj.FullName,
+                "--aot",
+                "--arch", "x86",
+                "--runtime", "win-arm64",
+                "--detach",
+            ]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("arm64", _fakeProjectRunService.AotOptions.Single().Architecture);
+    }
+
+    [TestMethod]
+    public async Task AotRejectsFolderAndSingleFileModes()
+    {
+        var command = GetRequiredService<RunCommand>();
+        var singleFile = new FileInfo(Path.Join(_tempDirectory.FullName, "app.cs"));
+        File.WriteAllText(singleFile.FullName, "Console.WriteLine();");
+
+        var folderExit = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [_tempDirectory.FullName, "--aot"]);
+        var singleFileExit = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [singleFile.FullName, "--aot"]);
+
+        Assert.AreEqual(1, folderExit);
+        Assert.AreEqual(1, singleFileExit);
+        Assert.AreEqual(0, _fakeProjectRunService.AotOptions.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.SingleFileBuildOptions.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_UnpackagedAotSupportsDebugOutput()
+    {
+        var csproj = CreateCsproj();
+        var publishDirectory = CreateTargetDir(withManifest: false);
+        var exe = Path.Join(publishDirectory.FullName, "App.exe");
+        _fakeProjectRunService.AotOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(
+                csproj,
+                publishDirectory.FullName,
+                exe,
+                ProjectPackaging.Unpackaged,
+                SelfContained: true,
+                Architecture: "x64",
+                IsAot: true),
+            0);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--aot", "--debug-output"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(exe, _fakeAppLauncherService.LaunchExecutableCalls.Single().ExePath);
+        Assert.AreEqual(1, _fakeDebugOutputService.AttachCalls.Count);
     }
 
     #endregion
@@ -1386,7 +1008,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
     {
         // Folder mode must pass null runtimeArch/projectFile so behavior is byte-identical to before
         // project mode existed.
-        File.WriteAllText(TempPath("appxmanifest.xml"), TestManifestContent);
+        File.WriteAllText(Path.Combine(_tempDirectory.FullName, "appxmanifest.xml"), TestManifestContent);
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--no-launch"]);
@@ -1399,24 +1021,4 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     #endregion
-
-    private string TempPath(params string[] segments) =>
-        ChildPath(_tempDirectory.FullName, segments);
-
-    private static string ChildPath(string root, params string[] segments)
-    {
-        if (!Path.IsPathFullyQualified(root) ||
-            segments.Any(segment =>
-                string.IsNullOrWhiteSpace(segment) ||
-                Path.IsPathRooted(segment) ||
-                segment is "." or ".." ||
-                !string.Equals(Path.GetFileName(segment), segment, StringComparison.Ordinal)))
-        {
-            throw new ArgumentException("Fixture path contains an invalid segment.", nameof(segments));
-        }
-
-        return Path.GetFullPath(
-            string.Join(Path.DirectorySeparatorChar, segments),
-            root);
-    }
 }

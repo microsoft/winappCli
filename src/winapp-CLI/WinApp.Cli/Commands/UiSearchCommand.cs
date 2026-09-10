@@ -10,6 +10,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
@@ -33,9 +34,15 @@ internal class UiSearchCommand : Command, IShortDescription
         IUiAutomation uiAutomation,
         IUiSelectorParser selectorParser,
         IAnsiConsole ansiConsole,
-        ILogger<UiSearchCommand> logger) : AsynchronousCommandLineAction
+        IInteractiveDesktopLock desktopLock,
+        ILogger<UiSearchCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        protected override string Operation => "ui search";
+
+        /// <summary>Searching the element tree is a background-safe UIA read.</summary>
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.Observe;
+
+        protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
@@ -47,13 +54,24 @@ internal class UiSearchCommand : Command, IShortDescription
                 UiErrors.MissingApp(logger, json);
                 return 1;
             }
-            var maxResults = parseResult.GetRequiredValue(SharedUiOptions.MaxResultsOption);
 
             if (string.IsNullOrWhiteSpace(selectorStr))
             {
                 UiErrors.MissingSelector(logger, "search", json);
                 return 1;
             }
+
+            return null;
+        }
+
+        protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
+        {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            // Preflight rejected a missing selector, so this is non-null by construction.
+            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var app = parseResult.GetValue(SharedUiOptions.AppOption);
+            var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+            var maxResults = parseResult.GetRequiredValue(SharedUiOptions.MaxResultsOption);
 
             try
             {
@@ -119,7 +137,7 @@ internal class UiSearchCommand : Command, IShortDescription
                 UiErrors.StaleElement(logger, json);
                 return 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;

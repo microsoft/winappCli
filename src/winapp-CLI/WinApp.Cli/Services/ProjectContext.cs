@@ -72,6 +72,7 @@ internal enum ProjectExecutionMode
     None,
     Project,
     Folder,
+    SingleFile,
 }
 
 internal sealed record ProjectContext(

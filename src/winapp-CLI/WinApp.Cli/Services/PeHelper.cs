@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Reflection.PortableExecutable;
-using System.Buffers.Binary;
 
 namespace WinApp.Cli.Services;
 
@@ -11,16 +10,6 @@ namespace WinApp.Cli.Services;
 /// </summary>
 internal static class PeHelper
 {
-    // Official apphost bundle marker from dotnet/runtime's bundle_marker.c. The 8 bytes immediately
-    // before this signature are patched from zero to the bundle-header offset by single-file publish.
-    private static ReadOnlySpan<byte> DotNetBundleSignature =>
-    [
-        0x8b, 0x12, 0x02, 0xb9, 0x6a, 0x61, 0x20, 0x38,
-        0x72, 0x7b, 0x93, 0x02, 0x14, 0xd7, 0xa0, 0x32,
-        0x13, 0xf5, 0xb9, 0xe6, 0xef, 0xae, 0x33, 0x18,
-        0xee, 0x3b, 0x2d, 0xce, 0x24, 0xb3, 0x6a, 0xae,
-    ];
-
     /// <summary>
     /// Detects the architecture of a PE file and returns an MSIX-style architecture string:
     /// "x86", "x64", "arm", "arm64", or "neutral".
@@ -56,55 +45,28 @@ internal static class PeHelper
     }
 
     /// <summary>
-    /// Returns the embedded bundle-header offset when <paramref name="filePath"/> is an official .NET
-    /// single-file apphost, or <see langword="null"/> for an ordinary apphost/native executable.
-    /// File access failures propagate so security-sensitive callers can fail closed.
+    /// Returns whether a PE image is a console (character-mode) executable, or <see langword="null"/>
+    /// when the file cannot be read as a PE image.
     /// </summary>
-    internal static long? GetDotNetSingleFileBundleHeaderOffset(string filePath)
+    /// <remarks>
+    /// This is what <c>OutputType</c> compiles down to: <c>Exe</c> produces
+    /// <c>IMAGE_SUBSYSTEM_WINDOWS_CUI</c> and <c>WinExe</c> produces <c>IMAGE_SUBSYSTEM_WINDOWS_GUI</c>.
+    /// Reading it from the built binary lets folder mode make the same console/windowed decision that
+    /// project and single-file mode make from the evaluated property, without a project to evaluate.
+    /// </remarks>
+    internal static bool? IsConsoleSubsystem(string filePath)
     {
-        const int offsetSize = sizeof(long);
-        var signature = DotNetBundleSignature;
-        var overlapLength = offsetSize + signature.Length - 1;
-        var buffer = new byte[64 * 1024 + overlapLength];
-        var carry = 0;
-        long bufferStart = 0;
-
-        using var stream = File.OpenRead(filePath);
-        while (true)
+        try
         {
-            var read = stream.Read(buffer, carry, buffer.Length - carry);
-            var total = carry + read;
-            if (total < offsetSize + signature.Length && read == 0)
-            {
-                return null;
-            }
+            using var stream = File.OpenRead(filePath);
+            using var peReader = new PEReader(stream);
 
-            for (var signatureIndex = offsetSize;
-                 signatureIndex <= total - signature.Length;
-                 signatureIndex++)
-            {
-                if (!buffer.AsSpan(signatureIndex, signature.Length).SequenceEqual(signature))
-                {
-                    continue;
-                }
-
-                var headerOffset = BinaryPrimitives.ReadInt64LittleEndian(
-                    buffer.AsSpan(signatureIndex - offsetSize, offsetSize));
-                var markerOffset = bufferStart + signatureIndex - offsetSize;
-                if (headerOffset > markerOffset && headerOffset < stream.Length)
-                {
-                    return headerOffset;
-                }
-            }
-
-            if (read == 0)
-            {
-                return null;
-            }
-
-            carry = Math.Min(overlapLength, total);
-            buffer.AsSpan(total - carry, carry).CopyTo(buffer);
-            bufferStart += total - carry;
+            var peHeader = peReader.PEHeaders.PEHeader;
+            return peHeader is null ? null : peHeader.Subsystem == Subsystem.WindowsCui;
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

@@ -9,14 +9,6 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class PeHelperTests
 {
-    private static readonly byte[] DotNetBundleSignature =
-    [
-        0x8b, 0x12, 0x02, 0xb9, 0x6a, 0x61, 0x20, 0x38,
-        0x72, 0x7b, 0x93, 0x02, 0x14, 0xd7, 0xa0, 0x32,
-        0x13, 0xf5, 0xb9, 0xe6, 0xef, 0xae, 0x33, 0x18,
-        0xee, 0x3b, 0x2d, 0xce, 0x24, 0xb3, 0x6a, 0xae,
-    ];
-
     // COFF machine constants.
     private const ushort I386 = 0x014C;
     private const ushort Amd64 = 0x8664;
@@ -70,6 +62,58 @@ public class PeHelperTests
         Assert.IsNull(PeHelper.ClassifyArchitecture(Unknown, CorFlags.ILOnly));
     }
 
+    // ---- IsConsoleSubsystem -------------------------------------------------------
+
+    [TestMethod]
+    public void IsConsoleSubsystem_ConsoleExecutable_IsTrue()
+    {
+        // The test host itself is a console app, so it is a real IMAGE_SUBSYSTEM_WINDOWS_CUI binary
+        // rather than a synthesized one.
+        var self = Environment.ProcessPath;
+        Assert.IsNotNull(self);
+
+        Assert.AreEqual(true, PeHelper.IsConsoleSubsystem(self),
+            "A console binary must be reported as console, since that is what OutputType=Exe produces");
+    }
+
+    [TestMethod]
+    public void IsConsoleSubsystem_WindowedExecutable_IsFalse()
+    {
+        // notepad.exe is a GUI binary shipped with Windows: IMAGE_SUBSYSTEM_WINDOWS_GUI, which is what
+        // OutputType=WinExe produces.
+        var notepad = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe");
+        if (!File.Exists(notepad))
+        {
+            Assert.Inconclusive("notepad.exe is not present on this machine.");
+        }
+
+        Assert.AreEqual(false, PeHelper.IsConsoleSubsystem(notepad));
+    }
+
+    [TestMethod]
+    public void IsConsoleSubsystem_NotAPeImage_ReturnsNull()
+    {
+        // Callers use null to mean "cannot tell", which keeps AUMID activation rather than guessing.
+        var text = Path.Join(Path.GetTempPath(), $"winapp-not-pe-{Guid.NewGuid():N}.exe");
+        File.WriteAllText(text, "this is not a PE image");
+
+        try
+        {
+            Assert.IsNull(PeHelper.IsConsoleSubsystem(text));
+        }
+        finally
+        {
+            File.Delete(text);
+        }
+    }
+
+    [TestMethod]
+    public void IsConsoleSubsystem_MissingFile_ReturnsNull()
+    {
+        Assert.IsNull(PeHelper.IsConsoleSubsystem(
+            Path.Join(Path.GetTempPath(), $"winapp-missing-{Guid.NewGuid():N}.exe")));
+    }
+
     [TestMethod]
     public void ClassifyArchitecture_MixedModeManaged_FallsBackToMachine()
     {
@@ -87,18 +131,14 @@ public class PeHelperTests
     [TestMethod]
     public void DetectPeArchitecture_NonexistentFile_ReturnsNull()
     {
-        var missing = Path.GetFullPath(
-            $"pehelper_missing_{Guid.NewGuid():N}.dll",
-            Path.GetTempPath());
+        var missing = Path.Combine(Path.GetTempPath(), $"pehelper_missing_{Guid.NewGuid():N}.dll");
         Assert.IsNull(PeHelper.DetectPeArchitecture(missing));
     }
 
     [TestMethod]
     public void DetectPeArchitecture_NotAPeFile_ReturnsNull()
     {
-        var junk = Path.GetFullPath(
-            $"pehelper_junk_{Guid.NewGuid():N}.bin",
-            Path.GetTempPath());
+        var junk = Path.Combine(Path.GetTempPath(), $"pehelper_junk_{Guid.NewGuid():N}.bin");
         File.WriteAllText(junk, "this is not a PE image");
         try
         {
@@ -116,7 +156,7 @@ public class PeHelperTests
     public void DetectPeArchitecture_RealNativeSystemDll_ReturnsKnownArchitecture()
     {
         // A real native Windows DLL is classified from its COFF machine field.
-        var kernel32 = Path.GetFullPath("kernel32.dll", Environment.SystemDirectory);
+        var kernel32 = Path.Combine(Environment.SystemDirectory, "kernel32.dll");
         if (!File.Exists(kernel32))
         {
             Assert.Inconclusive("kernel32.dll not found; skipping native PE classification check.");
@@ -126,49 +166,5 @@ public class PeHelperTests
         var arch = PeHelper.DetectPeArchitecture(kernel32);
         CollectionAssert.Contains(KnownArchitectures, arch,
             $"A real native system DLL should classify to a known architecture, got '{arch}'.");
-    }
-
-    [TestMethod]
-    public void GetDotNetSingleFileBundleHeaderOffset_UnpatchedAppHostMarkerReturnsNull()
-    {
-        var path = WriteBundleMarkerFixture(headerOffset: 0);
-        try
-        {
-            Assert.IsNull(PeHelper.GetDotNetSingleFileBundleHeaderOffset(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [TestMethod]
-    public void GetDotNetSingleFileBundleHeaderOffset_PatchedMarkerReturnsOffset()
-    {
-        const long headerOffset = 160;
-        var path = WriteBundleMarkerFixture(headerOffset);
-        try
-        {
-            Assert.AreEqual(
-                headerOffset,
-                PeHelper.GetDotNetSingleFileBundleHeaderOffset(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    private static string WriteBundleMarkerFixture(long headerOffset)
-    {
-        var path = Path.GetFullPath(
-            $"pehelper_bundle_{Guid.NewGuid():N}.exe",
-            Path.GetTempPath());
-        using var stream = File.Create(path);
-        stream.SetLength(256);
-        stream.Position = 64;
-        stream.Write(BitConverter.GetBytes(headerOffset));
-        stream.Write(DotNetBundleSignature);
-        return path;
     }
 }

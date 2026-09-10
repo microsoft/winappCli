@@ -9,6 +9,7 @@ using System.Diagnostics.CodeAnalysis;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.Controls;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Helpers;
 
@@ -54,7 +55,6 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<ICodeIntegrityCatalogService, CodeIntegrityCatalogService>()
             .AddSingleton<IAppLauncherService, AppLauncherService>()
             .AddSingleton<IPackageRegistrationService, PackageRegistrationService>()
-            .AddSingleton<INativeAotVerifier, NativeAotVerifier>()
             .AddSingleton<IDebugOutputService, DebugOutputService>()
             .AddSingleton<IXamlTriageService, XamlTriageService>()
             .AddSingleton<ICrashDumpService, CrashDumpService>()
@@ -70,6 +70,15 @@ internal static class StoreHostBuilderExtensions
             // UI Automation services (from the Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation package)
             .AddWinAppUiAutomation()
             .AddWinAppUiRecording()
+            .AddSingleton<IProcessInspector, ProcessInspector>()
+            .AddSingleton<IMonotonicClock, TickCountClock>()
+            .AddSingleton<IInteractiveDesktopPaths, InteractiveDesktopPaths>()
+            .AddSingleton<IParticipantRegistry, ParticipantRegistry>()
+            .AddSingleton<IParticipantSignals, ParticipantSignals>()
+            .AddSingleton<IInteractiveDesktopStateStore, InteractiveDesktopStateStore>()
+            .AddSingleton<IUiOwnerResolver, UiOwnerResolver>()
+            .AddSingleton<IInteractiveDesktopLock, InteractiveDesktopLock>()
+            .AddSingleton<IDesktopForegroundService, DesktopForegroundService>()
             .AddSingleton<IControlsSearchService, ControlsSearchService>();
     }
 
@@ -124,6 +133,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiWaitForCommand, UiWaitForCommand.Handler>()
                 .UseCommandHandler<UiListWindowsCommand, UiListWindowsCommand.Handler>()
                 .UseCommandHandler<UiGetFocusedCommand, UiGetFocusedCommand.Handler>()
+                .UseCommandHandler<UiYieldCommand, UiYieldCommand.Handler>()
                 .ConfigureCommand<CompleteCommand>();
     }
 
