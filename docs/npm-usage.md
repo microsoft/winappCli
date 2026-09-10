@@ -438,7 +438,7 @@ function run(options?: RunOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `aot` | `boolean \| undefined` | No | Project mode: publish and run with .NET Native AOT. Requires effective PublishAot=true. |
+| `aot` | `boolean \| undefined` | No | Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. |
 | `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
 | `clean` | `boolean \| undefined` | No | Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments. |
@@ -1644,7 +1644,7 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `aot` | `boolean \| undefined` | No | Project mode: publish and run with .NET Native AOT. Requires effective PublishAot=true. |
+| `aot` | `boolean \| undefined` | No | Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. |
 | `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
 | `clean` | `boolean \| undefined` | No | Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments. |

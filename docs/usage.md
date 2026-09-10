@@ -789,7 +789,7 @@ winapp run . --aot
 winapp run . --aot -c Release
 ```
 
-`--aot` supports x64 and ARM64 projects. It publishes the selected configuration and launches the native output; use `-p PublishAot=true` for a one-time override. It cannot be combined with `--no-build`.
+`--aot` supports x64 and ARM64 projects. It runs `dotnet publish` with the project's AOT configuration, then launches that output; use `-p PublishAot=true` for a one-time override. It does not perform separate runtime certification and cannot be combined with `--no-build` or `--manifest`.
 
 **Project-mode options** (ignored in folder mode unless noted):
 
@@ -800,7 +800,7 @@ winapp run . --aot -c Release
 - `--project <name-or-path>` - When the input is a solution (`.sln`/`.slnx`) or a directory with multiple runnable app projects, selects which project to launch (by project name or path). *(Rejected in single-file mode — a `.cs` file-based app is itself the project.)*
 - `--no-build` - Skip building and run the existing build output (still evaluates output properties). *(Also honored in single-file mode.)*
 - `--no-restore` - Skip restoring before building. *(Also honored in single-file mode.)*
-- `--aot` - Publish and run with .NET Native AOT. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
+- `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
 **Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. The build output streams live. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Verbosity:
@@ -1881,7 +1881,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
 

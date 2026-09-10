@@ -1891,7 +1891,7 @@
       },
       "options": {
         "--aot": {
-          "description": "Project mode: publish and run with .NET Native AOT. Requires effective PublishAot=true.",
+          "description": "Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,

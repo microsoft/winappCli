@@ -169,7 +169,7 @@ internal partial class RunCommand : Command, IShortDescription
 
         AotOption = new Option<bool>("--aot")
         {
-            Description = "Project mode: publish and run with .NET Native AOT. Requires effective PublishAot=true."
+            Description = "Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true."
         };
 
         PropertyOption = new Option<string[]>("--property")

@@ -66,10 +66,20 @@ internal sealed partial class ProjectRunService
         // failing with APPX1101 "two or more files with the same destination path". Drop the RID only for
         // that provable case; every other project keeps today's behavior, including a split closure with no
         // effective Platform, where the RID is the only thing conveying the architecture.
+        var ridSplit = ProjectReferenceClosureSplitsOnRuntimeIdentifier(csproj);
+        if (requireConcreteRid && ridSplit)
+        {
+            if (userPlatform)
+            {
+                throw new ProjectRunException(
+                    "Native AOT cannot combine an explicit Platform with a project graph that removes RuntimeIdentifier. Remove -p:Platform or stop removing RuntimeIdentifier from ProjectReference.");
+            }
+
+            token = null;
+        }
+
         var platformInEffect = userPlatform || token is not null;
-        var omitRid = !requireConcreteRid &&
-            platformInEffect &&
-            ProjectReferenceClosureSplitsOnRuntimeIdentifier(csproj);
+        var omitRid = !requireConcreteRid && platformInEffect && ridSplit;
 
         return options with
         {

@@ -626,7 +626,7 @@ export interface RunOptions extends CommonOptions {
   input?: string;
   /** @deprecated Use `input` instead. Retained for backward compatibility. */
   inputFolder?: string;
-  /** Project mode: publish and run with .NET Native AOT. Requires effective PublishAot=true. */
+  /** Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. */
   aot?: boolean;
   /** Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. */
   arch?: string;
