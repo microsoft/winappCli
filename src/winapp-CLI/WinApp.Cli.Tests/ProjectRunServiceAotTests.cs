@@ -247,8 +247,11 @@ public sealed class ProjectRunServiceAotTests
         var publishDirectory = _tempDirectory.CreateSubdirectory("publish");
         var executable = WriteFile("publish\\PackagedNative.exe", "native");
         WriteFile("publish\\ManagedAssembly.exe", "stale");
-        var manifest = WriteFile("obj\\generated\\AppxManifest.xml", "<Package />");
-        var recipe = WriteFile("obj\\generated\\Sample.build.appxrecipe", "<Project />");
+        var nativeBinary = WriteFile("bin\\native\\PackagedNative.exe", "native");
+        var manifest = WritePackagedManifest("PackagedNative.exe");
+        var recipe = WriteRecipe(
+            nativeBinary,
+            "PackagedNative.exe");
         var properties = PropertyJson(
             project,
             assets,
@@ -257,6 +260,7 @@ public sealed class ProjectRunServiceAotTests
             publishDir: publishDirectory.FullName,
             assemblyName: "ManagedAssembly",
             targetName: "PackagedNative",
+            nativeBinary: nativeBinary.FullName,
             manifest: manifest.FullName,
             recipe: recipe.FullName);
         var dotnet = SuccessfulDotnet(properties);
@@ -285,13 +289,15 @@ public sealed class ProjectRunServiceAotTests
         var assets = WriteFile("obj\\project.assets.json", "{}");
         var publishDirectory = _tempDirectory.CreateSubdirectory("publish");
         WriteFile("publish\\Sample.exe", "native");
-        var manifest = WriteFile("obj\\AppxManifest.xml", "<Package />");
+        var nativeBinary = WriteFile("bin\\native\\Sample.exe", "native");
+        var manifest = WritePackagedManifest("Sample.exe");
         var properties = PropertyJson(
             project,
             assets,
             publishAot: true,
             packaging: "MSIX",
             publishDir: publishDirectory.FullName,
+            nativeBinary: nativeBinary.FullName,
             manifest: manifest.FullName,
             recipe: Path.Join(_tempDirectory.FullName, "obj", "missing.appxrecipe"));
         var service = NewService(SuccessfulDotnet(properties));
@@ -301,6 +307,39 @@ public sealed class ProjectRunServiceAotTests
 
         StringAssert.Contains(error.Message, "AppxPackageRecipe");
         StringAssert.Contains(error.Message, "was not produced");
+    }
+
+    [TestMethod]
+    public async Task PublishAot_PackagedEntryPointMustMapEvaluatedNativeBinary()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        var publishDirectory = _tempDirectory.CreateSubdirectory("publish");
+        WriteFile("publish\\AotApp.exe", "native");
+        var nativeBinary = WriteFile("bin\\native\\AotApp.exe", "native");
+        var managedHelper = WriteFile("bin\\ManagedHelper.exe", "managed");
+        var manifest = WritePackagedManifest("ManagedHelper.exe");
+        var recipe = WriteRecipe(
+            managedHelper,
+            "ManagedHelper.exe",
+            (nativeBinary, "AotApp.exe"));
+        var properties = PropertyJson(
+            project,
+            assets,
+            publishAot: true,
+            packaging: "MSIX",
+            publishDir: publishDirectory.FullName,
+            targetName: "AotApp",
+            nativeBinary: nativeBinary.FullName,
+            manifest: manifest.FullName,
+            recipe: recipe.FullName);
+        var service = NewService(SuccessfulDotnet(properties));
+
+        var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
+            service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
+
+        StringAssert.Contains(error.Message, "ManagedHelper.exe");
+        StringAssert.Contains(error.Message, "not sourced from the evaluated NativeBinary");
     }
 
     [TestMethod]
@@ -441,6 +480,41 @@ public sealed class ProjectRunServiceAotTests
         return new FileInfo(path);
     }
 
+    private FileInfo WritePackagedManifest(string executable) =>
+        WriteFile(
+            $"obj\\generated\\{Guid.NewGuid():N}\\AppxManifest.xml",
+            $"""
+             <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+               <Applications>
+                 <Application Id="App" Executable="{executable}" EntryPoint="Windows.FullTrustApplication" />
+               </Applications>
+             </Package>
+             """);
+
+    private FileInfo WriteRecipe(
+        FileInfo source,
+        string packagePath,
+        params (FileInfo Source, string PackagePath)[] additional)
+    {
+        var entries = new[] { (Source: source, PackagePath: packagePath) }
+            .Concat(additional)
+            .Select(entry =>
+                $"""
+                     <AppxPackagedFile Include="{entry.Source.FullName}">
+                       <PackagePath>{entry.PackagePath}</PackagePath>
+                     </AppxPackagedFile>
+                 """);
+        return WriteFile(
+            $"obj\\generated\\{Guid.NewGuid():N}\\Sample.build.appxrecipe",
+            $"""
+             <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+               <ItemGroup>
+             {string.Join(Environment.NewLine, entries)}
+               </ItemGroup>
+             </Project>
+             """);
+    }
+
     private static string PropertyJson(
         FileInfo project,
         FileInfo assets,
@@ -449,6 +523,7 @@ public sealed class ProjectRunServiceAotTests
         string? publishDir = null,
         string assemblyName = "Sample",
         string? targetName = null,
+        string? nativeBinary = null,
         string? manifest = null,
         string? recipe = null)
     {
@@ -461,6 +536,11 @@ public sealed class ProjectRunServiceAotTests
             ["PublishAot"] = publishAot ? "true" : "false",
             ["AssemblyName"] = assemblyName,
             ["TargetName"] = targetName ?? assemblyName,
+            ["NativeBinary"] = nativeBinary ?? Path.Join(
+                projectDirectory,
+                "bin",
+                "native",
+                $"{targetName ?? assemblyName}.exe"),
             ["OutputType"] = "WinExe",
             ["WindowsPackageType"] = packaging,
             ["WindowsAppSDKSelfContained"] = "true",

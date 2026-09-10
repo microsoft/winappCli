@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
@@ -357,6 +358,11 @@ internal sealed partial class ProjectRunService
                 properties,
                 "AppxPackageRecipe",
                 projectDirectory);
+            var nativeBinary = ResolveEvaluatedFile(
+                properties,
+                "NativeBinary",
+                projectDirectory);
+            ValidatePackagedNativeEntryPoint(manifest, recipe, nativeBinary);
         }
 
         return new ProjectRunResolution(
@@ -376,6 +382,117 @@ internal sealed partial class ProjectRunService
             IsAot: true,
             AppxManifestPath: manifest,
             AppxRecipePath: recipe);
+    }
+
+    private static void ValidatePackagedNativeEntryPoint(
+        string manifestPath,
+        string recipePath,
+        string nativeBinaryPath)
+    {
+        string executable;
+        XDocument recipe;
+        try
+        {
+            executable = AppxManifestDocument.Load(manifestPath).ApplicationExecutable
+                ?? throw new ProjectRunException(
+                    $"The generated manifest '{manifestPath}' has no application executable.");
+            recipe = XDocument.Load(recipePath);
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw new ProjectRunException(
+                $"The generated packaged AOT metadata could not be parsed: {ex.Message}");
+        }
+
+        XNamespace msbuild = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var entryPoint = NormalizePackagePath(executable);
+        var sources = recipe
+            .Descendants(msbuild + "AppxPackagedFile")
+            .Where(entry => string.Equals(
+                NormalizePackagePath(entry.Element(msbuild + "PackagePath")?.Value),
+                entryPoint,
+                StringComparison.OrdinalIgnoreCase))
+            .Select(entry => ResolveRecipeSource(
+                recipePath,
+                entry.Attribute("Include")?.Value))
+            .ToArray();
+
+        if (sources.Length == 0)
+        {
+            throw new ProjectRunException(
+                $"The appx recipe does not map the packaged entry point '{executable}'.");
+        }
+
+        var expected = Path.GetFullPath(nativeBinaryPath);
+        if (!sources.Any(source => string.Equals(
+                Path.GetFullPath(source),
+                expected,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ProjectRunException(
+                $"The packaged entry point '{executable}' is not sourced from the evaluated NativeBinary '{expected}'.");
+        }
+    }
+
+    private static string NormalizePackagePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var root = Path.GetFullPath(".winapp-package-root", Path.GetTempPath());
+            var fullPath = Path.GetFullPath(
+                path.Replace('/', Path.DirectorySeparatorChar),
+                root);
+            var relative = Path.GetRelativePath(root, fullPath);
+            if (relative == ".." ||
+                relative.StartsWith(
+                    $"..{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal) ||
+                Path.IsPathFullyQualified(relative))
+            {
+                throw new ArgumentException("Package path escapes its root.");
+            }
+            return relative;
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or
+            NotSupportedException or
+            PathTooLongException)
+        {
+            throw new ProjectRunException(
+                $"The generated appx recipe contains an invalid PackagePath '{path}'.");
+        }
+    }
+
+    private static string ResolveRecipeSource(
+        string recipePath,
+        string? include)
+    {
+        if (string.IsNullOrWhiteSpace(include))
+        {
+            throw new ProjectRunException(
+                $"The generated appx recipe '{recipePath}' contains an entry without Include.");
+        }
+
+        try
+        {
+            return Path.GetFullPath(
+                include,
+                Path.GetDirectoryName(recipePath)
+                    ?? throw new ArgumentException("Recipe has no parent directory."));
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or
+            NotSupportedException or
+            PathTooLongException)
+        {
+            throw new ProjectRunException(
+                $"The generated appx recipe contains an invalid source path '{include}'.");
+        }
     }
 
     private static string? ResolveEvaluatedPath(

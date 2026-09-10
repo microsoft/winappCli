@@ -30,6 +30,7 @@ internal sealed partial class ProjectRunService(
         "AppxPackageRecipe",
         "AssemblyName",
         "TargetName",
+        "NativeBinary",
         "RunCommand",
         "RunArguments",
         // The project.assets.json restore wrote for THESE build inputs. Package discovery reads it rather
