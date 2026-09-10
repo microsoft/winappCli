@@ -805,7 +805,7 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 - `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. The build output streams live. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Verbosity:
+**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
@@ -813,7 +813,7 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 | `--verbose` | `minimal` | winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
-Under `--json` or `--quiet`, build and publish diagnostics go to stderr so stdout stays pure JSON / clean.
+Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish diagnostics also go to stderr under either option.
 
 **Option applicability:** the identity/loose-layout options (`--manifest`, `--output-appx-directory`, `--no-launch`, `--with-alias`, `--unregister-on-exit`, `--clean`, `--executable`) apply to packaged apps only. They are rejected with a clear error for unpackaged apps (which have no MSIX package). Launch/debug options (`--args`/`--`, `--detach`, `--debug-output`, `--symbols`, `--json`) work in both.
 
@@ -1883,6 +1883,5 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 

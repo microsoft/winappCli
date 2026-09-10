@@ -214,7 +214,7 @@ Project mode supports both **packaged** and **unpackaged** WinUI apps, detected 
 
 - **Build inputs:** `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `--aot`, `-p/--property` (repeat for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value). `--aot` supports x64/ARM64 projects, requires effective `PublishAot=true`, and cannot use `--no-build`.
 - **Packaged-only options:** `--manifest`, `--no-launch`, `--with-alias`, `--clean`, `--unregister-on-exit`, `--output-appx-directory`, `--executable` — rejected for unpackaged apps.
-- **Output:** winapp surfaces build/publish diagnostics; `--verbose` adds the AOT publish command and resolved paths. Under `--json`/`--quiet`, diagnostics go to **stderr** so stdout stays clean.
+- **Output:** winapp restores dependencies, builds, and streams both commands' output live (including successful-build warnings). Restore output uses sanitized plain lines; interactive terminals show dotnet's in-place build progress when no build-time restore is needed, while other build output uses sanitized plain lines. `--json` sends restore/build invocations and child output to **stderr** so stdout stays valid JSON. `--quiet` suppresses invocations and sends dotnet's quiet restore/build output to **stderr** so stdout stays clean. With `--aot`, `--verbose` adds the publish command and resolved paths; publish diagnostics go to **stderr** under `--json`/`--quiet`.
 
 #### Single-file mode: `winapp run` on a `.cs` file-based app
 

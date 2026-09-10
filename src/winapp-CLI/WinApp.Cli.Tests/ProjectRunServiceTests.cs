@@ -214,6 +214,17 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void RedactSecretsForDisplay_RedactsSignedFeedUrlInNonSecretProperty()
+    {
+        var line = "restore App.csproj -p:RestoreSources=https://feed.example/v3/index.json?sig=COMMAND_SECRET";
+
+        var redacted = ProjectRunService.RedactSecretsForDisplay(line);
+
+        Assert.IsFalse(redacted.Contains("COMMAND_SECRET", StringComparison.Ordinal));
+        StringAssert.Contains(redacted, "https://feed.example/v3/index.json?<redacted>");
+    }
+
+    [TestMethod]
     public void RedactSecretsForDisplay_RedactsOnlySecretSegmentOfPackedProperty()
     {
         var line = "build -p:A=1;Password=s3cr3t;B=2";
@@ -1996,11 +2007,38 @@ public class ProjectRunServiceTests
         Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)),
             "an explicit restore pass should run before the build when the shim initially resolves null on an SDK-less host");
         Assert.AreEqual(2, shim.ResolvedMonikers.Count, "the shim should be re-consulted after the restore");
-        Assert.AreEqual(1, dotnet.StreamingCalls.Count, "exactly one build pass should have run");
-        StringAssert.Contains(dotnet.StreamingCalls[0], $"-p:CsWinRTWindowsMetadata={folder}",
+        var buildCall = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
+        StringAssert.Contains(buildCall, $"-p:CsWinRTWindowsMetadata={folder}",
             "the re-resolved folder must be injected into the build");
-        StringAssert.Contains(dotnet.StreamingCalls[0], "--no-restore",
+        StringAssert.Contains(buildCall, "--no-restore",
             "the build pass should skip its own restore since the explicit restore already ran");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_PreShimRestoreFails_ExplainsThatBuildWillRetry()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => args.StartsWith("restore ", StringComparison.Ordinal)
+                ? (1, string.Empty, "simulated restore failure")
+                : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = true, FolderToReturn = null };
+        using var console = new TestConsole();
+        var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), shim, console, logger);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", "net10.0-windows10.0.26100.0",
+            NoBuild: false, NoRestore: false, Properties: []);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution, "the best-effort restore must defer the final result to the build");
+        Assert.IsTrue(logger.Entries.Any(entry =>
+                entry.Level == LogLevel.Warning
+                && entry.Message.Contains("continuing with the build, which will retry restore", StringComparison.Ordinal)),
+            "the visible restore error must be followed by an explanation that the build will retry");
     }
 
     [TestMethod]
@@ -2050,7 +2088,7 @@ public class ProjectRunServiceTests
     {
         // C6: the pre-build restore mirrors the build's effective RID + configuration (as
         // -p:Configuration=, since 'dotnet restore' has no -c switch) + user -p, but never adds
-        // --no-restore (restoring is the whole point) and omits -v.
+        // --no-restore (restoring is the whole point) and leaves dotnet at its default verbosity.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var options = new ProjectRunOptions("Debug", "arm64", "net10.0-windows10.0.26100.0", NoBuild: false, NoRestore: false,
             Properties: ["WindowsPackageType=None"]);
@@ -2063,6 +2101,50 @@ public class ProjectRunServiceTests
         StringAssert.Contains(args, "-p:WindowsPackageType=None");
         Assert.IsFalse(args.Contains("--no-restore", StringComparison.Ordinal), "restore must not carry --no-restore");
         Assert.IsFalse(args.Contains(" -c ", StringComparison.Ordinal), "restore has no -c switch; configuration flows via -p:Configuration=");
+        Assert.IsFalse(args.Contains(" -v ", StringComparison.Ordinal), "default restore must keep dotnet's default minimal verbosity");
+    }
+
+    [TestMethod]
+    public void BuildRestorePassArguments_QuietVerbosity_AddsQuietSwitch()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var args = ProjectRunService.BuildRestorePassArguments(csproj, options, "quiet");
+
+        StringAssert.Contains(args, "-v quiet");
+    }
+
+    [TestMethod]
+    public void BuildRestorePassArguments_SolutionTarget_OmitsResolvedPlatform()
+    {
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [],
+            Solution: solution, Platform: "x64");
+
+        var args = ProjectRunService.BuildRestorePassArguments(solution, options);
+
+        Assert.IsFalse(args.Contains("-p:Platform=", StringComparison.OrdinalIgnoreCase),
+            "a solution restore must not request a solution configuration that a configuration-free .slnx does not declare");
+        StringAssert.Contains(args, "-p:Configuration=Debug");
+    }
+
+    [TestMethod]
+    public void BuildRestorePassArguments_SolutionTarget_OmitsUserPlatform()
+    {
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false,
+            Properties: ["Platform=x64", "WindowsPackageType=None"], Solution: solution);
+
+        var args = ProjectRunService.BuildRestorePassArguments(solution, options);
+
+        Assert.IsFalse(args.Contains("-p:Platform=", StringComparison.OrdinalIgnoreCase),
+            "a user Platform property must not request an undeclared solution configuration");
+        StringAssert.Contains(args, "-p:WindowsPackageType=None",
+            "other user properties must continue to flow to solution restore");
     }
 
     [TestMethod]
@@ -2957,12 +3039,20 @@ public class ProjectRunServiceTests
         // and every build-dependency sibling before the build, and the build pass skips its own restore.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var longRestoreLine = "RESTORE-PROGRESS-" + new string('X', 120);
+        var restoreOutput = $"{longRestoreLine}{Environment.NewLine}{Environment.NewLine}AFTER-BLANK";
         var commandArgs = new List<string>();
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = a => { commandArgs.Add(a); return (0, PackagedPropertiesJson(), string.Empty); },
+            RunDotnetCommandHandler = a =>
+            {
+                commandArgs.Add(a);
+                return a.StartsWith("restore ", StringComparison.Ordinal)
+                    ? (0, restoreOutput, string.Empty)
+                    : (0, PackagedPropertiesJson(), string.Empty);
+            },
         };
-        var service = NewServiceWith(dotnet, out _);
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
@@ -2970,8 +3060,249 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution);
         Assert.IsTrue(commandArgs.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
             "the whole solution should be restored up front for build-dependency parity");
-        StringAssert.Contains(dotnet.StreamingCalls[0], "--no-restore",
+        StringAssert.Contains(console.Output, "Restoring App.slnx dependencies",
+            "the restore phase should be announced before dotnet starts");
+        StringAssert.Contains(console.Output, longRestoreLine,
+            "restore output should stream live without Spectre wrapping the subprocess line");
+        StringAssert.Contains(
+            console.Output.ReplaceLineEndings("\n"),
+            $"{longRestoreLine}\n\nAFTER-BLANK",
+            "the streaming fake should preserve genuine blank subprocess lines without inventing CRLF blanks");
+        StringAssert.Contains(dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal)), "--no-restore",
             "the build pass should skip its own restore since the solution restore already covered the target");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_PlatformSpecificSolutionRestore_LetsProjectBuildRestoreAgain()
+    {
+        var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        var solutionRestore = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+        Assert.IsFalse(solutionRestore.Contains("-p:Platform=", StringComparison.Ordinal),
+            "solution restore must omit Platform to avoid MSB4126");
+        var build = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"build {csproj.FullName}", StringComparison.Ordinal));
+        StringAssert.Contains(build, "-p:Platform=x64",
+            "the selected project build must retain its resolved Platform");
+        Assert.IsFalse(build.Contains("--no-restore", StringComparison.Ordinal),
+            "the project must restore again because the platform-less solution restore did not cover platform-conditioned assets");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_UserPlatformSolutionRestore_LetsProjectBuildRestoreAgain()
+    {
+        var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false,
+            Properties: ["Platform=x64"], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        var solutionRestore = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+        Assert.IsFalse(solutionRestore.Contains("-p:Platform=", StringComparison.Ordinal),
+            "solution restore must omit the user Platform to avoid MSB4126");
+        var build = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"build {csproj.FullName}", StringComparison.Ordinal));
+        StringAssert.Contains(build, "-p:Platform=x64",
+            "the selected project build must retain the user-supplied Platform");
+        Assert.IsFalse(build.Contains("--no-restore", StringComparison.Ordinal),
+            "the project must restore again because the solution restore did not cover platform-conditioned assets");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_SolutionRestoreInRealTerminal_StreamsRedactedOutput()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (_, onOut, _) =>
+            {
+                onOut?.Invoke("NU1301 https://feed.example/v3/index.json?sig=RESTORE_SECRET");
+                return 0;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.IsTrue(
+            dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
+            "interactive restore must stream through winapp so output can be redacted");
+        Assert.IsFalse(
+            dotnet.InheritedCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)),
+            "restore output must never bypass winapp's redaction through inherited stdio");
+        StringAssert.Contains(console.Output, "Restoring App.slnx dependencies");
+        StringAssert.Contains(console.Output, "https://feed.example/v3/index.json?<redacted>");
+        Assert.IsFalse(console.Output.Contains("RESTORE_SECRET", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task RunRestoreCommandAsync_Json_KeepsStdoutClean_RoutesInvocationAndOutputToStderr()
+    {
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false,
+            Properties: ["NuGetApiKey=top-secret"], Json: true, Solution: solution);
+        var args = ProjectRunService.BuildRestorePassArguments(solution, options);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetStreamingHandler = (_, onOut, onErr) =>
+            {
+                onOut?.Invoke("RESTORE-STDOUT https://feed.example/v3/index.json?sig=STDOUT_SECRET");
+                onErr?.Invoke("RESTORE-STDERR https://feed.example/v3/index.json?sig=STDERR_SECRET");
+                return 0;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.None, out var console);
+
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        int exit;
+        try
+        {
+            exit = await service.RunRestoreCommandAsync(
+                args, "Restoring App.slnx dependencies...", options, _tempDir, CancellationToken.None);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(0, exit);
+        Assert.AreEqual(string.Empty, console.Output, "--json must keep stdout clean");
+        StringAssert.Contains(stderr.ToString(), "dotnet restore", "--json must route the invocation to stderr");
+        StringAssert.Contains(stderr.ToString(), "NuGetApiKey=***", "displayed restore commands must redact secrets");
+        Assert.IsFalse(stderr.ToString().Contains("top-secret"), "the secret must not be displayed");
+        StringAssert.Contains(stderr.ToString(), "RESTORE-STDOUT", "--json must route child stdout to stderr");
+        StringAssert.Contains(stderr.ToString(), "RESTORE-STDERR", "--json must route child stderr to stderr");
+        Assert.IsFalse(stderr.ToString().Contains("STDOUT_SECRET"), "restore stdout must redact feed credentials");
+        Assert.IsFalse(stderr.ToString().Contains("STDERR_SECRET"), "restore stderr must redact feed credentials");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task RunRestoreCommandAsync_Quiet_KeepsStdoutClean_RoutesQuietOutputToStderr_SuppressesInvocation()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+        var args = ProjectRunService.BuildRestorePassArguments(csproj, options, "quiet");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetStreamingHandler = (_, onOut, onErr) =>
+            {
+                onOut?.Invoke("QUIET-RESTORE-STDOUT");
+                onErr?.Invoke("QUIET-RESTORE-STDERR");
+                return 0;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Warning, out var console);
+
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        int exit;
+        try
+        {
+            exit = await service.RunRestoreCommandAsync(
+                args, "Restoring App.csproj dependencies...", options, _tempDir, CancellationToken.None);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(0, exit);
+        Assert.AreEqual(string.Empty, console.Output, "--quiet must keep stdout clean");
+        Assert.IsFalse(stderr.ToString().Contains("dotnet restore"), "--quiet must suppress the invocation");
+        StringAssert.Contains(stderr.ToString(), "QUIET-RESTORE-STDOUT", "--quiet must route child stdout to stderr");
+        StringAssert.Contains(stderr.ToString(), "QUIET-RESTORE-STDERR", "--quiet must route child stderr to stderr");
+        StringAssert.Contains(dotnet.StreamingCalls.Single(), "-v quiet",
+            "--quiet must run dotnet restore at quiet verbosity");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_SolutionRestore_QuietUsesQuietVerbosity()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Warning, out _);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        var restoreArgs = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+        StringAssert.Contains(restoreArgs, "-v quiet",
+            "--quiet must apply quiet verbosity to the restore created by the project-run pipeline");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task BuildAndResolveAsync_SolutionRestore_JsonPreservesDefaultVerbosity()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.None, out _);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [],
+            Json: true, Solution: solution);
+
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+            Assert.IsNotNull(outcome.Resolution);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        var restoreArgs = dotnet.StreamingCalls.Single(
+            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+        Assert.IsFalse(restoreArgs.Contains(" -v ", StringComparison.Ordinal),
+            "--json must preserve dotnet's default restore verbosity in the project-run pipeline");
     }
 
     [TestMethod]
@@ -3025,7 +3356,10 @@ public class ProjectRunServiceTests
                 return (0, PackagedPropertiesJson(), string.Empty);
             },
         };
-        var service = NewServiceWith(dotnet, out _);
+        using var console = new TestConsole();
+        var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = new ProjectRunService(
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
@@ -3034,6 +3368,83 @@ public class ProjectRunServiceTests
             "the all-managed whole-solution restore must be attempted first");
         Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(serverSibling)),
             "after the whole-solution restore fails, the managed sibling must be restored individually (NETSDK1004 guard)");
+        Assert.IsTrue(logger.Entries.Any(entry =>
+                entry.Level == LogLevel.Warning
+                && entry.Message.Contains("retrying managed dependencies individually", StringComparison.Ordinal)),
+            "the visible solution restore error must explain that winapp is falling back");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_SiblingRestoreFails_ExplainsThatBuildContinues()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile(
+            "App.slnx",
+            SlnxListing("App.csproj", "Managed/Managed.csproj", "Native/Native.vcxproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+                args.StartsWith("restore ", StringComparison.Ordinal)
+                    ? (1, string.Empty, "simulated sibling restore failure")
+                    : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        using var console = new TestConsole();
+        var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = new ProjectRunService(
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution, "the best-effort sibling restore must defer the final result to the build");
+        Assert.IsTrue(logger.Entries.Any(entry =>
+                entry.Level == LogLevel.Warning
+                && entry.Message.Contains("continuing with the build", StringComparison.Ordinal)),
+            "the visible sibling restore error must explain that the build continues");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task BuildAndResolveAsync_QuietSiblingRestoreFails_WritesExplanationToStderr()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile(
+            "App.slnx",
+            SlnxListing("App.csproj", "Managed/Managed.csproj", "Native/Native.vcxproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+                args.StartsWith("restore ", StringComparison.Ordinal)
+                    ? (1, string.Empty, "simulated sibling restore failure")
+                    : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        using var console = new TestConsole();
+        var logger = new LevelLogger<ProjectRunService>(LogLevel.Warning);
+        var service = new ProjectRunService(
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger);
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        ProjectBuildOutcome outcome;
+        try
+        {
+            outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(string.Empty, console.Output, "--quiet must keep stdout clean");
+        StringAssert.Contains(stderr.ToString(), "continuing with the build",
+            "the best-effort restore failure explanation must remain visible on stderr");
+        Assert.IsFalse(logger.Entries.Any(entry => entry.Level == LogLevel.Warning),
+            "quiet restore fallback warnings must bypass the stdout-routed logger");
     }
 
     [TestMethod]
@@ -3383,9 +3794,10 @@ public class ProjectRunServiceTests
     {
         // Change #1: in a non-json, non-spinner terminal the streamed build output must be visible.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var longBuildLine = "MSBUILD-LINE-" + new string('X', 120);
         var dotnet = new FakeDotNetService
         {
-            RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke("MSBuild-line-ABC"); return 0; },
+            RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke(longBuildLine); return 0; },
             RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
         };
         var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
@@ -3395,7 +3807,8 @@ public class ProjectRunServiceTests
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         StringAssert.Contains(console.Output, "Building", "the plain build banner should be shown");
-        StringAssert.Contains(console.Output, "MSBuild-line-ABC", "streamed build output should be visible");
+        StringAssert.Contains(console.Output, longBuildLine,
+            "streamed build output should remain visible without Spectre wrapping the subprocess line");
     }
 
     [TestMethod]
@@ -3472,7 +3885,7 @@ public class ProjectRunServiceTests
         {
             NativeTerminalGateOverrideForTests = () => true, // force the real-TTY / native-terminal branch
         };
-        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: [], Json: false);
 
         var exit = await service.RunBuildPassAsync(csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
 
@@ -3487,6 +3900,38 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task RunBuildPassAsync_RealTerminalWithRestore_StreamsAndRedactsOutput()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetStreamingHandler = (_, onOut, _) =>
+            {
+                onOut?.Invoke("NU1301 https://feed.example/v3/index.json?sig=BUILD_RESTORE_SECRET");
+                return 0;
+            },
+        };
+        using var console = new TestConsole();
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information))
+        {
+            NativeTerminalGateOverrideForTests = () => true,
+        };
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
+
+        var exit = await service.RunBuildPassAsync(
+            csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
+
+        Assert.AreEqual(0, exit);
+        Assert.AreEqual(0, dotnet.InheritedCalls.Count,
+            "a build that may restore must not bypass feed credential redaction");
+        Assert.AreEqual(1, dotnet.StreamingCalls.Count);
+        StringAssert.Contains(dotnet.StreamingCalls[0], "-tl:off");
+        StringAssert.Contains(console.Output, "https://feed.example/v3/index.json?<redacted>");
+        Assert.IsFalse(console.Output.Contains("BUILD_RESTORE_SECRET", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     [DoNotParallelize] // redirects the process-wide Console.Error
     public async Task RunBuildPassAsync_Json_KeepsStdoutClean_RoutesInvocationAndOutputToStderr()
     {
@@ -3494,7 +3939,12 @@ public class ProjectRunServiceTests
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var dotnet = new FakeDotNetService
         {
-            RunDotnetStreamingHandler = (_, onOut, onErr) => { onOut?.Invoke("STDOUT-POISON"); onErr?.Invoke("STDERR-POISON"); return 0; },
+            RunDotnetStreamingHandler = (_, onOut, onErr) =>
+            {
+                onOut?.Invoke("STDOUT-POISON https://feed.example/v3/index.json?sig=STDOUT_SECRET");
+                onErr?.Invoke("STDERR-POISON https://feed.example/v3/index.json?sig=STDERR_SECRET");
+                return 0;
+            },
         };
         var console = new TestConsole();
         var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information));
@@ -3519,6 +3969,8 @@ public class ProjectRunServiceTests
         StringAssert.Contains(stderr.ToString(), "dotnet build", "--json must route the invocation to stderr");
         StringAssert.Contains(stderr.ToString(), "STDOUT-POISON", "--json must route build output to stderr");
         StringAssert.Contains(stderr.ToString(), "STDERR-POISON", "--json must route build stderr to stderr");
+        Assert.IsFalse(stderr.ToString().Contains("STDOUT_SECRET", StringComparison.Ordinal));
+        Assert.IsFalse(stderr.ToString().Contains("STDERR_SECRET", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -3530,7 +3982,11 @@ public class ProjectRunServiceTests
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var dotnet = new FakeDotNetService
         {
-            RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke("QUIET-BUILD-LINE"); return 0; },
+            RunDotnetStreamingHandler = (_, onOut, _) =>
+            {
+                onOut?.Invoke("QUIET-BUILD-LINE https://feed.example/v3/index.json?sig=QUIET_SECRET");
+                return 0;
+            },
         };
         var console = new TestConsole();
         var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Warning));
@@ -3554,6 +4010,8 @@ public class ProjectRunServiceTests
         Assert.IsFalse(console.Output.Contains("dotnet build"), "--quiet must not write the invocation to stdout");
         Assert.IsFalse(stderr.ToString().Contains("dotnet build"), "--quiet must suppress the informational invocation");
         StringAssert.Contains(stderr.ToString(), "QUIET-BUILD-LINE", "--quiet must route build output to stderr");
+        StringAssert.Contains(stderr.ToString(), "https://feed.example/v3/index.json?<redacted>");
+        Assert.IsFalse(stderr.ToString().Contains("QUIET_SECRET", StringComparison.Ordinal));
     }
 
     [TestMethod]

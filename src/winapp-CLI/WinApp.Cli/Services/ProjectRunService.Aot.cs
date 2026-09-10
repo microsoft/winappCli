@@ -36,7 +36,6 @@ internal sealed partial class ProjectRunService
                 csproj,
                 options,
                 workingDirectory,
-                setStatus: null,
                 cancellationToken,
                 requireConcreteRid: true);
 

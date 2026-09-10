@@ -19,11 +19,16 @@ internal sealed partial class ProjectRunService
     /// RID / Configuration / user <c>-p</c> / solution properties so the same graph resolves into
     /// <c>project.assets.json</c> that the subsequent <c>--no-restore</c> build consumes. Dedicated-flag
     /// user <c>-p</c> are filtered (see <see cref="ForwardableProperties"/>) so a conflicting
-    /// <c>-p:RuntimeIdentifier</c> can't restore a different RID's assets than the build needs.
+    /// <c>-p:RuntimeIdentifier</c> can't restore a different RID's assets than the build needs. The optional
+    /// <paramref name="verbosity"/> is used by quiet mode; otherwise dotnet keeps its default verbosity.
     /// </summary>
-    internal static string BuildRestorePassArguments(FileInfo csproj, ProjectRunOptions options)
+    internal static string BuildRestorePassArguments(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        string? verbosity = null)
     {
         var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
+        var isSolution = IsSolutionFile(csproj);
         var tokens = new List<string>
         {
             "restore",
@@ -40,9 +45,11 @@ internal sealed partial class ProjectRunService
         // <PackageReference> lands in project.assets.json before the --no-restore build consumes it.
         tokens.Add($"-p:Configuration={options.Configuration}");
 
-        // Mirror the build pass's injected Platform (when resolved) so platform-conditional
-        // <PackageReference> restore under the same Platform the build resolves. Null = RID-only default.
-        if (!string.IsNullOrWhiteSpace(options.Platform))
+        // Mirror the build pass's injected Platform for project restores so platform-conditional
+        // PackageReferences resolve consistently. A solution-scoped restore must omit it: unlike a
+        // project, MSBuild treats Platform as a requested solution configuration, and configuration-free
+        // .slnx files reject it with MSB4126.
+        if (!isSolution && !string.IsNullOrWhiteSpace(options.Platform))
         {
             tokens.Add($"-p:Platform={options.Platform}");
         }
@@ -50,13 +57,25 @@ internal sealed partial class ProjectRunService
         AppendInferredPublishProfile(tokens, csproj, options);
 
         // Drop dedicated-flag user -p (RID/Configuration/TFM) so the restored graph can't diverge from
-        // what the --no-restore build resolves; WarnOnOverriddenFlags surfaces the conflict.
+        // what the --no-restore build resolves; WarnOnOverriddenFlags surfaces the conflict. Platform is
+        // also omitted for solution restores because MSBuild interprets it as a solution configuration.
         foreach (var property in ForwardableProperties(options.Properties))
         {
+            if (isSolution && property.StartsWith("Platform=", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             tokens.Add($"-p:{property}");
         }
 
         AppendSolutionProperties(tokens, options);
+
+        if (!string.IsNullOrWhiteSpace(verbosity))
+        {
+            tokens.Add("-v");
+            tokens.Add(verbosity);
+        }
 
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
@@ -679,39 +698,47 @@ internal sealed partial class ProjectRunService
         ["password", "pwd", "secret", "token", "apikey", "accesskey", "credential", "connectionstring"];
 
     /// <summary>
-    /// Masks the value of secret-like <c>-p:Name=Value</c> properties (e.g. <c>PackageCertificatePassword</c>)
-    /// for DISPLAY only — the real command passed to dotnet is never altered. Redaction runs at the token
-    /// level (splitting the joined line first) so a quote inside a value can't leave part of the secret
-    /// unmasked. Lines with no secret are returned byte-for-byte unchanged.
+    /// Masks secret-like <c>-p:Name=Value</c> properties and credentials embedded in URI user-info/query
+    /// strings for DISPLAY only — the real command passed to dotnet is never altered. Property redaction
+    /// runs at the token level so a quote inside a value can't leave part of the secret unmasked.
     /// </summary>
     internal static string RedactSecretsForDisplay(string commandLine)
     {
-        if (string.IsNullOrEmpty(commandLine) || !commandLine.Contains("-p:", StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(commandLine))
         {
             return commandLine;
         }
 
-        var tokens = WindowsCommandLine.SplitArguments(commandLine);
-        var anyChanged = false;
-        var redacted = new List<string>(tokens.Count);
-
-        foreach (var token in tokens)
+        var displayLine = commandLine;
+        if (commandLine.Contains("-p:", StringComparison.Ordinal))
         {
-            if (token.StartsWith("-p:", StringComparison.Ordinal))
+            var tokens = WindowsCommandLine.SplitArguments(commandLine);
+            var anyChanged = false;
+            var redacted = new List<string>(tokens.Count);
+
+            foreach (var token in tokens)
             {
-                var body = RedactPropertySegments(token[3..], out var changed);
-                if (changed)
+                if (token.StartsWith("-p:", StringComparison.Ordinal))
                 {
-                    anyChanged = true;
-                    redacted.Add("-p:" + body);
-                    continue;
+                    var body = RedactPropertySegments(token[3..], out var changed);
+                    if (changed)
+                    {
+                        anyChanged = true;
+                        redacted.Add("-p:" + body);
+                        continue;
+                    }
                 }
+
+                redacted.Add(token);
             }
 
-            redacted.Add(token);
+            if (anyChanged)
+            {
+                displayLine = WindowsCommandLine.JoinArguments(redacted) ?? commandLine;
+            }
         }
 
-        return anyChanged ? WindowsCommandLine.JoinArguments(redacted) ?? commandLine : commandLine;
+        return NugetErrorMessage.Redact(displayLine);
     }
 
     /// <summary>

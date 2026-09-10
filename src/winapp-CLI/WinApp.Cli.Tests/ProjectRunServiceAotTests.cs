@@ -302,6 +302,7 @@ public sealed class ProjectRunServiceAotTests
         WriteFile("publish\\Sample.exe", "native");
         var properties = PropertyJson(project, assets, publishAot: true, packaging: "None");
         var dotnet = SuccessfulDotnet(properties);
+        dotnet.RunDotnetStreamingHandler = (_, _, _) => 0;
         var service = NewService(
             dotnet,
             new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = sdkAbsent });
@@ -315,7 +316,7 @@ public sealed class ProjectRunServiceAotTests
         Assert.AreEqual(noRestore, outcome.Resolution.NoRestore);
         Assert.AreEqual(
             noRestore ? 0 : 1,
-            dotnet.StringInvocations.Count(arguments => arguments.StartsWith("restore ", StringComparison.Ordinal)));
+            dotnet.StreamingCalls.Count(arguments => arguments.StartsWith("restore ", StringComparison.Ordinal)));
         Assert.AreEqual(
             noRestore,
             dotnet.ArgumentListInvocations.Single().Contains("--no-restore"),
