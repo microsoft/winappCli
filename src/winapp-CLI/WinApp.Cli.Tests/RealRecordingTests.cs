@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Text.Json;
 using Windows.Win32.Foundation;
 using WinApp.Cli.Services;
@@ -610,6 +611,96 @@ public partial class RealRecordingTests
             warning => warning.Contains("only the indexed frame prefix was retained", StringComparison.Ordinal)));
     }
 
+    [TestMethod]
+    public async Task RecordAsync_FirstFrameArrivesAfterTheRequestedDuration_StillCapturesAFrame()
+    {
+        // The elapsed-duration check used to run before any frame had been committed, so a capture
+        // source that took longer than --duration to deliver its first frame into the capture loop
+        // ended the recording with zero frames: an empty MP4 and, with --frames-dir, a zero-frame
+        // manifest. Elapsed time may only end a recording that has already captured something.
+        using var fx = new UiaTestFixture();
+        var capture = new FakeWindowCapture();
+        var svc = NewAutomation();
+        var recording = NewRecordingService(svc, capture);
+        var uiTarget = SessionFor(fx);
+        await ResolveAsync(svc, uiTarget, "btnInvoke");
+
+        var root = Path.Join(AppContext.BaseDirectory, "coverage-scratch", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var output = Path.Join(root, "slow-first-frame.mp4");
+        var frame = Enumerable.Repeat((byte)0x33, 64 * 64 * 4).ToArray();
+
+        capture.Supported = true;
+        capture.StartGrabberCallback = (_, _) =>
+            new SlowStartingFrameGrabber(frame, 64, 64, TimeSpan.FromMilliseconds(1_500));
+        Mp4SinkWriterEncoder.s_createNoClobber =
+            (path, width, height, _, _) => new FakeVideoEncoder(path, width, height);
+
+        var result = await recording.RecordAsync(uiTarget, null, new RecordOptions
+        {
+            OutputPath = output,
+            DurationSec = 1,
+            Fps = 2,
+            MaxEdge = 64,
+        }, CancellationToken.None);
+
+        Assert.IsTrue(
+            result.Frames >= 1,
+            $"a recording whose capture source starts late must still capture a frame, got {result.Frames}");
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_SlowFrameArtifactSetup_IsNotChargedToTheRequestedDuration()
+    {
+        // Frame artifact setup creates a staging directory and opens the manifest and index writers.
+        // The capture clock used to start before that work, so on a loaded machine a short recording
+        // could spend its whole --duration budget on filesystem setup and capture almost nothing.
+        using var fx = new UiaTestFixture();
+        var capture = new FakeWindowCapture();
+        var svc = NewAutomation();
+        var recording = NewRecordingService(svc, capture);
+        var uiTarget = SessionFor(fx);
+        await ResolveAsync(svc, uiTarget, "btnInvoke");
+
+        var root = Path.Join(AppContext.BaseDirectory, "coverage-scratch", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var output = Path.Join(root, "slow-setup.mp4");
+        var setupDelay = TimeSpan.FromMilliseconds(1_500);
+
+        capture.Supported = true;
+        capture.StartGrabberCallback = (_, _) =>
+            new FakeFrameGrabber(new byte[64 * 64 * 4], 64, 64);
+        Mp4SinkWriterEncoder.s_createNoClobber =
+            (path, width, height, _, _) => new FakeVideoEncoder(path, width, height);
+        RecordFrameBundleWriter.s_create = configuration =>
+        {
+            Thread.Sleep(setupDelay);
+            return new FakeFrameSink { Configuration = configuration };
+        };
+
+        var wallClock = Stopwatch.StartNew();
+        var result = await recording.RecordAsync(uiTarget, null, new RecordOptions
+        {
+            OutputPath = output,
+            FramesDirectory = Path.Join(root, "slow-setup.frames"),
+            DurationSec = 1,
+            Fps = 4,
+            MaxEdge = 64,
+        }, CancellationToken.None);
+        wallClock.Stop();
+
+        Assert.IsTrue(result.Frames >= 1, "the recording must capture something");
+
+        // Wall time covers setup and capture; the reported elapsed time must cover capture only, so
+        // the setup delay has to show up as the difference. Comparing the two rather than asserting
+        // an absolute elapsed time keeps this immune to a slow machine stretching the capture loop.
+        var excluded = wallClock.ElapsedMilliseconds - result.ElapsedMs;
+        Assert.IsTrue(
+            excluded >= setupDelay.TotalMilliseconds * 0.8,
+            $"reported elapsed time must measure capture, not setup: only {excluded}ms of the " +
+            $"{setupDelay.TotalMilliseconds}ms setup was excluded from {result.ElapsedMs}ms elapsed");
+    }
+
     private sealed class FakeFrameGrabber(byte[] pixels, int width, int height) : IFrameGrabber
     {
         private long _version;
@@ -624,6 +715,48 @@ public partial class RealRecordingTests
         public Task<bool> WaitForFirstFrameAsync(TimeSpan timeout, CancellationToken ct) => Task.FromResult(true);
 
         public void Dispose() => Disposed = true;
+    }
+
+    /// <summary>
+    /// Reports one frame to the recorder's setup read, then yields nothing for the given silence
+    /// window before delivering frames again — the shape of a capture source that is slow to start
+    /// feeding the capture loop.
+    /// </summary>
+    private sealed class SlowStartingFrameGrabber(
+        byte[] pixels, int width, int height, TimeSpan silence) : IFrameGrabber
+    {
+        private readonly Stopwatch _silenceSince = new();
+        private int _reads;
+        private long _version;
+
+        public bool IsClosed => false;
+
+        public (byte[] Pixels, int Width, int Height, long Version)? TryGetLatest()
+        {
+            // Recorder setup dereferences its read without a null check, so it always gets a frame.
+            if (Interlocked.Increment(ref _reads) == 1)
+            {
+                return Latest();
+            }
+
+            // Time the silence from the capture loop's first read, so the window the recorder sees
+            // does not shrink by however long the recorder spent between the two.
+            if (!_silenceSince.IsRunning)
+            {
+                _silenceSince.Start();
+            }
+
+            return _silenceSince.Elapsed < silence ? null : Latest();
+        }
+
+        public Task<bool> WaitForFirstFrameAsync(TimeSpan timeout, CancellationToken ct) => Task.FromResult(true);
+
+        public void Dispose()
+        {
+        }
+
+        private (byte[] Pixels, int Width, int Height, long Version) Latest()
+            => (pixels, width, height, Interlocked.Increment(ref _version));
     }
 
     private sealed class FakeVideoEncoder(string path, int width, int height) : IVideoEncoder

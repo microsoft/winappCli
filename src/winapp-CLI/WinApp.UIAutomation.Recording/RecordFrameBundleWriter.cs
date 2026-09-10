@@ -26,7 +26,6 @@ internal sealed class RecordFrameBundleConfiguration
 
     public required string FinalDirectory { get; init; }
     public required string VideoPath { get; init; }
-    public required DateTimeOffset StartedUtc { get; init; }
     public required int Width { get; init; }
     public required int Height { get; init; }
     public required RecordFrameRequestManifest Requested { get; init; }
@@ -38,6 +37,12 @@ internal sealed class RecordFrameCompletion
 {
     public required string Status { get; init; }
     public required string StopReason { get; init; }
+
+    /// <summary>
+    /// Wall-clock instant capture began. Supplied at completion because it is the same instant the
+    /// capture clock starts, which is only known once artifact setup is done.
+    /// </summary>
+    public required DateTimeOffset StartedUtc { get; init; }
     public required long ElapsedMs { get; init; }
     public required double AchievedFps { get; init; }
     public required double CadenceRatio { get; init; }
@@ -213,7 +218,7 @@ internal sealed class RecordFrameBundleWriter : IRecordFrameSink
             Status = completion.Status == "complete" && IsTruncated
                 ? "truncated"
                 : completion.Status,
-            StartedUtc = _configuration.StartedUtc,
+            StartedUtc = completion.StartedUtc,
             CompletedUtc = DateTimeOffset.UtcNow,
             StopReason = completion.StopReason,
             Requested = _configuration.Requested,
