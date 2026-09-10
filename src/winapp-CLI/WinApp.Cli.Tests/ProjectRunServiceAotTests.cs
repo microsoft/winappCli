@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Spectre.Console.Testing;
@@ -14,6 +15,7 @@ namespace WinApp.Cli.Tests;
 public sealed class ProjectRunServiceAotTests
 {
     private DirectoryInfo _tempDirectory = null!;
+    private readonly List<TestConsole> _consoles = [];
 
     [TestInitialize]
     public void Setup()
@@ -26,15 +28,23 @@ public sealed class ProjectRunServiceAotTests
     [TestCleanup]
     public void Cleanup()
     {
+        foreach (var console in _consoles)
+        {
+            console.Dispose();
+        }
+        _consoles.Clear();
+
         try
         {
             _tempDirectory.Delete(recursive: true);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            Debug.WriteLine($"Could not delete '{_tempDirectory.FullName}': {ex}");
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            Debug.WriteLine($"Could not delete '{_tempDirectory.FullName}': {ex}");
         }
     }
 
@@ -379,15 +389,19 @@ public sealed class ProjectRunServiceAotTests
             RunDotnetArgumentListHandler = _ => (0, properties, string.Empty),
         };
 
-    private static ProjectRunService NewService(FakeDotNetService dotnet) =>
-        new(
+    private ProjectRunService NewService(FakeDotNetService dotnet)
+    {
+        var console = new TestConsole();
+        _consoles.Add(console);
+        return new(
             dotnet,
             new ProjectDetectionService(
                 NullLogger<ProjectDetectionService>.Instance,
                 dotnet),
             new FakeCsWinRTMetadataShimService(),
-            new TestConsole(),
+            console,
             NullLogger<ProjectRunService>.Instance);
+    }
 
     private static ProjectRunOptions Options(bool noRestore = false) =>
         new(

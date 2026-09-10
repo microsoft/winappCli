@@ -547,9 +547,9 @@ internal partial class MsixService
         }
 
         var deleted = 0;
-        foreach (var relativePath in staleFiles)
+        foreach (var stalePath in staleFiles.Select(
+                     relativePath => ResolveRecipeDestination(outputDir, relativePath)))
         {
-            var stalePath = ResolveRecipeDestination(outputDir, relativePath);
             if (File.Exists(stalePath))
             {
                 File.Delete(stalePath);
@@ -561,11 +561,11 @@ internal partial class MsixService
                      .Select(path => Path.GetDirectoryName(
                          ResolveRecipeDestination(outputDir, path)))
                      .Where(path => !string.IsNullOrWhiteSpace(path))
+                     .Select(path => path!)
                      .Distinct(StringComparer.OrdinalIgnoreCase)
-                     .OrderByDescending(path => path!.Length))
+                     .OrderByDescending(path => path.Length))
         {
-            if (directory is not null &&
-                Directory.Exists(directory) &&
+            if (Directory.Exists(directory) &&
                 !Directory.EnumerateFileSystemEntries(directory).Any())
             {
                 Directory.Delete(directory);
