@@ -1849,6 +1849,32 @@ public sealed class ApiQueryEngineTests
     }
 
     [TestMethod]
+    public void Search_AMatch_CarriesItsPurposeAndOwningPackage()
+    {
+        // A ranked list of names makes the reader open each one to find out which was
+        // meant. The summary lets them choose from the result, and the package and
+        // version say what the answer is actually true of.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildDescriptionCache(cacheDir);
+
+            var result = ApiQueryEngine.Search("LanguageModel", 10, cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            ApiTypeHit hit = result.Data!.Results
+                .SelectMany(r => r.Matches)
+                .Single(m => m.Display.Contains("LanguageModel", StringComparison.Ordinal));
+            StringAssert.Contains(hit.Description, "text generation");
+            StringAssert.Contains(hit.Package, "Desc.Pkg");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
     public void Members_OfAStructWithOnlyFields_ListsThem()
     {
         // Omitting fields renders such a type as "(no declared members)", which reads as

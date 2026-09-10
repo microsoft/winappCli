@@ -47,6 +47,7 @@ internal static class ApiQueryEngine
             {
                 continue;
             }
+            string? packageLabel = ReadPackageLabel(dir);
             foreach (string ns in Deserialize(nsPath, ApiSearchJsonContext.Default.ListString) ?? new List<string>())
             {
                 string typesFile = Path.Combine(dir, "types", ApiCachePaths.NamespaceFileName(ns));
@@ -82,6 +83,7 @@ internal static class ApiQueryEngine
                     }
                     int bestMemberScore = 0;
                     string? memberSignature = null;
+                    string? memberDescription = null;
                     if (type.Members != null)
                     {
                         foreach (WinMdMemberInfo member in type.Members)
@@ -95,6 +97,7 @@ internal static class ApiQueryEngine
                             {
                                 bestMemberScore = memberScore;
                                 memberSignature = member.Signature;
+                                memberDescription = member.Description;
                             }
                         }
                     }
@@ -122,10 +125,19 @@ internal static class ApiQueryEngine
                     {
                         group.HasExact = true;
                     }
-                    string display = typeScore >= bestMemberScore
+                    bool typeAnswered = typeScore >= bestMemberScore;
+                    string display = typeAnswered
                         ? $"{type.Kind} {type.FullName}"
                         : $"{type.Kind} {type.FullName} -> {memberSignature}";
-                    group.Matches.Add((new ApiTypeHit { Display = display, Score = typeScore >= bestMemberScore ? typeScore : bestMemberScore }, isExactName));
+                    group.Matches.Add((
+                        new ApiTypeHit
+                        {
+                            Display = display,
+                            Score = typeAnswered ? typeScore : bestMemberScore,
+                            Description = Summarize(typeAnswered ? type.Description : memberDescription ?? type.Description),
+                            Package = packageLabel,
+                        },
+                        isExactName));
                     namespaceHits[ns] = group;
 
                     if (typeScore >= 60)
@@ -202,6 +214,42 @@ internal static class ApiQueryEngine
             Note = results.Count == 0 ? IncompleteIndexNote(cacheDir, manifest) : null,
             Results = results,
         });
+    }
+
+    /// <summary>
+    /// The package a cache directory holds, as <c>id version</c>, or <see langword="null"/>
+    /// when its metadata cannot be read — an unnamed match is better than no match.
+    /// </summary>
+    private static string? ReadPackageLabel(string packageCacheDir)
+    {
+        string metaPath = Path.Combine(packageCacheDir, "meta.json");
+        if (!File.Exists(metaPath))
+        {
+            return null;
+        }
+        PackageMeta? meta = Deserialize(metaPath, ApiSearchJsonContext.Default.PackageMeta);
+        return string.IsNullOrEmpty(meta?.PackageId) ? null : $"{meta.PackageId} {meta.Version}";
+    }
+
+    /// <summary>
+    /// The first sentence of a documentation summary, bounded so one verbose remark
+    /// cannot push the rest of the results off the screen. A result list is only concise
+    /// if each line stays a line.
+    /// </summary>
+    private static string? Summarize(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return null;
+        }
+        string text = string.Join(' ', description.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        int stop = text.IndexOf(". ", StringComparison.Ordinal);
+        if (stop > 0)
+        {
+            text = text.Substring(0, stop + 1);
+        }
+        const int Limit = 140;
+        return text.Length <= Limit ? text : text.Substring(0, Limit).TrimEnd() + "…";
     }
 
     /// <summary>

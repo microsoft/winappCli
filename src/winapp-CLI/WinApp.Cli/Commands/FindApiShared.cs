@@ -406,7 +406,12 @@ internal static class FindApiShared
             }
             foreach (ApiTypeHit match in ns.Matches)
             {
-                console.WriteLine($"    {match.Display}");
+                string package = string.IsNullOrEmpty(match.Package) ? "" : $"  [{match.Package}]";
+                console.WriteLine($"    {match.Display}{package}");
+                if (!string.IsNullOrEmpty(match.Description))
+                {
+                    console.WriteLine($"        {match.Description}");
+                }
             }
             console.WriteLine();
         }

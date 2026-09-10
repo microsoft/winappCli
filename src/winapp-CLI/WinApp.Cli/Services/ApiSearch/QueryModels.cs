@@ -174,6 +174,20 @@ internal sealed class ApiTypeHit
     public required string Display { get; init; }
 
     public required int Score { get; init; }
+
+    /// <summary>
+    /// One line of documentation saying what the API is for. A ranked list of names
+    /// makes the reader open each one to find out which was meant; the summary is what
+    /// lets them choose without leaving the result.
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>
+    /// The package this match was indexed from, as <c>id version</c>. The same type
+    /// name ships from more than one package in a normal graph, and the answer is only
+    /// true of the version that supplied it.
+    /// </summary>
+    public string? Package { get; init; }
 }
 
 /// <summary>Ranked matches grouped by the namespace they live in.</summary>
