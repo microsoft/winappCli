@@ -468,6 +468,26 @@ public partial class SandboxLiveE2ETests
             Assert.AreEqual(recordingsBeforeDefault + 1, Directory.GetFiles(artifacts, "*.mp4").Length);
             StringAssert.Contains(defaultRecording.StandardOutput, artifacts.Replace(@"\", @"\\"));
 
+            var stoppedOutput = Path.Join(artifacts, "stopped.mp4");
+            var stoppedRecording = await RunCliAsync(
+                ["ui", "record", "--on", "sandbox", "-a", "winui-app", "--frames",
+                    "-o", stoppedOutput, "--json"],
+                timeout.Token, standardInput: Environment.NewLine);
+            AssertCommandSucceeded(stoppedRecording, "guest recording finalized after stdin stop");
+            Assert.IsTrue(File.Exists(stoppedOutput));
+            Assert.IsGreaterThan(1024L, new FileInfo(stoppedOutput).Length);
+            Assert.IsTrue(File.Exists(Path.Join(Path.ChangeExtension(stoppedOutput, ".frames"), "manifest.json")));
+            StringAssert.Contains(stoppedRecording.StandardOutput, "cancelled");
+
+            var desktopOutput = Path.Join(artifacts, "desktop.mp4");
+            var desktopRecording = await RunCliAsync(
+                ["target", "record", "sandbox", "--duration-sec", "1", "--frames",
+                    "-o", desktopOutput, "--json"],
+                timeout.Token);
+            AssertCommandSucceeded(desktopRecording, "whole guest desktop recording");
+            Assert.IsGreaterThan(1024L, new FileInfo(desktopOutput).Length);
+            Assert.IsTrue(File.Exists(Path.Join(Path.ChangeExtension(desktopOutput, ".frames"), "manifest.json")));
+
             var store = new TargetStateStore(new TargetStateDirectoryProvider());
             var previous = store.Read(WindowsSandboxTarget.Default)!;
             await CreateCli().StopAsync(previous.InstanceId!, timeout.Token);

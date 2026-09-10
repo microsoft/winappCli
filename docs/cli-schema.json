@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "1.0.0",
+  "version": "0.6.3",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
