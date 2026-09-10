@@ -601,7 +601,7 @@ internal partial class RunCommand
                         var result = await targetRuntimeService.EnsureAsync(
                             target,
                             sourceRoot,
-                            applicationArchitecture ?? ResolveTargetApplicationArchitecture(sourceRoot, target.Capabilities.Architecture),
+                            applicationArchitecture,
                             new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory()),
                             taskContext,
                             ct,
@@ -649,29 +649,6 @@ internal partial class RunCommand
                 ExecutionTargetErrorCodes.RuntimeProvisionFailed,
                 "winapp could not verify the shared runtimes the app needs inside Windows Sandbox.",
                 userAction: "Retry the command. If it keeps failing, close Windows Sandbox so a fresh guest is created.");
-        }
-
-        private static string ResolveTargetApplicationArchitecture(DirectoryInfo sourceRoot, string guestArchitecture)
-        {
-            var manifest = FindManifest(sourceRoot.FullName);
-            if (manifest.Exists)
-            {
-                var document = AppxManifestDocument.Load(manifest.FullName);
-                if (document.ApplicationExecutable is { } executable
-                    && PeHelper.DetectPeArchitecture(
-                        TargetPathSafety.CombineInsideRoot(sourceRoot.FullName, executable)) is { } detected)
-                {
-                    return detected;
-                }
-
-                if (document.IdentityProcessorArchitecture is "x86" or "x64" or "arm64")
-                {
-                    return document.IdentityProcessorArchitecture;
-                }
-            }
-
-            // A neutral layout has no fixed machine architecture; use the guest's native runtime.
-            return guestArchitecture;
         }
 
         internal static string? ResolveRestoredWindowsAppRuntimeVersion(PackageGraphSource? graph, string? framework)
