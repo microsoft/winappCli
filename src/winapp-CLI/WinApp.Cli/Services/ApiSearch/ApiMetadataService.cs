@@ -170,9 +170,7 @@ internal sealed class ApiMetadataService(
     /// </summary>
     private static string UnknownProjectMessage(string projectName, string cacheDir)
     {
-        string projectsDir = Path.Combine(cacheDir, "projects");
-        string[] files = Directory.Exists(projectsDir) ? Directory.GetFiles(projectsDir, "*.json") : [];
-        string names = AvailableProjects(files);
+        string names = AvailableProjects(ManifestFiles(cacheDir));
         string known = names.Length == 0
             ? "No projects are indexed yet."
             : $"Indexed projects: {names}.";
@@ -195,7 +193,7 @@ internal sealed class ApiMetadataService(
         }
 
         var dirs = new List<string>();
-        foreach (string path in Directory.GetFiles(projectsDir, "*.json"))
+        foreach (string path in ManifestFiles(cacheDir))
         {
             if (!IsManifestForProject(path, projectName))
             {
@@ -930,10 +928,23 @@ internal sealed class ApiMetadataService(
             ? null
             : Path.GetFullPath(Path.Combine(manifest.ProjectDir, manifest.ProjectFile));
 
+    /// <summary>
+    /// The manifest files that still describe a project on disk. A renamed or deleted
+    /// project leaves its old manifest behind, and every scope decision below reads this
+    /// list, so dropping it here keeps one stale file from reaching any of them.
+    /// </summary>
     private static string[] ManifestFiles(string cacheDir)
     {
         string projectsDir = Path.Combine(cacheDir, "projects");
-        return Directory.Exists(projectsDir) ? Directory.GetFiles(projectsDir, "*.json") : [];
+        if (!Directory.Exists(projectsDir))
+        {
+            return [];
+        }
+        return Directory.GetFiles(projectsDir, "*.json")
+            // A manifest that will not parse is left in: the callers already skip it, and
+            // treating unreadable as stale would hide a real cache problem.
+            .Where(path => DeserializeManifest(path) is not { } manifest || !manifest.DescribesMissingProject())
+            .ToArray();
     }
 
     /// <summary>

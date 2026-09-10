@@ -626,6 +626,12 @@ internal static class ApiQueryEngine
                 {
                     continue;
                 }
+                // A renamed or deleted project leaves its manifest behind. Listing it
+                // offers a choice that cannot be acted on.
+                if (manifest.DescribesMissingProject())
+                {
+                    continue;
+                }
                 projects.Add(new ApiProjectSummary { Name = manifest.ProjectName, PackageCount = manifest.Packages.Count });
             }
         }

@@ -86,18 +86,26 @@ public sealed class ApiMetadataServiceTests
         File.WriteAllText(Path.Combine(dir, name + ".csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
     }
 
-    private void WriteManifest(string name, string? projectDir = null, string? fileName = null, List<string>? caveats = null)
+    private void WriteManifest(string name, string? projectDir = null, string? fileName = null, List<string>? caveats = null, bool createProjectFile = true)
     {
         Directory.CreateDirectory(_projectsDir);
+        string dir = projectDir ?? Path.Combine(_currentDir, name);
         var manifest = new ProjectManifest
         {
             ProjectName = name,
-            ProjectDir = projectDir ?? Path.Combine(_currentDir, name),
+            ProjectDir = dir,
             ProjectFile = name + ".csproj",
             Packages = [new ProjectPackageRef { Id = "Some.Pkg", Version = "1.0.0", SourceStamp = "0a1b2c3d", AssetPathKey = "0a1b2c3d" }],
             GeneratedAt = DateTime.UtcNow.ToString("o"),
             Caveats = caveats,
         };
+        // A manifest is only written after a project was indexed, so the project file it
+        // names exists unless the project has since been renamed or deleted. Tests that
+        // want that stale case ask for it explicitly.
+        if (createProjectFile && dir.Length > 0)
+        {
+            WriteProjectFile(dir, name);
+        }
         File.WriteAllText(Path.Combine(_projectsDir, (fileName ?? name) + ".json"), JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
     }
 
@@ -777,6 +785,39 @@ public sealed class ApiMetadataServiceTests
         Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
         Assert.AreEqual(ApiScopeNames.Project, result.Data!.Scope);
         Assert.AreEqual("Alpha", result.Data.ProjectName);
+    }
+
+    [TestMethod]
+    public void Query_ProjectRenamed_DoesNotOfferTheOldNameAsASecondProject()
+    {
+        // Renaming Before.csproj to After.csproj and re-indexing writes a manifest for
+        // After and leaves Before's behind. Both name the same directory, so the
+        // directory reads as holding two indexed projects and every query there fails
+        // with "pick one" — for a project that no longer exists.
+        string cacheDir = Path.Combine(_globalDir, "cache", "find-api");
+        Directory.CreateDirectory(cacheDir);
+        WriteManifest("Before", _currentDir, "Before_11111111", createProjectFile: false);
+        WriteManifest("After", _currentDir, "After_22222222");
+        WritePackageCache(cacheDir, new ProjectPackageRef { Id = "Some.Pkg", Version = "1.0.0", SourceStamp = "0a1b2c3d", AssetPathKey = "0a1b2c3d" });
+        WriteSdkManifest();
+
+        var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
+
+        Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+        Assert.AreEqual("After", result.Data!.ProjectName);
+    }
+
+    [TestMethod]
+    public void Projects_OmitsAProjectThatIsNoLongerOnDisk()
+    {
+        // 'find-api projects' is how a caller learns what --project accepts, so listing a
+        // deleted project offers a choice that can only fail.
+        WriteManifest("Gone", fileName: "Gone", createProjectFile: false);
+        WriteManifest("Present", fileName: "Present");
+
+        var result = CreateService().Projects();
+
+        CollectionAssert.AreEquivalent(new[] { "Present" }, result.Projects.ConvertAll(p => p.Name));
     }
 
     [TestMethod]

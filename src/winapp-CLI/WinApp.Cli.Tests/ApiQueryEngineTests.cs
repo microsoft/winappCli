@@ -617,6 +617,10 @@ public sealed class ApiQueryEngineTests
             Packages = [new ProjectPackageRef { Id = packageId, Version = version, SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
             GeneratedAt = DateTime.UtcNow.ToString("o"),
         };
+        // A manifest is only written for a project that was indexed, so its project file
+        // is on disk. Listings drop a manifest whose project has since disappeared.
+        Directory.CreateDirectory(Path.Combine(cacheDir, "src"));
+        File.WriteAllText(Path.Combine(cacheDir, "src", "TestApp.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />");
         string projectsDir = Path.Combine(cacheDir, "projects");
         Directory.CreateDirectory(projectsDir);
         // Manifest files carry a path hash in their name, exactly as ApiCacheBuilder

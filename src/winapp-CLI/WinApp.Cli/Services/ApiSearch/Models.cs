@@ -153,6 +153,18 @@ internal sealed class ProjectManifest
     public List<string>? Caveats { get; init; }
 
     public required string GeneratedAt { get; init; }
+
+    /// <summary>
+    /// Whether the project this manifest describes is no longer on disk — renamed, moved,
+    /// or deleted. Renaming a project and re-indexing writes a second manifest under the
+    /// new name and leaves this one behind, and offering both makes a normal rename look
+    /// like two projects — enough for an ambiguous-scope error to block every query in
+    /// that directory. The SDK scope names no project file, so it is never stale here.
+    /// </summary>
+    public bool DescribesMissingProject() =>
+        !string.IsNullOrEmpty(ProjectDir) &&
+        !string.IsNullOrEmpty(ProjectFile) &&
+        !File.Exists(Path.Combine(ProjectDir, ProjectFile));
 }
 
 /// <summary>The <c>meta.json</c> summary written alongside each cached package.</summary>
