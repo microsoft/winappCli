@@ -3,6 +3,7 @@
 
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 

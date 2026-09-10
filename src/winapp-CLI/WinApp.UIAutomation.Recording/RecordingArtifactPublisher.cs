@@ -2,11 +2,18 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;
 
+#if WINAPP_CLI_ARTIFACTS
+using ArtifactJsonContext = WinApp.Cli.Helpers.UiJsonContext;
+namespace WinApp.Cli.Helpers;
+#else
+using ArtifactJsonContext = Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording.RecordingJsonContext;
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;
+#endif
 
 /// <summary>Publishes a finalized recording and its optional frame bundle.</summary>
-public static class RecordingArtifactPublisher
+internal static class RecordingArtifactPublisher
 {
     /// <summary>Default byte limit for a recording's frame bundle.</summary>
     public const long DefaultMaximumFrameBundleBytes = 1024L * 1024 * 1024;
@@ -76,7 +83,7 @@ public static class RecordingArtifactPublisher
 
             if (overwrite)
             {
-                Mp4SinkWriterEncoder.PublishAtomic(stagedVideo, videoPath);
+                PublishVideo(stagedVideo, videoPath);
             }
             else
             {
@@ -100,6 +107,19 @@ public static class RecordingArtifactPublisher
         }
     }
 
+    internal static void PublishVideo(string stagedVideo, string videoPath)
+    {
+        if (File.Exists(videoPath))
+        {
+            // Preserve an existing output's ACL rather than inheriting the directory default.
+            File.Replace(stagedVideo, videoPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        }
+        else
+        {
+            File.Move(stagedVideo, videoPath, overwrite: false);
+        }
+    }
+
     /// <summary>Updates a frame bundle's manifest to point at the relocated video.</summary>
     public static async Task RewriteManifestVideoAsync(
         string framesDirectory, string videoPath, CancellationToken cancellationToken)
@@ -109,7 +129,7 @@ public static class RecordingArtifactPublisher
         await using (var stream = File.OpenRead(path))
         {
             manifest = await JsonSerializer.DeserializeAsync(
-                stream, RecordingJsonContext.Default.RecordFrameBundleManifest, cancellationToken)
+                stream, ArtifactJsonContext.Default.RecordFrameBundleManifest, cancellationToken)
                 .ConfigureAwait(false) ?? throw new IOException($"Invalid recording manifest: {path}");
         }
         manifest.Video = new RecordFrameVideoManifest
@@ -124,7 +144,7 @@ public static class RecordingArtifactPublisher
         try
         {
             await File.WriteAllTextAsync(staged,
-                JsonSerializer.Serialize(manifest, RecordingJsonContext.Default.RecordFrameBundleManifest),
+                JsonSerializer.Serialize(manifest, ArtifactJsonContext.Default.RecordFrameBundleManifest),
                 cancellationToken).ConfigureAwait(false);
             File.Move(staged, path, overwrite: true);
         }
