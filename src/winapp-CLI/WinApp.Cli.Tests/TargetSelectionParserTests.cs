@@ -399,6 +399,46 @@ public class TargetSelectionParserTests : BaseCommandTests
         Assert.AreEqual("Results", request.TargetPath);
     }
 
+    [TestMethod]
+    public void TargetPull_DestinationUnderAJunction_IsRefusedBeforeTargetPreparation()
+    {
+        var real = Directory.CreateDirectory(Path.Join(Path.GetTempPath(), $"winapp-pull-real-{Guid.NewGuid():n}"));
+        var link = Path.Join(Path.GetTempPath(), $"winapp-pull-link-{Guid.NewGuid():n}");
+
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe")
+            {
+                ArgumentList = { "/c", "mklink", "/J", link, real.FullName },
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            process?.WaitForExit(15000);
+
+            if (!Directory.Exists(link) ||
+                !new DirectoryInfo(link).Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                Assert.Inconclusive("Could not create a directory junction on this machine.");
+                return;
+            }
+
+            var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
+                TargetTransferRequest.Create(
+                    TargetTransferDirection.FromTarget,
+                    Path.Join(link, "result.txt"),
+                    "Results/result.txt"));
+
+            Assert.AreEqual(ExecutionTargetErrorCodes.ArtifactFailed, failure.Error.Code);
+        }
+        finally
+        {
+            try { Directory.Delete(link, recursive: false); } catch { }
+            try { Directory.Delete(real.FullName, recursive: true); } catch { }
+        }
+    }
+
     /// <summary>The verb decides the direction, and each side keeps the path it was given.</summary>
     [TestMethod]
     public void TargetTransfer_MapsEachPathToTheSideItsVerbNames()

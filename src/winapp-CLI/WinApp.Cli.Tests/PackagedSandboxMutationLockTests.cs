@@ -396,6 +396,33 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
             "Exact package removal is a structured guest operation, not another guest winapp process.");
     }
 
+    [TestMethod]
+    public async Task UnregisterOnExit_CancellationStillRemovesTheRegisteredPackage()
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        await using var harness = CreateHarness("unregCancelled");
+
+        var task = RunAsync(
+            harness,
+            noLaunch: false,
+            clean: false,
+            cancellation.Token,
+            unregisterOnExit: true);
+
+        (await harness.Processes.WaitForNextAsync(TestContext.CancellationToken)).Exit(0);
+        _ = await harness.Processes.WaitForNextAsync(TestContext.CancellationToken);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => task);
+        Assert.AreEqual(
+            ("SbxMutationLockTestPackage_1.0.0.0_x64__fakefamily", false),
+            harness.PackageRegistration.UnregisterByFullNameCalls.Single());
+        Assert.IsFalse(
+            harness.PackageRegistration.UnregisterByFullNameTokenCancelled.Single(),
+            "Cleanup must use an independent token after the caller cancels.");
+    }
+
     /// <summary>
     /// H2: the mutation lease is never held across the application's own lifetime -- a second,
     /// unrelated packaged run's registration must be free to proceed while the first run's app is

@@ -13,12 +13,12 @@ internal class EmbedIdentityCommand : Command, IShortDescription
 {
     public string ShortDescription => "Embed sparse package identity into an app's manifest";
 
-    public static Argument<FileInfo> TargetArgument { get; }
+    public static Argument<string> TargetArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }
 
     static EmbedIdentityCommand()
     {
-        TargetArgument = new Argument<FileInfo>("target")
+        TargetArgument = new Argument<string>("target")
         {
             Description = "Path to the .exe (embeds identity into its side-by-side manifest via mt.exe) or an .xml/.manifest side-by-side manifest file (inserts/replaces the <msix> element; created if it doesn't exist)."
         };
@@ -39,7 +39,7 @@ internal class EmbedIdentityCommand : Command, IShortDescription
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
-            var target = parseResult.GetRequiredValue(TargetArgument);
+            var target = new FileInfo(parseResult.GetRequiredValue(TargetArgument));
 
             // Validate the target type up front, before any manifest discovery, so an unsupported
             // target (e.g. 'notes.txt') reports the actionable unsupported-target error rather than

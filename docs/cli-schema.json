@@ -717,7 +717,7 @@
           "description": "Path to the .exe (embeds identity into its side-by-side manifest via mt.exe) or an .xml/.manifest side-by-side manifest file (inserts/replaces the <msix> element; created if it doesn't exist).",
           "order": 0,
           "hidden": false,
-          "valueType": "System.IO.FileInfo",
+          "valueType": "System.String",
           "hasDefaultValue": false,
           "arity": {
             "minimum": 1,

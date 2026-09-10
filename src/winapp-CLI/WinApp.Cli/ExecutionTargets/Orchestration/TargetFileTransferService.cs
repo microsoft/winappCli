@@ -65,6 +65,7 @@ internal sealed record TargetTransferRequest(
         {
             // A pull's host side is a destination, so it does not have to exist yet, and only the
             // target knows whether its own source does.
+            TargetFileTransferService.EnsureHostDestinationHasNoLinks(fullHostPath);
             return new TargetTransferRequest(direction, fullHostPath, targetPath);
         }
 
@@ -241,7 +242,9 @@ internal static class TargetFileTransferService
             cancellationToken.ThrowIfCancellationRequested();
 
             var destination = ResolveHostDestination(request.HostPath, prefix, file.RelativePath, matches.Count);
+            EnsureHostDestinationHasNoLinks(destination);
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            EnsureHostDestinationHasNoLinks(destination);
 
             // Received into a temporary and verified before the destination is touched, so an
             // interrupted copy never publishes a partial file over something that was correct.
@@ -258,6 +261,7 @@ internal static class TargetFileTransferService
 
                 await VerifyAsync(temporary, file, cancellationToken).ConfigureAwait(false);
 
+                EnsureHostDestinationHasNoLinks(destination);
                 File.Move(temporary, destination, overwrite: true);
                 File.SetLastWriteTimeUtc(destination, new DateTime(file.LastWriteUtcTicks, DateTimeKind.Utc));
             }
@@ -272,6 +276,46 @@ internal static class TargetFileTransferService
         }
 
         return new TargetTransferResult(transferred, Skipped: 0, bytes);
+    }
+
+    /// <summary>
+    /// Refuses a host pull destination when any existing component is a symbolic link or junction.
+    /// </summary>
+    /// <remarks>
+    /// Checked while parsing and again immediately before directory creation and publication. A
+    /// lexical containment check alone does not constrain a path such as <c>out\sub</c> when
+    /// <c>sub</c> is a junction to another tree.
+    /// </remarks>
+    internal static void EnsureHostDestinationHasNoLinks(string destination)
+    {
+        var fullPath = Path.GetFullPath(destination);
+        var root = Path.GetPathRoot(fullPath)
+            ?? throw new InvalidOperationException($"Could not determine the root of '{fullPath}'.");
+        var current = root;
+
+        foreach (var segment in fullPath[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Join(current, segment);
+
+            try
+            {
+                if (File.GetAttributes(current).HasFlag(FileAttributes.ReparsePoint))
+                {
+                    throw ExecutionTargetException.Create(
+                        ExecutionTargetErrorCodes.ArtifactFailed,
+                        $"Refusing to copy target output to '{destination}' because '{current}' is a symbolic link or junction.",
+                        userAction: "Choose a destination path containing only real directories and files.",
+                        context: new Dictionary<string, string> { ["destination"] = fullPath });
+                }
+            }
+            catch (Exception ex) when (
+                ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                // A missing component cannot redirect the write. It is checked again after creation.
+            }
+        }
     }
 
     /// <summary>Proves what arrived is what the guest said it was sending.</summary>

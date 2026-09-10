@@ -451,37 +451,50 @@ internal partial class RunCommand
                 // for a packaged app, so the last silent stretch gets a line too.
                 WriteProgress(isJson, "Starting the application in the Windows Sandbox...");
 
-                var run = await guestApplicationRunner.RunAsync(
-                    target,
-                    state,
-                    request,
-                    new GuestExecCallbacks(
-                        OnOperationId: forwardStandardInput
-                            ? GuestStandardInputPump.Attach(target.Operations, cancellationToken)
-                            : null,
-                        OnStandardOutput: data =>
-                        {
-                            if (isJson && !guestProducesRunResult)
+                GuestRunOutcome run;
+                try
+                {
+                    run = await guestApplicationRunner.RunAsync(
+                        target,
+                        state,
+                        request,
+                        new GuestExecCallbacks(
+                            OnOperationId: forwardStandardInput
+                                ? GuestStandardInputPump.Attach(target.Operations, cancellationToken)
+                                : null,
+                            OnStandardOutput: data =>
                             {
-                                return;
-                            }
+                                if (isJson && !guestProducesRunResult)
+                                {
+                                    return;
+                                }
 
-                            if (capturedOutput is not null)
-                            {
-                                CaptureBounded(capturedOutput, data);
-                                return;
-                            }
+                                if (capturedOutput is not null)
+                                {
+                                    CaptureBounded(capturedOutput, data);
+                                    return;
+                                }
 
-                            WriteRawToConsole(Console.OpenStandardOutput(), data);
-                        },
-                        OnStandardError: data =>
-                        {
-                            if (!isJson || guestProducesRunResult)
+                                WriteRawToConsole(Console.OpenStandardOutput(), data);
+                            },
+                            OnStandardError: data =>
                             {
-                                WriteRawToConsole(Console.OpenStandardError(), data);
-                            }
-                        }),
-                    cancellationToken);
+                                if (!isJson || guestProducesRunResult)
+                                {
+                                    WriteRawToConsole(Console.OpenStandardError(), data);
+                                }
+                            }),
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    if (identity is not null && unregisterOnExit)
+                    {
+                        await UnregisterDeploymentAfterExitAsync(target, identity, state);
+                    }
+
+                    throw;
+                }
 
                 // The application has now fully exited (the guest-launch call above does not
                 // return until it does). --unregister-on-exit is honored only now, as a third,
@@ -489,7 +502,7 @@ internal partial class RunCommand
                 // never covering any part of the application's own lifetime.
                 if (identity is not null && unregisterOnExit)
                 {
-                    await UnregisterDeploymentAfterExitAsync(target, identity, run.State, cancellationToken);
+                    await UnregisterDeploymentAfterExitAsync(target, identity, run.State);
                 }
 
                 if (isJson && guestProducesRunResult && capturedOutput is not null)
@@ -656,12 +669,13 @@ internal partial class RunCommand
         private async Task UnregisterDeploymentAfterExitAsync(
             PreparedTarget target,
             MsixIdentityResult identity,
-            DeploymentState state,
-            CancellationToken cancellationToken)
+            DeploymentState state)
         {
             try
             {
-                using var mutationLease = executionTargetOrchestrator.AcquireMutationLease(cancellationToken);
+                using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var cleanupToken = cleanupTimeout.Token;
+                using var mutationLease = executionTargetOrchestrator.AcquireMutationLease(cleanupToken);
                 var cleanupTarget = target with { MutationLease = mutationLease };
 
                 var familyName = appLauncherService.ComputePackageFamilyName(
@@ -673,8 +687,8 @@ internal partial class RunCommand
                     identity.Publisher,
                     familyName,
                     state.DeploymentId,
-                    state.Revision,
-                    cancellationToken).ConfigureAwait(false);
+                    requiredRevision: null,
+                    cancellationToken: cleanupToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
