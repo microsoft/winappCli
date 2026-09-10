@@ -815,6 +815,74 @@ public sealed class NuGetResolverTests
 
         Assert.AreEqual(0, warnings.Count);
     }
+    [TestMethod]
+    public void FindPackagesFromAssets_SelectedCompileAssetMissingFromDisk_SaysCoverageIsIncomplete()
+    {
+        // Restore chose Contoso.winmd for this target, but the file is gone (a cleaned
+        // package cache, a partially-synced repo). Dropping it silently leaves an index
+        // that answers "no such API" for everything the file defined.
+        string packages = Path.Combine(_dir, "packages");
+        Directory.CreateDirectory(Path.Combine(packages, "contoso", "1.0.0", "lib", "net8.0"));
+        string path = WriteAssets(JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object> { [packages] = new { } },
+            targets = new Dictionary<string, object>
+            {
+                ["net8.0-windows10.0.19041.0"] = new Dictionary<string, object>
+                {
+                    ["Contoso/1.0.0"] = new
+                    {
+                        compile = new Dictionary<string, object> { ["lib/net8.0/Contoso.winmd"] = new { } },
+                    },
+                },
+            },
+            libraries = new Dictionary<string, object>
+            {
+                ["Contoso/1.0.0"] = new { type = "package", path = "contoso/1.0.0" },
+            },
+        }));
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
+
+        Assert.AreEqual(1, warnings.Count, "a compile asset restore selected but that is not on disk must be reported");
+        StringAssert.Contains(warnings[0], "Contoso.winmd");
+        StringAssert.Contains(warnings[0], "dotnet restore");
+    }
+
+    [TestMethod]
+    public void FindPackagesFromAssets_SelectedCompileAssetPresent_DoesNotWarn()
+    {
+        // The warning must mark a real gap, not fire on every restored project.
+        string packages = Path.Combine(_dir, "packages");
+        string libDir = Path.Combine(packages, "contoso", "1.0.0", "lib", "net8.0");
+        Directory.CreateDirectory(libDir);
+        File.WriteAllText(Path.Combine(libDir, "Contoso.winmd"), "metadata");
+        string path = WriteAssets(JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object> { [packages] = new { } },
+            targets = new Dictionary<string, object>
+            {
+                ["net8.0-windows10.0.19041.0"] = new Dictionary<string, object>
+                {
+                    ["Contoso/1.0.0"] = new
+                    {
+                        compile = new Dictionary<string, object> { ["lib/net8.0/Contoso.winmd"] = new { } },
+                    },
+                },
+            },
+            libraries = new Dictionary<string, object>
+            {
+                ["Contoso/1.0.0"] = new { type = "package", path = "contoso/1.0.0" },
+            },
+        }));
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
+
+        Assert.AreEqual(0, warnings.Count);
+    }
+
     private string WriteAssets(string json)
     {
         string path = Path.Combine(_dir, "project.assets.json");
@@ -1581,6 +1649,35 @@ public sealed class NuGetResolverTests
             "Microsoft.WindowsAppSDK", "1.5.240607001", ["Microsoft.UI.Xaml.winmd"], createWinmdFiles: false);
 
         Assert.IsEmpty(NuGetResolver.FindPackagesFromWinmdsLockfile(projectDir));
+    }
+
+    [TestMethod]
+    public void FindPackagesFromWinmdsLockfile_FilesAreGone_SaysCoverageIsIncomplete()
+    {
+        // Dropping the entry keeps the resolve alive, but an index that quietly lost
+        // Microsoft.UI.Xaml.winmd answers "no such API" for every XAML type. The gap
+        // has to reach the user, or a broken restore reads as a confident negative.
+        string projectDir = WriteWinappProject(
+            "Microsoft.WindowsAppSDK", "1.5.240607001", ["Microsoft.UI.Xaml.winmd"], createWinmdFiles: false);
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromWinmdsLockfile(projectDir, warnings.Add);
+
+        Assert.AreEqual(1, warnings.Count, "metadata named by the inventory but absent must be reported");
+        StringAssert.Contains(warnings[0], "Microsoft.UI.Xaml.winmd");
+        StringAssert.Contains(warnings[0], "winapp restore");
+    }
+
+    [TestMethod]
+    public void FindPackagesFromWinmdsLockfile_FilesArePresent_DoesNotWarn()
+    {
+        // The warning must mark a real gap, not fire on every restored project.
+        string projectDir = WriteWinappProject("Microsoft.WindowsAppSDK", "1.5.240607001", ["Microsoft.UI.Xaml.winmd"]);
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromWinmdsLockfile(projectDir, warnings.Add);
+
+        Assert.AreEqual(0, warnings.Count);
     }
 
     [TestMethod]

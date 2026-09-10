@@ -53,7 +53,7 @@ internal static partial class NuGetResolver
         // it reports the API surface as absent.
         if (packages.Count == 0)
         {
-            packages.AddRange(FindPackagesFromWinmdsLockfile(projectDir));
+            packages.AddRange(FindPackagesFromWinmdsLockfile(projectDir, warn));
         }
 
         // A project that declares PackageReferences but has no restore output on disk
@@ -1008,12 +1008,14 @@ internal static partial class NuGetResolver
                 }
             }
 
+            var missingAssets = new List<string>();
             foreach (JsonProperty library in librariesEl.EnumerateObject())
             {
                 if (!library.Value.TryGetProperty("type", out var typeEl) || !string.Equals(typeEl.GetString(), "package", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
+
                 // "libraries" lists every package restore resolved across all target
                 // frameworks. One the selected Windows target does not build is not on this
                 // project's compile surface: without this it reaches the scan fallback
@@ -1065,14 +1067,29 @@ internal static partial class NuGetResolver
                     .ToList();
                 if (hasSelectedAssets)
                 {
-                    foreach (string packageDir in packageDirs)
+                    foreach (string asset in selectedAssets!)
                     {
-                        files.AddRange(selectedAssets!
-                            .Select(asset => TryResolveUnderRoot(packageDir, asset.Replace('/', Path.DirectorySeparatorChar), out string assetPath)
+                        string relative = asset.Replace('/', Path.DirectorySeparatorChar);
+                        bool found = false;
+                        foreach (string packageDir in packageDirs)
+                        {
+                            if (TryResolveUnderRoot(packageDir, relative, out string assetPath)
                                 && !PathSafety.CrossesReparsePoint(assetPath, packageDir)
-                                ? assetPath : null)
-                            .Where(assetPath => assetPath != null && IsProbeablePath(assetPath, probeRoot) && File.Exists(assetPath))
-                            .Select(assetPath => assetPath!));
+                                && IsProbeablePath(assetPath, probeRoot)
+                                && File.Exists(assetPath))
+                            {
+                                files.Add(assetPath);
+                                found = true;
+                            }
+                        }
+                        // Restore chose this file for the target being built, so its
+                        // absence is a gap in coverage — not proof the APIs inside it do
+                        // not exist. Dropping it silently is what turns a broken restore
+                        // into a confident "not found".
+                        if (!found)
+                        {
+                            missingAssets.Add(Path.GetFileName(relative));
+                        }
                     }
                 }
 
@@ -1096,6 +1113,13 @@ internal static partial class NuGetResolver
 
                 var xmlDocs = packageDirs.SelectMany(FindXmlDocsInPackageFolder).ToList();
                 packages.Add(new PackageWithWinMd(id, version, files, xmlDocs));
+            }
+
+            if (missingAssets.Count > 0)
+            {
+                warn?.Invoke(
+                    $"Coverage is incomplete: restore selected metadata that is no longer on disk ({DescribeMissingMetadata(missingAssets)}), " +
+                    "so this index cannot answer for it. Run 'dotnet restore' to put it back, then 'winapp find-api refresh'.");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -1133,9 +1157,10 @@ internal static partial class NuGetResolver
     /// Unlike <c>project.assets.json</c>, the lockfile names no target framework, so
     /// there is nothing to judge a package out-of-target against — every entry it
     /// lists is on the compile surface by construction. A stale lockfile pointing at
-    /// files that no longer exist contributes nothing rather than failing the resolve.
+    /// files that no longer exist still resolves rather than failing, but reports the
+    /// gap through <paramref name="warn"/> so later answers are not read as complete.
     /// </remarks>
-    internal static List<PackageWithWinMd> FindPackagesFromWinmdsLockfile(string projectDir)
+    internal static List<PackageWithWinMd> FindPackagesFromWinmdsLockfile(string projectDir, Action<string>? warn = null)
     {
         var packages = new List<PackageWithWinMd>();
         string winappDir = Path.Combine(projectDir, ".winapp");
@@ -1162,6 +1187,7 @@ internal static partial class NuGetResolver
                 return packages;
             }
 
+            var missing = new List<string>();
             foreach (WinmdsLockfilePackage package in lockfile.Packages)
             {
                 if (string.IsNullOrEmpty(package.Name) || string.IsNullOrEmpty(package.Version)
@@ -1171,8 +1197,16 @@ internal static partial class NuGetResolver
                 }
 
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var files = package.Winmds
-                    .Where(winmd => IsProbeablePath(winmd, projectDir) && File.Exists(winmd))
+                var probeable = package.Winmds.Where(winmd => IsProbeablePath(winmd, projectDir)).ToList();
+                // A file the inventory names but restore no longer has on disk is the
+                // difference between "this API does not exist" and "the metadata that
+                // would prove it was never read". Record it so every later answer says so.
+                missing.AddRange(probeable
+                    .Where(winmd => !File.Exists(winmd))
+                    .Select(Path.GetFileName)
+                    .OfType<string>());
+                var files = probeable
+                    .Where(File.Exists)
                     .Where(winmd => seen.Add(Path.GetFileName(winmd)))
                     .ToList();
                 if (files.Count == 0)
@@ -1191,6 +1225,13 @@ internal static partial class NuGetResolver
 
                 packages.Add(new PackageWithWinMd(package.Name, package.Version, files, xmlDocs));
             }
+
+            if (missing.Count > 0)
+            {
+                warn?.Invoke(
+                    $"Coverage is incomplete: the restore inventory names metadata that is no longer on disk ({DescribeMissingMetadata(missing)}), " +
+                    "so this index cannot answer for it. Run 'winapp restore' to put it back, then 'winapp find-api refresh'.");
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -1199,6 +1240,22 @@ internal static partial class NuGetResolver
         }
 
         return packages;
+    }
+
+    /// <summary>
+    /// Names the metadata files a restore inventory promised but that are not on disk.
+    /// A wholly unrestored project can name hundreds, so the list is capped — the point
+    /// is to show what kind of coverage is missing, not to enumerate it.
+    /// </summary>
+    private static string DescribeMissingMetadata(List<string> names)
+    {
+        const int Shown = 5;
+        List<string> distinct = names
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        string listed = string.Join(", ", distinct.Take(Shown));
+        return distinct.Count > Shown ? $"{listed} and {distinct.Count - Shown} more" : listed;
     }
 
     /// <summary>
