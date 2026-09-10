@@ -283,6 +283,111 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task PublishAot_PreRestorePreservesPublishRestorePreference(
+        bool sdkAbsent,
+        bool noRestore)
+    {
+        var project = WriteProject(
+            extraProperties:
+                """<PublishAot Condition="'$(_IsPublishing)' == 'true'">true</PublishAot>""");
+        var solution = WriteFile(
+            "Sample.slnx",
+            """<Solution><Project Path="Sample.csproj" /><Project Path="Library.csproj" /></Solution>""");
+        WriteFile("Library.csproj", """<Project Sdk="Microsoft.NET.Sdk" />""");
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        var properties = PropertyJson(project, assets, publishAot: true, packaging: "None");
+        var dotnet = SuccessfulDotnet(properties);
+        var service = NewService(
+            dotnet,
+            new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = sdkAbsent });
+
+        var outcome = await service.PublishAotAndResolveAsync(
+            project,
+            Options(noRestore) with { Solution = sdkAbsent ? null : solution },
+            CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(noRestore, outcome.Resolution.NoRestore);
+        Assert.AreEqual(
+            noRestore ? 0 : 1,
+            dotnet.StringInvocations.Count(arguments => arguments.StartsWith("restore ", StringComparison.Ordinal)));
+        Assert.AreEqual(
+            noRestore,
+            dotnet.ArgumentListInvocations.Single().Contains("--no-restore"),
+            "A build-context pre-restore must not suppress publishing's own restore.");
+    }
+
+    [TestMethod]
+    [DataRow("Package.appxmanifest", "")]
+    [DataRow("appxmanifest.xml", "")]
+    [DataRow("appxmanifest.xml", "MSIX")]
+    public async Task PublishAot_AuthoredManifestUsesPublishedLayoutWithoutRecipe(
+        string manifestName,
+        string packaging)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        var executable = WriteFile("publish\\Sample.exe", "native");
+        var manifest = WriteFile($"publish\\{manifestName}", "<Package />");
+        WriteFile(manifestName, "<Package />");
+        var properties = PropertyJson(
+            project, assets, publishAot: true, packaging,
+            winAppRunSupportActive: true);
+        var service = NewService(SuccessfulDotnet(properties));
+
+        var outcome = await service.PublishAotAndResolveAsync(
+            project, Options(), CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(ProjectPackaging.Packaged, outcome.Resolution.Packaging);
+        Assert.AreEqual(executable.FullName, outcome.Resolution.RunCommand);
+        Assert.AreEqual(manifest.FullName, outcome.Resolution.AppxManifestPath);
+        Assert.IsNull(outcome.Resolution.AppxRecipePath);
+    }
+
+    [TestMethod]
+    public async Task PublishAot_AuthoredManifestMissingFromPublishFailsWithoutSourceFallback()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        WriteFile("Package.appxmanifest", "<Package />");
+        var properties = PropertyJson(
+            project, assets, publishAot: true, packaging: "",
+            winAppRunSupportActive: true);
+        var service = NewService(SuccessfulDotnet(properties));
+
+        var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
+            service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
+
+        StringAssert.Contains(error.Message, "package manifest");
+        StringAssert.Contains(error.Message, Path.Join(_tempDirectory.FullName, "publish"));
+    }
+
+    [TestMethod]
+    public async Task PublishAot_MsixToolingMissingGeneratedManifestFailsWithoutAuthoredFallback()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        WriteFile("publish\\Package.appxmanifest", "<Package />");
+        var properties = PropertyJson(
+            project, assets, publishAot: true, packaging: "MSIX",
+            enableMsixTooling: true);
+        var service = NewService(SuccessfulDotnet(properties));
+
+        var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
+            service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
+
+        StringAssert.Contains(error.Message, "FinalAppxManifestName");
+    }
+
+    [TestMethod]
     public async Task PublishAot_MissingPackagedRecipeFailsWithoutFallback()
     {
         var project = WriteProject();
@@ -428,7 +533,9 @@ public sealed class ProjectRunServiceAotTests
             RunDotnetArgumentListHandler = _ => (0, properties, string.Empty),
         };
 
-    private ProjectRunService NewService(FakeDotNetService dotnet)
+    private ProjectRunService NewService(
+        FakeDotNetService dotnet,
+        FakeCsWinRTMetadataShimService? shim = null)
     {
         var console = new TestConsole();
         _consoles.Add(console);
@@ -437,7 +544,7 @@ public sealed class ProjectRunServiceAotTests
             new ProjectDetectionService(
                 NullLogger<ProjectDetectionService>.Instance,
                 dotnet),
-            new FakeCsWinRTMetadataShimService(),
+            shim ?? new FakeCsWinRTMetadataShimService(),
             console,
             NullLogger<ProjectRunService>.Instance);
     }
@@ -525,7 +632,9 @@ public sealed class ProjectRunServiceAotTests
         string? targetName = null,
         string? nativeBinary = null,
         string? manifest = null,
-        string? recipe = null)
+        string? recipe = null,
+        bool winAppRunSupportActive = false,
+        bool enableMsixTooling = false)
     {
         var projectDirectory = project.DirectoryName!;
         var properties = new Dictionary<string, string>
@@ -543,6 +652,8 @@ public sealed class ProjectRunServiceAotTests
                 $"{targetName ?? assemblyName}.exe"),
             ["OutputType"] = "WinExe",
             ["WindowsPackageType"] = packaging,
+            ["_WinAppRunSupportActive"] = winAppRunSupportActive ? "true" : "false",
+            ["EnableMsixTooling"] = enableMsixTooling ? "true" : "false",
             ["WindowsAppSDKSelfContained"] = "true",
             ["ProjectAssetsFile"] = assets.FullName,
             ["RuntimeIdentifier"] = "win-x64",

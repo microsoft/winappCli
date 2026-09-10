@@ -123,7 +123,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         FileInfo csproj,
         DirectoryInfo publishDirectory,
         FileInfo manifest,
-        FileInfo recipe,
+        FileInfo? recipe,
         string arch = "x64")
     {
         _fakeProjectRunService.AotOutcome = new ProjectBuildOutcome(
@@ -136,7 +136,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
                 Architecture: arch,
                 IsAot: true,
                 AppxManifestPath: manifest.FullName,
-                AppxRecipePath: recipe.FullName),
+                AppxRecipePath: recipe?.FullName),
             0);
     }
 
@@ -860,6 +860,26 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(
             Path.Join(publishDirectory.FullName, "AppX"),
             _fakeMsixService.AddLooseLayoutDirectoryCalls.Single().OutputDirectory);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_AotAuthoredManifestUsesPublishedFilesWithoutRecipe()
+    {
+        var csproj = CreateCsproj();
+        var publishDirectory = CreateTargetDir(withManifest: true);
+        var manifest = new FileInfo(Path.Join(publishDirectory.FullName, "appxmanifest.xml"));
+        SetPackagedAotOutcome(csproj, publishDirectory, manifest, recipe: null);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--aot", "--no-launch"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(manifest.FullName, _fakeMsixService.AddLooseLayoutCalls.Single().ManifestPath);
+        Assert.IsNull(_fakeMsixService.AddLooseLayoutRecipeCalls.Single());
+        Assert.AreEqual(publishDirectory.FullName, _fakeMsixService.AddLooseLayoutDirectoryCalls.Single().InputDirectory);
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
     }
 
     [TestMethod]

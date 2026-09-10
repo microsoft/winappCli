@@ -290,7 +290,7 @@ internal partial class RunCommand
                 string.IsNullOrWhiteSpace(resolution.AppxManifestPath))
             {
                 return Fail(
-                    "The Native AOT publish did not produce a generated AppxManifest.xml.",
+                    "The Native AOT publish did not produce a package manifest.",
                     isJson);
             }
             var effectiveManifest = resolution.IsAot

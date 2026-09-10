@@ -31,7 +31,7 @@ internal sealed partial class ProjectRunService
         WarnOnOverriddenFlags(options);
         var workingDirectory = csproj.Directory
             ?? new DirectoryInfo(Directory.GetCurrentDirectory());
-        (options, var publishOptions, var csWinRTMetadata) =
+        (options, _, var csWinRTMetadata) =
             await PrepareBuildInputsAsync(
                 csproj,
                 options,
@@ -52,9 +52,10 @@ internal sealed partial class ProjectRunService
             throw new ProjectRunException(BuildPublishAotRequiredMessage(csproj));
         }
 
+        // A build-context pre-restore does not cover publish-conditional dependencies.
         var publish = await RunAotPublishPassAsync(
             csproj,
-            publishOptions,
+            options,
             workingDirectory,
             csWinRTMetadata,
             cancellationToken);
@@ -350,19 +351,35 @@ internal sealed partial class ProjectRunService
         string? recipe = null;
         if (packaging == ProjectPackaging.Packaged)
         {
-            manifest = ResolveEvaluatedFile(
-                properties,
-                "FinalAppxManifestName",
-                projectDirectory);
-            recipe = ResolveEvaluatedFile(
-                properties,
-                "AppxPackageRecipe",
-                projectDirectory);
-            var nativeBinary = ResolveEvaluatedFile(
-                properties,
-                "NativeBinary",
-                projectDirectory);
-            ValidatePackagedNativeEntryPoint(manifest, recipe, nativeBinary);
+            if (IsTrue(GetProp(properties, "EnableMsixTooling")) ||
+                !string.IsNullOrWhiteSpace(GetProp(properties, "FinalAppxManifestName")) ||
+                !string.IsNullOrWhiteSpace(GetProp(properties, "AppxPackageRecipe")))
+            {
+                manifest = ResolveEvaluatedFile(
+                    properties,
+                    "FinalAppxManifestName",
+                    projectDirectory);
+                recipe = ResolveEvaluatedFile(
+                    properties,
+                    "AppxPackageRecipe",
+                    projectDirectory);
+                var nativeBinary = ResolveEvaluatedFile(
+                    properties,
+                    "NativeBinary",
+                    projectDirectory);
+                ValidatePackagedNativeEntryPoint(manifest, recipe, nativeBinary);
+            }
+            else
+            {
+                var publishedManifest = ManifestHelper.FindManifest(publishDirectory);
+                if (!publishedManifest.Exists)
+                {
+                    throw new ProjectRunException(
+                        $"The Native AOT publish did not produce a package manifest in '{publishDirectory}'. " +
+                        "Include Package.appxmanifest or appxmanifest.xml in the project's publish output.");
+                }
+                manifest = publishedManifest.FullName;
+            }
         }
 
         return new ProjectRunResolution(
