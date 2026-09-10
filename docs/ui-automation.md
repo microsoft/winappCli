@@ -400,8 +400,10 @@ Use `--capture-screen` when you need to capture popup menus, dropdowns, flyouts,
 
 ### record
 Record a window or element region to an H.264 MP4. Prefer a positive `--duration-sec`
-for unattended scripts and npm programmatic callers. Without a duration, recording
-continues until Ctrl+C or, for redirected stdin, a newline or EOF.
+for unattended scripts. Without a duration, recording continues until Ctrl+C or, for
+redirected stdin, a newline or EOF. The npm `uiRecord` and `targetRecord` helpers require
+an integer `durationSec` from 1 through 86400; their abort signal cancels forcefully
+rather than gracefully finalizing a recording.
 
 ```bash
 # Record for 10 seconds
@@ -423,7 +425,7 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 - `--max-edge N` — Downscale so the longest edge is at most N pixels (0 = no downscale).
 - `--capture-screen` — Capture from the screen DC (includes overlays/popups; foregrounds the window).
 - `--output <path>` — Output MP4 path. Defaults to `recording-<timestamp>-<guid>.mp4`.
-- `--overwrite` — Explicitly allow replacing completed recording outputs. Without it, existing outputs are rejected.
+- `--overwrite` — Replace existing recording outputs after the new take finishes. Without it, existing outputs are rejected.
 - `--frames` — Write timestamped JPEG evidence to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280). Frame data is capped at 1 GiB; the MP4 continues if the cap is reached.
 
 **Agent-readable frame artifacts:**
@@ -441,9 +443,13 @@ evidence.frames/
 
 `manifest.json` records the request, timing, MP4 status, image dimensions, and status (`complete`, `partial`, or `truncated`). Truncated timing covers the retained prefix, while `video` describes the complete MP4.
 
-Choose a new output path unless you intend to replace a completed recording with
-`--overwrite`. Preserve partial evidence and follow the reported `recoveryHint` before
-retrying. If MP4 finalization fails, preserved frames can be published under
+Choose a new output path unless you intend to replace a recording with `--overwrite`.
+Without it, either an existing video or its paired `.frames` directory blocks recording,
+even when you omit `--frames`.
+The previous MP4 stays intact if the new capture fails. On successful replacement,
+the previous frame directory is retained as `<output-name>.frames.previous-<id>`,
+even if the new recording omits `--frames`. Preserve partial evidence and follow the
+reported `recoveryHint` before retrying. If MP4 finalization fails, preserved frames can be published under
 `<output-name>.frames.partial-*`. Frame artifacts contain unencrypted screen content;
 handle them like screenshots or video.
 

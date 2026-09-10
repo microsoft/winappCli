@@ -214,13 +214,16 @@ internal sealed class TargetArtifactService
     private static string ResolveRelative(string root, string relative) =>
         TargetPathSafety.CombineInsideRoot(root, relative.Split(['\\', '/']));
 
+    internal static string RecoveryAction(string guestRoot) =>
+        $"Keep Sandbox running. Use 'winapp target exec' to copy '{guestRoot}' into the guest work folder, then use 'winapp target pull' with the copied path relative to that folder.";
+
     private static ExecutionTargetException RecoveryFailure(
         RoutedArtifact artifact, string guestRoot, string? hostRecovery, string message, Exception? inner) =>
         ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.ArtifactFailed, message,
             userAction: hostRecovery is null
-                ? $"Guest evidence was retained. Keep Sandbox running and recover '{guestRoot}' with 'winapp target pull'."
-                : $"Received evidence is retained at '{hostRecovery}'. Keep Sandbox running; recover remaining files from '{guestRoot}' with 'winapp target pull'.",
+                ? $"Guest evidence was retained. {RecoveryAction(guestRoot)}"
+                : $"Received evidence is retained at '{hostRecovery}'. {RecoveryAction(guestRoot)}",
             context: new Dictionary<string, string>
             {
                 ["artifact"] = artifact.HostDestination,

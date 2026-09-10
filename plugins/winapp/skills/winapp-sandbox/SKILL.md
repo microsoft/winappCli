@@ -85,11 +85,16 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
   `ui screenshot`/`ui record --on sandbox` capture an app window.
 - Outputs, including default filenames when `-o` is omitted, are delivered to the host.
   `--frames` returns a frame directory alongside the MP4.
-- Prefer a positive `--duration-sec` for unattended and npm programmatic recording.
-- Choose a fresh output path. Use `--overwrite` only when replacing completed evidence
-  is explicitly intended; do not delete partial evidence to make a retry pass.
+- Prefer a positive `--duration-sec` for unattended CLI recording. npm helpers require
+  `durationSec` (integer 1–86400); abort signals cancel forcefully, not gracefully.
+- Choose a fresh output path. Request `--overwrite` only when replacement is intended:
+  it replaces the MP4 after the new take finishes and archives any previous frame
+  directory. Do not delete partial evidence to make a retry pass.
 - Read `stopReason`, preserved paths, and `recoveryHint` before reporting success.
   A `capture_unavailable` stop can leave useful evidence but is not a full take.
+  Ctrl+C can finalize with `stopReason: cancelled` and a successful exit.
+- If delivery fails, keep the Sandbox running and follow the error's recovery action.
+  Preserve both the received host files and guest originals until recovery finishes.
 - Treat frames, screenshots, and video as potentially sensitive.
 
 ## Guest setup and file transfer

@@ -1617,7 +1617,7 @@ winapp target record sandbox -o .\sandbox.mp4 --duration-sec 20 --fps 15
 
 Uses the duration, frame, overwrite, and result options of [`ui record`](#ui-record),
 but captures the desktop rather than one app. Prefer a positive `--duration-sec` for
-unattended or npm programmatic use. See
+unattended CLI use; the npm helper requires `durationSec`. See
 [Sandbox capture](sandbox-execution.md#screenshots-and-recordings) for partial evidence
 and capture-readiness failures.
 
@@ -1945,7 +1945,7 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 - `--max-edge <px>` - Downscale so the longest edge is at most this many pixels (`0` = no downscale).
 - `--capture-screen` - Capture from the screen so overlays/popups are included (may capture occluding windows).
 - `-o, --output <path>` - Output `.mp4` path (defaults to `recording-<timestamp>-<guid>.mp4`).
-- `--overwrite` - Explicitly allow replacing completed recording outputs; existing outputs are rejected by default. See [Recording output recovery](ui-automation.md#record).
+- `--overwrite` - Replace existing recording outputs after the new take finishes; existing outputs are rejected by default. Previous frame bundles are retained. See [Recording output recovery](ui-automation.md#record).
 - `--frames` - Write timestamped JPEGs, `frames.ndjson`, and `manifest.json` to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB frame-data cap.
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
@@ -1957,6 +1957,4 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
-
 

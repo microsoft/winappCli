@@ -99,7 +99,7 @@ internal sealed class TargetRuntimeService(
     /// this call relies on rather than reacquiring.
     /// </param>
     /// <param name="sourceRoot">Host folder about to be deployed — a layout or a build output.</param>
-    /// <param name="applicationArchitecture">Resolved build architecture, not the guest architecture.</param>
+    /// <param name="applicationArchitecture">Resolved build architecture, or null to inspect the manifest and its executable.</param>
     /// <param name="projectRoot">Workspace root, used only when a payload has to be acquired.</param>
     /// <param name="taskContext">Status and debug sink.</param>
     /// <param name="cancellationToken">Cancellation.</param>
@@ -111,15 +111,8 @@ internal sealed class TargetRuntimeService(
     /// <paramref name="target"/> was not prepared for mutation.
     /// </exception>
     /// <remarks>
-    /// The graph is verified before every launch. Staging compares hashes on every pass, so an
-    /// interrupted transfer is repaired without a separate runtime journal. Guest installation
-    /// publishes versioned folders atomically and re-probes completeness before skipping an install.
-    /// <para>
-    /// This no longer acquires the mutation lock itself: the caller already holds it for the whole
-    /// mutating sequence (runtime provisioning, deployment reconciliation, package registration), via
-    /// <paramref name="target"/>'s <see cref="PreparedTarget.MutationLease"/>. Reacquiring the same
-    /// file-backed lock here would deadlock against the caller's own held lease rather than nest.
-    /// </para>
+    /// Verifies the graph before every launch. Staging compares hashes and guest installation checks
+    /// completeness, repairing interrupted work. The caller holds the mutation lease throughout.
     /// </remarks>
     public async Task<RuntimeProvisionResult> EnsureAsync(
         PreparedTarget target,

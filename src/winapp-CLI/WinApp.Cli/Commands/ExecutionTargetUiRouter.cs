@@ -168,7 +168,7 @@ internal sealed class ExecutionTargetUiRouter(
                     cancellationToken.IsCancellationRequested
                         ? "Recording was stopped, but the guest did not confirm finalization."
                         : "The guest capture did not complete.",
-                    userAction: $"Keep Sandbox running and recover '{Path.GetDirectoryName(routed.Artifact.GuestFullPath)}' with 'winapp target pull'.",
+                    userAction: TargetArtifactService.RecoveryAction(Path.GetDirectoryName(routed.Artifact.GuestFullPath)!),
                     innerException: ex);
             }
 

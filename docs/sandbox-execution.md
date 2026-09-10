@@ -198,25 +198,34 @@ winapp target screenshot sandbox -o .\sandbox.png
 winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 ```
 
-Outputs land on the **host**, including when you omit `-o` and use the default filename.
+Outputs land on the **host**, including when you omit `-o`. Screenshots default to
+`screenshot.png`; recordings use `recording-<timestamp>-<guid>.mp4`.
 For recordings, `--frames` also delivers the `<output-name>.frames` directory containing
 JPEGs, `frames.ndjson`, and `manifest.json`. Results report host paths.
 
-Existing recording outputs are rejected by default. Use a new path, or pass
+An existing MP4 or paired `.frames` directory is rejected by default. Use a new path, or pass
 `--overwrite` to replace them after the new take finishes. Previous frame bundles are
-retained in a `.previous-<id>` directory. A failed replacement leaves the old recording
-intact; follow the reported recovery paths for any new partial evidence.
+retained as `<output-name>.frames.previous-<id>`, including when the replacement omits
+`--frames`. A failed capture leaves the old recording intact.
 
-Prefer a positive `--duration-sec` for scripts, agents, and npm programmatic callers.
-Without a duration, recording waits for a stop signal; do not rely on the wrapper
-providing an interactive Ctrl+C.
+Prefer a positive `--duration-sec` for scripts and agents. The npm `uiRecord` and
+`targetRecord` helpers require `durationSec`; their abort signal cancels forcefully,
+not as a graceful stop. See [`ui record`](ui-automation.md#record) for supported values.
+Without a CLI duration, recording waits for a stop signal.
 
-An interrupted recording can preserve useful video or frames. Read `stopReason`,
+Ctrl+C after capture starts can finalize and return a recording successfully with
+`stopReason: cancelled`. Other interruptions can preserve useful video or frames. Read `stopReason`,
 `partialOutput`, and `recoveryHint` when present, and use the reported evidence paths
 rather than assuming a normal completion. If the whole-desktop capture becomes
 unavailable during a take, it stops with `capture_unavailable` rather than continuing
 to record black frames. It does not bring the Sandbox to the foreground to rescue a
 frame. Capture can fail before any usable evidence is available.
+
+For a failed guest recording, recovered evidence is placed in a unique
+`<output>.partial-<id>` directory on the host. If delivery fails, received files remain
+under the reported recovery path, such as `<output>.recovery-<id>`, and guest originals
+are retained. Keep the Sandbox running and follow the error's recovery action before
+retrying or closing it. A preserved partial file is not necessarily a playable video.
 
 Screenshots and video may contain sensitive information. Handle the frame directory
 with the same care as the MP4. See [`ui record`](ui-automation.md#record) for recording
