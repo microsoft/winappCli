@@ -87,10 +87,20 @@ internal sealed class FindApiCommand : Command, IShortDescription
 
             if (queries.Count == 0)
             {
-                return FindApiShared.Fail(
-                    console,
-                    json,
-                    "Provide a search query (e.g. winapp find-api \"acrylic brush\"), or use a sub-verb: members, check-property, enums, packages, stats, refresh.");
+                // Typing the command is how someone finds out what it does, so the bare
+                // form teaches instead of failing. A caller that asked for JSON is making
+                // a programmatic call with a required argument missing, which is a genuine
+                // error — handing it usage text would only break its parser.
+                if (json)
+                {
+                    return FindApiShared.Fail(
+                        console,
+                        json,
+                        "Provide a search query (e.g. winapp find-api \"acrylic brush\"), or use a sub-verb: members, check-property, enums, packages, stats, refresh.");
+                }
+
+                FindApiShared.RenderUsage(console);
+                return 0;
             }
 
             int max = parseResult.GetValue(MaxOption);

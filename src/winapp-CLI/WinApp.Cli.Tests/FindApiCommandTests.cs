@@ -263,9 +263,20 @@ public sealed class FindApiCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task NoQuery_Fails_WithoutCallingService()
+    public async Task NoQuery_ShowsUsage_WithoutCallingService()
     {
         int exit = await ParseAndInvokeWithCaptureAsync(Command, []);
+
+        Assert.AreEqual(0, exit);
+        Assert.IsFalse(_fake.SearchCalled);
+        StringAssert.Contains(TestAnsiConsole.Output, "Usage");
+        StringAssert.Contains(TestAnsiConsole.Output, "check-property");
+    }
+
+    [TestMethod]
+    public async Task NoQuery_WithJson_Fails_WithoutCallingService()
+    {
+        int exit = await ParseAndInvokeWithCaptureAsync(Command, ["--json"]);
 
         Assert.AreEqual(1, exit);
         Assert.IsFalse(_fake.SearchCalled);

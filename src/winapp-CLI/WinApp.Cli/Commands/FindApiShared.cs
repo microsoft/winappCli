@@ -306,6 +306,30 @@ internal static class FindApiShared
         return 1;
     }
 
+    /// <summary>
+    /// Short usage shown when <c>find-api</c> is run with nothing to search for. This is a
+    /// discovery moment, not a failure, so it lists the shapes someone is most likely to
+    /// want next rather than reprinting every option — <c>--help</c> still has the full set.
+    /// </summary>
+    public static void RenderUsage(IAnsiConsole console)
+    {
+        console.MarkupLine("[bold]winapp find-api[/] — search the Windows API surface this project references.");
+        console.WriteLine();
+        console.MarkupLine("[bold]Usage[/]");
+        console.MarkupLine("  winapp find-api [grey]\"<what you're looking for>\"[/]");
+        console.MarkupLine("  winapp find-api members [grey]<type>[/]");
+        console.MarkupLine("  winapp find-api check-property [grey]<type> <property>[/]");
+        console.MarkupLine("  winapp find-api enums [grey]<type>[/]");
+        console.WriteLine();
+        console.MarkupLine("[bold]Examples[/]");
+        console.MarkupLine("  winapp find-api [grey]\"acrylic brush\"[/]");
+        console.MarkupLine("  winapp find-api members NavigationView [grey]--filter Item[/]");
+        console.MarkupLine("  winapp find-api check-property Button Background");
+        console.WriteLine();
+        console.MarkupLine("Other verbs: [grey]types, namespaces, packages, projects, stats, refresh[/]");
+        console.MarkupLine("Add [grey]--json[/] for machine-readable output, or [grey]--help[/] for all options.");
+    }
+
     // ---- text renderers (mirror the standalone tool's plain output) ----
 
     /// <summary>
