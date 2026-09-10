@@ -513,6 +513,15 @@ public sealed class ApiQueryEngineTests
                             new WinMdParameterInfo { Name = "value", Type = "Int32" },
                         ],
                     },
+                    // Getter-only: the framework computes it and offers no setter, the
+                    // shape behind AutomationProperties.Level and friends.
+                    new WinMdMemberInfo
+                    {
+                        Name = "GetLevel", Kind = MemberKind.Method, IsStatic = true,
+                        Signature = "static Int32 GetLevel(My.Ns.DependencyObject element)",
+                        ReturnType = "Int32",
+                        Parameters = [new WinMdParameterInfo { Name = "element", Type = "My.Ns.DependencyObject" }],
+                    },
                 ],
             },
             new()
@@ -1840,6 +1849,22 @@ public sealed class ApiQueryEngineTests
         Assert.IsTrue(result.Data!.Found, "an attached property is a real property");
         Assert.IsTrue(result.Data.Attached);
         StringAssert.Contains(result.Data.AttachedInfo ?? string.Empty, "Gadget.GetRow()");
+        Assert.AreEqual(true, result.Data.Writable, "a Get/Set pair can be assigned");
+    }
+
+    [TestMethod]
+    public void CheckProperty_AttachedPropertyWithNoSetter_ReportsItReadOnly()
+    {
+        // A getter-only attached property is found, so the check is not a failure — but
+        // answering with the same bare tick a settable one gets invites the caller to
+        // write `<Button local:Gadget.Level="1"/>`, which does not compile. The
+        // structured answer has to say so too, since --json is what an agent reads.
+        var result = ApiQueryEngine.CheckProperty("My.Ns.Gadget", "Level", _cacheDir, _manifest);
+
+        Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+        Assert.IsTrue(result.Data!.Found);
+        Assert.IsTrue(result.Data.Attached);
+        Assert.AreEqual(false, result.Data.Writable, "no SetLevel means it cannot be assigned");
     }
 
     [TestMethod]

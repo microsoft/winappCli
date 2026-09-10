@@ -580,7 +580,7 @@ internal static class FindApiShared
         }
         if (output is { Attached: true, AttachedInfo: not null })
         {
-            console.WriteLine($"\u2705 {output.Type}.{output.Property} (attached)");
+            console.WriteLine($"{FoundMarker(output)} {output.Type}.{output.Property} (attached){ReadOnlyNote(output)}");
             console.WriteLine($"   {output.AttachedInfo}");
             return;
         }
@@ -646,7 +646,7 @@ internal static class FindApiShared
         if (output is { Attached: true, AttachedInfo: not null })
         {
             WriteAlsoMatched(console, output.AlsoMatched, "");
-            console.WriteLine($"\u2705 {output.Type}.{output.Property} (attached)");
+            console.WriteLine($"{FoundMarker(output)} {output.Type}.{output.Property} (attached){ReadOnlyNote(output)}");
             return;
         }
 

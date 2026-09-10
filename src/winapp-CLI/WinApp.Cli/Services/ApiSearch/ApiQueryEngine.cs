@@ -724,7 +724,10 @@ internal static class ApiQueryEngine
                 Type = targetType.FullName,
                 Property = propertyName,
                 Attached = true,
-                AttachedInfo = attached,
+                AttachedInfo = attached.Value.Info,
+                // An attached property with no SetXxx cannot be assigned, in markup or in
+                // code, so it carries the same writability answer a plain property does.
+                Writable = attached.Value.Writable,
                 AlsoMatched = alsoMatched,
             });
         }
@@ -1427,7 +1430,7 @@ internal static class ApiQueryEngine
     /// </summary>
     private static List<T>? NullIfEmpty<T>(List<T> list) => list.Count > 0 ? list : null;
 
-    private static string? DetectAttachedProperty(WinMdTypeInfo type, string propertyName)
+    private static (string Info, bool Writable)? DetectAttachedProperty(WinMdTypeInfo type, string propertyName)
     {
         string getName = "Get" + propertyName;
         string setName = "Set" + propertyName;
@@ -1450,7 +1453,7 @@ internal static class ApiQueryEngine
                 string accessors = setter != null
                     ? $"via {type.Name}.{getter.Name}() / {type.Name}.{setter.Name}()"
                     : $"via {type.Name}.{getter.Name}() (read-only)";
-                return $"{returnType} — {accessors}";
+                return ($"{returnType} — {accessors}", setter != null);
             }
         }
         return null;

@@ -22,6 +22,9 @@ internal sealed class FakeApiMetadataService : IApiMetadataService
     public const string MissingProperty = "__missing__";
     public const string MissingType = "__notype__";
 
+    /// <summary>A getter-only attached property, which is found but cannot be assigned.</summary>
+    public const string AttachedReadOnlyProperty = "__attachedreadonly__";
+
     /// <summary>Cache path the fake reports for a namespace hit; only shown at --verbose.</summary>
     public const string CacheFilePath = @"C:\fake\cache\find-api\Test_Ns.json";
 
@@ -102,6 +105,19 @@ internal sealed class FakeApiMetadataService : IApiMetadataService
         LastCheckProperty = propertyName;
         LastScope = scope;
         CheckedProperties.Add(propertyName);
+        if (propertyName == AttachedReadOnlyProperty)
+        {
+            return ApiQueryResult<ApiCheckPropertyOutput>.Ok(new ApiCheckPropertyOutput
+            {
+                Found = true,
+                Type = typeName,
+                Property = propertyName,
+                Attached = true,
+                AttachedInfo = "Int32 — via Gadget.GetLevel() (read-only)",
+                Writable = false,
+            });
+        }
+
         bool found = propertyName != MissingProperty;
         return ApiQueryResult<ApiCheckPropertyOutput>.Ok(new ApiCheckPropertyOutput
         {
@@ -566,6 +582,34 @@ public sealed class FindApiCommandTests : BaseCommandTests
         Assert.AreEqual(1, exit);
         StringAssert.Contains(TestAnsiConsole.Output, "\"missingCount\"");
         StringAssert.Contains(TestAnsiConsole.Output, "\"count\"");
+    }
+
+    [TestMethod]
+    public async Task CheckProperty_AttachedReadOnly_SaysItCannotBeAssigned()
+    {
+        // A second property forces the batch path, whose compact confirmation is what a
+        // caller normally sees. Dropping the read-only status there is the difference
+        // between "yes, use it" and markup that will not load.
+        int exit = await ParseAndInvokeWithCaptureAsync(
+            Command, ["check-property", "Gadget", FakeApiMetadataService.AttachedReadOnlyProperty, "Severity"]);
+
+        Assert.AreEqual(0, exit, "a read-only property still exists");
+        StringAssert.Contains(TestAnsiConsole.Output, "read-only");
+    }
+
+    [TestMethod]
+    public async Task CheckProperty_AttachedReadOnly_Single_DoesNotGiveItAPlainTick()
+    {
+        // The detail view spelled out "(read-only)" in prose but still led with the same
+        // green tick a settable property gets, which is the part a reader skims.
+        int exit = await ParseAndInvokeWithCaptureAsync(
+            Command, ["check-property", "Gadget", FakeApiMetadataService.AttachedReadOnlyProperty]);
+
+        Assert.AreEqual(0, exit);
+        StringAssert.Contains(TestAnsiConsole.Output, "\u26a0");
+        Assert.IsFalse(
+            TestAnsiConsole.Output.Contains('\u2705'),
+            "a property that cannot be assigned must not be confirmed like one that can");
     }
 
     [TestMethod]
