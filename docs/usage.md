@@ -1598,7 +1598,17 @@ winapp find-api [command] [options]
 
 The index is built from the project's restored NuGet/SDK packages (via `project.assets.json`) on first use and refreshed automatically when the project is restored. It lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects. Restore the project first (`winapp restore` or `dotnet restore`).
 
-Search output lists the matching namespaces and types. Add `--verbose` to also print the on-disk cache file backing each namespace, which is useful when diagnosing a stale or unexpected index.
+Each match is listed under its namespace with the package that ships it and a one-line summary of what it does, so a result is usable without a second `members` call:
+
+```text
+[40] Microsoft.UI.Xaml.Media
+    Class Microsoft.UI.Xaml.Media.AcrylicBrush  [Microsoft.WindowsAppSDK.WinUI 1.8.260224000]
+        Paints an area with a semi-transparent material that uses multiple effects including blur and a noise texture.
+```
+
+Add `--verbose` to also print the on-disk cache file backing each namespace, which is useful when diagnosing a stale or unexpected index.
+
+Running `winapp find-api` with no query at all prints a short usage summary and exits `0` — it is a request for help, not a search that found nothing.
 
 **Scopes.** Every answer comes from exactly one scope, reported as `scope` in `--json` and as a note in text output:
 
@@ -1610,7 +1620,7 @@ A query from a directory with no project and no solution is *always* answered by
 **Solution directories.** From a directory holding a `.sln`/`.slnx` with no project file beside it, the projects the solution builds answer instead of the `sdk` scope - they are indexed on demand, so their NuGet packages are included. When the solution builds more than one indexed project, the query lists them and asks for `--project <name>` rather than picking one.
 
 **Commands:**
-- *(bare)* `find-api "<query>" ["<query>"...]` - Lexically search type and member names, grouped by namespace
+- *(bare)* `find-api "<query>" ["<query>"...]` - Search type and member names, falling back to their documented summaries, grouped by namespace
 - `members <type> [<type>...] [--filter <text>]` - List a type's properties, events, and methods (declared members with signatures, inherited members summarized by declaring type)
 - `check-property <type> <property> [<property>...]` - Validate properties exist on a type (exits non-zero if any is missing). A **read-only** property is reported with ⚠️ and "read-only, cannot be assigned" rather than a plain ✅, so a property such as `ActualWidth` is not mistaken for something you can set. Property names are matched **case-sensitively**, because C# and XAML are: `check-property Button background` exits non-zero and offers `Background` as a near match rather than reporting a name you cannot actually write.
 - `enums <type> [<type>...] [--filter <text>]` - List an enum's values (exits non-zero when the type is not an enum)
@@ -1681,6 +1691,8 @@ When `--filter` is applied, the output still reports the unfiltered total (`tota
 - **Fields implied by their surroundings** in `--json`: `kind` (implied by the containing `properties`/`events`/`methods` array), `returnType` (the leading token of `signature`), and `inherited` when false (implied by `declaringType`).
 
 What was omitted is always reported (`hiddenDependencyProperties`, `descriptionsOmitted`, and a `hint` in `--json`; an "Omitted:" line in text), and totals still describe the whole type. Both `--filter` and `--all` see the complete surface with full signatures and descriptions, so `members Button --filter BackgroundProperty` still finds the identifier and `members Button --filter Click` still returns `Click`'s inherited signature. Measured on `samples/winui-app`, this takes `members Button --json` from 91,954 to 10,567 characters (−88.5%) while leaving `--filter` and `--all` byte-identical.
+
+**How a query is matched.** Search is lexical, not semantic: it matches whole identifier words rather than any run of letters, so `llm` finds `IImageLLMAdapterSession` but not `ScrollMode`. When a query matches no name, it is tried against the documented summaries of types and members, which is what lets `"random-access stream"` find `IRandomAccessStream`. Descriptions rank below every name match, and only summaries the packages actually ship are searchable — a package with no XML documentation contributes no description text.
 
 **Projects without an MSBuild project file.** An Electron app (or any other non-.NET app driven by `winapp.yaml`) has no `.csproj` and therefore no `project.assets.json`. `find-api` indexes it from the `.winapp/winmds.lock.json` that `winapp restore` writes, which records the same thing: each resolved package, its version, and the `.winmd` files it contributes. Such a project is named after its directory, and its index goes stale when the lockfile is rewritten. A directory that holds both a `.csproj` and a `winapp.yaml` is indexed from the `.csproj`, which is the more precise description of what the project compiles against.
 

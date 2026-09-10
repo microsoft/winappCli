@@ -140,7 +140,7 @@ small API. A filter that matches nothing exits `0` and says so explicitly — th
 
 ### Search for an API
 ```powershell
-# Bare form is a search — matched lexically against type and member names
+# Bare form is a search — matched against type and member names, then their summaries
 winapp find-api "acrylic brush"
 winapp find-api NavigationView
 winapp find-api "list view" --max 10
@@ -253,7 +253,7 @@ winapp find-api check-property InfoBar Severity Backgruond --json
 - **Batch, don't iterate.** `search`, `members`, `enums`, and `check-property` all take multiple subjects per call. Cost scales with the number of calls, not the size of the answer.
 - **Bare form = search.** `winapp find-api "<query>"` searches; the sub-verbs (`members`, `check-property`, `enums`, `packages`, `stats`, `refresh`) drill into specifics.
 - **Batch payload shape.** One subject returns the plain per-subject payload (text and `--json`) exactly as before. Two or more return an envelope: `{ count, results: [...] }`, plus `missingCount` for `check-property`. A batch exits `0` only if every subject resolved *and* was found.
-- **Lexical, not semantic.** Search matches type and member *names* (and signatures), ranked by a scoring heuristic. It does not do embeddings/semantic matching — phrase queries the way the API is named.
+- **Lexical, not semantic.** Search matches type and member *names* (and signatures) by whole identifier word — `llm` finds `IImageLLMAdapterSession`, not `ScrollMode`. A query that matches no name is then tried against the documented summaries, so `"random-access stream"` finds `IRandomAccessStream`; description hits rank below every name hit. There are no embeddings, and only summaries the packages actually ship are searchable — a package without XML documentation has no description text to match. Phrase queries the way the API is named.
 - **Automatic indexing.** The index builds on first query and refreshes when `project.assets.json` changes, so it stays in sync with restores. Use `refresh` only to force a rebuild or index a project for the first time without querying.
 - **Project resolution and scopes.** Every answer names its scope (`scope` in `--json`, a note in text) and the index that produced it (`projectName`, `projectDir`). A project in the current directory (or `--project` / `--project-dir`) gives `scope: project`, covering the Windows SDK, Windows App SDK, *and* the project's NuGet packages. A directory with **no** project and **no** solution gives `scope: sdk` — the machine-wide Windows SDK + Windows App SDK only, which excludes third-party NuGet packages. Such a query is *never* answered from some other indexed project, so results don't depend on unrelated global state. From a solution directory, the projects the solution builds answer instead; if it builds more than one, the query lists them and asks for `--project <name>`. Use `--project sdk` to pick the SDK scope explicitly from inside a project.
 - **Exit codes for scripting.** `search` with no hits, `check-property` on a missing property, and `enums` on a non-enum all exit non-zero — gate code generation and CI checks on them. Read-only is not a failure: the property exists, so the exit code stays `0` while the output flags it (`writable: false` in `--json`).
@@ -284,7 +284,7 @@ winapp find-api check-property InfoBar Severity Backgruond --json
 - **`winapp-ui-automation`** (`winapp ui`) — inspects a *running app's* UI tree; `find-api` inspects the *static API surface* a project references.
 
 ## CLI reference
-- `winapp find-api "<query>" [<query>...] [--max N]` — lexical search across types and members (bare form). Exits non-zero on no hits.
+- `winapp find-api "<query>" [<query>...] [--max N]` — search across type and member names, then their summaries (bare form). Each hit carries its owning package and a one-line purpose. Exits non-zero on no hits; with no query at all it prints usage and exits `0`.
 - `winapp find-api members <type> [<type>...] [--filter <text>] [--all]` — properties, events, and methods of a type. An unfiltered listing shows declared members with signatures, summarizes inherited members by declaring type (names only), and omits dependency-property statics and descriptions; `--filter` and `--all` see everything with full signatures.
 - `winapp find-api check-property <type> <property> [<property>...]` — validate properties exist; exits non-zero if any is missing. Read-only properties are flagged (`writable: false`) but still exit `0`.
 - `winapp find-api enums <type> [<type>...] [--filter <text>]` — enum values; exits non-zero when the type is not an enum.
