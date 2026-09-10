@@ -167,6 +167,51 @@ public sealed class ApiCacheBuilderTests
         Assert.IsTrue(Directory.Exists(exportInFlight), "an export in flight must not be deleted");
     }
 
+    [TestMethod]
+    public void DropUnrecordedPackages_OneFailedVariant_LeavesTheOtherProjectIndexed()
+    {
+        // Two projects reference "Contoso.Sdk 1.0.0" but resolve it to different files,
+        // so each gets its own cache directory. If project B's directory cannot even
+        // receive its "incomplete" marker, only B's reference may be dropped: dropping
+        // project A's too unindexes a package A exported successfully, and A then answers
+        // "no such type" with no warning that its index is partial.
+        string cacheDir = Path.Combine(_dir, "cache");
+        PackageWithWinMd fromProjectA = WritePackage("a", "Contoso.Sdk", "1.0.0", "alpha");
+        PackageWithWinMd fromProjectB = WritePackage("b", "Contoso.Sdk", "1.0.0", "beta-different-bytes");
+
+        var pendingExports = new Dictionary<string, PackageWithWinMd>(StringComparer.OrdinalIgnoreCase);
+        var seenPackageDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int reused = 0;
+        ProjectPackageRef refA = ApiCacheBuilder.ResolvePackageExports(
+            [fromProjectA], cacheDir, force: false, pendingExports, seenPackageDirs, ref reused, report: null).Single();
+        ProjectPackageRef refB = ApiCacheBuilder.ResolvePackageExports(
+            [fromProjectB], cacheDir, force: false, pendingExports, seenPackageDirs, ref reused, report: null).Single();
+        Assert.AreNotEqual(refA.AssetPathKey, refB.AssetPathKey, "the two projects must resolve to different exports");
+
+        List<(string Name, ProjectManifest Manifest)> manifests =
+        [
+            ("A", ManifestWith("A", refA)),
+            ("B", ManifestWith("B", refB)),
+        ];
+
+        ApiCacheBuilder.DropUnrecordedPackages(
+            manifests,
+            [new ApiCacheBuilder.UnrecordedPackage(refB.Id, refB.Version, refB.AssetPathKey)]);
+
+        Assert.HasCount(1, manifests[0].Manifest.Packages, "project A's successful export must stay indexed");
+        Assert.AreEqual(refA.AssetPathKey, manifests[0].Manifest.Packages.Single().AssetPathKey);
+        Assert.IsEmpty(manifests[1].Manifest.Packages, "project B's unrecordable export must be dropped");
+    }
+
+    private static ProjectManifest ManifestWith(string projectName, params ProjectPackageRef[] packages) => new()
+    {
+        ProjectName = projectName,
+        ProjectDir = projectName,
+        ProjectFile = projectName + ".csproj",
+        Packages = [.. packages],
+        GeneratedAt = DateTime.UtcNow.ToString("o"),
+    };
+
     /// <summary>
     /// A directory name this cache layout mints: exactly as many hex characters as an
     /// asset-path fingerprint. Derived from the constant rather than spelled out, so a
@@ -174,7 +219,6 @@ public sealed class ApiCacheBuilderTests
     /// an older layout and quietly invert what the test asserts.
     /// </summary>
     private static string PackageKeyName(char hexDigit) => new(hexDigit, ApiCachePaths.ShortHashLength);
-
     /// <summary>A complete <c>meta.json</c> body recording <paramref name="format"/>.</summary>
     private static string MetaJson(int format) =>
         $$"""

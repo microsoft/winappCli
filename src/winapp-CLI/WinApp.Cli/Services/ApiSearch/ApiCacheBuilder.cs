@@ -100,7 +100,7 @@ internal static class ApiCacheBuilder
         {
             report?.Invoke($"Parsing {pendingExports.Count} package(s)…");
             var failures = new ConcurrentBag<(string Key, string Message)>();
-            var unrecorded = new ConcurrentBag<string>();
+            var unrecorded = new ConcurrentBag<UnrecordedPackage>();
             Parallel.ForEach(pendingExports, entry =>
             {
                 if (TryExportPackageCache(entry.Value, entry.Key, failures, unrecorded))
@@ -412,7 +412,7 @@ internal static class ApiCacheBuilder
         {
             report?.Invoke($"Parsing {pendingExports.Count} package(s)…");
             var failures = new ConcurrentBag<(string Key, string Message)>();
-            var unrecorded = new ConcurrentBag<string>();
+            var unrecorded = new ConcurrentBag<UnrecordedPackage>();
             Parallel.ForEach(pendingExports, entry =>
             {
                 if (TryExportPackageCache(entry.Value, entry.Key, failures, unrecorded))
@@ -421,8 +421,8 @@ internal static class ApiCacheBuilder
                 }
             });
             ReportFailures(failures, report);
-            var unrecordedKeys = new HashSet<string>(unrecorded, StringComparer.OrdinalIgnoreCase);
-            packageRefs.RemoveAll(p => unrecordedKeys.Contains(PackageKey(p.Id, p.Version)));
+            HashSet<string> unrecordedKeys = UnrecordedVariantKeys(unrecorded);
+            packageRefs.RemoveAll(p => unrecordedKeys.Contains(PackageVariantKey(p.Id, p.Version, p.AssetPathKey)));
         }
 
         var manifest = new ProjectManifest
@@ -460,7 +460,7 @@ internal static class ApiCacheBuilder
         PackageWithWinMd package,
         string cacheDir,
         ConcurrentBag<(string Key, string Message)> failures,
-        ConcurrentBag<string> unrecorded)
+        ConcurrentBag<UnrecordedPackage> unrecorded)
     {
         try
         {
@@ -473,7 +473,7 @@ internal static class ApiCacheBuilder
             failures.Add((PackageKey(package.Id, package.Version), $"Skipped {package.Id} {package.Version}: {reason}"));
             if (!TryMarkPackageIncomplete(package, cacheDir, reason))
             {
-                unrecorded.Add(PackageKey(package.Id, package.Version));
+                unrecorded.Add(new UnrecordedPackage(package.Id, package.Version, ComputeAssetPathKey(package)));
             }
             return false;
         }
@@ -522,26 +522,48 @@ internal static class ApiCacheBuilder
     private static string PackageKey(string id, string version) => id + "/" + version;
 
     /// <summary>
+    /// A package export whose failure could not even be recorded on disk, named the way
+    /// a manifest names it. The asset-path key is part of the identity because an id and
+    /// version alone name several cache directories: two projects that select different
+    /// assets from the same package version each get their own export.
+    /// </summary>
+    internal readonly record struct UnrecordedPackage(string Id, string Version, string AssetPathKey);
+
+    private static string PackageVariantKey(string id, string version, string assetPathKey) =>
+        PackageKey(id, version) + "/" + assetPathKey;
+
+    /// <summary>
     /// Drops the packages whose failure could not even be recorded from the manifests
     /// about to be written. A manifest names the package caches a query may read, so
     /// advertising one that has no <c>meta.json</c> makes every later query see a
     /// missing cache, decide the index is stale, and re-index — permanently, if the
     /// failure is permanent.
+    /// <para>
+    /// Only the failed variant is dropped. Pruning on id and version alone would also
+    /// unindex a project whose own export of that same package version — from its own
+    /// assets, into its own directory — succeeded, leaving it answering "no such type"
+    /// with no incomplete-index warning.
+    /// </para>
     /// </summary>
-    private static void DropUnrecordedPackages(
+    internal static void DropUnrecordedPackages(
         List<(string Name, ProjectManifest Manifest)> manifests,
-        ConcurrentBag<string> unrecorded)
+        IReadOnlyCollection<UnrecordedPackage> unrecorded)
     {
-        if (unrecorded.IsEmpty)
+        if (unrecorded.Count == 0)
         {
             return;
         }
-        var failed = new HashSet<string>(unrecorded, StringComparer.OrdinalIgnoreCase);
+        HashSet<string> failed = UnrecordedVariantKeys(unrecorded);
         foreach ((_, ProjectManifest manifest) in manifests)
         {
-            manifest.Packages.RemoveAll(p => failed.Contains(PackageKey(p.Id, p.Version)));
+            manifest.Packages.RemoveAll(p => failed.Contains(PackageVariantKey(p.Id, p.Version, p.AssetPathKey)));
         }
     }
+
+    private static HashSet<string> UnrecordedVariantKeys(IEnumerable<UnrecordedPackage> unrecorded) =>
+        new(
+            unrecorded.Select(u => PackageVariantKey(u.Id, u.Version, u.AssetPathKey)),
+            StringComparer.OrdinalIgnoreCase);
 
     private static bool IsPackageReadFailure(Exception ex) => ex switch
     {

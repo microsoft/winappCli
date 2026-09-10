@@ -1246,6 +1246,199 @@ public sealed class ApiQueryEngineTests
 
     #endregion
 
+    #region Generic inheritance
+
+    /// <summary>
+    /// A hierarchy reached through constructed generics, the shape WinRT ships whenever a
+    /// concrete collection type implements <c>IVector&lt;Object&gt;</c>: the definition
+    /// declares its members in terms of <c>T</c>, and the derived type names the argument
+    /// that <c>T</c> stands for.
+    /// </summary>
+    private static ProjectManifest BuildGenericInheritanceCache(string cacheDir)
+    {
+        WinMdTypeInfo Type(string name, string? baseType, List<string>? interfaces, params WinMdMemberInfo[] members) => new()
+        {
+            Namespace = "Gen.Ns",
+            Name = name,
+            FullName = "Gen.Ns." + name,
+            Kind = TypeKind.Class,
+            BaseType = baseType,
+            Interfaces = interfaces,
+            SourceFile = "gen.winmd",
+            Members = members.ToList(),
+        };
+
+        WinMdMemberInfo Prop(string name, string type) => new()
+        {
+            Name = name,
+            Kind = MemberKind.Property,
+            Signature = $"{type} {name} {{ get; set; }}",
+            ReturnType = type,
+        };
+
+        WinMdMemberInfo Method(string name, string returnType, string parameterType) => new()
+        {
+            Name = name,
+            Kind = MemberKind.Method,
+            Signature = $"{returnType} {name}({parameterType} item)",
+            ReturnType = returnType,
+            Parameters = [new WinMdParameterInfo { Name = "item", Type = parameterType }],
+        };
+
+        var namespaces = new Dictionary<string, List<WinMdTypeInfo>>(StringComparer.Ordinal)
+        {
+            ["Gen.Ns"] =
+            [
+                Type("Derived", "Gen.Ns.Middle<String>", null, Prop("Own", "Int32")),
+                Type("Middle<T>", "Gen.Ns.Base<T>", null, Prop("FromMiddle", "T")),
+                Type(
+                    "Base<T>",
+                    null,
+                    null,
+                    Prop("Value", "T"),
+                    Method("Append", "Gen.Ns.IVector<T>", "T"),
+                    // A member whose type merely starts with the parameter's name. A
+                    // substring rewrite turns TimeSpan into StringimeSpan under T -> String.
+                    Prop("Duration", "TimeSpan")),
+                Type("Pairs", null, ["Gen.Ns.Map<String, Gen.Ns.Box<Int32>>"]),
+                Type("Map<TKey, TValue>", null, null, Method("Lookup", "TValue", "TKey")),
+            ],
+        };
+        WriteSyntheticPackage(cacheDir, "Gen.Pkg", namespaces);
+
+        var manifest = new ProjectManifest
+        {
+            ProjectName = "GenApp",
+            ProjectDir = Path.Combine(cacheDir, "src"),
+            ProjectFile = "GenApp.csproj",
+            Packages = [new ProjectPackageRef { Id = "Gen.Pkg", Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
+            GeneratedAt = DateTime.UtcNow.ToString("o"),
+        };
+        string projectsDir = Path.Combine(cacheDir, "projects");
+        Directory.CreateDirectory(projectsDir);
+        File.WriteAllText(
+            Path.Combine(projectsDir, "GenApp.json"),
+            JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
+        return manifest;
+    }
+
+    [TestMethod]
+    public void Members_InheritedThroughAConstructedBase_ReportsTheArgumentNotTheParameter()
+    {
+        // `Derived : Middle<String>` inherits `T FromMiddle` as a String. Reporting the
+        // parameter name hands back a signature naming a type that does not exist, which
+        // is the one thing the command exists to prevent.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildGenericInheritanceCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Gen.Ns.Derived", "FromMiddle", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+            var match = result.Data!.Properties.Single();
+            Assert.AreEqual("String FromMiddle { get; set; }", match.Signature);
+            Assert.AreEqual("String", match.ReturnType);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Members_InheritedThroughAChainOfGenericBases_SubstitutesAllTheWayDown()
+    {
+        // Base<T> is reached only through Middle<T>, which passes its own parameter on.
+        // Stopping at the first level reports `T Value` on a type that has no T at all.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildGenericInheritanceCache(cacheDir);
+
+            var value = ApiQueryEngine.Members("Gen.Ns.Derived", "Value", cacheDir, manifest);
+            Assert.AreEqual(ApiQueryOutcome.Ok, value.Outcome, value.Message);
+            Assert.AreEqual("String Value { get; set; }", value.Data!.Properties.Single().Signature);
+
+            // Nested arguments and parameter lists get the same treatment.
+            var append = ApiQueryEngine.Members("Gen.Ns.Derived", "Append", cacheDir, manifest);
+            Assert.AreEqual(ApiQueryOutcome.Ok, append.Outcome, append.Message);
+            var method = append.Data!.Methods.Single();
+            Assert.AreEqual("Gen.Ns.IVector<String> Append(String item)", method.Signature);
+            Assert.AreEqual("Gen.Ns.IVector<String>", method.ReturnType);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Members_InheritedTypeNameContainingAParameterName_IsLeftAlone()
+    {
+        // Substituting substrings rather than whole identifiers rewrites `TimeSpan` to
+        // `StringimeSpan` under T -> String.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildGenericInheritanceCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Gen.Ns.Derived", "Duration", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+            Assert.AreEqual("TimeSpan Duration { get; set; }", result.Data!.Properties.Single().Signature);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Members_InheritedThroughAMultiArgumentInterface_PairsArgumentsByPosition()
+    {
+        // A nested argument (Box<Int32>) contains the comma-free spelling of one argument
+        // inside another; splitting on every comma pairs TKey with `String` and TValue
+        // with `Gen.Ns.Box<Int32`.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildGenericInheritanceCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Gen.Ns.Pairs", "Lookup", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+            Assert.AreEqual("Gen.Ns.Box<Int32> Lookup(String item)", result.Data!.Methods.Single().Signature);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Members_GenericDefinitionQueriedDirectly_KeepsItsParameterNames()
+    {
+        // Asking about the definition itself must still report it as declared: Base<T>
+        // has no arguments to substitute, and inventing one would misreport the API.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildGenericInheritanceCache(cacheDir);
+
+            var result = ApiQueryEngine.Members("Gen.Ns.Base<T>", "Value", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+            Assert.AreEqual("T Value { get; set; }", result.Data!.Properties.Single().Signature);
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    #endregion
+
     #region Public fields
 
     private static readonly string[] ExpectedPackageVersionFields = ["Major", "Minor", "Frozen", "Limit"];

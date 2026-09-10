@@ -1072,33 +1072,46 @@ internal static class ApiQueryEngine
         // and inherits Size, GetAt, and Append from IVector<T> and IIterable<T> — so a
         // base-type-only walk reports those members as nonexistent.
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { type.FullName };
-        var queue = new Queue<WinMdTypeInfo>();
-        EnqueueSupertypes(type, allTypes, visited, queue);
+        var queue = new Queue<(WinMdTypeInfo Type, Dictionary<string, string>? Substitution)>();
+        EnqueueSupertypes(type, null, allTypes, visited, queue);
 
         while (queue.Count > 0)
         {
-            WinMdTypeInfo super = queue.Dequeue();
+            (WinMdTypeInfo super, Dictionary<string, string>? substitution) = queue.Dequeue();
             foreach (var m in super.Members)
             {
-                if (seenSignatures.Add(MemberDedupKey(m)))
+                // A member inherited through a constructed supertype is reported with the
+                // arguments it was constructed with, so the signature is one a caller can
+                // write: Derived : Base<String> shows `String Value`, not `T Value`.
+                // Deduping on the substituted signature is what still hides a real
+                // override, which repeats the substituted base signature verbatim.
+                WinMdMemberInfo member = substitution is null ? m : SubstituteMember(m, substitution);
+                if (seenSignatures.Add(MemberDedupKey(member)))
                 {
-                    result.Add((m, super.FullName));
+                    // Attributed to the declaring type as metadata names it — Base<T>, not
+                    // Base<String> — because that is the name its documentation is under.
+                    result.Add((member, super.FullName));
                 }
             }
-            EnqueueSupertypes(super, allTypes, visited, queue);
+            EnqueueSupertypes(super, substitution, allTypes, visited, queue);
         }
         return result;
     }
 
     /// <summary>
     /// Queues the indexed types a type derives from or implements, skipping any already
-    /// visited so a cyclic or diamond hierarchy terminates.
+    /// visited so a cyclic or diamond hierarchy terminates. Each queued supertype carries
+    /// the substitution that turns its declared type parameters into the arguments it was
+    /// reached with, built on top of the substitution of the type that referenced it so a
+    /// chained hierarchy (<c>Derived : Middle&lt;String&gt;</c>, <c>Middle&lt;T&gt; :
+    /// Base&lt;T&gt;</c>) resolves all the way down.
     /// </summary>
     private static void EnqueueSupertypes(
         WinMdTypeInfo type,
+        IReadOnlyDictionary<string, string>? substitution,
         List<WinMdTypeInfo> allTypes,
         HashSet<string> visited,
-        Queue<WinMdTypeInfo> queue)
+        Queue<(WinMdTypeInfo Type, Dictionary<string, string>? Substitution)> queue)
     {
         IEnumerable<string> supertypeNames = type.Interfaces is null
             ? (type.BaseType is null ? [] : new[] { type.BaseType })
@@ -1109,15 +1122,199 @@ internal static class ApiQueryEngine
             WinMdTypeInfo? resolved = ResolveSupertype(name, allTypes);
             // Dedupe on the resolved identity so the same supertype reached under two
             // spellings (IVector<String> from one type, IVector<T> from another) does not
-            // contribute its members twice. An unresolvable reference dedupes on its own
-            // text, which is all that is known about it.
+            // contribute its members twice. The first spelling reached wins, and with it
+            // the arguments its members are reported under: a type that implements the
+            // same interface at two instantiations is vanishingly rare next to the diamond
+            // this exists to terminate. An unresolvable reference dedupes on its own text,
+            // which is all that is known about it.
             if (!visited.Add(resolved?.FullName ?? name))
             {
                 continue;
             }
             if (resolved is not null)
             {
-                queue.Enqueue(resolved);
+                queue.Enqueue((resolved, BuildSubstitution(resolved, name, substitution)));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Maps a supertype's declared type parameters onto the arguments the reference to it
+    /// was written with: <c>IVector&lt;T&gt;</c> reached as <c>IVector&lt;String&gt;</c>
+    /// yields <c>T -&gt; String</c>. Returns <see langword="null"/> when there is nothing
+    /// to substitute — a non-generic supertype, or one still referenced by its own
+    /// parameter names — so the common case copies no members.
+    /// </summary>
+    /// <param name="outer">
+    /// The substitution in effect on the referencing type, applied to each argument first.
+    /// <c>Middle&lt;T&gt; : Base&lt;T&gt;</c> reached with <c>T -&gt; String</c> must map
+    /// <c>Base</c>'s parameter to <c>String</c>, not back to <c>T</c>.
+    /// </param>
+    private static Dictionary<string, string>? BuildSubstitution(
+        WinMdTypeInfo definition,
+        string reference,
+        IReadOnlyDictionary<string, string>? outer)
+    {
+        List<string> parameters = GenericArgumentsOf(definition.FullName);
+        if (parameters.Count == 0)
+        {
+            return null;
+        }
+
+        List<string> arguments = GenericArgumentsOf(reference);
+        // A reference matched only by arity should list exactly as many arguments; anything
+        // else means the two spellings were not really the same construction, and guessing
+        // a pairing would rewrite signatures with the wrong types.
+        if (arguments.Count != parameters.Count)
+        {
+            return null;
+        }
+
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            string argument = outer is null ? arguments[i] : SubstituteTypeParameters(arguments[i], outer);
+            if (!string.Equals(parameters[i], argument, StringComparison.Ordinal))
+            {
+                map[parameters[i]] = argument;
+            }
+        }
+        return map.Count > 0 ? map : null;
+    }
+
+    /// <summary>
+    /// Copies a member with its type parameters substituted. A copy, not an edit: the
+    /// parsed types are shared by every query served from the same load, so rewriting a
+    /// base type's members in place would report those arguments for every other type that
+    /// inherits from it too.
+    /// </summary>
+    private static WinMdMemberInfo SubstituteMember(WinMdMemberInfo member, IReadOnlyDictionary<string, string> substitution) => new()
+    {
+        Name = member.Name,
+        Kind = member.Kind,
+        Signature = SubstituteTypeParameters(member.Signature, substitution),
+        ReturnType = member.ReturnType is null ? null : SubstituteTypeParameters(member.ReturnType, substitution),
+        Parameters = member.Parameters?
+            .Select(p => new WinMdParameterInfo { Name = p.Name, Type = SubstituteTypeParameters(p.Type, substitution) })
+            .ToList(),
+        IsStatic = member.IsStatic,
+        GenericParameterCount = member.GenericParameterCount,
+        Description = member.Description,
+        DeprecatedMessage = member.DeprecatedMessage,
+    };
+
+    /// <summary>
+    /// Replaces whole identifiers named by <paramref name="substitution"/>, so
+    /// <c>IVector&lt;T&gt; GetItems(T item)</c> becomes
+    /// <c>IVector&lt;String&gt; GetItems(String item)</c>. Whole identifiers only: a
+    /// substring rewrite turns <c>TimeSpan</c> into <c>StringimeSpan</c> under
+    /// <c>T -&gt; String</c>. A qualified name's trailing segment
+    /// (<c>Some.Namespace.T</c>) names a real type, not a parameter, so it is left alone.
+    /// </summary>
+    private static string SubstituteTypeParameters(string text, IReadOnlyDictionary<string, string> substitution)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        int i = 0;
+        while (i < text.Length)
+        {
+            if (!IsIdentifierChar(text[i]))
+            {
+                builder.Append(text[i]);
+                i++;
+                continue;
+            }
+            int start = i;
+            while (i < text.Length && IsIdentifierChar(text[i]))
+            {
+                i++;
+            }
+            string token = text[start..i];
+            bool qualified = start > 0 && text[start - 1] == '.';
+            builder.Append(!qualified && substitution.TryGetValue(token, out string? replacement) ? replacement : token);
+        }
+        return builder.ToString();
+    }
+
+    private static bool IsIdentifierChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    /// <summary>
+    /// The generic arguments a type name was written with, outermost segment first:
+    /// <c>Outer&lt;A&gt;.Inner&lt;B&gt;</c> yields <c>A, B</c>, which is the order a
+    /// definition's <c>FullName</c> lists its declared parameters in, so a reference and a
+    /// definition zip together position by position. Nested arguments stay whole
+    /// (<c>IMap&lt;String, IVector&lt;Int32&gt;&gt;</c> yields two).
+    /// </summary>
+    private static List<string> GenericArgumentsOf(string typeName)
+    {
+        var arguments = new List<string>();
+        int depth = 0;
+        int segmentStart = 0;
+        for (int i = 0; i <= typeName.Length; i++)
+        {
+            if (i < typeName.Length)
+            {
+                switch (typeName[i])
+                {
+                    case '<':
+                        depth++;
+                        continue;
+                    case '>':
+                        depth--;
+                        continue;
+                    default:
+                        if (depth > 0 || typeName[i] != '.')
+                        {
+                            continue;
+                        }
+                        break;
+                }
+            }
+            else if (depth > 0)
+            {
+                // An unterminated '<' is not an argument list; the name carries none.
+                return [];
+            }
+
+            AppendSegmentArguments(typeName[segmentStart..i], arguments);
+            segmentStart = i + 1;
+        }
+        return arguments;
+    }
+
+    /// <summary>Appends the top-level arguments one dot-separated name segment states.</summary>
+    private static void AppendSegmentArguments(string segment, List<string> arguments)
+    {
+        int open = segment.IndexOf('<');
+        if (open < 0 || !segment.EndsWith('>'))
+        {
+            return;
+        }
+
+        int depth = 0;
+        int start = open + 1;
+        for (int i = open; i < segment.Length; i++)
+        {
+            switch (segment[i])
+            {
+                case '<':
+                    depth++;
+                    break;
+                case '>':
+                    depth--;
+                    if (depth == 0)
+                    {
+                        arguments.Add(segment[start..i].Trim());
+                    }
+                    break;
+                case ',' when depth == 1:
+                    arguments.Add(segment[start..i].Trim());
+                    start = i + 1;
+                    break;
             }
         }
     }
@@ -1129,8 +1326,9 @@ internal static class ApiQueryEngine
     /// The reference carries the arguments it was instantiated with
     /// (<c>IVector&lt;String&gt;</c>) while the definition carries its declared parameters
     /// (<c>IVector&lt;T&gt;</c>), so the two spellings rarely match verbatim. Matching on
-    /// base name plus arity is what connects them; find-api reports which members exist,
-    /// not what each one's type argument resolves to.
+    /// base name plus arity is what connects them; the arguments the reference stated are
+    /// then substituted back into the inherited signatures by
+    /// <see cref="BuildSubstitution"/>.
     /// </remarks>
     private static WinMdTypeInfo? ResolveSupertype(string name, List<WinMdTypeInfo> allTypes)
     {
