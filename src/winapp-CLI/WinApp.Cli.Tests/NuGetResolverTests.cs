@@ -726,6 +726,29 @@ public sealed class NuGetResolverTests
     }
 
     [TestMethod]
+    public void FindPackagesFromAssets_OneFrameworkWithARuntimeSpecificEntry_DoesNotWarn()
+    {
+        // Restore records "net8.0-windows10.0.26100.0/win-x64" next to the framework it
+        // belongs to. That is one target framework, so an ordinary RID-specific project
+        // must not be told it multi-targets and that its answers may not hold elsewhere.
+        string path = WriteAssets(JsonSerializer.Serialize(new
+        {
+            packageFolders = new Dictionary<string, object>(),
+            targets = new Dictionary<string, object>
+            {
+                ["net8.0-windows10.0.26100.0"] = new Dictionary<string, object>(),
+                ["net8.0-windows10.0.26100.0/win-x64"] = new Dictionary<string, object>(),
+            },
+            libraries = new Dictionary<string, object>(),
+        }));
+        var warnings = new List<string>();
+
+        NuGetResolver.FindPackagesFromAssets(path, warnings.Add);
+
+        Assert.AreEqual(0, warnings.Count, "a framework and its RID entry are one target framework");
+    }
+
+    [TestMethod]
     public void FindPackagesFromAssets_SingleWindowsTarget_DoesNotWarn()
     {
         // The warning must mark real ambiguity, not fire on every ordinary project.

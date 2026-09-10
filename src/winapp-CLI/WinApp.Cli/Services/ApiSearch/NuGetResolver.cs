@@ -920,7 +920,11 @@ internal static partial class NuGetResolver
         JsonElement? best = null;
         Version? bestVersion = null;
         string? bestName = null;
-        var windowsTargets = new List<string>();
+        // Restore records a RID-specific entry ("net8.0-windows10.0.26100.0/win-x64")
+        // alongside the framework it belongs to. They are one target framework, so
+        // counting both reports ordinary single-TFM projects as multi-targeted and
+        // fires the ambiguity warning at everyone.
+        var windowsFrameworks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (JsonProperty target in targetsEl.EnumerateObject())
         {
@@ -930,7 +934,8 @@ internal static partial class NuGetResolver
             {
                 continue;
             }
-            windowsTargets.Add(target.Name);
+            int slash = target.Name.IndexOf('/');
+            windowsFrameworks.Add(slash < 0 ? target.Name : target.Name.Substring(0, slash));
             if (bestVersion == null || platform > bestVersion)
             {
                 bestVersion = platform;
@@ -939,10 +944,10 @@ internal static partial class NuGetResolver
             }
         }
 
-        if (windowsTargets.Count > 1)
+        if (windowsFrameworks.Count > 1)
         {
             warn?.Invoke(
-                $"This project targets {windowsTargets.Count} Windows frameworks ({string.Join(", ", windowsTargets)}). "
+                $"This project targets {windowsFrameworks.Count} Windows frameworks ({string.Join(", ", windowsFrameworks.Order(StringComparer.OrdinalIgnoreCase))}). "
                 + $"Answers come from '{bestName}'; an API reported as available may not exist for the others.");
         }
 

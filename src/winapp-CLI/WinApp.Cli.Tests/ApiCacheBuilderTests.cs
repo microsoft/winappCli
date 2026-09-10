@@ -37,6 +37,35 @@ public sealed class ApiCacheBuilderTests
     }
 
     [TestMethod]
+    public void BuildCache_TwoProjectsRaiseTheSameCaveat_ReportsItOnce()
+    {
+        // A caveat is usually about the machine or a shared package, not one project, so
+        // in a solution the identical sentence comes back from every project in it. A
+        // refresh that repeats it once per project buries the rest of its output.
+        string root = Path.Combine(_dir, "Solution");
+        foreach (string name in new[] { "First", "Second" })
+        {
+            string dir = Path.Combine(root, name);
+            Directory.CreateDirectory(dir);
+            // Same file name in both directories, so both projects produce the very same
+            // "no restore output" sentence, and each returns before any package is read.
+            File.WriteAllText(Path.Combine(dir, "App.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <ItemGroup><PackageReference Include="Contoso" Version="1.0.0" /></ItemGroup>
+                </Project>
+                """);
+        }
+        var progress = new List<string>();
+
+        ApiCacheBuilder.BuildCache(root, Path.Combine(_dir, "cache"), scan: true, null, progress.Add);
+
+        Assert.AreEqual(
+            1,
+            progress.Count(m => m.Contains("has PackageReferences but no restore output", StringComparison.Ordinal)),
+            "one refresh must state a caveat once, not once per project that hits it");
+    }
+
+    [TestMethod]
     public void ResolvePackageExports_SameIdAndVersionFromDifferentFiles_GetSeparateCaches()
     {
         // Two projects reference "Contoso.Sdk 1.0.0" but resolve it to different .winmd

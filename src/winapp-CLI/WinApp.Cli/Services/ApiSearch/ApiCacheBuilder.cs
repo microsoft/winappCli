@@ -53,9 +53,13 @@ internal static class ApiCacheBuilder
         // so resolve every project first and collect the distinct packages that
         // still need parsing. They are then exported in parallel below, and each
         // one is parsed only once per run no matter how many projects use it.
-        var pendingExports = new Dictionary<string, PackageWithWinMd>(StringComparer.OrdinalIgnoreCase);
-        var seenPackageDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pendingExports = new Dictionary<string, PackageWithWinMd>(StringComparer.OrdinalIgnoreCase);        var seenPackageDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pendingManifests = new List<(string Name, ProjectManifest Manifest)>();
+        // Most caveats are about the machine, not the project — a missing Windows SDK
+        // or a mismatched runtime is the same sentence for every project in a solution.
+        // Each project still keeps its own copy, so its answers stay qualified; this
+        // only stops one refresh from printing the identical warning once per project.
+        var reportedCaveats = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (string projectFile in projectFiles)
         {
@@ -69,8 +73,14 @@ internal static class ApiCacheBuilder
             var caveats = new List<string>();
             void collect(string message)
             {
-                caveats.Add(message);
-                report?.Invoke(message);
+                if (!caveats.Contains(message, StringComparer.Ordinal))
+                {
+                    caveats.Add(message);
+                }
+                if (reportedCaveats.Add(message))
+                {
+                    report?.Invoke(message);
+                }
             }
 
             List<PackageWithWinMd> packages = NuGetResolver.FindPackagesWithWinMd(dir, projectFile, winAppSdkRuntimePath, collect);
