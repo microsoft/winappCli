@@ -1078,6 +1078,14 @@ internal static class ApiQueryEngine
         while (queue.Count > 0)
         {
             (WinMdTypeInfo super, Dictionary<string, string>? substitution) = queue.Dequeue();
+
+            // Keys for everything this supertype declares are held back until the whole
+            // type has been walked. Substitution can map two distinct declared members
+            // onto one signature — Base<T> declaring both M(T) and M(String), reached as
+            // Base<String>, yields `void M(String item)` twice — and neither is a
+            // redeclaration of the other, so neither may hide the other. Adding keys as
+            // we go would drop whichever came second.
+            var declaredKeys = new List<string>();
             foreach (var m in super.Members)
             {
                 // A member inherited through a constructed supertype is reported with the
@@ -1086,13 +1094,21 @@ internal static class ApiQueryEngine
                 // Deduping on the substituted signature is what still hides a real
                 // override, which repeats the substituted base signature verbatim.
                 WinMdMemberInfo member = substitution is null ? m : SubstituteMember(m, substitution);
-                if (seenSignatures.Add(MemberDedupKey(member)))
+                string key = MemberDedupKey(member);
+                if (!seenSignatures.Contains(key))
                 {
                     // Attributed to the declaring type as metadata names it — Base<T>, not
                     // Base<String> — because that is the name its documentation is under.
                     result.Add((member, super.FullName));
                 }
+                declaredKeys.Add(key);
             }
+
+            foreach (string key in declaredKeys)
+            {
+                seenSignatures.Add(key);
+            }
+
             EnqueueSupertypes(super, substitution, allTypes, visited, queue);
         }
         return result;

@@ -1437,6 +1437,167 @@ public sealed class ApiQueryEngineTests
         }
     }
 
+    /// <summary>
+    /// A base type may legally declare both a generic and a concrete overload of one
+    /// method. Closing it over that same concrete type makes the two substitute to an
+    /// identical signature, but they remain two declared members and both must survive.
+    /// </summary>
+    [TestMethod]
+    public void Members_BaseDeclaringAGenericAndAConcreteOverload_KeepsBoth()
+    {
+        string cacheDir = NewCacheDir();
+        try
+        {
+            var namespaces = new Dictionary<string, List<WinMdTypeInfo>>(StringComparer.Ordinal)
+            {
+                ["Ovl.Ns"] =
+                [
+                    new WinMdTypeInfo
+                    {
+                        Namespace = "Ovl.Ns",
+                        Name = "Derived",
+                        FullName = "Ovl.Ns.Derived",
+                        Kind = TypeKind.Class,
+                        BaseType = "Ovl.Ns.Base<String>",
+                        SourceFile = "ovl.winmd",
+                        Members = [],
+                    },
+                    new WinMdTypeInfo
+                    {
+                        Namespace = "Ovl.Ns",
+                        Name = "Base<T>",
+                        FullName = "Ovl.Ns.Base<T>",
+                        Kind = TypeKind.Class,
+                        SourceFile = "ovl.winmd",
+                        Members =
+                        [
+                            new WinMdMemberInfo
+                            {
+                                Name = "M",
+                                Kind = MemberKind.Method,
+                                Signature = "void M(T item)",
+                                ReturnType = "void",
+                                Parameters = [new WinMdParameterInfo { Name = "item", Type = "T" }],
+                            },
+                            new WinMdMemberInfo
+                            {
+                                Name = "M",
+                                Kind = MemberKind.Method,
+                                Signature = "void M(String item)",
+                                ReturnType = "void",
+                                Parameters = [new WinMdParameterInfo { Name = "item", Type = "String" }],
+                            },
+                        ],
+                    },
+                ],
+            };
+            WriteSyntheticPackage(cacheDir, "Ovl.Pkg", namespaces);
+
+            var manifest = new ProjectManifest
+            {
+                ProjectName = "OvlApp",
+                ProjectDir = Path.Combine(cacheDir, "src"),
+                ProjectFile = "OvlApp.csproj",
+                Packages = [new ProjectPackageRef { Id = "Ovl.Pkg", Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
+                GeneratedAt = DateTime.UtcNow.ToString("o"),
+            };
+            string projectsDir = Path.Combine(cacheDir, "projects");
+            Directory.CreateDirectory(projectsDir);
+            File.WriteAllText(
+                Path.Combine(projectsDir, "OvlApp.json"),
+                JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
+
+            var result = ApiQueryEngine.Members("Ovl.Ns.Derived", "M", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+            Assert.AreEqual(2, result.Data!.Methods.Count, "Both declared overloads must be reported.");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    /// <summary>
+    /// The other half of the same rule: a derived type that redeclares an inherited
+    /// member must still hide the base's copy, so it is reported once and attributed to
+    /// the type that redeclared it. Holding a supertype's keys back must not weaken this.
+    /// </summary>
+    [TestMethod]
+    public void Members_DerivedRedeclaringAnInheritedMember_HidesTheBaseCopy()
+    {
+        string cacheDir = NewCacheDir();
+        try
+        {
+            WinMdMemberInfo Method(string parameterType) => new()
+            {
+                Name = "M",
+                Kind = MemberKind.Method,
+                Signature = $"void M({parameterType} item)",
+                ReturnType = "void",
+                Parameters = [new WinMdParameterInfo { Name = "item", Type = parameterType }],
+            };
+
+            var namespaces = new Dictionary<string, List<WinMdTypeInfo>>(StringComparer.Ordinal)
+            {
+                ["Ovr.Ns"] =
+                [
+                    new WinMdTypeInfo
+                    {
+                        Namespace = "Ovr.Ns",
+                        Name = "Derived",
+                        FullName = "Ovr.Ns.Derived",
+                        Kind = TypeKind.Class,
+                        BaseType = "Ovr.Ns.Base<String>",
+                        SourceFile = "ovr.winmd",
+                        Members = [Method("String")],
+                    },
+                    new WinMdTypeInfo
+                    {
+                        Namespace = "Ovr.Ns",
+                        Name = "Base<T>",
+                        FullName = "Ovr.Ns.Base<T>",
+                        Kind = TypeKind.Class,
+                        SourceFile = "ovr.winmd",
+                        Members = [Method("T")],
+                    },
+                ],
+            };
+            WriteSyntheticPackage(cacheDir, "Ovr.Pkg", namespaces);
+
+            var manifest = new ProjectManifest
+            {
+                ProjectName = "OvrApp",
+                ProjectDir = Path.Combine(cacheDir, "src"),
+                ProjectFile = "OvrApp.csproj",
+                Packages = [new ProjectPackageRef { Id = "Ovr.Pkg", Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
+                GeneratedAt = DateTime.UtcNow.ToString("o"),
+            };
+            string projectsDir = Path.Combine(cacheDir, "projects");
+            Directory.CreateDirectory(projectsDir);
+            File.WriteAllText(
+                Path.Combine(projectsDir, "OvrApp.json"),
+                JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
+
+            var result = ApiQueryEngine.Members("Ovr.Ns.Derived", "M", cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+            var method = result.Data!.Methods.Single();
+            Assert.AreEqual("void M(String item)", method.Signature);
+
+            // A member declared on the queried type itself is not attributed to anything;
+            // the point here is that it is not attributed to Base<T>, which would mean the
+            // base copy won and the redeclaration was the one that got dropped.
+            Assert.IsTrue(
+                string.IsNullOrEmpty(method.DeclaringType),
+                $"Expected the redeclared member, but got one attributed to '{method.DeclaringType}'.");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
     #endregion
 
     #region Public fields
