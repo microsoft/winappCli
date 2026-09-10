@@ -57,6 +57,43 @@ public sealed class ScoringTests
     }
 
     [TestMethod]
+    public void GetDescriptionScore_EveryQueryWordIsInTheSummary_Matches()
+    {
+        // "text generation" describes what the caller wants to do. LanguageModel is named
+        // nothing like it, and its summary is the only place that intent is written down.
+        int score = Scoring.GetDescriptionScore(
+            "Provides text generation and embeddings using an on-device language model.",
+            "text generation");
+
+        Assert.IsGreaterThan(0, score);
+    }
+
+    [TestMethod]
+    public void GetDescriptionScore_RanksBelowEveryNameMatch()
+    {
+        // A summary hit must never outrank a name hit, or a prose coincidence displaces
+        // the API the caller actually named.
+        int prose = Scoring.GetDescriptionScore("Sets the scrolling mode.", "scrolling mode");
+        int weakestNameMatch = Scoring.GetMatchScore("Button", "Windows.UI.Xaml.Controls.Button", "Buton");
+
+        Assert.IsLessThan(weakestNameMatch, prose);
+    }
+
+    [TestMethod]
+    public void GetDescriptionScore_OnlySomeQueryWordsAppear_DoesNotMatch()
+    {
+        Assert.AreEqual(
+            0,
+            Scoring.GetDescriptionScore("Provides text layout and measurement.", "text generation"));
+    }
+
+    [TestMethod]
+    public void GetDescriptionScore_NoSummary_DoesNotMatch()
+    {
+        Assert.AreEqual(0, Scoring.GetDescriptionScore(null, "text generation"));
+    }
+
+    [TestMethod]
     public void GetMatchScore_EmptyQuery_ScoresNothing()
     {
         Assert.AreEqual(0, Scoring.GetMatchScore("Button", "Windows.UI.Xaml.Controls.Button", "   "));

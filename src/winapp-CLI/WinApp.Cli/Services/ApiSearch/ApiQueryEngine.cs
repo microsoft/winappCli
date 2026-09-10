@@ -76,6 +76,10 @@ internal static class ApiQueryEngine
                         continue;
                     }
                     int typeScore = Scoring.GetMatchScore(type.Name, type.FullName, query);
+                    if (typeScore == 0)
+                    {
+                        typeScore = Scoring.GetDescriptionScore(type.Description, query);
+                    }
                     int bestMemberScore = 0;
                     string? memberSignature = null;
                     if (type.Members != null)
@@ -83,6 +87,10 @@ internal static class ApiQueryEngine
                         foreach (WinMdMemberInfo member in type.Members)
                         {
                             int memberScore = Scoring.GetMatchScore(member.Name, type.FullName + "." + member.Name, query);
+                            if (memberScore == 0)
+                            {
+                                memberScore = Scoring.GetDescriptionScore(member.Description, query);
+                            }
                             if (memberScore > bestMemberScore)
                             {
                                 bestMemberScore = memberScore;

@@ -58,6 +58,31 @@ internal static class Scoring
     }
 
     /// <summary>
+    /// How well a documentation summary answers the query, for a name that does not match
+    /// at all. Someone searching "text generation" is describing what they want to do, not
+    /// naming <c>LanguageModel</c>, and the summary is the only place that intent is
+    /// written down.
+    /// </summary>
+    /// <remarks>
+    /// Scored below every name band, including fuzzy, so a name match always wins and a
+    /// prose match only surfaces when nothing was named. Every word of the query must
+    /// appear, so a summary is not dragged in by one incidental word.
+    /// </remarks>
+    public static int GetDescriptionScore(string? description, string query)
+    {
+        if (string.IsNullOrEmpty(description))
+        {
+            return 0;
+        }
+        string[] terms = query.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (terms.Length == 0)
+        {
+            return 0;
+        }
+        return terms.All(term => ContainsAtWordStart(description, term)) ? 15 : 0;
+    }
+
+    /// <summary>
     /// Whether <paramref name="needle"/> appears in <paramref name="haystack"/> starting
     /// where a word starts, so <c>Mode</c> matches <c>ScrollMode</c> but <c>llm</c> does not.
     /// </summary>

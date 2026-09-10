@@ -1755,6 +1755,99 @@ public sealed class ApiQueryEngineTests
         return manifest;
     }
 
+    private static ProjectManifest BuildDescriptionCache(string cacheDir)
+    {
+        var namespaces = new Dictionary<string, List<WinMdTypeInfo>>(StringComparer.Ordinal)
+        {
+            ["Desc.Ns"] =
+            [
+                new WinMdTypeInfo
+                {
+                    Namespace = "Desc.Ns",
+                    Name = "LanguageModel",
+                    FullName = "Desc.Ns.LanguageModel",
+                    Kind = TypeKind.Class,
+                    SourceFile = "desc.winmd",
+                    Description = "Provides text generation and embeddings from an on-device model.",
+                    Members = [],
+                },
+                new WinMdTypeInfo
+                {
+                    Namespace = "Desc.Ns",
+                    Name = "ScrollMode",
+                    FullName = "Desc.Ns.ScrollMode",
+                    Kind = TypeKind.Enum,
+                    SourceFile = "desc.winmd",
+                    Description = "Specifies the scrolling behavior of a viewer.",
+                    Members = [],
+                },
+            ],
+        };
+        WriteSyntheticPackage(cacheDir, "Desc.Pkg", namespaces);
+
+        var manifest = new ProjectManifest
+        {
+            ProjectName = "DescApp",
+            ProjectDir = Path.Combine(cacheDir, "src"),
+            ProjectFile = "DescApp.csproj",
+            Packages = [new ProjectPackageRef { Id = "Desc.Pkg", Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp }],
+            GeneratedAt = DateTime.UtcNow.ToString("o"),
+        };
+        string projectsDir = Path.Combine(cacheDir, "projects");
+        Directory.CreateDirectory(projectsDir);
+        File.WriteAllText(
+            Path.Combine(projectsDir, "DescApp.json"),
+            JsonSerializer.Serialize(manifest, ApiSearchJsonContext.Default.ProjectManifest));
+        return manifest;
+    }
+
+    [TestMethod]
+    public void Search_QueryDescribingWhatTheApiDoes_FindsItByItsSummary()
+    {
+        // "text generation" is what the caller wants to do, not what the type is called.
+        // Without reading summaries the search returns nothing for it, even though the
+        // documentation says in as many words that this is the type that does it.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildDescriptionCache(cacheDir);
+
+            var result = ApiQueryEngine.Search("text generation", 10, cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsTrue(
+                result.Data!.Results.SelectMany(r => r.Matches).Any(m => m.Display.Contains("LanguageModel", StringComparison.Ordinal)),
+                "the type whose summary describes text generation must be found");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
+    [TestMethod]
+    public void Search_LettersSpanningTwoWords_FindsNothing()
+    {
+        // 'llm' is a substring of scroLLMode. Returning the scrolling enum for it reads
+        // as an answer about language models, which is worse than finding nothing.
+        string cacheDir = NewCacheDir();
+        try
+        {
+            ProjectManifest manifest = BuildDescriptionCache(cacheDir);
+
+            var result = ApiQueryEngine.Search("llm", 10, cacheDir, manifest);
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+            Assert.IsEmpty(
+                result.Data!.Results.SelectMany(r => r.Matches).Where(m => m.Display.Contains("ScrollMode", StringComparison.Ordinal)),
+                "scrolling APIs must not answer a query for 'llm'");
+        }
+        finally
+        {
+            TryDeleteDir(cacheDir);
+        }
+    }
+
     [TestMethod]
     public void Members_OfAStructWithOnlyFields_ListsThem()
     {
