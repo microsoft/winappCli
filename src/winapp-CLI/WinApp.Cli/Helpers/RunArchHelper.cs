@@ -49,6 +49,44 @@ internal static class RunArchHelper
     public static string ToRuntimeIdentifier(string architecture) => $"win-{architecture}";
 
     /// <summary>
+    /// Resolves the effective target architecture from the <c>--arch</c> and <c>--runtime</c> options,
+    /// shared by <c>winapp run</c> and <c>winapp package</c> project modes. <c>--runtime</c>'s arch beats
+    /// <c>--arch</c>; when neither is given, the current process architecture is used.
+    /// </summary>
+    /// <returns><c>true</c> with <paramref name="architecture"/> set; <c>false</c> with an actionable
+    /// <paramref name="error"/> when a supplied value is unrecognized or a non-Windows RID.</returns>
+    public static bool TryResolveArchitecture(string? archOption, string? runtimeOption, out string architecture, out string? error)
+    {
+        error = null;
+        architecture = string.Empty;
+
+        string? fromRuntime = null;
+        if (!string.IsNullOrWhiteSpace(runtimeOption))
+        {
+            fromRuntime = ArchitectureFromRid(runtimeOption);
+            if (fromRuntime == null)
+            {
+                error = $"Could not determine an architecture from --runtime '{runtimeOption}'. Use a RID such as win-x64, win-arm64, or win-x86.";
+                return false;
+            }
+        }
+
+        string? fromArch = null;
+        if (!string.IsNullOrWhiteSpace(archOption))
+        {
+            fromArch = NormalizeArchitecture(archOption);
+            if (fromArch == null)
+            {
+                error = $"Unsupported --arch '{archOption}'. Supported values: {string.Join(", ", SupportedArchitectures)}.";
+                return false;
+            }
+        }
+
+        architecture = fromRuntime ?? fromArch ?? DefaultArchitecture();
+        return true;
+    }
+
+    /// <summary>
     /// Extracts the canonical arch from a Windows RID (<c>win-x64</c>, <c>win10-arm64</c>) or a bare
     /// arch (<c>x64</c>). A non-Windows RID (<c>linux-x64</c>, <c>osx-arm64</c>) is rejected rather than
     /// silently reduced to a Windows target the user never asked for.

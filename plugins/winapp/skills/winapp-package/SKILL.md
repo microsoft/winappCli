@@ -12,12 +12,31 @@ Use this skill when:
 
 ## Prerequisites
 
-Before packaging, you need:
-1. **Built app output** in a folder (e.g., `bin/Release/`, `dist/`, `build/`)
-2. **`Package.appxmanifest`** — from `winapp init` or `winapp manifest generate`
-3. **Certificate** (optional) — `devcert.pfx` from `winapp cert generate` for signing
+What you need depends on the input:
+- **Project mode** (`winapp package MyApp.csproj`): an explicit `.csproj` for a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`). winapp builds it and packages the output.
+- **Folder mode** (`winapp package ./bin/Release`): **built app output** in a folder (e.g., `bin/Release/`, `dist/`, `build/`) plus a **`Package.appxmanifest`** in the current directory, passed via `--manifest`, or in the folder.
+- **Certificate** (optional, both modes) — `devcert.pfx` from `winapp cert generate` for signing.
 
 ## Usage
+
+### Package directly from a .csproj (project mode)
+
+```powershell
+# Build the project and create an MSIX in one step (no need to build or locate the output first)
+winapp package ./MyApp.csproj
+
+# Pick configuration/architecture, or sign in the same step
+winapp package ./MyApp.csproj -c Release --arch arm64 --cert ./devcert.pfx
+
+# Package an already-built output without rebuilding
+winapp package ./MyApp.csproj --no-build
+```
+
+Project mode is triggered only by an explicit `.csproj`. It builds with the same options as
+`winapp run` (`-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`,
+`--no-restore`, repeatable `-p`), resolves the build output, and packages it. If the project
+builds as an unpackaged app (`WindowsPackageType=None`) there is no manifest to package and the
+command errors. Folder, bundle, and sparse-manifest inputs are unchanged.
 
 ### Basic packaging (unsigned)
 

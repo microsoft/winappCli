@@ -303,9 +303,9 @@ winapp update --setup-sdks experimental
 
 ### pack
 
-Create MSIX packages from prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
+Create MSIX packages from a project or prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
 
-Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
+Pass a single `.csproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
 
 ```bash
 winapp pack <input-folder> [input-folder...] [options]
@@ -313,7 +313,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Arguments:**
 
-- `input-folder` - One or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
+- `input-folder` - A single `.csproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
 
 **Options:**
 
@@ -329,6 +329,16 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
 
+**Project-mode options** (a `.csproj` input only; ignored for folder/bundle/manifest inputs):
+
+- `--configuration <name>` (`-c`) - Build configuration (default: `Debug`)
+- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
+- `--runtime <rid>` (`-r`) - Target .NET runtime identifier (e.g. `win-x64`); uses only the RID's architecture and overrides `--arch`
+- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects
+- `--no-build` - Package the existing build output without rebuilding
+- `--no-restore` - Skip restoring the project before building
+- `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
+
 **What it does:**
 
 - Validates and processes Package.appxmanifest files
@@ -339,6 +349,20 @@ winapp pack <input-folder> [input-folder...] [options]
 - Automatically discovers third-party WinRT components and registers their activatable classes (see [WinRT component discovery](#winrt-component-discovery) below)
 - Handles self-contained WinAppSDK deployment
 - Signs package if certificate provided
+
+#### Packaging a project directly
+
+When the input is a single `.csproj`, `winapp pack` builds the project (using the options above) and packages the resulting output — no need to build separately or locate the output folder first. This mirrors `winapp run`'s project mode.
+
+```bash
+# Build MyApp in Release for arm64 and package + sign it in one step
+winapp pack ./MyApp.csproj -c Release --arch arm64 --cert ./devcert.pfx
+
+# Package an existing build output without rebuilding
+winapp pack ./MyApp.csproj --no-build
+```
+
+The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
 
 #### Sparse identity packages
 
