@@ -84,13 +84,14 @@ public sealed class DesktopCaptureTests
     [TestMethod]
     public async Task Screenshot_UsesNativeDesktopPixelsWithoutAnyWindowCapture()
     {
+        var coordinator = new FakeInteractiveDesktopLock();
         var capture = Capture((x, y, width, height, ew, eh, dw, dh) =>
         {
+            Assert.AreEqual(1, coordinator.OpenDesktopSections, "Live-screen pixels require an exclusive desktop section.");
             Assert.AreEqual((-101, -75, 101, 75, 101, 75, 101, 75), (x, y, width, height, ew, eh, dw, dh));
             return Pixels(ew, eh);
         });
         using var console = new TestConsole();
-        var coordinator = new FakeInteractiveDesktopLock();
         var path = Path.Join(_root, "desktop.png");
         var exit = await Screenshot(capture, coordinator, console, path, TestContext.CancellationToken);
         Assert.AreEqual(0, exit);
@@ -100,7 +101,9 @@ public sealed class DesktopCaptureTests
         Assert.AreEqual(new PointerRect(0, 0, 101, 75), result.Coordinates.ContentRect);
         Assert.AreEqual(0L, result.Hwnd);
         Assert.AreEqual("test-epoch", result.ExecutionTarget!.Epoch);
-        Assert.AreEqual(UiTurnMode.Observe, coordinator.Runs.Single().Mode);
+        Assert.AreEqual(UiTurnMode.DesktopExclusive, coordinator.Runs.Single().Mode);
+        Assert.AreEqual(1, coordinator.DesktopSectionEnters);
+        Assert.AreEqual(0, coordinator.OpenDesktopSections);
         var bytes = await File.ReadAllBytesAsync(path, TestContext.CancellationToken);
         CollectionAssert.AreEqual(new byte[] { 137, 80, 78, 71 }, bytes.Take(4).ToArray());
         Assert.AreEqual(0, capture.CapturedWithBlankRetry.Count);
@@ -117,7 +120,10 @@ public sealed class DesktopCaptureTests
             return Pixels(ew, eh);
         });
         using var console = new TestConsole();
-        Assert.AreEqual(1, await Screenshot(capture, new(), console, path, TestContext.CancellationToken));
+        var coordinator = new FakeInteractiveDesktopLock();
+        Assert.AreEqual(1, await Screenshot(capture, coordinator, console, path, TestContext.CancellationToken));
+        Assert.AreEqual(1, coordinator.DesktopSectionEnters);
+        Assert.AreEqual(0, coordinator.OpenDesktopSections);
         Assert.AreEqual("prior evidence", await File.ReadAllTextAsync(path, TestContext.CancellationToken));
     }
 

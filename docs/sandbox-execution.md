@@ -209,7 +209,8 @@ For recordings, `--frames` also delivers the `<output-name>.frames` directory co
 JPEGs, `frames.ndjson`, and `manifest.json`. Results report host paths. Target recordings
 run in the guest; their host files become available after recording finishes and delivery completes.
 
-`target screenshot` excludes the host Sandbox window's title bar and borders. Its PNG is
+`target screenshot` waits for the guest's UI turn without activating any window.
+It excludes the host Sandbox window's title bar and borders. Its PNG is
 unscaled: with guest screen origin `(0,0)`, image coordinates are directly usable by
 coordinate-input verbs such as `ui drag` or `ui touch --at`, with `--on sandbox`.
 Add the reported origin for a desktop with a negative origin.

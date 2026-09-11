@@ -62,7 +62,7 @@ internal sealed class GuestDesktopScreenshotCommand : Command, IShortDescription
         ILogger<GuestDesktopScreenshotCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
         protected override string Operation => "target screenshot";
-        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.Observe;
+        protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.DesktopExclusive;
         protected override int? Preflight(ParseResult parseResult) => null;
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -71,18 +71,25 @@ internal sealed class GuestDesktopScreenshotCommand : Command, IShortDescription
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var bounds = capture.GetDesktopBounds();
-                var width = checked(bounds.Right - bounds.Left);
-                var height = checked(bounds.Bottom - bounds.Top);
-                var pixels = capture.CaptureScreenPixels(
-                    bounds.Left, bounds.Top, width, height, width, height, width, height);
-                if (capture.GetDesktopBounds() != bounds)
+                PointerRect bounds;
+                int width;
+                int height;
+                byte[] pixels;
+                await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    throw new InvalidOperationException("The desktop display bounds changed during the screenshot. Nothing was saved.");
-                }
-                if (pixels.Length != checked(width * height * 4))
-                {
-                    throw new InvalidOperationException("Desktop capture returned an incomplete pixel buffer.");
+                    bounds = capture.GetDesktopBounds();
+                    width = checked(bounds.Right - bounds.Left);
+                    height = checked(bounds.Bottom - bounds.Top);
+                    pixels = capture.CaptureScreenPixels(
+                        bounds.Left, bounds.Top, width, height, width, height, width, height);
+                    if (capture.GetDesktopBounds() != bounds)
+                    {
+                        throw new InvalidOperationException("The desktop display bounds changed during the screenshot. Nothing was saved.");
+                    }
+                    if (pixels.Length != checked(width * height * 4))
+                    {
+                        throw new InvalidOperationException("Desktop capture returned an incomplete pixel buffer.");
+                    }
                 }
                 var filePath = Path.GetFullPath(parseResult.GetValue(SharedUiOptions.OutputOption) ?? "screenshot.png");
                 var png = PngImage.Encode(pixels, width, height);
