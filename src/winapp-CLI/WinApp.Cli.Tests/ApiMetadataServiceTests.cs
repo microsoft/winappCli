@@ -163,7 +163,7 @@ public sealed class ApiMetadataServiceTests
         string lockPath = Path.Combine(cacheDir, ".lock");
 
         var sdkPackages = new RecordingSdkPackageSource();
-        var held = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var held = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         var releaser = Task.Run(async () =>
         {
             // Long enough that the first acquisition attempt fails, short enough that
@@ -179,7 +179,6 @@ public sealed class ApiMetadataServiceTests
         finally
         {
             releaser.Wait();
-            held.Dispose();
         }
 
         Assert.AreEqual(1, sdkPackages.Calls);

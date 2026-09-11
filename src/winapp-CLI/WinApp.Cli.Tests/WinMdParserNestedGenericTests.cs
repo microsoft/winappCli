@@ -128,7 +128,7 @@ public sealed class WinMdParserNestedGenericTests
             {
                 Directory.Delete(cacheDir, recursive: true);
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Best-effort cleanup.
             }
