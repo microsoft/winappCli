@@ -327,7 +327,10 @@ public class MsixServiceIdentityTests : BaseCommandTests
         await File.WriteAllTextAsync(source, "new", TestContext.CancellationToken);
         await File.WriteAllTextAsync(lockedSource, "locked", TestContext.CancellationToken);
         var output = _tempDirectory.CreateSubdirectory("layout");
-        var recipe = new FileInfo(WriteRecipe(manifest, (source, "previous.bin")));
+        var recipe = new FileInfo(WriteRecipe(
+            manifest,
+            (source, "previous.bin"),
+            (source, "retired.bin")));
         await InvokeCopyFilesFromRecipeAsync(recipe, output);
         var untouched = Path.Join(output.FullName, "untouched.bin");
         var blocked = Path.Join(output.FullName, "blocked.bin");
@@ -346,11 +349,13 @@ public class MsixServiceIdentityTests : BaseCommandTests
         }
 
         Assert.IsTrue(File.Exists(Path.Join(output.FullName, "completed.bin")));
+        Assert.IsTrue(File.Exists(Path.Join(output.FullName, "retired.bin")), "A failed replacement must not remove the old layout's stale payload.");
         recipe = new FileInfo(WriteRecipe(manifest));
         await InvokeCopyFilesFromRecipeAsync(recipe, output);
 
         Assert.IsFalse(File.Exists(Path.Join(output.FullName, "completed.bin")), "Completed copies from a failed attempt must remain tracked.");
         Assert.IsFalse(File.Exists(Path.Join(output.FullName, "previous.bin")), "Previously owned files must remain tracked even if not reached.");
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "retired.bin")), "A successful replacement must reconcile the deferred stale payload.");
         Assert.AreEqual("keep blocked", await File.ReadAllTextAsync(blocked, TestContext.CancellationToken));
         Assert.AreEqual("keep untouched", await File.ReadAllTextAsync(untouched, TestContext.CancellationToken));
     }

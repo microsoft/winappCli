@@ -433,9 +433,9 @@ internal partial class MsixService
         var currentFiles = mappings.Keys
             .Select(path => Path.GetRelativePath(outputDir.FullName, path))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var (deleted, stagedFiles) = ReconcilePreviousRecipeFiles(outputDir, currentFiles);
+        var stagedFiles = ReadRecipeLayoutState(outputDir);
 
-        int copied = 0, skipped = 0;
+        int copied = 0, skipped = 0, deleted = 0;
         try
         {
             foreach (var (destPath, source) in mappings)
@@ -460,6 +460,8 @@ internal partial class MsixService
                 copied++;
             }
             cancellationToken.ThrowIfCancellationRequested();
+            deleted = ReconcilePreviousRecipeFiles(outputDir, currentFiles, stagedFiles);
+            stagedFiles.IntersectWith(currentFiles);
         }
         finally
         {
@@ -524,18 +526,15 @@ internal partial class MsixService
         return destination;
     }
 
-    private static (int Deleted, HashSet<string> RetainedFiles) ReconcilePreviousRecipeFiles(
-        DirectoryInfo outputDir,
-        HashSet<string> currentFiles)
+    private static HashSet<string> ReadRecipeLayoutState(DirectoryInfo outputDir)
     {
-        var retainedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var previousFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var statePath = Path.Join(outputDir.FullName, RecipeLayoutStateFileName);
         if (!File.Exists(statePath))
         {
-            return (0, retainedFiles);
+            return previousFiles;
         }
 
-        var staleFiles = new List<string>();
         try
         {
             foreach (var line in File.ReadLines(statePath))
@@ -545,14 +544,9 @@ internal partial class MsixService
                     continue;
                 }
                 var relativePath = Encoding.UTF8.GetString(Convert.FromBase64String(line));
-                if (!currentFiles.Contains(relativePath))
-                {
-                    staleFiles.Add(relativePath);
-                }
-                else
-                {
-                    retainedFiles.Add(relativePath);
-                }
+                previousFiles.Add(Path.GetRelativePath(
+                    outputDir.FullName,
+                    ResolveRecipeDestination(outputDir, relativePath)));
             }
         }
         catch (Exception ex) when (ex is FormatException or IOException or UnauthorizedAccessException)
@@ -561,7 +555,15 @@ internal partial class MsixService
                 $"The WinApp recipe state is invalid: '{statePath}'.",
                 ex);
         }
+        return previousFiles;
+    }
 
+    private static int ReconcilePreviousRecipeFiles(
+        DirectoryInfo outputDir,
+        HashSet<string> currentFiles,
+        HashSet<string> stagedFiles)
+    {
+        var staleFiles = stagedFiles.Except(currentFiles, StringComparer.OrdinalIgnoreCase).ToArray();
         var deleted = 0;
         foreach (var stalePath in staleFiles
                      .Select(relativePath => ResolveRecipeDestination(outputDir, relativePath))
@@ -585,7 +587,7 @@ internal partial class MsixService
                 Directory.Delete(directory);
             }
         }
-        return (deleted, retainedFiles);
+        return deleted;
     }
 
     private static Task WriteRecipeLayoutStateAsync(
