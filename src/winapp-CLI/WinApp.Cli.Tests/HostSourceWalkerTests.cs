@@ -34,6 +34,53 @@ public class HostSourceWalkerTests
 
     public TestContext TestContext { get; set; } = null!;
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void GuestDelete_PrunesEmptyDirectoriesWithoutFollowingLinks(bool deleteStaleFile)
+    {
+        var root = TestPaths.TempRoot(nameof(GuestDelete_PrunesEmptyDirectoriesWithoutFollowingLinks));
+        var outside = TestPaths.TempRoot("outside-prune");
+        var service = new GuestFileService(root);
+        var scope = new GuestPathScope(GuestRootNames.Deployment, "dep-1");
+        var directory = service.ResolveScopeDirectory(scope, create: true);
+        var link = Path.Join(directory, "linked");
+        var outsideEmpty = Path.Join(outside, "empty-child");
+
+        try
+        {
+            Directory.CreateDirectory(outsideEmpty);
+            File.WriteAllText(Path.Join(outside, SecretName), "keep outside");
+            Directory.CreateDirectory(Path.Join(directory, "empty-parent", "empty-child"));
+            File.WriteAllText(Path.Join(directory, "keep.txt"), "keep managed");
+            if (deleteStaleFile)
+            {
+                File.WriteAllText(Path.Join(directory, "obsolete.dll"), "stale");
+            }
+            if (!TryCreateDirectoryLink(link, outside))
+            {
+                Assert.Inconclusive("Creating a directory junction or symbolic link is not possible in this run.");
+                return;
+            }
+
+            service.Delete(scope, deleteStaleFile ? ["obsolete.dll"] : []);
+
+            Assert.IsTrue(Directory.Exists(outsideEmpty), "Pruning must not delete empty directories behind the link.");
+            Assert.AreEqual("keep outside", File.ReadAllText(Path.Join(outside, SecretName)));
+            Assert.IsFalse(Directory.Exists(link), "Remove the managed link itself, not its target.");
+            Assert.IsFalse(Directory.Exists(Path.Join(directory, "empty-parent")));
+            Assert.IsFalse(File.Exists(Path.Join(directory, "obsolete.dll")));
+            Assert.AreEqual("keep managed", File.ReadAllText(Path.Join(directory, "keep.txt")));
+            Assert.IsTrue(Directory.Exists(directory), "The managed scope root must survive.");
+        }
+        finally
+        {
+            if (Directory.Exists(link)) { Directory.Delete(link); }
+            TryDeleteDirectory(root);
+            TryDeleteDirectory(outside);
+        }
+    }
+
     /// <summary>
     /// The deployment snapshot must not hash a file that is only reachable through a link.
     /// </summary>

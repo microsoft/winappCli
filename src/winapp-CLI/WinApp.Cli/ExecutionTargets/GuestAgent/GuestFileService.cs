@@ -321,9 +321,14 @@ internal sealed class GuestFileService(string managedRoot)
     /// <summary>Removes directories left empty by deletion, without touching the scope root.</summary>
     private static void PruneEmptyDirectories(string scopeRoot, string directory)
     {
-        foreach (var child in Directory.EnumerateDirectories(directory))
+        foreach (var child in new DirectoryInfo(directory).EnumerateDirectories())
         {
-            PruneEmptyDirectories(scopeRoot, child);
+            if (child.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                child.Delete();
+                continue;
+            }
+            PruneEmptyDirectories(scopeRoot, child.FullName);
         }
 
         if (!string.Equals(directory, scopeRoot, StringComparison.OrdinalIgnoreCase) &&
