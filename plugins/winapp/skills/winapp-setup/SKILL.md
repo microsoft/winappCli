@@ -210,7 +210,7 @@ Project mode supports both **packaged** and **unpackaged** WinUI apps, detected 
 
 - **Build inputs:** `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `-p/--property` (repeat for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value).
 - **Packaged-only options:** `--manifest`, `--no-launch`, `--with-alias`, `--clean`, `--unregister-on-exit`, `--output-appx-directory`, `--executable` — rejected for unpackaged apps.
-- **Output:** winapp prints the exact `dotnet build …` invocation, then streams build output live (warnings included on success). Under `--json`/`--quiet` both go to **stderr** so stdout stays clean.
+- **Output:** winapp restores dependencies, builds, and streams both commands' output live (including successful-build warnings). Restore output uses sanitized plain lines; interactive terminals show dotnet's in-place build progress when no build-time restore is needed, while other build output uses sanitized plain lines. `--json` sends invocations and child output to **stderr** so stdout stays valid JSON. `--quiet` suppresses invocations and sends dotnet's quiet restore/build output to **stderr** so stdout stays clean.
 
 #### Single-file mode: `winapp run` on a `.cs` file-based app
 
