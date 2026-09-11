@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Security.Cryptography;
+using System.Buffers.Binary;
 using System.Text;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
@@ -97,6 +98,31 @@ public class GuestSecureChannelTests
             Assert.AreEqual(GuestProtocol.CurrentVersion, host.NegotiatedVersion);
             Assert.AreEqual(host.NegotiatedVersion, guest.NegotiatedVersion);
         }
+    }
+
+    [TestMethod]
+    [DataRow(1, 2)]
+    [DataRow(2, 2)]
+    public async Task Establish_AgentWithoutNativeDesktopCapture_IsRejectedBeforeCommandDispatch(
+        int remoteMinimum, int remoteMaximum)
+    {
+        var (clientStream, serverStream) = DuplexStreamPair.Create();
+        await using var client = clientStream;
+        await using var server = serverStream;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var hello = new byte[GuestProtocol.HelloSize];
+        GuestProtocol.HandshakeMagic.CopyTo(hello);
+        BinaryPrimitives.WriteUInt16BigEndian(hello.AsSpan(4), (ushort)remoteMinimum);
+        BinaryPrimitives.WriteUInt16BigEndian(hello.AsSpan(6), (ushort)remoteMaximum);
+        RandomNumberGenerator.Fill(hello.AsSpan(8));
+        await server.WriteAsync(hello, timeout.Token);
+
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            GuestSecureChannel.EstablishAsync(
+                client, GuestRole.Host, NewPreSharedKey(), TargetId, Epoch, timeout.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentIncompatible, failure.Error.Code);
+        StringAssert.Contains(failure.Message, $"protocol {remoteMinimum}-{remoteMaximum}");
     }
 
     [TestMethod]

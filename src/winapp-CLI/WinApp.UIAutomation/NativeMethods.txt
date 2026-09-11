@@ -32,6 +32,11 @@ IsIconic
 ShowWindow
 SetForegroundWindow
 GetSystemMetrics
+OpenInputDesktop
+GetThreadDesktop
+GetCurrentThreadId
+GetProcessWindowStation
+GetUserObjectInformation
 DwmGetWindowAttribute
 DWMWINDOWATTRIBUTE
 

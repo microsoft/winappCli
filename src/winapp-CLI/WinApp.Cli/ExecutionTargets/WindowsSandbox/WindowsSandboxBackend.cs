@@ -36,7 +36,8 @@ internal sealed class WindowsSandboxBackend(
     IHostWinappBinaryProvider hostBinaryProvider,
     IWindowsSandboxWindowController windowController,
     IWindowsSandboxSetup? setup = null,
-    ITargetStateStore? stateStore = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget
+    ITargetStateStore? stateStore = null,
+    ITargetProgress? progress = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget
 {
     /// <summary>Guest path prefix the read-only bootstrap folder is mapped under.</summary>
     /// <remarks>
@@ -126,6 +127,12 @@ internal sealed class WindowsSandboxBackend(
     private bool _adopted;
     private SandboxClientWindow? _client;
     private GuestBootstrapMaterial? _activeMaterial;
+    private ExecutionTargetEpoch? _failedAttachmentEpoch;
+    private readonly ITargetProgress _progress = progress ?? NullTargetProgress.Instance;
+
+    internal Func<string, GuestBootstrapMaterial, CancellationToken, Task<IGuestTransport>> ReconnectTransport { get; set; } =
+        async (address, material, cancellationToken) =>
+            await GuestTcpTransport.ConnectAsync(address, material, cancellationToken).ConfigureAwait(false);
 
     /// <summary>The host and guest paths one generation's bootstrap share is mapped through.</summary>
     /// <param name="HostBootstrap">Host folder published read-only into the guest.</param>
@@ -223,6 +230,8 @@ internal sealed class WindowsSandboxBackend(
         var lease = await lifecycle.EnsureInstanceAsync(cancellationToken).ConfigureAwait(false);
         _instanceId = lease.InstanceId;
         _adopted = lease.IsAdopted;
+        var reconnectAlreadyFailed = _failedAttachmentEpoch == lease.Epoch;
+        _failedAttachmentEpoch = null;
 
         // Reconnecting to an agent that is already serving is the whole point of a persistent
         // Sandbox: it costs one TCP connect instead of a client reconnect, an agent relaunch, and a
@@ -231,12 +240,15 @@ internal sealed class WindowsSandboxBackend(
         // Only a genuinely warm lease qualifies. A recovered or adopted instance is running, but
         // nothing in it was prepared under the epoch that now identifies it, so its "persisted"
         // material describes a generation that no longer exists.
-        if (lease.IsWarm &&
+        if (lease.IsWarm && !reconnectAlreadyFailed &&
             await TryReconnectAsync(lease, remember: true, cancellationToken).ConfigureAwait(false) is { } reused)
         {
             return reused;
         }
 
+        _progress.Report(lease.IsWarm
+            ? "Repairing the Windows Sandbox connection..."
+            : "Preparing the Windows Sandbox guest agent...");
         var bootstrap = PrepareBootstrapDirectories(lease.Epoch);
         var agentHash = await StageBootstrapBinaryAsync(bootstrap.HostBootstrap, cancellationToken)
             .ConfigureAwait(false);
@@ -409,6 +421,9 @@ internal sealed class WindowsSandboxBackend(
         var connection = await TryReconnectAsync(lease, remember: false, cancellationToken)
             .ConfigureAwait(false);
 
+        // Prepare may immediately fall back to repair after this optional attachment. Do not
+        // spend a second full TCP timeout on the same generation before starting that repair.
+        _failedAttachmentEpoch = connection is null ? lease.Epoch : null;
         return new TargetAttachment(true, reconciliation.Epoch, connection);
     }
 
@@ -471,8 +486,7 @@ internal sealed class WindowsSandboxBackend(
 
         try
         {
-            var transport = await GuestTcpTransport
-                .ConnectAsync(address, material, cancellationToken)
+            var transport = await ReconnectTransport(address, material, cancellationToken)
                 .ConfigureAwait(false);
 
             _guestAddress = address;

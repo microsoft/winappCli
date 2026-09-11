@@ -150,6 +150,9 @@ internal class UiRecordCommand : Command, IShortDescription
         /// </remarks>
         protected virtual bool NoActivation(ParseResult parseResult) => false;
 
+        /// <summary>Records the current desktop rather than resolving an application window.</summary>
+        protected virtual bool IsDesktop => false;
+
         /// <summary>The execution target that produced the recording, or null for this machine.</summary>
         protected virtual ExecutionTargetScope? Scope => null;
 
@@ -197,7 +200,7 @@ internal class UiRecordCommand : Command, IShortDescription
                 RecordingArtifactPublisher.ValidateDestination(filePath, GetFramesDirectory(filePath), overwrite);
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
-                var uiTarget = await ResolveSubjectAsync(parseResult, cancellationToken);
+                var uiTarget = IsDesktop ? null : await ResolveSubjectAsync(parseResult, cancellationToken);
 
                 var isStdinRedirected = s_isInputRedirectedOverride?.Invoke() ?? Console.IsInputRedirected;
 
@@ -209,7 +212,8 @@ internal class UiRecordCommand : Command, IShortDescription
                     var destinations = framesDirectory is null
                         ? filePath
                         : $"{filePath}; frame artifacts: {framesDirectory}";
-                    ansiConsole.MarkupLine($"[grey]Recording {Markup.Escape(DescribeSubject(uiTarget))} to {Markup.Escape(destinations)} — until {until}, {fps} fps…[/]");
+                    var subject = uiTarget is null ? "the guest desktop" : DescribeSubject(uiTarget);
+                    ansiConsole.MarkupLine($"[grey]Recording {Markup.Escape(subject)} to {Markup.Escape(destinations)} — until {until}, {fps} fps…[/]");
                 }
 
                 // Stops received before the first frame wait for encoder readiness.
@@ -290,6 +294,7 @@ internal class UiRecordCommand : Command, IShortDescription
                         FrameArtifacts = result.FrameArtifacts,
                         Warnings = allWarnings,
                         ExecutionTarget = Scope,
+                        Coordinates = result.Coordinates,
                     };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(payload, UiJsonContext.Default.UiRecordResult));
@@ -437,7 +442,7 @@ internal class UiRecordCommand : Command, IShortDescription
         /// </remarks>
         private async Task<(RecordCaptureResult? Result, string? CoordinationWarning)> RecordUnderTurnAsync(
             IUiTurn turn,
-            UiTarget uiTarget,
+            UiTarget? uiTarget,
             string? selector,
             RecordOptions options,
             bool captureScreen,
@@ -450,13 +455,13 @@ internal class UiRecordCommand : Command, IShortDescription
             // The target was resolved before this command queued for the desktop, so re-confirm it from
             // inside the section: the window could have closed while waiting and had its handle reused,
             // and a recording of the wrong application is indistinguishable from a correct one.
-            bool TargetStillValid() => DesktopTargetValidation.TryConfirmTargetWindow(
+            bool TargetStillValid() => uiTarget is null || DesktopTargetValidation.TryConfirmTargetWindow(
                 systemQuery, uiTarget.WindowHandle, uiTarget.ProcessId, logger, json, "record", errorOut);
 
             // Mirrors the engine's own selection in UiRecordingService: screen DC when asked for, else WGC
             // when the host supports frame capture, else PrintWindow. Asserted against the result below so
             // this prediction cannot silently drift away from the engine.
-            var predictedMode = captureScreen
+            var predictedMode = IsDesktop || captureScreen
                 ? "screen"
                 : windowCapture.IsFrameCaptureSupported ? "wgc" : "printwindow";
             var holdForWholeRecording = predictedMode == "printwindow";
@@ -482,7 +487,7 @@ internal class UiRecordCommand : Command, IShortDescription
                     }
 
                     heldResult = await recordingService
-                        .RecordAsync(uiTarget, selector, options, ct, onRecordingStarted).ConfigureAwait(false);
+                        .RecordAsync(uiTarget!, selector, options, ct, onRecordingStarted).ConfigureAwait(false);
                 }
 
                 AssertPredictedMode(predictedMode, heldResult);
@@ -531,7 +536,9 @@ internal class UiRecordCommand : Command, IShortDescription
                     return (null, null);
                 }
 
-                var recordTask = recordingService.RecordAsync(uiTarget, selector, options, ct, OnStarted);
+                var recordTask = uiTarget is null
+                    ? recordingService.RecordDesktopAsync(options, ct, OnStarted)
+                    : recordingService.RecordAsync(uiTarget, selector, options, ct, OnStarted);
 
                 // Race the two ways the desktop stops being needed: the first frame landed, or the
                 // recording ended before producing one (fault, cancellation, or a zero-frame run). Waiting

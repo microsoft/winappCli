@@ -35,12 +35,10 @@ internal enum TargetDesktopUse
 /// A backend whose guest desktop is rendered by a client window on the host.
 /// </summary>
 /// <remarks>
-/// This is the whole of what capture commands are allowed to know about a target's desktop: one
-/// host window handle, resolved by the provider that owns the client. Keeping the interface this
-/// narrow is what lets <c>winapp target screenshot</c> and <c>winapp target record</c> reuse the
-/// ordinary host capture and recording services without either of them learning what a Windows
-/// Sandbox remote-session window is — and equally, what stops a future backend that renders nowhere
-/// on this machine from having to pretend it does.
+/// Host client identity and readiness are resolved by the provider that owns that client.
+/// This does not describe the guest's pixel coordinate space. Whole-desktop screenshot and record
+/// execute in the guest instead, so a future backend without a host window need not implement this
+/// interface to support native desktop capture.
 /// <para>
 /// Implemented by the backend rather than reported through
 /// <see cref="ExecutionTargetCapabilities"/>, because this is a fact about the host, not something

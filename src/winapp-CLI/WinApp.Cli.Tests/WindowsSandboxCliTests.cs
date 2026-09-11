@@ -13,6 +13,7 @@ internal sealed class RecordingProcessRunner : IProcessRunner
     public List<ProcessRunRequest> Requests { get; } = [];
 
     public ProcessRunResult Result { get; set; } = new(0, "{}", string.Empty);
+    public Exception? Failure { get; set; }
 
     public Task<ProcessRunResult> RunAsync(
         ProcessRunRequest request,
@@ -21,6 +22,10 @@ internal sealed class RecordingProcessRunner : IProcessRunner
         CancellationToken cancellationToken = default)
     {
         Requests.Add(request);
+        if (Failure is not null)
+        {
+            throw Failure;
+        }
         return Task.FromResult(Result);
     }
 }
@@ -45,6 +50,18 @@ public class WindowsSandboxCliTests
     {
         _runner = new RecordingProcessRunner();
         _cli = new WindowsSandboxCli(_runner);
+    }
+
+    [TestMethod]
+    public async Task List_ProviderLaunchFailure_IsReportedForSetupRecovery()
+    {
+        _cli.UseExecutable(@"C:\test\wsb.exe");
+        var launchError = new System.ComponentModel.Win32Exception(2);
+        _runner.Failure = launchError;
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            _cli.ListAsync(CancellationToken.None));
+        Assert.AreEqual(ExecutionTargetErrorCodes.StartFailed, error.Error.Code);
+        Assert.AreSame(launchError, error.InnerException);
     }
 
     [TestMethod]

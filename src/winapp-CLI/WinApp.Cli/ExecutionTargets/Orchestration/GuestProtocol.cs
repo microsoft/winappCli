@@ -14,11 +14,15 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 /// </remarks>
 internal static class GuestProtocol
 {
-    /// <summary>Oldest protocol revision this build can speak.</summary>
-    public const int MinimumVersion = 2;
+    /// <summary>
+    /// Oldest protocol revision this build can speak. Revision 3 requires the guest-native
+    /// desktop screenshot/record endpoint and its coordinate metadata; revision 2 agents must
+    /// not be reused even when their VM epoch and transport credentials still match.
+    /// </summary>
+    public const int MinimumVersion = 3;
 
     /// <summary>Newest protocol revision this build can speak.</summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     /// <summary>Bytes of per-connection random each side contributes to key derivation.</summary>
     public const int HandshakeRandomSize = 32;

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Text.Json;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
@@ -487,6 +488,30 @@ public partial class SandboxLiveE2ETests
             AssertCommandSucceeded(desktopRecording, "whole guest desktop recording");
             Assert.IsGreaterThan(1024L, new FileInfo(desktopOutput).Length);
             Assert.IsTrue(File.Exists(Path.Join(Path.ChangeExtension(desktopOutput, ".frames"), "manifest.json")));
+
+            using var desktopResult = JsonDocument.Parse(desktopRecording.StandardOutput);
+            var recordedCoordinates = desktopResult.RootElement.GetProperty("coordinates");
+            Assert.AreEqual("screen-physical-pixels", recordedCoordinates.GetProperty("space").GetString());
+            using var frameManifest = JsonDocument.Parse(await File.ReadAllTextAsync(
+                Path.Join(Path.ChangeExtension(desktopOutput, ".frames"), "manifest.json"), timeout.Token));
+            Assert.IsTrue(JsonElement.DeepEquals(recordedCoordinates, frameManifest.RootElement.GetProperty("coordinates")));
+
+            var nativeScreenshot = await RunCliAsync(
+                ["target", "screenshot", "sandbox", "-o", Path.Join(artifacts, "native-desktop.png"), "--json"],
+                timeout.Token);
+            AssertCommandSucceeded(nativeScreenshot, "native guest desktop screenshot");
+            using var screenshotResult = JsonDocument.Parse(nativeScreenshot.StandardOutput);
+            var shot = screenshotResult.RootElement;
+            var source = shot.GetProperty("coordinates").GetProperty("sourceBounds");
+            var content = shot.GetProperty("coordinates").GetProperty("contentRect");
+            Assert.AreEqual(source.GetProperty("right").GetInt32() - source.GetProperty("left").GetInt32(),
+                shot.GetProperty("width").GetInt32(), "Native PNG must not include host chrome or scaling.");
+            Assert.AreEqual(source.GetProperty("bottom").GetInt32() - source.GetProperty("top").GetInt32(),
+                shot.GetProperty("height").GetInt32());
+            Assert.AreEqual(0, content.GetProperty("left").GetInt32());
+            Assert.AreEqual(0, content.GetProperty("top").GetInt32());
+            Assert.AreEqual(shot.GetProperty("width").GetInt32(), content.GetProperty("right").GetInt32());
+            Assert.AreEqual(shot.GetProperty("height").GetInt32(), content.GetProperty("bottom").GetInt32());
 
             var store = new TargetStateStore(new TargetStateDirectoryProvider());
             var previous = store.Read(WindowsSandboxTarget.Default)!;

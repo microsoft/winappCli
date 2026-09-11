@@ -1595,7 +1595,8 @@ for interpreting readiness and process IDs.
 
 #### target screenshot
 
-Capture the whole rendered guest desktop as a host PNG, without an app selector.
+Capture the guest desktop at its native pixel size as a host PNG, without an app
+selector or host window borders. `--json` reports the guest coordinate origin.
 
 ```powershell
 winapp target screenshot <target> [-o <host-path>] [--json]
@@ -1608,7 +1609,8 @@ client requirements, focus limitations, and output handling.
 
 #### target record
 
-Record the whole rendered guest desktop to a host H.264 MP4.
+Record the guest desktop to H.264 MP4. Host video and frame files arrive after
+recording finishes; JSON and the frame manifest describe any scaling or padding.
 
 ```powershell
 winapp target record <target> [-o <host-path>] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--json]
@@ -1957,4 +1959,3 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-

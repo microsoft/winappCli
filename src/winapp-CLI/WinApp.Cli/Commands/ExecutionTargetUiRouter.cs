@@ -7,6 +7,7 @@ using System.Text.Json;
 using Spectre.Console;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Commands;
 
@@ -20,6 +21,7 @@ internal sealed record TargetUiRequirements(bool RequiresInteractiveDesktop, boo
     };
 
     public string? CommandName { get; init; }
+    public bool GuestDesktopCapture { get; init; }
     public static TargetUiRequirements ReadOnly { get; } = new(false, false);
     public static TargetUiRequirements Interactive { get; } = new(true, true);
 
@@ -103,6 +105,18 @@ internal sealed class ExecutionTargetUiRouter(
             var routed = UiArgvRouter.Rewrite(
                 arguments, GuestPaths.Resolve(target.Capabilities, operationScope),
                 Path.GetFullPath, requirements.CommandName, preflight.Artifact?.HostDestination);
+            if (requirements.GuestDesktopCapture)
+            {
+                // The hidden capture command owns its result schema. Send scope as data, not --on,
+                // so the guest captures its own desktop rather than recursively routing elsewhere.
+                var separator = routed.Arguments.IndexOf("--");
+                routed.Arguments.InsertRange(separator < 0 ? routed.Arguments.Count : separator,
+                [
+                    "--target-kind", target.Reference.Kind,
+                    "--target-name", target.Reference.Id,
+                    "--target-epoch", target.Epoch.Value,
+                ]);
+            }
             var owner = GuestOwnerContext.WithWorkflow(
                 environment: null,
                 GuestOwnerContext.ResolveGuestToken(target.Reference.StateKey, target.Epoch.Value));
@@ -111,7 +125,7 @@ internal sealed class ExecutionTargetUiRouter(
             var errors = routed.Artifact is { } capture
                 ? new ArtifactErrorRelay(Console.Error, capture)
                 : null;
-            if (requirements.RequiresRealInput)
+            if (requirements.RequiresRealInput && !requirements.GuestDesktopCapture)
             {
                 _ = orchestrator.ResolveDesktopSurface(
                     routed.Artifact is null ? TargetDesktopUse.RealInput : TargetDesktopUse.PixelCapture);
@@ -125,7 +139,7 @@ internal sealed class ExecutionTargetUiRouter(
                     {
                         UseGuestWinapp = true,
                         Arguments = routed.Arguments,
-                        Environment = owner,
+                        Environment = UiCommandAdvice.WithTarget(owner, target.Reference),
                         RequiresRealInput = requirements.RequiresRealInput,
                     },
                     new GuestExecCallbacks(

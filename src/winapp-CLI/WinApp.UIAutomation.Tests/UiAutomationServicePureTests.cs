@@ -355,7 +355,8 @@ public class UiAutomationServicePureTests
         Assert.AreEqual((10, 20, 4, 2, 4, 2), args);
         Assert.AreEqual(4 * 4 * 4, frame.Length);
         Assert.IsTrue(frame.Take(16).All(b => b == 0), "top letterbox row must remain black");
-        Assert.IsTrue(frame.Skip(16).Take(32).All(b => b == 0x7F), "content rows must be copied into the centered band");
+        Assert.IsTrue(frame.Skip(16).Take(32).Select((b, i) => b == (i % 4 == 3 ? 255 : 0x7F)).All(value => value),
+            "content RGB must be copied into the centered band, with opaque alpha");
         Assert.IsTrue(frame.Skip(48).All(b => b == 0), "bottom letterbox row must remain black");
     }
 
@@ -368,6 +369,10 @@ public class UiAutomationServicePureTests
         var frame = UiAutomationService.CaptureScreenFrame(0, 0, 2, 2, 2, 2, 2, 2);
 
         Assert.AreSame(expected, frame);
+        Assert.AreEqual((byte)255, frame[3], "Screen DC alpha is undefined; PNG pixels must be opaque.");
+        Assert.AreEqual((byte)255, frame[15]);
+        Assert.AreEqual((byte)0, frame[0], "RGB must remain unchanged.");
+        Assert.AreEqual((byte)14, frame[14]);
     }
 
     [TestMethod]

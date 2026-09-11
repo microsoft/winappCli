@@ -139,6 +139,7 @@ internal sealed class UiClickResult
 
 internal sealed class UiScreenshotResult
 {
+    public CaptureCoordinates? Coordinates { get; set; }
     public string? ElementId { get; set; }
     public string FilePath { get; set; } = "";
     public int Width { get; set; }
@@ -173,6 +174,7 @@ internal sealed class UiScreenshotWindowInfo
 
 internal sealed class UiRecordResult
 {
+    public CaptureCoordinates? Coordinates { get; set; }
     public string Path { get; set; } = "";
     public int DurationSec { get; set; }
     public int Fps { get; set; }

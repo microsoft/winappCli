@@ -549,11 +549,23 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
             throw NotInstalled();
         }
 
-        var result = await processRunner
-            .RunAsync(
-                new ProcessRunRequest(executable, arguments) { OutlivesCaller = outlivesCaller },
-                cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
+        ProcessRunResult result;
+        try
+        {
+            result = await processRunner
+                .RunAsync(
+                    new ProcessRunRequest(executable, arguments) { OutlivesCaller = outlivesCaller },
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.StartFailed,
+                $"The Windows Sandbox command line could not be launched: {ex.Message}",
+                userAction: "Run the command again so winapp can check the Windows Sandbox installation.",
+                innerException: ex);
+        }
 
         if (throwOnFailure && result.ExitCode != 0)
         {

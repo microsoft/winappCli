@@ -84,6 +84,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         FindUiCommand findUiCommand,
         UiCommand uiCommand,
         GuestAgentCommand guestAgentCommand,
+        GuestDesktopCaptureCommand guestDesktopCaptureCommand,
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
         TargetCommand targetCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
@@ -109,6 +110,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(uiCommand);
         Subcommands.Add(completeCommand);
         Subcommands.Add(guestAgentCommand);
+        Subcommands.Add(guestDesktopCaptureCommand);
         Subcommands.Add(guestRuntimeCommand);
         Subcommands.Add(guestLaunchCommand);
         Subcommands.Add(targetCommand);

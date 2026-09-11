@@ -5,7 +5,6 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Logging.Abstractions;
 using Spectre.Console;
 using Spectre.Console.Testing;
 using WinApp.Cli.Commands;
@@ -15,6 +14,7 @@ using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
+using RecordingArtifactPublisher = WinApp.Cli.Helpers.RecordingArtifactPublisher;
 
 namespace WinApp.Cli.Tests;
 
@@ -28,7 +28,7 @@ namespace WinApp.Cli.Tests;
 /// </remarks>
 [TestClass]
 [DoNotParallelize]
-public class TargetCaptureCommandTests
+public partial class TargetCaptureCommandTests
 {
     private const nint DesktopHwnd = 0x1234;
     private const int DesktopProcessId = 7788;
@@ -536,14 +536,10 @@ public class TargetCaptureCommandTests
     {
         await using var harness = new Harness(GuestWindows());
         var console = new TestConsole();
-        var capture = new FakeWindowCapture
-        {
-            CaptureWithoutActivationOverride = _ => (new byte[4 * 3 * 2], 3, 2),
-        };
         var destination = TestPaths.Under(_root, "shots", "desktop.png");
 
         var exitCode = await RunScreenshotAsync(
-            harness, console, capture, "sandbox", "-o", destination, "--json");
+            harness, console, "sandbox", "-o", destination, "--json");
 
         Assert.AreEqual(0, exitCode);
         Assert.IsTrue(File.Exists(destination));
@@ -554,86 +550,84 @@ public class TargetCaptureCommandTests
         Assert.AreEqual(destination, payload.FilePath);
         Assert.AreEqual(3, payload.Width);
         Assert.AreEqual(2, payload.Height);
-        Assert.AreEqual(DesktopHwnd, payload.Hwnd);
-        Assert.AreEqual(DesktopProcessId, payload.ProcessId);
+        Assert.AreEqual(0, payload.Hwnd, "A native desktop capture has no host window handle.");
+        Assert.AreEqual(0, payload.ProcessId);
         Assert.AreEqual(Epoch.Value, payload.ExecutionTarget!.Epoch);
+        Assert.AreEqual("sandbox", payload.ExecutionTarget.Kind);
+        Assert.AreEqual(-3, payload.Coordinates!.SourceBounds.Left);
+        var request = harness.Backend.Requests.Single();
+        var guestPath = OptionValue(request, "--output");
+        Assert.AreNotEqual(destination, guestPath);
+        Assert.IsFalse(Directory.Exists(Path.GetDirectoryName(guestPath)),
+            "Guest evidence is removed only after successful host publication.");
     }
 
-    /// <summary>
-    /// A managed client window is parked off-screen on purpose. The ordinary screenshot path
-    /// recovers from a blank frame by foregrounding the window and trying again, which would drag
-    /// the target's window back onto the user's screen mid-command.
-    /// </summary>
     [TestMethod]
-    public async Task Screenshot_CapturesTheDesktopWindowThroughTheNoActivationPathOnly()
+    public async Task Screenshot_DispatchesGuestCaptureWithoutResolvingTheHostWindow()
     {
         await using var harness = new Harness(GuestWindows());
-        var capture = new FakeWindowCapture();
 
         Assert.AreEqual(
             0,
             await RunScreenshotAsync(
                 harness,
                 new TestConsole(),
-                capture,
                 "sandbox",
                 "-o",
                 TestPaths.Under(_root, "desktop.png")));
 
-        CollectionAssert.AreEqual(new[] { DesktopHwnd }, capture.CapturedWithoutActivation);
+        var request = harness.Backend.Requests.Single();
+        Assert.AreEqual(GuestDesktopCaptureCommand.Verb, request.Arguments[0]);
+        Assert.AreEqual("screenshot", request.Arguments[1]);
+        Assert.IsTrue(request.RequiresRealInput);
+        Assert.AreEqual(0, harness.Rendering.ResolveSurfaceCalls);
+        Assert.AreEqual(0, harness.Rendering.InspectSurfaceCalls);
     }
 
-    /// <summary>
-    /// The command promises it takes no focus. When the only way left to get pixels would be to
-    /// bring the window to the front, the honest outcome is to fail and say so.
-    /// </summary>
     [TestMethod]
-    public async Task Screenshot_WindowCannotBeCapturedWhereItSits_FailsInsteadOfForegroundingIt()
+    public async Task Screenshot_GuestCaptureFailurePreservesItsErrorEnvelope()
     {
         await using var harness = new Harness(GuestWindows());
         var console = new TestConsole();
         var destination = TestPaths.Under(_root, "desktop.png");
-        var capture = new FakeWindowCapture { CaptureWithoutActivationOverride = _ => null };
+        harness.CaptureError = "Guest capture failed without activating a window.";
 
         var (exitCode, stderr) = await CaptureStandardErrorAsync(() => RunScreenshotAsync(
-            harness, console, capture, "sandbox", "-o", destination, "--json"));
+            harness, console, "sandbox", "-o", destination, "--json"));
 
-        Assert.AreEqual(TargetOutput.TargetInfrastructureExitCode, exitCode);
+        Assert.AreEqual(1, exitCode);
         Assert.AreEqual(string.Empty, console.Output, "A failure must not put anything on stdout under --json.");
-        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.ArtifactFailed);
-        StringAssert.Contains(stderr, "without bringing its window to the front");
+        using var error = JsonDocument.Parse(stderr);
+        Assert.AreEqual("capture_failed", error.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.AreEqual(harness.CaptureError, error.RootElement.GetProperty("error").GetProperty("message").GetString());
         Assert.IsFalse(File.Exists(destination), "Nothing was captured, so nothing is published.");
     }
 
     [TestMethod]
-    public async Task Screenshot_TargetThatDrawsNoDesktopHere_FailsAndPointsAtTheGuestSideVerb()
+    public async Task Screenshot_TargetThatDrawsNoDesktopHereStillPublishesGuestPixels()
     {
         await using var harness = new Harness(GuestWindows(), rendersDesktop: false);
         var console = new TestConsole();
         var destination = TestPaths.Under(_root, "desktop.png");
 
-        var (exitCode, stderr) = await CaptureStandardErrorAsync(() => RunScreenshotAsync(
-            harness, console, new FakeWindowCapture(), "sandbox", "-o", destination, "--json"));
+        var exitCode = await RunScreenshotAsync(
+            harness, console, "sandbox", "-o", destination, "--json");
 
-        Assert.AreEqual(TargetOutput.TargetInfrastructureExitCode, exitCode);
-        Assert.AreEqual(string.Empty, console.Output, "A failure must not put anything on stdout under --json.");
-        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.Unsupported);
-        StringAssert.Contains(stderr, "winapp ui screenshot");
-        Assert.IsFalse(File.Exists(destination));
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(File.Exists(destination));
+        Assert.AreEqual(1, harness.Backend.Requests.Count);
     }
 
     [TestMethod]
     public async Task Screenshot_UnknownTarget_IsRefusedBeforeAnythingIsCaptured()
     {
         await using var harness = new Harness(GuestWindows());
-        var capture = new FakeWindowCapture();
-
         Assert.AreEqual(
             TargetOutput.InvalidCommandLineExitCode,
             await RunScreenshotAsync(
-                harness, new TestConsole(), capture, "vm", "-o", TestPaths.Under(_root, "desktop.png")));
+                harness, new TestConsole(), "vm", "-o", TestPaths.Under(_root, "desktop.png")));
 
-        Assert.AreEqual(0, capture.CapturedWithoutActivation.Count);
+        Assert.AreEqual(0, harness.Backend.Requests.Count);
         Assert.AreEqual(0, harness.Backend.EnsureCalls);
     }
 
@@ -650,12 +644,12 @@ public class TargetCaptureCommandTests
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         await File.WriteAllTextAsync(destination, "the previous screenshot", TestContext.CancellationToken);
 
-        var capture = new FakeWindowCapture { CaptureWithoutActivationOverride = _ => null };
+        harness.CaptureError = "No guest pixels were available.";
 
         var (exitCode, _) = await CaptureStandardErrorAsync(() => RunScreenshotAsync(
-            harness, new TestConsole(), capture, "sandbox", "-o", destination, "--json"));
+            harness, new TestConsole(), "sandbox", "-o", destination, "--json"));
 
-        Assert.AreEqual(TargetOutput.TargetInfrastructureExitCode, exitCode);
+        Assert.AreEqual(1, exitCode);
         Assert.AreEqual(
             "the previous screenshot",
             await File.ReadAllTextAsync(destination, TestContext.CancellationToken));
@@ -670,18 +664,11 @@ public class TargetCaptureCommandTests
         await File.WriteAllTextAsync(destination, "the previous screenshot", TestContext.CancellationToken);
 
         using var cancellation = new CancellationTokenSource();
-        var capture = new FakeWindowCapture
-        {
-            CaptureWithoutActivationOverride = _ =>
-            {
-                cancellation.Cancel();
-                return (new byte[4 * 3 * 2], 3, 2);
-            },
-        };
+        cancellation.Cancel();
 
         var command = new TargetScreenshotCommand();
         var handler = new TargetScreenshotCommand.Handler(
-            harness.Orchestrator, capture, new TestConsole(), NullLogger<TargetScreenshotCommand>.Instance);
+            harness.Orchestrator, new TestConsole());
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => handler.InvokeAsync(
@@ -690,6 +677,7 @@ public class TargetCaptureCommandTests
         Assert.AreEqual(
             "the previous screenshot",
             await File.ReadAllTextAsync(destination, TestContext.CancellationToken));
+        Assert.AreEqual(0, harness.Backend.Requests.Count);
         Assert.AreEqual(
             0,
             Directory.GetFiles(Path.GetDirectoryName(destination)!, "*.tmp").Length,
@@ -704,14 +692,9 @@ public class TargetCaptureCommandTests
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         await File.WriteAllTextAsync(destination, "the previous screenshot", TestContext.CancellationToken);
 
-        var capture = new FakeWindowCapture
-        {
-            CaptureWithoutActivationOverride = _ => (new byte[4 * 3 * 2], 3, 2),
-        };
-
         Assert.AreEqual(
             0,
-            await RunScreenshotAsync(harness, new TestConsole(), capture, "sandbox", "-o", destination));
+            await RunScreenshotAsync(harness, new TestConsole(), "sandbox", "-o", destination));
 
         var bytes = await File.ReadAllBytesAsync(destination, TestContext.CancellationToken);
         CollectionAssert.AreEqual(
@@ -723,15 +706,15 @@ public class TargetCaptureCommandTests
     // ---- record --------------------------------------------------------------------
 
     [TestMethod]
-    public async Task Record_RecordsTheDesktopWindowThroughTheOrdinaryPipeline()
+    public async Task Record_DispatchesNativeGuestCaptureAndPublishesItsResult()
     {
         await using var harness = new Harness(GuestWindows());
         var console = new TestConsole();
-        var recording = new FakeUiRecordingService();
         var destination = TestPaths.Under(_root, "desktop.mp4");
 
         var exitCode = await RunRecordAsync(
-            harness, console, recording, "sandbox", "-o", destination, "--duration-sec", "1", "--json");
+            harness, console, "sandbox", "-o", destination, "--duration-sec", "1",
+            "--fps", "4", "--max-edge", "640", "--json");
 
         Assert.AreEqual(0, exitCode);
 
@@ -742,103 +725,131 @@ public class TargetCaptureCommandTests
         Assert.AreEqual("h264", payload.Codec);
         Assert.AreEqual(Epoch.Value, payload.ExecutionTarget!.Epoch);
 
-        Assert.AreEqual(DesktopHwnd, recording.LastTarget!.WindowHandle);
-        Assert.IsNull(recording.LastElementId);
-        Assert.IsFalse(recording.LastRecordOptions!.CaptureScreen);
-        Assert.AreEqual(1, recording.LastRecordOptions.DurationSec);
+        Assert.AreEqual(-3, payload.Coordinates!.SourceBounds.Left);
+        var request = harness.Backend.Requests.Single();
+        Assert.AreEqual(GuestDesktopCaptureCommand.Verb, request.Arguments[0]);
+        Assert.AreEqual("record", request.Arguments[1]);
+        Assert.AreEqual("1", OptionValue(request, "--duration-sec"));
+        Assert.AreEqual("4", OptionValue(request, "--fps"));
+        Assert.AreEqual("640", OptionValue(request, "--max-edge"));
+        Assert.IsFalse(request.Arguments.Contains("--overwrite"));
+        Assert.IsFalse(request.Arguments.Contains("--on"));
+        Assert.AreEqual(0, harness.Rendering.ResolveSurfaceCalls);
+        Assert.AreEqual("guest video", await File.ReadAllTextAsync(destination, TestContext.CancellationToken));
     }
 
     [TestMethod]
-    public async Task Record_ExplicitOverwriteReachesTheSharedPipelineWithoutChangingCapturePolicy()
+    public async Task Record_ExplicitOverwriteReachesGuestAndReplacesDeliveredVideo()
     {
         await using var harness = new Harness(GuestWindows());
-        var recording = new FakeUiRecordingService();
         var destination = TestPaths.Under(_root, "overwrite.mp4");
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         await File.WriteAllTextAsync(destination, "old video", TestContext.CancellationToken);
 
         var exitCode = await RunRecordAsync(
-            harness, new TestConsole(), recording, "sandbox", "-o", destination,
+            harness, new TestConsole(), "sandbox", "-o", destination,
             "--duration-sec", "1", "--overwrite", "--json");
 
         Assert.AreEqual(0, exitCode);
-        Assert.IsTrue(recording.LastRecordOptions!.Overwrite);
-        Assert.IsTrue(recording.LastRecordOptions.NoActivation);
-        Assert.IsFalse(recording.LastRecordOptions.CaptureScreen);
-    }
-
-    /// <summary>
-    /// A guest connection is a scarce, single-occupant channel, and a recording can legitimately run
-    /// for hours. Everything a recording needs is a host window handle read once up front, so the
-    /// channel must be handed back before the long wait starts.
-    /// </summary>
-    [TestMethod]
-    public async Task Record_ReleasesTheGuestChannelBeforeTheLongWaitBegins()
-    {
-        await using var harness = new Harness(GuestWindows());
-        var recording = new FakeUiRecordingService();
-        bool? connectedWhileRecording = null;
-        recording.WhileRecording = () =>
-            connectedWhileRecording = harness.Backend.LastHostTransport?.IsConnected;
-
-        var exitCode = await RunRecordAsync(
-            harness,
-            new TestConsole(),
-            recording,
-            "sandbox",
-            "-o",
-            TestPaths.Under(_root, "desktop.mp4"),
-            "--duration-sec",
-            "1");
-
-        Assert.AreEqual(0, exitCode);
-        Assert.IsNotNull(harness.Backend.LastHostTransport, "The target was prepared, so a channel was opened.");
-        Assert.AreEqual(false, connectedWhileRecording, "The channel is still held while recording.");
+        Assert.IsTrue(harness.Backend.Requests.Single().Arguments.Contains("--overwrite"));
+        Assert.AreEqual("guest video", await File.ReadAllTextAsync(destination, TestContext.CancellationToken));
+        Assert.AreEqual(0, harness.Rendering.ResolveSurfaceCalls);
     }
 
     [TestMethod]
-    public async Task Record_TargetThatDrawsNoDesktopHere_FailsBeforeRecordingStarts()
+    public async Task Record_FrameBundleIsDeliveredWithHostPathsAndUnchangedCoordinates()
     {
         await using var harness = new Harness(GuestWindows(), rendersDesktop: false);
         var console = new TestConsole();
-        var recording = new FakeUiRecordingService();
+        var destination = TestPaths.Under(_root, "desktop.mp4");
 
-        var (exitCode, stderr) = await CaptureStandardErrorAsync(() => RunRecordAsync(
+        Assert.AreEqual(0, await RunRecordAsync(harness, console, "sandbox", "-o", destination,
+            "--duration-sec", "1", "--frames", "--json"));
+
+        var payload = JsonSerializer.Deserialize(console.Output, UiJsonContext.Default.UiRecordResult)!;
+        var frames = RecordingArtifactPublisher.GetFramesDirectory(destination);
+        Assert.AreEqual(destination, payload.Path);
+        Assert.AreEqual(frames, payload.FrameArtifacts!.Directory);
+        Assert.AreEqual(Path.Join(frames, "manifest.json"), payload.FrameArtifacts.Manifest);
+        Assert.AreEqual(Path.Join(frames, "frames.ndjson"), payload.FrameArtifacts.Index);
+        Assert.IsTrue(File.Exists(Path.Join(frames, "frames", "image.jpg")));
+        using var manifest = JsonDocument.Parse(
+            await File.ReadAllTextAsync(payload.FrameArtifacts.Manifest, TestContext.CancellationToken));
+        Assert.AreEqual(destination, manifest.RootElement.GetProperty("video").GetProperty("path").GetString());
+        var coordinates = manifest.RootElement.GetProperty("coordinates");
+        Assert.AreEqual(-3, coordinates.GetProperty("sourceBounds").GetProperty("left").GetInt32());
+        Assert.IsTrue(harness.Backend.Requests.Single().Arguments.Contains("--frames"));
+    }
+
+    [TestMethod]
+    public async Task Record_KeepsChannelOpenButDeliversArtifactsOnlyAfterGuestCompletion()
+    {
+        await using var harness = new Harness(GuestWindows());
+        var destination = TestPaths.Under(_root, "desktop.mp4");
+        var console = new TestConsole();
+        bool? connectedWhileRecording = null;
+        harness.BeforeCaptureCompletes = () =>
+        {
+            connectedWhileRecording = harness.Backend.LastHostTransport?.IsConnected;
+            Assert.IsFalse(File.Exists(destination));
+            Assert.AreEqual("", console.Output, "The final result cannot precede finalized artifacts.");
+        };
+
+        var exitCode = await RunRecordAsync(
             harness,
             console,
-            recording,
             "sandbox",
             "-o",
-            TestPaths.Under(_root, "desktop.mp4"),
+            destination,
             "--duration-sec",
             "1",
-            "--json"));
+            "--json");
 
-        Assert.AreEqual(TargetOutput.TargetInfrastructureExitCode, exitCode);
-        Assert.AreEqual(string.Empty, console.Output);
-        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.Unsupported);
-        Assert.IsNull(recording.LastRecordOptions);
+        Assert.AreEqual(0, exitCode);
+        Assert.IsNotNull(harness.Backend.LastHostTransport, "The target was prepared, so a channel was opened.");
+        Assert.AreEqual(true, connectedWhileRecording, "Native recording executes through the guest channel.");
+        Assert.IsTrue(File.Exists(destination));
+        Assert.IsFalse(harness.Backend.LastHostTransport.IsConnected, "The command releases its channel on completion.");
+    }
+
+    [TestMethod]
+    public async Task Record_TargetThatDrawsNoDesktopHereStillPublishesGuestVideo()
+    {
+        await using var harness = new Harness(GuestWindows(), rendersDesktop: false);
+        var console = new TestConsole();
+        var destination = TestPaths.Under(_root, "desktop.mp4");
+
+        var exitCode = await RunRecordAsync(
+            harness,
+            console,
+            "sandbox",
+            "-o",
+            destination,
+            "--duration-sec",
+            "1",
+            "--json");
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(File.Exists(destination));
+        Assert.AreEqual(1, harness.Backend.Requests.Count);
     }
 
     [TestMethod]
     public async Task Record_UnknownTarget_IsRefusedBeforeAnythingIsRecorded()
     {
         await using var harness = new Harness(GuestWindows());
-        var recording = new FakeUiRecordingService();
-
         Assert.AreEqual(
             TargetOutput.InvalidCommandLineExitCode,
             await RunRecordAsync(
                 harness,
                 new TestConsole(),
-                recording,
                 "vm",
                 "-o",
                 TestPaths.Under(_root, "desktop.mp4"),
                 "--duration-sec",
                 "1"));
 
-        Assert.IsNull(recording.LastRecordOptions);
+        Assert.AreEqual(0, harness.Backend.Requests.Count);
         Assert.AreEqual(0, harness.Backend.EnsureCalls);
     }
 
@@ -856,20 +867,19 @@ public class TargetCaptureCommandTests
     {
         await using var harness = new Harness(GuestWindows());
         var console = new TestConsole();
-        var recording = new FakeUiRecordingService();
         string[] arguments = option == "--duration-sec"
             ? ["sandbox", "-o", TestPaths.Under(_root, "desktop.mp4"), option, value, "--json"]
             : ["sandbox", "-o", TestPaths.Under(_root, "desktop.mp4"), "--duration-sec", "5", option, value, "--json"];
 
         var (exitCode, stderr) = await CaptureStandardErrorAsync(
-            () => RunRecordAsync(harness, console, recording, arguments));
+            () => RunRecordAsync(harness, console, arguments));
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
         Assert.AreEqual(string.Empty, console.Output, "A failure must not put anything on stdout under --json.");
         StringAssert.Contains(stderr, ExecutionTargetErrorCodes.TargetInvalidArguments);
         Assert.AreEqual(0, harness.Backend.EnsureCalls, "Nothing may be created to serve a request this bad.");
         Assert.AreEqual(0, harness.Backend.AttachCalls);
-        Assert.IsNull(recording.LastRecordOptions);
+        Assert.AreEqual(0, harness.Backend.Requests.Count);
     }
 
     [TestMethod]
@@ -883,7 +893,6 @@ public class TargetCaptureCommandTests
         var (exitCode, stderr) = await CaptureStandardErrorAsync(() => RunRecordAsync(
             harness,
             new TestConsole(),
-            new FakeUiRecordingService(),
             "sandbox",
             "-o",
             destination,
@@ -908,7 +917,6 @@ public class TargetCaptureCommandTests
         var (exitCode, stderr) = await CaptureStandardErrorAsync(() => RunRecordAsync(
             harness,
             new TestConsole(),
-            new FakeUiRecordingService(),
             "sandbox",
             "-o",
             TestPaths.Under(_root, "desktop.mp4"),
@@ -921,6 +929,13 @@ public class TargetCaptureCommandTests
     }
 
     // ---- harness -------------------------------------------------------------------
+
+    private static string OptionValue(GuestExecRequest request, string name)
+    {
+        var index = request.Arguments.IndexOf(name);
+        Assert.IsTrue(index >= 0 && index + 1 < request.Arguments.Count, $"Missing guest option {name}.");
+        return request.Arguments[index + 1];
+    }
 
     private Task<int> RunSnapshotAsync(Harness harness, IAnsiConsole console, params string[] arguments) =>
         RunSnapshotAsync(harness, console, new EmptyDeploymentStateStore(), arguments);
@@ -941,12 +956,11 @@ public class TargetCaptureCommandTests
     private Task<int> RunScreenshotAsync(
         Harness harness,
         IAnsiConsole console,
-        IWindowCapture capture,
         params string[] arguments)
     {
+        harness.CaptureEnabled = true;
         var command = new TargetScreenshotCommand();
-        var handler = new TargetScreenshotCommand.Handler(
-            harness.Orchestrator, capture, console, NullLogger<TargetScreenshotCommand>.Instance);
+        var handler = new TargetScreenshotCommand.Handler(harness.Orchestrator, console);
 
         return handler.InvokeAsync(Parse(command, arguments), TestContext.CancellationToken);
     }
@@ -954,19 +968,11 @@ public class TargetCaptureCommandTests
     private Task<int> RunRecordAsync(
         Harness harness,
         IAnsiConsole console,
-        IUiRecordingService recording,
         params string[] arguments)
     {
+        harness.CaptureEnabled = true;
         var command = new TargetRecordCommand();
-        var handler = new TargetRecordCommand.Handler(
-            harness.Orchestrator,
-            new FakeUiTargetResolver(),
-            recording,
-            new FakeWindowCapture(),
-            new FakeSystemUiQuery { ProcessIdForWindowResult = DesktopProcessId },
-            console,
-            new FakeInteractiveDesktopLock(),
-            NullLogger<UiRecordCommand>.Instance);
+        var handler = new TargetRecordCommand.Handler(harness.Orchestrator, console);
 
         return handler.InvokeAsync(Parse(command, arguments), TestContext.CancellationToken);
     }
@@ -1073,6 +1079,9 @@ public class TargetCaptureCommandTests
             Orchestrator = new ExecutionTargetOrchestrator(Backend, new FakeLock(this), new FakeLock(this));
         }
         public FakeBackend Backend { get; }
+        public bool CaptureEnabled { get; set; }
+        public string? CaptureError { get; set; }
+        public Action? BeforeCaptureCompletes { get; set; }
 
         /// <summary>The same backend when it draws a desktop here, for asserting which path was used.</summary>
         public RenderingBackend Rendering =>
@@ -1131,7 +1140,9 @@ public class TargetCaptureCommandTests
         IAppLauncherService? appLauncher)
         : IExecutionTargetBackend, IInspectableTarget
     {
-        public ExecutionTargetRef Target => WindowsSandboxTarget.Default;
+        public ExecutionTargetRef Target { get; set; } = WindowsSandboxTarget.Default;
+
+        public List<GuestExecRequest> Requests { get; } = [];
 
         /// <summary>How many times a command asked for a prepared, connected target.</summary>
         /// <remarks>
@@ -1187,7 +1198,7 @@ public class TargetCaptureCommandTests
             var server = new GuestCommandServer(
                 pair.Guest,
                 Epoch,
-                new ScriptedGuestWinapp(stdout, exitCode),
+                new ScriptedGuestWinapp(harness, stdout, exitCode, request => Requests.Add(request)),
                 new StaticGuestSessionProbe(new GuestSessionInfo(1, "WinSta0", HasInputDesktop: true)),
                 new GuestAgentIdentity("1.0.0", "hash", "arm64", 1, 1),
                 files: new GuestFileService(harness.GuestManaged),
@@ -1242,13 +1253,22 @@ public class TargetCaptureCommandTests
     }
 
     /// <summary>A guest winapp whose answer is scripted rather than run.</summary>
-    private sealed class ScriptedGuestWinapp(string stdout, int exitCode) : IGuestProcessHostFactory
+    private sealed class ScriptedGuestWinapp(
+        Harness harness, string stdout, int exitCode, Action<GuestExecRequest>? onStart = null) : IGuestProcessHostFactory
     {
         public IGuestProcessHost Start(
             GuestExecRequest request,
             Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput)
         {
+            onStart?.Invoke(request);
             var host = new FakeGuestProcessHost(request, onOutput, processId: 4321);
+
+            if (harness.CaptureEnabled && request.Arguments[0] == GuestDesktopCaptureCommand.Verb)
+            {
+                host.InitialOutput = EmitCaptureAsync(host, request);
+                host.Exit(harness.CaptureError is null ? 0 : 1);
+                return host;
+            }
 
             if (stdout.Length > 0)
             {
@@ -1257,6 +1277,85 @@ public class TargetCaptureCommandTests
 
             host.Exit(exitCode);
             return host;
+        }
+
+        private async Task EmitCaptureAsync(FakeGuestProcessHost host, GuestExecRequest request)
+        {
+            if (harness.CaptureError is { } message)
+            {
+                await host.EmitAsync(GuestStreamId.StandardError, JsonSerializer.Serialize(new UiErrorResult
+                {
+                    Error = new UiErrorInfo { Code = "capture_failed", Message = message },
+                }, UiJsonLineContext.Default.UiErrorResult) + "\n");
+                return;
+            }
+
+            var path = OptionValue(request, "--output");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var scope = new ExecutionTargetScope
+            {
+                Kind = OptionValue(request, "--target-kind"),
+                Id = OptionValue(request, "--target-name"),
+                Epoch = OptionValue(request, "--target-epoch"),
+            };
+            var coordinates = new CaptureCoordinates
+            {
+                SourceBounds = new PointerRect(-3, 0, 0, 2),
+                ContentRect = new PointerRect(0, 0, 3, 2),
+            };
+            string payload;
+            if (request.Arguments[1] == "screenshot")
+            {
+                await File.WriteAllBytesAsync(path, PngImage.Encode(new byte[3 * 2 * 4], 3, 2),
+                    harness.ServerToken);
+                payload = JsonSerializer.Serialize(new UiScreenshotResult
+                {
+                    FilePath = path,
+                    Width = 3,
+                    Height = 2,
+                    ExecutionTarget = scope,
+                    Coordinates = coordinates,
+                }, UiJsonContext.Default.UiScreenshotResult);
+            }
+            else
+            {
+                await File.WriteAllTextAsync(path, "guest video", harness.ServerToken);
+                RecordFrameArtifactResult? frameArtifacts = null;
+                if (request.Arguments.Contains("--frames"))
+                {
+                    var frames = RecordingArtifactPublisher.GetFramesDirectory(path);
+                    Directory.CreateDirectory(Path.Join(frames, "frames"));
+                    await File.WriteAllTextAsync(Path.Join(frames, "frames", "image.jpg"), "guest image", harness.ServerToken);
+                    await File.WriteAllTextAsync(Path.Join(frames, "frames.ndjson"),
+                        """{"sampleIndex":0,"elapsedMs":0,"mediaTimeMs":0,"imageIndex":0,"file":"frames/image.jpg","changed":true}""" + "\n",
+                        harness.ServerToken);
+                    await File.WriteAllTextAsync(Path.Join(frames, "manifest.json"),
+                        JsonSerializer.Serialize(new RecordFrameBundleManifest
+                        {
+                            Video = new RecordFrameVideoManifest { Path = path },
+                            Coordinates = coordinates,
+                        }, RecordingJsonContext.Default.RecordFrameBundleManifest), harness.ServerToken);
+                    frameArtifacts = new RecordFrameArtifactResult
+                    {
+                        Directory = frames,
+                        Manifest = Path.Join(frames, "manifest.json"),
+                        Index = Path.Join(frames, "frames.ndjson"),
+                    };
+                }
+                payload = JsonSerializer.Serialize(new UiRecordResult
+                {
+                    Path = path,
+                    Codec = "h264",
+                    Width = 3,
+                    Height = 2,
+                    ExecutionTarget = scope,
+                    Coordinates = coordinates,
+                    FrameArtifacts = frameArtifacts,
+                }, UiJsonContext.Default.UiRecordResult);
+            }
+            harness.BeforeCaptureCompletes?.Invoke();
+            await host.EmitAsync(GuestStreamId.StandardOutput,
+                request.Arguments.Contains("--json") ? payload + "\n" : $"Capture saved to {path}\n");
         }
     }
 

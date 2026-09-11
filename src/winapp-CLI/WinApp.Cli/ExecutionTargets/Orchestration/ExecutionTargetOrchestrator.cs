@@ -3,6 +3,8 @@
 
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -14,7 +16,7 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 /// <param name="Operations">What this target can be asked to do, above the provider boundary.</param>
 /// <param name="Epoch">Generation identity every request and result is fenced against.</param>
 /// <param name="Capabilities">What the target reported it can do.</param>
-/// <param name="Reused">True when an existing instance was reused, driving the progress line.</param>
+/// <param name="Reused">True when an existing instance was reused.</param>
 /// <param name="MutationLease">
 /// Non-null when this target was prepared with <see cref="PrepareTargetOptions.RequiresMutation"/>
 /// set. This is <em>not</em> released by <see cref="ExecutionTargetOrchestrator.PrepareAsync"/> --
@@ -142,9 +144,9 @@ internal sealed record TargetInspection(
 /// (spec §"Ensure and reuse", §"Shared orchestration").
 /// </summary>
 /// <remarks>
-/// Ordering here is the contract. Support is probed before anything is built or mutated, so a
-/// missing prerequisite fails in seconds rather than after a long build and never falls back
-/// silently to local execution. The mutation lock is taken only when the command will actually
+/// Commands preflight support before building. Preparation first attempts an authenticated
+/// attachment to the current generation; otherwise it checks prerequisites and connects.
+/// The mutation lock is taken only when the command will actually
 /// change guest state, so a read-only inspection never blocks behind a deployment — and, equally,
 /// never blocks one.
 /// <para>
@@ -156,11 +158,9 @@ internal sealed class ExecutionTargetOrchestrator(
     IExecutionTargetBackend backend,
     ITargetMutationLock mutationLock,
     ITargetConnectionLock connectionLock,
-    ITargetProgress? progress = null)
+    ILogger<ExecutionTargetOrchestrator>? logger = null)
 {
-    internal const string PrepareProgressMessage = "Preparing Windows Sandbox...";
-
-    private readonly ITargetProgress _progress = progress ?? NullTargetProgress.Instance;
+    private bool _supportConfirmed;
 
     /// <summary>How long to wait for another winapp process to finish mutating this target.</summary>
     internal static readonly TimeSpan LockTimeout = TimeSpan.FromMinutes(10);
@@ -271,6 +271,12 @@ internal sealed class ExecutionTargetOrchestrator(
     /// <exception cref="ExecutionTargetException">The target is not usable on this host.</exception>
     public async Task EnsureSupportedAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_supportConfirmed)
+        {
+            return;
+        }
+
         var support = await backend.ProbeSupportAsync(cancellationToken).ConfigureAwait(false);
 
         if (!support.IsSupported)
@@ -281,6 +287,10 @@ internal sealed class ExecutionTargetOrchestrator(
                 Message = "This host cannot run commands in an execution target.",
             });
         }
+
+        // A run preflights support before building, then prepares through this same invocation.
+        // Connection and capability checks below still establish the target's current readiness.
+        _supportConfirmed = true;
     }
 
     /// <summary>
@@ -311,12 +321,7 @@ internal sealed class ExecutionTargetOrchestrator(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        // One setup line covers support probing, instance preparation, and agent connection. The
-        // provider reports exceptional setup work separately, while routine internal transitions
-        // stay quiet so a successful run is readable.
-        _progress.Report(PrepareProgressMessage);
-
-        await EnsureSupportedAsync(cancellationToken).ConfigureAwait(false);
+        var started = Stopwatch.GetTimestamp();
 
         GuestCommandChannel? channel = null;
         TargetMutationLease? mutationLease = null;
@@ -327,12 +332,43 @@ internal sealed class ExecutionTargetOrchestrator(
 
             using (AcquireConnection(cancellationToken))
             {
-                connection = await backend.EnsureConnectedAsync(
-                    new EnsureTargetOptions(options.RequireInteractiveDesktop),
-                    cancellationToken).ConfigureAwait(false);
+                var connectionStarted = Stopwatch.GetTimestamp();
+                TargetAttachment? attachment = null;
+                if (backend is IInspectableTarget inspectable)
+                {
+                    try
+                    {
+                        attachment = await inspectable.TryAttachAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (ExecutionTargetException ex) when (ex.Error.Code is ExecutionTargetErrorCodes.Unsupported
+                        or ExecutionTargetErrorCodes.StartFailed or ExecutionTargetErrorCodes.TransportFailed)
+                    {
+                        // Cold hosts may not even have a working provider CLI yet. Let normal
+                        // setup diagnose/repair that; do not hide busy or ambiguous ownership errors.
+                        logger?.LogDebug("Target {Target}: warm attachment unavailable ({Code}); checking setup.",
+                            backend.Target.Selector, ex.Error.Code);
+                    }
+                }
+                if (attachment?.Connection is { } existing)
+                {
+                    // An authenticated connection to the current running generation is stronger
+                    // evidence than rechecking whether its host prerequisites are installed.
+                    connection = existing;
+                }
+                else
+                {
+                    await EnsureSupportedAsync(cancellationToken).ConfigureAwait(false);
+                    logger?.LogDebug("Target {Target}: support checked in {ElapsedMs:F0} ms.",
+                        backend.Target.Selector, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                    connection = await backend.EnsureConnectedAsync(
+                        new EnsureTargetOptions(options.RequireInteractiveDesktop),
+                        cancellationToken).ConfigureAwait(false);
+                }
 
                 channel = new GuestCommandChannel(connection.Transport, connection.Epoch);
                 channel.Start();
+                logger?.LogDebug("Target {Target}: connected in {ElapsedMs:F0} ms (reused: {Reused}).",
+                    backend.Target.Selector, Stopwatch.GetElapsedTime(connectionStarted).TotalMilliseconds, connection.Reused);
             }
 
             // Negotiated before any lock is taken, not after. A guest that is refusing this channel
@@ -350,6 +386,8 @@ internal sealed class ExecutionTargetOrchestrator(
             }
 
             EnsureCapable(options, capabilities);
+            logger?.LogDebug("Target {Target}: ready in {ElapsedMs:F0} ms.",
+                backend.Target.Selector, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
 
             var prepared = new PreparedTarget(
                 backend.Target,

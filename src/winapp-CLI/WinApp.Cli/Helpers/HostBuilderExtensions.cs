@@ -178,6 +178,9 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiYieldCommand, UiYieldCommand.Handler>()
                 // Execution-target guest agent: hidden, internal transport endpoint
                 .UseCommandHandler<GuestAgentCommand, GuestAgentCommand.Handler>()
+                .UseCommandHandler<GuestDesktopScreenshotCommand, GuestDesktopScreenshotCommand.Handler>()
+                .UseCommandHandler<GuestDesktopRecordCommand, GuestDesktopRecordCommand.Handler>()
+                .ConfigureCommand<GuestDesktopCaptureCommand>()
                 // Execution-target runtime provisioning: hidden, driven by the host over the channel
                 .UseCommandHandler<GuestRuntimeCommand, GuestRuntimeCommand.Handler>()
                 // Generic execution-target escape hatches
@@ -185,7 +188,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<TargetExecCommand, TargetExecCommand.Handler>()
                 .UseCommandHandler<TargetPushCommand, TargetPushCommand.Handler>()
                 .UseCommandHandler<TargetPullCommand, TargetPullCommand.Handler>()
-                // Execution-target diagnostics and host-side capture
+                // Execution-target diagnostics and guest-native capture
                 .UseCommandHandler<TargetSnapshotCommand, TargetSnapshotCommand.Handler>()
                 .UseCommandHandler<TargetScreenshotCommand, TargetScreenshotCommand.Handler>()
                 .UseCommandHandler<TargetRecordCommand, TargetRecordCommand.Handler>()

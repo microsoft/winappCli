@@ -119,6 +119,8 @@ internal sealed class WindowsSandboxLifecycle(
     /// <summary>Progress line for an instance winapp did not start.</summary>
     internal const string AdoptingMessage = "Using the Windows Sandbox that is already running...";
 
+    internal const string StartingMessage = "Starting Windows Sandbox...";
+
     /// <summary>Delay seam, so reconciliation bounds are exercised without real waiting.</summary>
     internal Func<TimeSpan, CancellationToken, Task> Delay { get; set; } = Task.Delay;
 
@@ -139,13 +141,16 @@ internal sealed class WindowsSandboxLifecycle(
     public async Task<SandboxReconciliation> ReconcileAsync(CancellationToken cancellationToken)
     {
         var state = stateStore.Read(_target);
-        var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
         var revision = state?.Revision ?? 0;
 
         if (state?.InstanceId is not { } managedId || string.IsNullOrWhiteSpace(state.BootNonce))
         {
             return new SandboxReconciliation(TargetLifecycleState.Terminated, null, ExecutionTargetEpoch.None, revision);
         }
+
+        // With no ownership record there was nothing to attach to; avoid invoking an uninitialized
+        // provider before setup on a first run. Existing ownership still needs a live instance check.
+        var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
 
         if (!running.Contains(managedId, StringComparer.OrdinalIgnoreCase))
         {
@@ -235,6 +240,8 @@ internal sealed class WindowsSandboxLifecycle(
         var instanceId = NewInstanceId();
         var revision = MarkPending(state, instanceId);
         string reportedId;
+
+        _progress.Report(StartingMessage);
 
         // Only the provider call is inside the recovery scope. Everything after it -- the identity
         // and reachability checks -- is winapp refusing an instance it will not claim, and funnelling

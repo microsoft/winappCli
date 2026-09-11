@@ -81,10 +81,15 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 
 - Start with `target snapshot` when an app never appeared or a command failed. It does
   not create a VM, reconnect the client, or repair an agent.
-- `target screenshot`/`target record` capture the whole rendered guest desktop.
+- `target screenshot`/`target record` capture the native guest desktop, not the host client window.
   `ui screenshot`/`ui record --on sandbox` capture an app window.
 - Outputs, including default filenames when `-o` is omitted, are delivered to the host.
-  `--frames` returns a frame directory alongside the MP4.
+  `--frames` returns a frame directory alongside the MP4 after recording finishes.
+- Use the PNG's native coordinates plus its reported screen origin for guest input.
+  For scaled recording frames, use `coordinates.sourceBounds` and `coordinates.contentRect`
+  from the JSON/manifest, not raw image coordinates. The mapping is documented in
+  [Sandbox capture](../../../../docs/sandbox-execution.md#screenshots-and-recordings).
+  `display_changed` means capture stopped before the desktop bounds changed its mapping.
 - Prefer a positive `--duration-sec` for unattended CLI recording. npm helpers require
   `durationSec` (integer 1–86400); abort signals cancel forcefully, not gracefully.
 - Choose a fresh output path. Request `--overwrite` only when replacement is intended:

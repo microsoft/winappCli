@@ -6,6 +6,7 @@ using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
+using Microsoft.Extensions.Logging;
 
 namespace WinApp.Cli.Tests;
 
@@ -29,11 +30,14 @@ public class ExecutionTargetOrchestratorTests
     [TestMethod]
     public async Task Prepare_UnsupportedHost_FailsBeforeTouchingTheTarget()
     {
-        var backend = new FakeBackend { Support = TargetSupportResult.Unsupported(new ExecutionTargetErrorInfo
+        var backend = new FakeBackend
         {
-            Code = ExecutionTargetErrorCodes.Unsupported,
-            Message = "Windows Sandbox is not installed.",
-        }) };
+            Support = TargetSupportResult.Unsupported(new ExecutionTargetErrorInfo
+            {
+                Code = ExecutionTargetErrorCodes.Unsupported,
+                Message = "Windows Sandbox is not installed.",
+            })
+        };
 
         var orchestrator = new ExecutionTargetOrchestrator(
             backend,
@@ -208,22 +212,120 @@ public class ExecutionTargetOrchestratorTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task Prepare_ReportsOneConsolidatedSetupPhase(bool reused)
+    public async Task Prepare_RoutinePhasesAreVerboseOnly(bool reused)
     {
-        var progress = new RecordingProgress();
+        var logger = new CapturingLogger<ExecutionTargetOrchestrator>();
         var orchestrator = new ExecutionTargetOrchestrator(
             new FakeBackend { Reused = reused },
             new FakeMutationLock(),
             new FakeConnectionLock(),
-            progress);
+            logger);
 
         await using var prepared = await orchestrator.PrepareAsync(
             PrepareTargetOptions.ReadOnly, TestContext.CancellationToken);
 
         Assert.AreEqual(reused, prepared.Reused);
-        CollectionAssert.AreEqual(
-            new[] { ExecutionTargetOrchestrator.PrepareProgressMessage },
-            progress.Messages);
+        Assert.IsNotEmpty(logger.Entries);
+        Assert.IsTrue(logger.Entries.All(entry => entry.Level == LogLevel.Debug));
+    }
+
+    [TestMethod]
+    public async Task Prepare_AfterBuildPreflight_DoesNotRepeatSupportProbe()
+    {
+        var backend = new FakeBackend();
+        using var mutationLock = new FakeMutationLock();
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock());
+        await orchestrator.EnsureSupportedAsync(TestContext.CancellationToken);
+        await using var prepared = await orchestrator.PrepareAsync(
+            PrepareTargetOptions.ReadOnly, TestContext.CancellationToken);
+        Assert.AreEqual(1, backend.ProbeCalls);
+        Assert.AreEqual(1, backend.EnsureCalls, "Cached support must not bypass live connection/capability checks.");
+    }
+
+    [TestMethod]
+    public async Task EnsureSupported_FailureIsNotCached()
+    {
+        var backend = new FakeBackend
+        {
+            Support = TargetSupportResult.Unsupported(new ExecutionTargetErrorInfo
+            {
+                Code = ExecutionTargetErrorCodes.Unsupported,
+                Message = "Unavailable",
+            })
+        };
+        using var mutationLock = new FakeMutationLock();
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock());
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() => orchestrator.EnsureSupportedAsync(TestContext.CancellationToken));
+        backend.Support = TargetSupportResult.Supported;
+        await orchestrator.EnsureSupportedAsync(TestContext.CancellationToken);
+        Assert.AreEqual(2, backend.ProbeCalls);
+    }
+
+    [TestMethod]
+    public async Task Prepare_AuthenticatedWarmAttachment_SkipsSetupButChecksCapabilities()
+    {
+        var backend = new AttachableBackend();
+        using var mutationLock = new FakeMutationLock();
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock());
+        await using var prepared = await orchestrator.PrepareAsync(
+            PrepareTargetOptions.ReadOnly, TestContext.CancellationToken);
+        Assert.AreEqual(0, backend.ProbeCalls);
+        Assert.AreEqual(Epoch, prepared.Epoch);
+        Assert.IsTrue(prepared.Capabilities.SupportsInteractiveDesktop);
+    }
+
+    [TestMethod]
+    public async Task Prepare_UnavailableAttachment_FallsBackToSetup()
+    {
+        var backend = new AttachableBackend { Available = false };
+        using var mutationLock = new FakeMutationLock();
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock());
+        await using var prepared = await orchestrator.PrepareAsync(
+            PrepareTargetOptions.ReadOnly, TestContext.CancellationToken);
+        Assert.AreEqual(1, backend.ProbeCalls);
+        Assert.AreEqual(1, backend.EnsureCalls);
+    }
+
+    [TestMethod]
+    public async Task Prepare_WarmAttachmentWithoutInput_StillRefusesInteractiveCommand()
+    {
+        var backend = new AttachableBackend { SupportsInteractiveDesktop = false };
+        using var mutationLock = new FakeMutationLock();
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock());
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            orchestrator.PrepareAsync(PrepareTargetOptions.Interactive, TestContext.CancellationToken));
+        Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, error.Error.Code);
+        Assert.AreEqual(0, backend.ProbeCalls);
+    }
+
+    [TestMethod]
+    [DataRow(ExecutionTargetErrorCodes.Unsupported)]
+    [DataRow(ExecutionTargetErrorCodes.StartFailed)]
+    [DataRow(ExecutionTargetErrorCodes.TransportFailed)]
+    public async Task Prepare_ColdProviderCannotInspect_StillRunsSetup(string code)
+    {
+        var backend = new AttachableBackend { AttachError = code };
+        using var mutationLock = new FakeMutationLock();
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock());
+        await using var prepared = await orchestrator.PrepareAsync(
+            PrepareTargetOptions.ReadOnly, TestContext.CancellationToken);
+        Assert.AreEqual(1, backend.ProbeCalls);
+        Assert.AreEqual(1, backend.EnsureCalls);
+    }
+
+    [TestMethod]
+    [DataRow(ExecutionTargetErrorCodes.AgentBusy)]
+    [DataRow(ExecutionTargetErrorCodes.TargetAmbiguous)]
+    public async Task Prepare_UnsafeAttachmentFailure_DoesNotAttemptRepair(string code)
+    {
+        var backend = new AttachableBackend { AttachError = code };
+        using var mutationLock = new FakeMutationLock();
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock());
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            orchestrator.PrepareAsync(PrepareTargetOptions.ReadOnly, TestContext.CancellationToken));
+        Assert.AreEqual(code, error.Error.Code);
+        Assert.AreEqual(0, backend.ProbeCalls);
+        Assert.AreEqual(0, backend.EnsureCalls);
     }
 
     [TestMethod]
@@ -480,14 +582,15 @@ public class ExecutionTargetOrchestratorTests
     }
 
     /// <summary>A backend whose responses are scripted, standing in for Windows Sandbox.</summary>
-    private sealed class FakeBackend : IExecutionTargetBackend
+    private class FakeBackend : IExecutionTargetBackend
     {
         private readonly List<GuestCommandServer> _servers = [];
         private int _inFlight;
 
         public ExecutionTargetRef Target => WindowsSandboxTarget.Default;
 
-        public TargetSupportResult Support { get; init; } = TargetSupportResult.Supported;
+        public TargetSupportResult Support { get; set; } = TargetSupportResult.Supported;
+        public int ProbeCalls { get; private set; }
 
         public bool SupportsInteractiveDesktop { get; init; } = true;
 
@@ -503,8 +606,11 @@ public class ExecutionTargetOrchestratorTests
         /// <summary>True if two establishments were ever in flight at the same time.</summary>
         public bool ObservedOverlap { get; private set; }
 
-        public Task<TargetSupportResult> ProbeSupportAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(Support);
+        public Task<TargetSupportResult> ProbeSupportAsync(CancellationToken cancellationToken)
+        {
+            ProbeCalls++;
+            return Task.FromResult(Support);
+        }
 
         public async Task<TargetConnection> EnsureConnectedAsync(
             EnsureTargetOptions options,
@@ -555,11 +661,22 @@ public class ExecutionTargetOrchestratorTests
             new Dictionary<string, string> { ["sandboxId"] = "sandbox-1" };
     }
 
-    private sealed class RecordingProgress : ITargetProgress
+    private sealed class AttachableBackend : FakeBackend, IInspectableTarget
     {
-        public List<string> Messages { get; } = [];
+        public bool Available { get; init; } = true;
+        public string? AttachError { get; init; }
 
-        public void Report(string message) => Messages.Add(message);
+        public async Task<TargetAttachment> TryAttachAsync(CancellationToken cancellationToken)
+        {
+            if (AttachError is { } code)
+            {
+                throw ExecutionTargetException.Create(code, "Cannot attach");
+            }
+            return Available
+                ? new TargetAttachment(true, Epoch,
+                    await EnsureConnectedAsync(new EnsureTargetOptions(false), cancellationToken))
+                : TargetAttachment.NotRunning;
+        }
     }
 
     /// <summary>A lock that records use and can pretend another process holds it.</summary>

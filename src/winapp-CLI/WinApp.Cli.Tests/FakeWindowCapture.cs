@@ -10,6 +10,9 @@ namespace WinApp.Cli.Tests;
 internal sealed class FakeWindowCapture : IWindowCapture
 {
     public bool Supported { get; set; } = true;
+    public Func<PointerRect>? DesktopBoundsOverride { get; set; }
+    public PointerRect GetDesktopBounds() => DesktopBoundsOverride?.Invoke()
+        ?? throw new InvalidOperationException("No desktop bounds configured for this test.");
 
     public Func<nint, int, IFrameGrabber>? StartGrabberCallback { get; set; }
 

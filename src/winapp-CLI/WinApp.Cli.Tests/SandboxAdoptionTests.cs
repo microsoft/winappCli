@@ -23,6 +23,26 @@ public class SandboxAdoptionTests
     private const string ManualInstanceId = "manually-started-sandbox";
 
     [TestMethod]
+    public async Task FailedWarmAttachment_IsNotRetriedBeforeRepair()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var attempts = 0;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+        {
+            attempts++;
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Connect timed out");
+        };
+
+        var attachment = await harness.Backend.TryAttachAsync(TestContext.CancellationToken);
+        Assert.IsNull(attachment.Connection);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        Assert.AreEqual(1, attempts, "Repair must not repeat the same failed warm connection timeout.");
+    }
+
+    [TestMethod]
     public async Task AdoptedInstance_ThatAlreadyHasAClient_IsNotGivenASecondOne()
     {
         // Regression, measured on a live Sandbox: `wsb connect` against an instance whose client is
@@ -546,6 +566,16 @@ public class SandboxAdoptionTests
 
         /// <summary>The ownership record as another winapp process would read it.</summary>
         public TargetState? ReadState() => _stateStore.Read(WindowsSandboxTarget.Default);
+
+        public void MarkBootstrapped()
+        {
+            var state = ReadState()!;
+            _stateStore.Commit(WindowsSandboxTarget.Default, state with
+            {
+                BootstrappedEpoch = ExecutionTargetEpoch.Create(state.InstanceId!, state.BootNonce!).Value,
+                GuestAddress = "127.0.0.1",
+            }, state.Revision);
+        }
 
         /// <summary>How much fake time the run consumed, for asserting which bound was hit.</summary>
         public TimeSpan Elapsed => _now - new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

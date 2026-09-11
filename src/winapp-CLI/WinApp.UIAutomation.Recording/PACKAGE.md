@@ -65,6 +65,20 @@ inspect and drive UI. Reference this package only when you actually want video.
 Set `RecordOptions.FramesDirectory` to also write a frame bundle: numbered JPEGs, a `frames.ndjson`
 index, and a `manifest.json` describing the run.
 
+## Whole-desktop recording
+
+Call `IUiRecordingService.RecordDesktopAsync(options, cancellationToken)` to record the calling
+process's entire virtual desktop without activating or restoring any window. Leave the
+window-specific `CaptureScreen` and `NoActivation` options false. The mode is `screen`; the caller
+must be per-monitor DPI aware and attached to the current interactive input desktop.
+
+The result's `Coordinates` and the frame manifest's `coordinates` map both MP4 and JPEG pixels
+back to screen input coordinates. They include the source origin, scaling and encoder padding;
+use `CaptureCoordinates.ToScreenPoint` for individual image points. A display-bounds change ends
+the recording with `display_changed`; loss of the input desktop ends it with `capture_unavailable`.
+Both finalize already captured evidence and mark the frame manifest partial. Cancellation after
+capture starts finalizes with `cancelled`.
+
 ## Requirements
 
 Windows 10 version 2004 (build 19041) or later, and a target framework of

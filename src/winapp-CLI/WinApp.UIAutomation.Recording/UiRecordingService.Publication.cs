@@ -7,9 +7,27 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;
 
 internal sealed partial class UiRecordingService
 {
-    public async Task<RecordCaptureResult> RecordAsync(
+    public Task<RecordCaptureResult> RecordAsync(
         UiTarget uiTarget, string? elementId, RecordOptions options, CancellationToken ct,
         Action<bool>? onRecordingStarted = null)
+    {
+        ArgumentNullException.ThrowIfNull(uiTarget);
+        return RecordWithPublicationAsync(uiTarget, elementId, options, onRecordingStarted, ct);
+    }
+
+    public Task<RecordCaptureResult> RecordDesktopAsync(
+        RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
+    {
+        if (options.CaptureScreen || options.NoActivation)
+        {
+            throw new ArgumentException("Desktop recording does not accept window capture policy flags.", nameof(options));
+        }
+        return RecordWithPublicationAsync(null, null, options, onRecordingStarted, ct);
+    }
+
+    private async Task<RecordCaptureResult> RecordWithPublicationAsync(
+        UiTarget? uiTarget, string? elementId, RecordOptions options,
+        Action<bool>? onRecordingStarted, CancellationToken ct)
     {
         var videoPath = Path.GetFullPath(options.OutputPath);
         var framesDirectory = options.FramesDirectory is { } frames ? Path.GetFullPath(frames) : null;
@@ -62,6 +80,7 @@ internal sealed partial class UiRecordingService
                 FrameArtifacts = result.FrameArtifacts is { } bundle
                     ? RecordingArtifactPublisher.RelocateFrames(bundle, framesDirectory!)
                     : null,
+                Coordinates = result.Coordinates,
                 Warnings = previousFrames is null ? result.Warnings :
                     [.. result.Warnings ?? [], $"Previous frame artifacts were retained at {previousFrames}."],
             };

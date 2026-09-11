@@ -73,9 +73,9 @@ internal class UiSetValueCommand : Command, IShortDescription
 
             if (value is null)
             {
-                logger.LogError("{Symbol} A value is required. Usage: winapp ui set-value <selector> <value> -a <app>", UiSymbols.Error);
-                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments,
-                    "A value is required. Usage: winapp ui set-value <selector> <value> -a <app>");
+                var message = $"A value is required. Usage: {UiCommandAdvice.Command("set-value <selector> <value> -a <app>")}";
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message);
                 return 1;
             }
 

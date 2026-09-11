@@ -919,7 +919,7 @@ export interface TargetScreenshotOptions extends CommonOptions {
 }
 
 /**
- * Capture an execution target's entire desktop as a PNG on this machine. Captures the whole rendered guest desktop, so no application or window has to be named.
+ * Capture an execution target's entire desktop at its native pixel size. Saves a PNG on this machine without activating a host or guest window. JSON includes the guest screen origin and pixel-coordinate mapping.
  */
 export async function targetScreenshot(options: TargetScreenshotOptions): Promise<WinappResult> {
   const args: string[] = ['target', 'screenshot'];

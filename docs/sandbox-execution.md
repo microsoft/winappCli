@@ -78,8 +78,10 @@ Application data is preserved unless you request `--clean`. An incomplete deploy
 does not launch; retrying rebuilds its guest copy. If build files change while winapp is
 preparing them, finish the build and retry.
 
-Human-readable runs report slow setup and deployment phases on stderr. `--quiet` and
-`--json` suppress that progress. JSON runs include a guest process ID and target scope:
+Warm UI commands report only their result, without repeating a Sandbox preparation
+message. Initial setup and recovery still report progress. Use `--verbose` for
+connection timings and diagnostic details; `--quiet` and `--json` suppress progress.
+JSON runs include a guest process ID and target scope:
 
 ```json
 {
@@ -189,7 +191,7 @@ may have used the guest desktop. Cooperative turns do not isolate apps from each
 
 ## Screenshots and recordings
 
-Use `ui` capture for an app's window, or `target` capture for the **whole rendered guest
+Use `ui` capture for an app's window, or `target` capture for the **whole native guest
 desktop**, including the shell and installer dialogs:
 
 ```powershell
@@ -201,7 +203,23 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 Outputs land on the **host**, including when you omit `-o`. Screenshots default to
 `screenshot.png`; recordings use `recording-<timestamp>-<guid>.mp4`.
 For recordings, `--frames` also delivers the `<output-name>.frames` directory containing
-JPEGs, `frames.ndjson`, and `manifest.json`. Results report host paths.
+JPEGs, `frames.ndjson`, and `manifest.json`. Results report host paths. Target recordings
+run in the guest; their host files become available after recording finishes and delivery completes.
+
+`target screenshot` excludes the host Sandbox window's title bar and borders. Its PNG is
+unscaled: with guest screen origin `(0,0)`, image coordinates are directly usable by
+coordinate-input verbs such as `ui drag` or `ui touch --at`, with `--on sandbox`.
+Add the reported origin for a desktop with a negative origin.
+Use `--json` to read `coordinates.sourceBounds` and `coordinates.contentRect`; both use
+physical pixels and exclusive right/bottom edges.
+
+Target recordings report the same fields in JSON and the frame manifest. MP4 and JPEG
+frames share the mapping, including `--max-edge` scaling and encoder padding. To map
+image pixel `(x,y)`, first reject points outside `contentRect`, then compute each source
+coordinate as `sourceStart + floor((pixel - contentStart + 0.5) * sourceSize / contentSize)`.
+Downscaling loses precision; use a native PNG when exact coordinates matter. A change
+to the guest desktop's bounds stops the recording with `display_changed`, preserving
+only frames from before the change and marking the frame manifest partial.
 
 An existing MP4 or paired `.frames` directory is rejected by default. Use a new path, or pass
 `--overwrite` to replace them after the new take finishes. Previous frame bundles are
@@ -218,7 +236,7 @@ Ctrl+C after capture starts can finalize and return a recording successfully wit
 `partialOutput`, and `recoveryHint` when present, and use the reported evidence paths
 rather than assuming a normal completion. If the whole-desktop capture becomes
 unavailable during a take, it stops with `capture_unavailable` rather than continuing
-to record black frames. It does not bring the Sandbox to the foreground to rescue a
+to capture an unavailable desktop. It does not bring the Sandbox to the foreground to rescue a
 frame. Capture can fail before any usable evidence is available.
 
 For a failed guest recording, recovered evidence is placed in a unique
@@ -307,6 +325,9 @@ Follow the error's `userAction`; an advisory `nextCommand` is a suggestion, not 
 to run it automatically. In automation, inspect the structured `error.code`.
 Infrastructure failures may exit `70`, but an arbitrary application can also return
 `70`; the numeric exit status alone does not distinguish them.
+
+Recovery commands suggested by routed UI operations retain `--on <target>`, so
+copying a suggestion keeps it on the same execution target.
 
 | Error or symptom | What to do |
 |---|---|

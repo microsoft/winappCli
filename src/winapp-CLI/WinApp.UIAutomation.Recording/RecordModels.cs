@@ -64,6 +64,9 @@ public sealed class RecordOptions
 /// <summary>Result of an MP4 recording.</summary>
 public sealed class RecordCaptureResult
 {
+    /// <summary>Desktop source and output pixel bounds; null for ordinary window recordings.</summary>
+    public CaptureCoordinates? Coordinates { get; init; }
+
     /// <summary>Number of frames written to the video.</summary>
     public int Frames { get; init; }
 
@@ -90,8 +93,9 @@ public sealed class RecordCaptureResult
 
     /// <summary>
     /// Why recording stopped: "duration_elapsed", "cancelled", "target_closed" when the recorded
-    /// window went away, "capture_unavailable" when the window could no longer be captured under
-    /// <see cref="RecordOptions.NoActivation"/>, or "mp4_failed" when the encoder failed partway.
+    /// window went away, "capture_unavailable" when the desktop or a no-activation window could no
+    /// longer be captured, "display_changed" when desktop bounds changed, or "mp4_failed" when the
+    /// encoder failed partway.
     /// </summary>
     public string StopReason { get; init; } = "duration_elapsed";
 
@@ -175,6 +179,12 @@ public sealed class RecordFrameIndexEntry
 /// <summary>Manifest describing a frame bundle: what was requested, and what was produced.</summary>
 public sealed class RecordFrameBundleManifest
 {
+    /// <summary>
+    /// Mapping shared by every image and video frame. Null for ordinary window recordings.
+    /// A desktop recording stops rather than changing this mapping mid-take.
+    /// </summary>
+    public CaptureCoordinates? Coordinates { get; init; }
+
     /// <summary>Version of this manifest's shape, so readers can detect an unfamiliar layout.</summary>
     public int SchemaVersion { get; init; } = 1;
 

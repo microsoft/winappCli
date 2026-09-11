@@ -351,7 +351,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                     $"--capture-screen needs exactly one window, but {windows.Count} windows matched. " +
                     "Live-screen capture reads whatever is in front, so several windows cannot be captured together.";
                 var hint =
-                    $"Run 'winapp ui list-windows{DescribeApp(uiTarget)}' and retry with '-w <hwnd>' for the window you want, " +
+                    $"Run '{UiCommandAdvice.Command($"list-windows{DescribeApp(uiTarget)}")}' and retry with '-w <hwnd>' for the window you want, " +
                     "or drop --capture-screen to composite all of them from their own window contents.";
 
                 logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);

@@ -457,13 +457,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         (await first.Processes.WaitForNextAsync(ct)).Exit(0);
         var firstLaunch = await first.Processes.WaitForNextAsync(ct);
 
-        using var arrivalTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        arrivalTimeout.CancelAfter(TimeSpan.FromSeconds(5));
-        while (!_deploymentStateStore.List(WindowsSandboxTarget.Default)
-            .Any(state => state.TrackedOperationProcessId == firstLaunch.ProcessId))
-        {
-            await Task.Delay(10, arrivalTimeout.Token);
-        }
+        await WaitForPublishedProcessAsync(firstLaunch, ct);
 
         var nextRun = RunAsync(replacement, noLaunch: true, clean: false, ct);
         var nextRegistration = await replacement.Processes.WaitForNextAsync(ct);
@@ -493,11 +487,12 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
 
         var taskA = RunAsync(harnessA, noLaunch: false, clean: false, ct, unregisterOnExit: true);
 
-        var aRegister = await harnessA.Processes.WaitForNextAsync(ct);
+        var aRegister = await harnessA.Processes.WaitForNextAsync(ct).WaitAsync(TimeSpan.FromSeconds(10), ct);
         aRegister.Exit(0);
 
-        var aLaunch = await harnessA.Processes.WaitForNextAsync(ct);
+        var aLaunch = await harnessA.Processes.WaitForNextAsync(ct).WaitAsync(TimeSpan.FromSeconds(10), ct);
         Assert.IsTrue(IsGuestLaunchVerb(aLaunch));
+        await WaitForPublishedProcessAsync(aLaunch, ct);
 
         // A's application is now "running" (aLaunch deliberately left open). B's registration --
         // an entirely different run against a different deployment -- must not be blocked behind
@@ -505,18 +500,18 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         // reacquired for the remainder of A's lifetime.
         var taskB = RunAsync(harnessB, noLaunch: false, clean: false, ct);
 
-        var bRegister = await harnessB.Processes.WaitForNextAsync(ct);
+        var bRegister = await harnessB.Processes.WaitForNextAsync(ct).WaitAsync(TimeSpan.FromSeconds(10), ct);
         Assert.IsTrue(IsRegisterOnly(bRegister));
         bRegister.Exit(0);
 
-        var bLaunch = await harnessB.Processes.WaitForNextAsync(ct);
+        var bLaunch = await harnessB.Processes.WaitForNextAsync(ct).WaitAsync(TimeSpan.FromSeconds(10), ct);
         bLaunch.Exit(0);
-        Assert.AreEqual(0, await taskB);
+        Assert.AreEqual(0, await taskB.WaitAsync(TimeSpan.FromSeconds(10), ct));
 
         // Only now does A's application exit, triggering its own unregister-on-exit phase.
         aLaunch.Exit(0);
 
-        Assert.AreEqual(0, await taskA);
+        Assert.AreEqual(0, await taskA.WaitAsync(TimeSpan.FromSeconds(10), ct));
     }
 
     /// <summary>
@@ -651,6 +646,19 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
     /// kind of accidental synchronous blocking a real winapp process never exhibits, because each
     /// invocation is its own OS process. <see cref="Task.Run(Func{Task})"/> restores that here.
     /// </remarks>
+    private async Task WaitForPublishedProcessAsync(FakeGuestProcessHost process, CancellationToken cancellationToken)
+    {
+        // The fake announces process creation before the host has handled ExecStarted. This test
+        // begins with a running app, not a race against publication of that app's state revision.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        while (!_deploymentStateStore.List(WindowsSandboxTarget.Default)
+            .Any(state => state.TrackedOperationProcessId == process.ProcessId))
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
     private static Task<int> RunAsync(
         RunHarness harness,
         bool noLaunch,

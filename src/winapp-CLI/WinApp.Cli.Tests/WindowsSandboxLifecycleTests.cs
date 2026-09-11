@@ -161,6 +161,13 @@ public class WindowsSandboxLifecycleTests
     private TargetStateStore _stateStore = null!;
     private WindowsSandboxLifecycle _lifecycle = null!;
     private DateTimeOffset _now;
+    private readonly RecordingProgress _progress = new();
+
+    private sealed class RecordingProgress : ITargetProgress
+    {
+        public List<string> Messages { get; } = [];
+        public void Report(string message) => Messages.Add(message);
+    }
 
     [TestInitialize]
     public void Setup()
@@ -184,7 +191,7 @@ public class WindowsSandboxLifecycleTests
     {
         _now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-        var lifecycle = new WindowsSandboxLifecycle(_cli, _stateStore)
+        var lifecycle = new WindowsSandboxLifecycle(_cli, _stateStore, _progress)
         {
             UtcNow = () => _now,
         };
@@ -215,6 +222,7 @@ public class WindowsSandboxLifecycleTests
     [TestMethod]
     public async Task Reconcile_NoStateAndNothingRunning_ReportsTerminated()
     {
+        _cli.OnList = () => Assert.Fail("A first-run attach must not invoke the provider before setup.");
         var result = await _lifecycle.ReconcileAsync(TestContext.CancellationTokenSource.Token);
 
         Assert.AreEqual(TargetLifecycleState.Terminated, result.State);
@@ -233,6 +241,7 @@ public class WindowsSandboxLifecycleTests
         Assert.AreEqual(SandboxInstanceOrigin.Created, lease.Origin);
         Assert.IsFalse(lease.IsWarm);
         Assert.IsFalse(lease.Epoch.IsNone);
+        CollectionAssert.AreEqual(new[] { WindowsSandboxLifecycle.StartingMessage }, _progress.Messages);
 
         var persisted = _stateStore.Read(WindowsSandboxTarget.Default);
         Assert.AreEqual("sandbox-a", persisted!.InstanceId);
@@ -245,6 +254,7 @@ public class WindowsSandboxLifecycleTests
     {
         _lifecycle = NewLifecycle(new Queue<string>(["sandbox-a"]));
         var first = await _lifecycle.EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
+        _progress.Messages.Clear();
 
         var second = await _lifecycle.EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
 
@@ -252,6 +262,7 @@ public class WindowsSandboxLifecycleTests
         Assert.AreEqual(first.InstanceId, second.InstanceId);
         Assert.AreEqual(first.Epoch, second.Epoch, "Reuse must preserve the epoch so live handles stay valid.");
         Assert.AreEqual(1, _cli.StartCount);
+        Assert.IsEmpty(_progress.Messages, "An unchanged warm instance needs no preparation message.");
 
         // Warmth is a separate fact, recorded only once a bootstrap completes; nothing here did one.
         // EnsureInstance_AfterACompletedBootstrap_IsWarm covers that half.
