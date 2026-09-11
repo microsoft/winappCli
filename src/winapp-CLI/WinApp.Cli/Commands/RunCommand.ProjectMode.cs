@@ -213,8 +213,8 @@ internal partial class RunCommand
             // unpackaged app but are only rejected authoritatively AFTER packaging is known (post-build).
             // Cheaply evaluate WindowsPackageType first and reject now when the project is DEFINITIVELY
             // unpackaged, so the user doesn't pay the full build cost only to be rejected. Skipped under
-            // --no-build (no build cost to save).
-            if (!noBuild)
+            // --no-build (no build cost to save) and --aot (publishing can change the package type).
+            if (!noBuild && !aot)
             {
                 var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
                 if (incompatible.Count > 0

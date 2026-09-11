@@ -841,6 +841,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         var recipe = new FileInfo(Path.Join(generatedDirectory.FullName, "App.build.appxrecipe"));
         File.WriteAllText(recipe.FullName, "<Project />");
         SetPackagedAotOutcome(csproj, publishDirectory, manifest, recipe);
+        _fakeProjectRunService.DefinitivelyUnpackaged = true;
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
@@ -849,6 +850,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeProjectRunService.AotOptions.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.IsDefinitivelyUnpackagedCalls.Count);
         Assert.AreEqual(0, _fakeProjectRunService.BuildOptions.Count);
         Assert.AreEqual("Debug", _fakeProjectRunService.AotOptions.Single().Configuration);
         Assert.AreEqual(
@@ -860,6 +862,36 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(
             Path.Join(publishDirectory.FullName, "AppX"),
             _fakeMsixService.AddLooseLayoutDirectoryCalls.Single().OutputDirectory);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_AotUnpackagedRejectsIdentityOptionsAfterPublishing()
+    {
+        var csproj = CreateCsproj();
+        var publishDirectory = CreateTargetDir(withManifest: false);
+        _fakeProjectRunService.DefinitivelyUnpackaged = true;
+        _fakeProjectRunService.AotOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(
+                csproj,
+                publishDirectory.FullName,
+                Path.Join(publishDirectory.FullName, "App.exe"),
+                ProjectPackaging.Unpackaged,
+                SelfContained: true,
+                Architecture: "x64",
+                IsAot: true),
+            0);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, [csproj.FullName, "--aot", "--no-launch", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(1, _fakeProjectRunService.AotOptions.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.IsDefinitivelyUnpackagedCalls.Count);
+        Assert.AreEqual(0, _fakeMsixService.AddLooseLayoutCalls.Count);
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
+        using var output = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        StringAssert.Contains(output.RootElement.GetProperty("Error").GetString(), "don't apply to unpackaged apps");
     }
 
     [TestMethod]
