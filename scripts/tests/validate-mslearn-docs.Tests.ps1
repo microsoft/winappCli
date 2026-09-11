@@ -163,6 +163,45 @@ Describe 'validate-mslearn-docs gate' {
     }
 }
 
+Describe 'mslearn-doc-lib: inline code span rule' {
+    BeforeAll {
+        # Mirrors what port-mslearn-docs.ps1 does: replace every span with a
+        # placeholder, so whatever survives is what the link rewriter can see.
+        function Get-Unprotected {
+            param([string]$Content)
+            return [regex]::Replace($Content, (Get-MsLearnInlineCodePattern), '%%C%%')
+        }
+    }
+
+    It 'protects an ordinary single-backtick span' {
+        Get-Unprotected 'run `winapp init` first' | Should -Be 'run %%C%% first'
+    }
+
+    It 'protects a double-backtick span holding a literal backtick' {
+        # `` IAsyncOperation`1 `` is the only correct way to write a code span
+        # containing a backtick, and docs/usage.md uses it for generic arity.
+        Get-Unprotected 'the (`` IAsyncOperation`1 ``) form' | Should -Be 'the (%%C%%) form'
+    }
+
+    It 'does not swallow a link that follows a double-backtick span' {
+        # Regression: a single-backtick rule paired the opening `` with a later
+        # backtick, absorbing everything between - including this link - into one
+        # "span", so the link was never rewritten and 404'd on MS Learn.
+        $doc = 'An arity suffix (`` IAsyncOperation`1 ``) is odd.' + "`n`n" +
+               'See the [guide](guides/electron/js-file-picker.md) for the `winapp.jsBindings` options.'
+        Get-Unprotected $doc | Should -Match '\[guide\]\(guides/electron/js-file-picker\.md\)'
+    }
+
+    It 'keeps adjacent spans separate' {
+        Get-Unprotected 'both `a` and `b` here' | Should -Be 'both %%C%% and %%C%% here'
+    }
+
+    It 'protects a span that wraps across a line break' {
+        # docs/usage.md wraps one long quoted error message across two lines.
+        Get-Unprotected "a ``long`nmessage`` b" | Should -Be 'a %%C%% b'
+    }
+}
+
 Describe 'port-mslearn-docs: generated toc.yml + guides index' {
     BeforeAll {
         $script:PortScript = Join-Path $script:ScriptsDir 'port-mslearn-docs.ps1'
