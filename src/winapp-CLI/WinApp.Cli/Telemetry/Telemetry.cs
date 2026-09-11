@@ -15,6 +15,8 @@ namespace WinApp.Cli.Telemetry;
 /// </summary>
 internal sealed class Telemetry : ITelemetry
 {
+    internal const string OptOutEnvironmentVariable = "WINAPP_CLI_TELEMETRY_OPTOUT";
+
     private const string ProviderName = "Microsoft.Windows.WinAppDevCLI";
 
     /// <summary>
@@ -103,7 +105,7 @@ internal sealed class Telemetry : ITelemetry
     /// Gets a value indicating whether telemetry is on
     /// For future use if we add a registry key or some other setting to check if telemetry is turned on.
     /// </summary>
-    public bool IsTelemetryOn { get; } = Environment.GetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT") != "1";
+    public bool IsTelemetryOn { get; } = Environment.GetEnvironmentVariable(OptOutEnvironmentVariable) != "1";
 
     /// <summary>
     /// Gets or sets a value indicating whether diagnostic telemetry is on.

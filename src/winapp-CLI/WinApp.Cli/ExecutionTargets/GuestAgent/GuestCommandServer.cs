@@ -1126,12 +1126,23 @@ internal sealed class GuestCommandServer : IAsyncDisposable
                 return false;
             }
 
+            var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (request.Environment is { } requestedEnvironment)
+            {
+                foreach (var (key, value) in requestedEnvironment)
+                {
+                    environment[key] = value;
+                }
+            }
+            // The host owns usage telemetry, regardless of the agent's inherited environment.
+            environment[Telemetry.Telemetry.OptOutEnvironmentVariable] = "1";
+
             resolved = new GuestExecRequest
             {
                 Executable = _guestWinapp,
                 Arguments = request.Arguments,
                 WorkingDirectory = request.WorkingDirectory,
-                Environment = request.Environment,
+                Environment = environment,
                 RequiresRealInput = request.RequiresRealInput,
             };
             return true;

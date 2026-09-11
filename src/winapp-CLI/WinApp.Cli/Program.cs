@@ -72,6 +72,13 @@ internal static class Program
         {
             parseResult = rootCommand.Parse(args, WinAppParserConfiguration.Default);
 
+            // Infrastructure processes are not separate user invocations. Set this before any
+            // telemetry instance is created; descendants inherit the winapp-only opt-out.
+            if (parseResult.CommandResult.Command is GuestAgentCommand)
+            {
+                Environment.SetEnvironmentVariable(Telemetry.Telemetry.OptOutEnvironmentVariable, "1");
+            }
+
             // Set WINAPP_CLI_CALLER env var from --caller option so telemetry and update checks can use it
             var caller = parseResult.GetValue(WinAppRootCommand.CallerOption);
             if (!string.IsNullOrWhiteSpace(caller))

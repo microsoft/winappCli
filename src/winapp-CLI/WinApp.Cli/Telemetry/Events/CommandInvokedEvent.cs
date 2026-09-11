@@ -42,7 +42,7 @@ internal class CommandInvokedEvent : EventBase
     /// reserves, so it carries no user data while still answering the only question telemetry needs
     /// to ask: is anyone using targets other than the local machine.
     /// </remarks>
-    private static string ResolveTargetKind(CommandResult commandResult)
+    internal static string ResolveTargetKind(CommandResult commandResult)
     {
         for (CommandResult? command = commandResult; command is not null; command = command.Parent as CommandResult)
         {

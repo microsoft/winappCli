@@ -2,9 +2,12 @@
 // Licensed under the MIT License.
 
 using System.Collections.Concurrent;
+using System.CommandLine;
 using System.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Telemetry;
 using Microsoft.Diagnostics.Telemetry.Internal;
+using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Telemetry;
 using WinApp.Cli.Telemetry.Events;
 
@@ -32,6 +35,58 @@ public sealed class TelemetryTests
     {
         Environment.SetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT", _originalOptOut);
         Environment.SetEnvironmentVariable("WINAPP_CLI_CALLER", _originalCaller);
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("0")]
+    [DataRow("1")]
+    public async Task GuestAgentStartup_OptsOutEvenForParseFailures(string? initialOptOut)
+    {
+        Environment.SetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT", initialOptOut);
+
+        var result = await ProgramMainTestHarness.InvokeProgramAsync(
+            ["--json", "guest-agent", "--port", "invalid"]);
+
+        Assert.AreNotEqual(0, result.ExitCode);
+        Assert.AreEqual("1", Environment.GetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT"));
+        Assert.IsFalse(new WinApp.Cli.Telemetry.Telemetry().IsTelemetryOn);
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("0")]
+    [DataRow("1")]
+    public async Task HostInvocation_PreservesOptOutAndDoesNotTreatArgumentValuesAsGuestMode(string? initialOptOut)
+    {
+        Environment.SetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT", initialOptOut);
+
+        var result = await ProgramMainTestHarness.InvokeProgramAsync(
+            ["--json", "run", "--help", "--args", "guest-agent"]);
+
+        Assert.AreEqual(0, result.ExitCode);
+        Assert.AreEqual(initialOptOut, Environment.GetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT"));
+        Assert.AreEqual(initialOptOut != "1", new WinApp.Cli.Telemetry.Telemetry().IsTelemetryOn);
+    }
+
+    [TestMethod]
+    public void CommandEvents_EmitTargetKindInBothPayloads()
+    {
+        using var listener = new CapturingEventListener(ProviderName);
+        var telemetry = new WinApp.Cli.Telemetry.Telemetry();
+        var root = new RootCommand();
+        root.Options.Add(ExecutionTargetSelection.OnOption);
+        root.Subcommands.Add(new Command("run"));
+        var command = root.Parse("run --on sandbox", WinAppParserConfiguration.Default).CommandResult;
+
+        telemetry.Log("CommandInvoked_Event", LogLevel.Critical, new CommandInvokedEvent(command, DateTime.UtcNow));
+        telemetry.Log("CommandCompleted_Event", LogLevel.Critical, new CommandCompletedEvent(command, DateTime.UtcNow, 70));
+
+        var events = listener.WaitForEvents(2);
+        AssertEvent(events, "CommandInvoked_Event", EventLevel.Verbose, TelemetryEventSource.CriticalDataKeyword,
+            "ExecutionTargetKind", "sandbox");
+        AssertEvent(events, "CommandCompleted_Event", EventLevel.Verbose, TelemetryEventSource.CriticalDataKeyword,
+            "ExecutionTargetKind", "sandbox");
     }
 
     [TestMethod]
@@ -257,5 +312,3 @@ public sealed class TelemetryTests
         public override string ToString() => $"{Name} Level={Level} Keywords={Keywords} Payload=[{string.Join(", ", Payload.Select(p => $"{p.Key}={p.Value}"))}]";
     }
 }
-
-

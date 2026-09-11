@@ -42,6 +42,62 @@ public class GuestCommandServerTests
     };
 
     [TestMethod]
+    [DataRow(null)]
+    [DataRow("0")]
+    [DataRow("1")]
+    public async Task Execute_GuestWinapp_OptsOutBeforeStartingWithoutChangingOtherEnvironment(string? requestedOptOut)
+    {
+        using var harness = new Harness(Interactive, guestWinapp: @"C:\WinApp\winapp.exe");
+        var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["WINAPP_UI_WORKFLOW_ID"] = "workflow-token",
+            ["APP_TELEMETRY_ENABLED"] = "true",
+        };
+        if (requestedOptOut is not null)
+        {
+            environment["winapp_cli_telemetry_optout"] = requestedOptOut;
+        }
+
+        var execution = harness.Channel.ExecuteAsync(new GuestExecRequest
+        {
+            UseGuestWinapp = true,
+            Arguments = [.. InspectArguments],
+            Environment = environment,
+        }, callbacks: null, harness.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+        process.Exit(0);
+        await execution;
+
+        Assert.AreEqual(@"C:\WinApp\winapp.exe", process.Request.Executable);
+        Assert.AreEqual("1", process.Request.Environment!["WINAPP_CLI_TELEMETRY_OPTOUT"]);
+        Assert.AreEqual("workflow-token", process.Request.Environment["WINAPP_UI_WORKFLOW_ID"]);
+        Assert.AreEqual("true", process.Request.Environment["APP_TELEMETRY_ENABLED"]);
+        Assert.AreEqual(requestedOptOut, environment.GetValueOrDefault("WINAPP_CLI_TELEMETRY_OPTOUT"));
+    }
+
+    [TestMethod]
+    public async Task Execute_ExternalApplication_PreservesItsRequestedEnvironment()
+    {
+        using var harness = new Harness(Interactive);
+        var execution = harness.Channel.ExecuteAsync(new GuestExecRequest
+        {
+            Executable = @"C:\Apps\app.exe",
+            Arguments = [],
+            Environment = new Dictionary<string, string>
+            {
+                ["WINAPP_CLI_TELEMETRY_OPTOUT"] = "0",
+                ["APP_TELEMETRY_ENABLED"] = "true",
+            },
+        }, callbacks: null, harness.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+        process.Exit(0);
+        await execution;
+
+        Assert.AreEqual("0", process.Request.Environment!["WINAPP_CLI_TELEMETRY_OPTOUT"]);
+        Assert.AreEqual("true", process.Request.Environment["APP_TELEMETRY_ENABLED"]);
+    }
+
+    [TestMethod]
     public async Task Capabilities_ReportsGuestArchitectureAndReadiness()
     {
         using var harness = new Harness(Interactive);
@@ -1004,7 +1060,8 @@ public class GuestCommandServerTests
             IAppLauncherService? appLauncher = null,
             IPackageRegistrationService? packageRegistration = null,
             Func<ReadOnlyMemory<byte>, CancellationToken, Task>? beforeGuestSend = null,
-            GuestFileService? files = null)
+            GuestFileService? files = null,
+            string? guestWinapp = null)
         {
             var pair = new LoopbackTransportPair(beforeGuestSend);
             Processes = new FakeGuestProcessHostFactory();
@@ -1016,7 +1073,7 @@ public class GuestCommandServerTests
                 new StaticGuestSessionProbe(session),
                 Identity,
                 files,
-                guestWinapp: null,
+                guestWinapp,
                 appLauncher,
                 packageRegistration);
 

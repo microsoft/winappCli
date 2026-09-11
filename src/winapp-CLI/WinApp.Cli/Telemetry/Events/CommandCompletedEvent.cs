@@ -15,6 +15,7 @@ internal class CommandCompletedEvent : EventBase
     internal CommandCompletedEvent(CommandResult commandResult, DateTime finishedTime, int exitCode)
     {
         CommandName = commandResult.Command.GetType().FullName!;
+        ExecutionTargetKind = CommandInvokedEvent.ResolveTargetKind(commandResult);
         FinishedTime = finishedTime;
         ExitCode = exitCode;
 
@@ -35,6 +36,9 @@ internal class CommandCompletedEvent : EventBase
     }
 
     public string CommandName { get; private set; }
+
+    /// <summary>Resolved execution target kind, from the same closed set as the invocation event.</summary>
+    public string ExecutionTargetKind { get; }
 
     public DateTime FinishedTime { get; private set; }
 

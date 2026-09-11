@@ -43,6 +43,29 @@ public class TargetTelemetryTests : BaseCommandTests
     protected override IServiceCollection ConfigureServices(IServiceCollection services) => services;
 
     [TestMethod]
+    [DataRow("run .", "local")]
+    [DataRow("run . --on local", "local")]
+    [DataRow("run . --on SaNdBoX", "sandbox")]
+    [DataRow("ui inspect --on sandbox --json", "sandbox")]
+    [DataRow("--on sandbox ui inspect --json", "sandbox")]
+    [DataRow("target exec sandbox -- whoami", "sandbox")]
+    [DataRow("target snapshot sandbox", "sandbox")]
+    [DataRow("run . --on future:private-machine", "invalid")]
+    [DataRow("target push sandbox:private-machine source destination", "invalid")]
+    [DataRow("embed-identity private.manifest", "local")]
+    public void TargetKind_MatchesForInvocationAndCompletion(string commandLine, string expected)
+    {
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse(commandLine, WinAppParserConfiguration.Default);
+        var invoked = new CommandInvokedEvent(parsed.CommandResult, DateTime.UtcNow);
+        var completed = new CommandCompletedEvent(parsed.CommandResult, DateTime.UtcNow, 70);
+
+        Assert.AreEqual(expected, invoked.ExecutionTargetKind);
+        Assert.AreEqual(expected, completed.ExecutionTargetKind);
+        Assert.AreEqual(invoked.CommandName, completed.CommandName);
+        Assert.AreEqual(70, completed.ExitCode);
+    }
+
+    [TestMethod]
     public void EmbedIdentity_TargetFileArgument_IsNotAnExecutionTarget()
     {
         var (context, targetKind) = CreateEventFor("embed-identity", @"C:\Customers\Contoso\app.manifest");
@@ -100,6 +123,8 @@ public class TargetTelemetryTests : BaseCommandTests
         var root = GetRequiredService<WinAppRootCommand>();
         var parseResult = root.Parse(arguments, WinAppParserConfiguration.Default);
         var telemetryEvent = new CommandInvokedEvent(parseResult.CommandResult, DateTime.UtcNow);
+        var completed = new CommandCompletedEvent(parseResult.CommandResult, DateTime.UtcNow, 0);
+        Assert.AreEqual(telemetryEvent.ExecutionTargetKind, completed.ExecutionTargetKind);
 
         return (telemetryEvent.Context, telemetryEvent.ExecutionTargetKind);
     }
