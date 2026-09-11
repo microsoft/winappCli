@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.Helpers;
+
 namespace WinApp.Cli.Services;
 
 /// <summary>
@@ -23,6 +25,22 @@ internal static class IncrementalCopyHelper
         DirectoryInfo destDir,
         HashSet<string>? protectedFileNames = null)
     {
+        if (PathSafety.HasReparsePointOnExistingPath(sourceDir.FullName))
+        {
+            throw new InvalidOperationException(
+                $"The source directory '{sourceDir.FullName}' contains a symbolic link or junction and cannot be synchronized safely.");
+        }
+        if (DirectoryRelationship.IsSameOrAncestor(destDir, sourceDir))
+        {
+            throw new InvalidOperationException(
+                $"The destination directory '{destDir.FullName}' cannot be the source directory '{sourceDir.FullName}' or one of its ancestors.");
+        }
+        if (PathSafety.HasReparsePointOnExistingPath(destDir.FullName))
+        {
+            throw new InvalidOperationException(
+                $"The destination directory '{destDir.FullName}' contains a symbolic link or junction and cannot be synchronized safely.");
+        }
+
         if (!destDir.Exists)
         {
             destDir.Create();

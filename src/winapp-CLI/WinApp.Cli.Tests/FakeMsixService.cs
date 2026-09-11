@@ -14,6 +14,7 @@ internal class FakeMsixService : IMsixService
 {
     public MsixIdentityResult FakeIdentityResult { get; set; } = new("TestPackage", "CN=TestPublisher", "TestApp");
     public List<(string ManifestPath, bool Clean)> AddLooseLayoutCalls { get; } = [];
+    public List<(string InputDirectory, string OutputDirectory)> AddLooseLayoutDirectoryCalls { get; } = [];
     public List<(string? RuntimeArch, string? ProjectFile, string? Framework, bool NoRestore)> AddLooseLayoutRuntimeCalls { get; } = [];
 
     /// <summary>Records the <c>selfContained</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
@@ -27,6 +28,7 @@ internal class FakeMsixService : IMsixService
 
     /// <summary>Records the RID passed alongside the assets file to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<string?> AddLooseLayoutRuntimeIdentifierCalls { get; } = [];
+    public List<string?> AddLooseLayoutRecipeCalls { get; } = [];
 
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
     public List<string?> EnsureRuntimeInstalledAssetsFileCalls { get; } = [];
@@ -87,15 +89,18 @@ internal class FakeMsixService : IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default)
     {
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
+        AddLooseLayoutDirectoryCalls.Add((inputDirectory.FullName, outputAppXDirectory.FullName));
         AddLooseLayoutRuntimeCalls.Add((runtimeArch, projectFile?.FullName, framework, noRestore));
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
         AddLooseLayoutEnsureAliasCalls.Add(ensureExecutionAlias);
         AddLooseLayoutAssetsFileCalls.Add(packageGraph?.AssetsFile.FullName);
         AddLooseLayoutRuntimeIdentifierCalls.Add(packageGraph?.RuntimeIdentifier);
+        AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);
         if (ExceptionToThrow != null)
         {
             throw ExceptionToThrow;

@@ -97,7 +97,10 @@ internal sealed record ProjectRunResolution(
     string? OutputType = null,
     bool? PreferExecutionAlias = null,
     string? ProjectAssetsFile = null,
-    string? ProjectAssetsRuntimeIdentifier = null);
+    string? ProjectAssetsRuntimeIdentifier = null,
+    bool IsAot = false,
+    string? AppxManifestPath = null,
+    string? AppxRecipePath = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.

@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
@@ -174,6 +175,74 @@ public class IncrementalCopyHelperTests
         // Should only copy app.exe, not recurse into dest
         Assert.AreEqual(1, result.Copied);
         Assert.IsTrue(File.Exists(Path.Combine(dest.FullName, "app.exe")));
+    }
+
+    [TestMethod]
+    public void SyncDirectory_DestinationAncestorOfSource_ThrowsWithoutDeletingFiles()
+    {
+        var dest = CreateSubDir("project");
+        var source = new DirectoryInfo(Path.Join(dest.FullName, "publish"));
+        source.Create();
+        var projectFile = WriteFile(dest, "App.csproj", "<Project />");
+        var publishedApp = WriteFile(source, "App.exe", "exe");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            IncrementalCopyHelper.SyncDirectory(source, dest));
+
+        StringAssert.Contains(exception.Message, "cannot be the source directory");
+        Assert.IsTrue(projectFile.Exists, "The guard must run before stale-file deletion.");
+        Assert.IsTrue(publishedApp.Exists, "The guard must not delete files from the source subtree.");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SyncDirectory_SourceJunction_ThrowsWithoutDeletingRealSource(bool linkedParent)
+    {
+        var dest = CreateSubDir("project");
+        var source = dest.CreateSubdirectory("publish");
+        var projectFile = WriteFile(dest, "App.csproj", "<Project />");
+        var publishedApp = WriteFile(source, "App.exe", "exe");
+        var link = Path.Join(_tempDir.FullName, "source-link");
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            ArgumentList = { "/c", "mklink", "/J", link, linkedParent ? dest.FullName : source.FullName },
+        });
+        Assert.IsNotNull(process);
+        await process.WaitForExitAsync();
+        Assert.AreEqual(0, process.ExitCode, await process.StandardError.ReadToEndAsync());
+        try
+        {
+            var linkedSource = new DirectoryInfo(linkedParent ? Path.Join(link, "publish") : link);
+            var exception = Assert.Throws<InvalidOperationException>(
+                () => IncrementalCopyHelper.SyncDirectory(linkedSource, dest));
+
+            StringAssert.Contains(exception.Message, "source directory");
+            StringAssert.Contains(exception.Message, "symbolic link or junction");
+            Assert.IsTrue(File.Exists(projectFile.FullName), "The real project file must not be deleted.");
+            Assert.IsTrue(File.Exists(publishedApp.FullName), "The real source subtree must not be deleted.");
+            Assert.IsFalse(File.Exists(Path.Join(dest.FullName, "App.exe")), "No copy should begin through the link.");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void SyncDirectory_DestinationEqualsSource_ThrowsWithoutDeletingFiles()
+    {
+        var directory = CreateSubDir("same");
+        var file = WriteFile(directory, "App.exe", "exe");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            IncrementalCopyHelper.SyncDirectory(directory, directory));
+
+        Assert.IsTrue(file.Exists);
     }
 
     [TestMethod]

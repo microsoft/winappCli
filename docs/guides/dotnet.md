@@ -189,6 +189,15 @@ winapp run .
 winapp run .\dotnet-app.csproj -c Debug --arch x64
 ```
 
+To run the project's Native AOT configuration, [enable AOT in the project](../usage.md#project-mode-net-sdk-projects) and run:
+
+```powershell
+winapp run . --aot
+winapp run . --aot -c Release
+```
+
+Use x64 or ARM64. For a one-time override, append `-p PublishAot=true`.
+
 You can still point `winapp run` at a pre-built output folder if you prefer (folder mode):
 
 ```powershell
