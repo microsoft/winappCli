@@ -139,16 +139,6 @@ internal class UiRecordCommand : Command, IShortDescription
             return $"\"{uiTarget.WindowTitle ?? ""}\" (PID {uiTarget.ProcessId})";
         }
 
-        /// <summary>
-        /// Whether this recording must never restore, activate, or foreground the window.
-        /// </summary>
-        /// <remarks>
-        /// False for <c>ui record</c>, which records an app the user pointed at and is watching: a
-        /// minimized window is raised, and a blank <c>PrintWindow</c> frame is recovered from the
-        /// foreground, because the alternative is failing a recording the user is standing in front
-        /// of. A verb that advertises taking no focus overrides this.
-        /// </remarks>
-
         /// <summary>Records the current desktop rather than resolving an application window.</summary>
         protected virtual bool IsDesktop => false;
 
