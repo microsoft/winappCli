@@ -154,20 +154,21 @@ Gallery or Toolkit corpus and does not rewrite an individual sample's
 implementation to its own taste.
 
 Snippets are still processed: they're cleaned, truncated to a readable length, and
-event handlers with no accompanying code-behind are stripped so the snippet
-compiles when pasted. So treat a result as **upstream's sample, mechanically
-extracted** — not as a byte-for-byte copy of the file in their repo.
+event handlers with no accompanying code-behind are stripped. So treat a result as
+**upstream's sample, mechanically extracted** — not as a byte-for-byte copy of the
+file in their repo. Most samples paste and compile as-is; a few reference a page or
+type of their own that you'll need to define.
 
-Where a sample has a known pitfall or a pattern isn't covered upstream, the CLI
-says so in the **Important** notes attached to the result (for example, fetching
-any `ItemsRepeater` scenario explains how to build an image grid with
-`UniformGridLayout`, which no Gallery sample demos directly). Read those notes —
-they carry the guidance that isn't in the sample itself, and they're winapp's, not
-upstream's.
+Where a control has a known pitfall, or two controls are easy to confuse, the CLI
+says so in the **Important** and **Family** notes attached to the result. Read
+those — they carry guidance that isn't in the sample itself, and they're winapp's,
+not upstream's.
 
-If a sample is missing or genuinely wrong **upstream**, report it on
-[WinUI-Gallery](https://github.com/microsoft/WinUI-Gallery/issues) so every
-consumer benefits. If the defect looks like truncation or a missing handler,
+If a sample is missing or genuinely wrong **upstream**, report it against the
+source the result is tagged with: `[gallery]` →
+[WinUI-Gallery](https://github.com/microsoft/WinUI-Gallery/issues), `[toolkit]` →
+[Windows Community Toolkit](https://github.com/CommunityToolkit/Windows/issues).
+If the defect looks like truncation, a missing handler, or markup that won't parse,
 that's winapp's extraction — report it here instead.
 
 ## Related skills

@@ -65,6 +65,14 @@ namespace WinApp.Cli.Services.Controls;
 ///          output. Without the bump an existing cache still matches on "19" and keeps
 ///          serving the winapp-authored sample under the [gallery] tag indefinitely —
 ///          a re-bake alone never reaches a user who already has a cache.
+///   "21" — GalleryFetcher now drops $(Name) substitution tokens that stand in an
+///          element's attribute list instead of flattening them to "..." like a
+///          value-position token. Flattening produced `Click="X" .../>`, which fails
+///          structural validation, so ten upstream samples (Button, ToggleButton,
+///          RepeatButton, HyperlinkButton, ProgressRing x2, CommandBar, AnimatedIcon,
+///          PersonPicture, EasingFunction) were served with no XAML at all. Rule 3:
+///          same input, different output — an unbumped cache keeps serving the empty
+///          scenarios.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -72,5 +80,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "20";
+    public const string Current = "21";
 }

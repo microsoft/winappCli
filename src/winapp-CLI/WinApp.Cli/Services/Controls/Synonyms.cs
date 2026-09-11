@@ -281,11 +281,12 @@ internal static class Synonyms
         ["masonry"]         = ["staggeredpanel", "staggeredlayout"],
 
         // ─── Image grids / galleries ───
-        // A photo grid is the one common layout with no Gallery sample of its own: the
-        // controls that build it (ItemsRepeater + UniformGridLayout, GridView, ItemsView)
-        // are each demoed for something else, so their headers never carry "photo" or
-        // "thumbnail" and a plain lexical match lands on Grid/Image instead. Routing the
-        // vocabulary here is what surfaces the control whose Notes carry the guidance.
+        // Upstream's own curated keywords already tag ItemsRepeater, GridView and ItemsView
+        // with "image"/"gallery"/"grid" (see Data/gallery-tags.json), but "Image" and "Grid"
+        // are controls in their own right, so an exact control-name match outranks those tags
+        // and a photo-grid query lands on the single-image and layout-panel samples instead.
+        // Routing the vocabulary here is what puts the collection controls in front of the
+        // ranker; the samples it reaches are upstream's.
         ["photo"]           = ["itemsrepeater", "gridview", "itemsview"],
         ["photos"]          = ["itemsrepeater", "gridview", "itemsview"],
         ["gallery"]         = ["itemsrepeater", "gridview", "itemsview"],

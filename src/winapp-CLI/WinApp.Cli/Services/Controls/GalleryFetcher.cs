@@ -4,6 +4,7 @@
 namespace WinApp.Cli.Services.Controls;
 
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -545,13 +546,99 @@ internal static partial class GalleryFetcher
         });
         code = string.Join('\n', lines);
 
-        // Clean substitution placeholders: replace known $(...) or "..." with defaults
+        // Clean substitution placeholders: replace known $(...) or "..." with defaults.
+        // Tokens in attribute and element-content position are normalized first — the
+        // generic flattening below produces invalid markup for both, see
+        // NormalizeMarkupSubstitutions.
+        code = NormalizeMarkupSubstitutions(code);
         code = Regex.Replace(code, @"IsOpen=""(\$\(IsOpen\)|\.\.\.?)""", @"IsOpen=""True""");
         code = Regex.Replace(code, @"Severity=""(\$\(Severity\)|\.\.\.?)""", @"Severity=""Informational""");
         code = SubstitutionRegex().Replace(code, "...");
 
         code = Regex.Replace(code, @"\n\s*\n\s*\n", "\n\n");
         return code.Trim();
+    }
+
+    /// <summary>
+    /// Normalizes the <c>$(Name)</c> substitution tokens the Gallery expands at runtime, by the
+    /// position they occupy. Both cases below break if they are flattened to <c>"..."</c> the way
+    /// a value-position token is:
+    /// <list type="bullet">
+    /// <item><description><b>Attribute position</b> — a bare token in an element's attribute list,
+    /// e.g. <c>&lt;Button Content="Go" Click="Button_Click" $(IsEnabled)/&gt;</c>. It stands in for
+    /// a whole attribute, so it is removed. Flattening yields <c>Click="Button_Click" .../&gt;</c>,
+    /// which is not well-formed, so <see cref="ScenarioSanitizer.XamlIsWellFormed"/> discards the
+    /// snippet and the control serves a fetchable result with no code in it at all. That hit
+    /// Button, ToggleButton, RepeatButton, HyperlinkButton, ProgressRing, CommandBar, AnimatedIcon,
+    /// PersonPicture and EasingFunction.</description></item>
+    /// <item><description><b>Element content</b> — a token between elements, e.g.
+    /// <c>&lt;/AppBarButton&gt;$(MultipleButtonsSecondaryCommands)</c>. Every one upstream ships
+    /// injects markup (extra items, a Layout, a DataTemplate) into a property element, never text,
+    /// so it becomes a comment. Flattening stays well-formed but assigns the literal string "..."
+    /// as a collection's content, which does not compile when pasted.</description></item>
+    /// </list>
+    /// A token inside an attribute value (<c>Value="$(DeterminateProgressValue)"</c>) is left for
+    /// the caller's generic flattening: that one is cosmetic and stays valid.
+    /// </summary>
+    internal static string NormalizeMarkupSubstitutions(string code)
+    {
+        if (code.IndexOf("$(", StringComparison.Ordinal) < 0) return code;
+
+        var sb = new StringBuilder(code.Length);
+        var inTag = false;
+        var quote = '\0';
+
+        for (var i = 0; i < code.Length; i++)
+        {
+            var c = code[i];
+
+            if (quote != '\0')
+            {
+                if (c == quote) quote = '\0';
+                sb.Append(c);
+                continue;
+            }
+
+            // Copy comments verbatim: a '>' inside one would otherwise desynchronize the
+            // in-tag state and misclassify every token that follows.
+            if (c == '<' && string.CompareOrdinal(code, i, "<!--", 0, 4) == 0)
+            {
+                var end = code.IndexOf("-->", i + 4, StringComparison.Ordinal);
+                if (end < 0) end = code.Length - 3;
+                sb.Append(code, i, end + 3 - i);
+                i = end + 2;
+                continue;
+            }
+
+            if (inTag && (c == '"' || c == '\'')) { quote = c; sb.Append(c); continue; }
+            if (c == '<') { inTag = true; sb.Append(c); continue; }
+            if (c == '>') { inTag = false; sb.Append(c); continue; }
+
+            if (c == '$' && i + 1 < code.Length && code[i + 1] == '(')
+            {
+                var close = code.IndexOf(')', i + 2);
+                if (close > 0)
+                {
+                    i = close;
+                    if (inTag)
+                    {
+                        // Drop the whitespace that separated the token from the previous
+                        // attribute too, so the tag doesn't keep a dangling gap before "/>".
+                        while (sb.Length > 0 && char.IsWhiteSpace(sb[^1])) sb.Length--;
+                    }
+                    else
+                    {
+                        sb.Append("<!-- ... -->");
+                    }
+
+                    continue;
+                }
+            }
+
+            sb.Append(c);
+        }
+
+        return sb.ToString();
     }
 
     private static string UnescapeXml(string s)

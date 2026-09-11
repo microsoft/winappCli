@@ -98,9 +98,8 @@ public class EmbeddedSnapshotTests
         // becomes the "[gallery]" tag and the "gallery-" id prefix, so anything baked in
         // here is presented to users — and to the WinUI-Gallery maintainers we are asking
         // to publish an index (#703) — as content their repository owns. winapp used to
-        // append these samples because no Gallery sample demos UniformGridLayout directly
-        // and upstream's CommandBar sample is doc-elided; that guidance now lives in
-        // Notes.cs, where it is labelled as ours.
+        // append these samples to fill gaps it perceived in the corpus; gaps belong
+        // upstream, and extraction defects belong in the fetcher.
         var gallery = EmbeddedSnapshot.TryLoad("gallery")!;
 
         string[] winappAuthoredHeaders =

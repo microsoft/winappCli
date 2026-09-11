@@ -112,7 +112,6 @@ internal static class Notes
         ],
         ["ItemsRepeater"] = [
             "ItemsRepeater is a layout primitive — NO selection, NO scrolling. Wrap in ScrollViewer.",
-            "Image/photo grid: UniformGridLayout (MinItemWidth/MinItemHeight) inside ItemsRepeater, wrapped in ScrollView. No Gallery sample shows this directly — the ones using UniformGridLayout are demoing other features. Use ItemsView/GridView instead when you need selection.",
             "x:Bind OneWay binding needs INPC source — see Binding entry."
         ],
         ["ItemsView"] = [
@@ -203,14 +202,8 @@ internal static class Notes
         ],
 
         // ─── Toolbars ───
-        // Upstream's CommandBar sample is a doc-style elided fragment (a literal "..."
-        // inside the markup), so it fails structural validation and find-ui emits no code
-        // for it. The shape lives here as winapp-attributed guidance rather than as a
-        // winapp-authored scenario merged into Gallery's corpus under their name.
         ["CommandBar"] = [
-            "PrimaryCommands=always-visible; SecondaryCommands=overflow menu.",
-            "Shape: <CommandBar DefaultLabelPosition=\"Right\"> containing AppBarButton/AppBarToggleButton children (Icon + Label) with <AppBarSeparator/> between groups; overflow items go inside a <CommandBar.SecondaryCommands> element.",
-            "Each AppBarButton Click needs a matching handler in code-behind: private void AddButton_Click(object sender, RoutedEventArgs e) { }"
+            "PrimaryCommands=always-visible; SecondaryCommands=overflow menu."
         ],
 
         // ─── Other commonly-confused controls ───
