@@ -25,6 +25,11 @@ internal static class IncrementalCopyHelper
         DirectoryInfo destDir,
         HashSet<string>? protectedFileNames = null)
     {
+        if (PathSafety.HasReparsePointOnExistingPath(sourceDir.FullName))
+        {
+            throw new InvalidOperationException(
+                $"The source directory '{sourceDir.FullName}' contains a symbolic link or junction and cannot be synchronized safely.");
+        }
         if (DirectoryRelationship.IsSameOrAncestor(destDir, sourceDir))
         {
             throw new InvalidOperationException(
