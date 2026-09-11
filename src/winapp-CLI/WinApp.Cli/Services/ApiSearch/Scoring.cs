@@ -4,8 +4,8 @@
 namespace WinApp.Cli.Services.ApiSearch;
 
 /// <summary>
-/// Lexical relevance scoring for the <c>find-api</c> search: exact &gt; prefix &gt;
-/// contains &gt; acronym &gt; all-terms &gt; fuzzy subsequence.
+/// Lexical relevance scoring for the <c>find-api</c> search: exact &gt; complete
+/// identifier words &gt; prefix &gt; contains &gt; acronym &gt; all-terms &gt; fuzzy subsequence.
 /// </summary>
 /// <remarks>
 /// Every band below <c>prefix</c> requires the match to begin where a word begins.
@@ -27,6 +27,11 @@ internal static class Scoring
         {
             return 100;
         }
+        string[] terms = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (terms.Length > 1 && MatchesCompleteIdentifierWords(name, terms))
+        {
+            return 90;
+        }
         if (name.StartsWith(text, StringComparison.OrdinalIgnoreCase))
         {
             return 80;
@@ -40,7 +45,6 @@ internal static class Scoring
         {
             return 50;
         }
-        string[] terms = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (terms.Length > 1)
         {
             bool allTermsMatch = terms.All(term =>
@@ -55,6 +59,21 @@ internal static class Scoring
             return 20;
         }
         return 0;
+    }
+
+    private static bool MatchesCompleteIdentifierWords(string name, string[] terms)
+    {
+        int offset = 0;
+        foreach (string term in terms)
+        {
+            if (offset >= name.Length || !IsWordStart(name, offset)
+                || !name.AsSpan(offset).StartsWith(term.AsSpan(), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            offset += term.Length;
+        }
+        return offset == name.Length;
     }
 
     /// <summary>

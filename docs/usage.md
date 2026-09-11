@@ -1692,7 +1692,7 @@ When `--filter` is applied, the output still reports the unfiltered total (`tota
 
 What was omitted is always reported (`hiddenDependencyProperties`, `descriptionsOmitted`, and a `hint` in `--json`; an "Omitted:" line in text), and totals still describe the whole type. Both `--filter` and `--all` see the complete surface with full signatures and descriptions, so `members Button --filter BackgroundProperty` still finds the identifier and `members Button --filter Click` still returns `Click`'s inherited signature. Measured on `samples/winui-app`, this takes `members Button --json` from 91,954 to 10,567 characters (−88.5%) while leaving `--filter` and `--all` byte-identical.
 
-**How a query is matched.** Search is lexical, not semantic: it matches whole identifier words rather than any run of letters, so `llm` finds `IImageLLMAdapterSession` but not `ScrollMode`. When a query matches no name, it is tried against the documented summaries of types and members, which is what lets `"random-access stream"` find `IRandomAccessStream`. Descriptions rank below every name match, and only summaries the packages actually ship are searchable — a package with no XML documentation contributes no description text.
+**How a query is matched.** `winapp find-api "language model"` ranks `LanguageModel` above matches whose words are scattered across namespaces and members, including outside a project when the type is indexed. Search is lexical, not semantic: it matches whole identifier words rather than any run of letters, so `llm` finds `IImageLLMAdapterSession` but not `ScrollMode`. When a query matches no name, it is tried against the documented summaries of types and members, which is what lets `"random-access stream"` find `IRandomAccessStream`. Descriptions rank below every name match, and only summaries the packages actually ship are searchable — a package with no XML documentation contributes no description text.
 
 **Projects without an MSBuild project file.** An Electron app (or any other non-.NET app driven by `winapp.yaml`) has no `.csproj` and therefore no `project.assets.json`. `find-api` indexes it from the `.winapp/winmds.lock.json` that `winapp restore` writes, which records the same thing: each resolved package, its version, and the `.winmd` files it contributes. Such a project is named after its directory, and its index goes stale when the lockfile is rewritten. A directory that holds both a `.csproj` and a `winapp.yaml` is indexed from the `.csproj`, which is the more precise description of what the project compiles against.
 
@@ -1991,7 +1991,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
 

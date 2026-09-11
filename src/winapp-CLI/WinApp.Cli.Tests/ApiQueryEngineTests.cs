@@ -73,6 +73,71 @@ public sealed class ApiQueryEngineTests
     }
 
     [TestMethod]
+    [DataRow(true, 5)]
+    [DataRow(false, 5)]
+    [DataRow(true, 1)]
+    [DataRow(false, 1)]
+    public void Search_CompleteIdentifierWords_WinRegardlessOfPackageOrder(bool sdkFirst, int maxResults)
+    {
+        var sdkNamespaces = new Dictionary<string, List<WinMdTypeInfo>>();
+        for (int i = 0; i < 6; i++)
+        {
+            string ns = $"Windows.ApplicationModel.Example{i}";
+            WinMdTypeInfo type = SimpleType(ns, "Resource");
+            type.Members.Add(new WinMdMemberInfo
+            {
+                Name = "Language",
+                Kind = MemberKind.Property,
+                Signature = "String Language { get; }",
+                ReturnType = "String",
+            });
+            sdkNamespaces.Add(ns, [type]);
+        }
+
+        const string aiNamespace = "Microsoft.Windows.AI.Text";
+        var aiTypes = Enumerable.Range(0, 6)
+            .Select(i => SimpleType(aiNamespace, $"LanguageModelHelper{i}"))
+            .ToList();
+        aiTypes.Add(SimpleType(aiNamespace, "LanguageModel"));
+        var aiNamespaces = new Dictionary<string, List<WinMdTypeInfo>>
+        {
+            [aiNamespace] = aiTypes,
+        };
+        WriteSyntheticPackage(_cacheDir, "WindowsSDK", sdkNamespaces);
+        WriteSyntheticPackage(_cacheDir, "WinAppSdkRuntime", aiNamespaces);
+        var packages = new List<ProjectPackageRef>();
+        string[] packageIds = sdkFirst
+            ? ["WindowsSDK", "WinAppSdkRuntime"]
+            : ["WinAppSdkRuntime", "WindowsSDK"];
+        foreach (string id in packageIds)
+        {
+            packages.Add(new ProjectPackageRef
+            {
+                Id = id, Version = "1.0.0", SourceStamp = TestSourceStamp, AssetPathKey = TestSourceStamp,
+            });
+        }
+        var manifest = new ProjectManifest
+        {
+            ProjectName = "WordRanking",
+            ProjectDir = _cacheDir,
+            ProjectFile = "",
+            Packages = packages,
+            GeneratedAt = DateTime.UtcNow.ToString("o"),
+        };
+
+        var result = ApiQueryEngine.Search("language model", maxResults, _cacheDir, manifest);
+
+        Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome);
+        Assert.HasCount(maxResults, result.Data!.Results);
+        Assert.AreEqual(aiNamespace, result.Data.Results[0].Namespace);
+        Assert.AreEqual("Class Microsoft.Windows.AI.Text.LanguageModel", result.Data.Results[0].Matches[0].Display);
+
+        var exact = ApiQueryEngine.Search("LanguageModel", maxResults, _cacheDir, manifest);
+        Assert.AreEqual("Class Microsoft.Windows.AI.Text.LanguageModel", exact.Data!.Results[0].Matches[0].Display);
+        Assert.AreEqual(100, exact.Data.Results[0].Matches[0].Score);
+    }
+
+    [TestMethod]
     public void Members_ListsPropertiesAndMethods()
     {
         var result = ApiQueryEngine.Members("My.Ns.Widget", null, _cacheDir, _manifest);

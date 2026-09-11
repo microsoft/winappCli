@@ -39,6 +39,30 @@ public sealed class ScoringTests
     }
 
     [TestMethod]
+    [DataRow("LanguageModel", "language model")]
+    [DataRow("LanguageModel", "  LANGUAGE   MODEL  ")]
+    [DataRow("NavigationView", "navigation view")]
+    [DataRow("GenerateResponseAsync", "generate response async")]
+    [DataRow("XMLHttpRequest", "xml http request")]
+    [DataRow("Int32", "int 32")]
+    public void GetMatchScore_CompleteIdentifierWords_OutrankPartialMatches(string name, string query)
+    {
+        Assert.AreEqual(90, Scoring.GetMatchScore(name, "Example." + name, query));
+        Assert.AreEqual(100, Scoring.GetMatchScore(name, "Example." + name, name));
+    }
+
+    [TestMethod]
+    [DataRow("Language", "Windows.ApplicationModel.Example.Language", "language model")]
+    [DataRow("LanguageModelContext", "Example.LanguageModelContext", "language model")]
+    [DataRow("LanguageModel", "Example.LanguageModel", "lang uage model")]
+    [DataRow("LanguageModel", "Example.LanguageModel", "model language")]
+    public void GetMatchScore_IncompleteOrScatteredWords_AreNotCompleteIdentifierMatches(
+        string name, string fullName, string query)
+    {
+        Assert.IsLessThan(90, Scoring.GetMatchScore(name, fullName, query));
+    }
+
+    [TestMethod]
     public void GetMatchScore_TypoInTheName_StillScoresSomething()
     {
         // Fuzzy matching exists so a mistyped name still finds its API.
