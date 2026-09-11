@@ -1,6 +1,6 @@
 ---
 name: winapp-sandbox
-description: Run, debug, and UI-automate a Windows app in a persistent Windows Sandbox rather than the user's desktop. Use for disposable app testing, guest setup and diagnostics, file transfer, and app or whole-desktop evidence. Builds remain on the host; setup and reconnect can briefly take focus.
+description: Run, debug, and UI-automate a Windows app in a persistent Windows Sandbox rather than the user's desktop. Use for disposable app testing, guest diagnostics, file transfer, and app or whole-desktop evidence. Builds remain on the host; connection and reconnect can briefly take focus.
 ---
 ## Before acting
 
@@ -11,9 +11,18 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   Do not treat separate workflows as mutually isolated.
 - Windows 11 24H2+ on a supported edition and hardware virtualization are required.
   Guest winapp supports x64/Arm64; x86 apps need guest support and matching dependencies.
-- Explain that missing prerequisites can trigger feature installation and UAC.
-  Leave elevation and reboot decisions to the user. Setup or reconnect may briefly
-  take focus; do not promise zero desktop interruption.
+- winapp only checks host prerequisites: it does not enable features, install the
+  client, request elevation, or reboot. `--on sandbox` selects the target, not setup consent.
+- On `sandbox_setup_required`, explain the required Windows feature and restart.
+  Decide whether to offer agent-assisted setup or give the user manual steps; obtain
+  explicit approval before running the suggested command in an elevated terminal.
+  Use `/NoRestart` and let the user choose when to reboot:
+  `dism.exe /Online /Enable-Feature /FeatureName:Containers-DisposableClientVM /All /NoRestart`.
+- On `sandbox_setup_requires_restart`, ask the user to save work and restart when
+  ready. Never restart automatically or treat setup approval as reboot approval.
+- On `sandbox_setup_incomplete`, direct the user to open Windows Sandbox from Start
+  and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
+- Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
   or run `wsb stop` without user consent.
 
@@ -133,7 +142,7 @@ Follow the error's `userAction`, not just its exit number: infrastructure failur
 an application's own exit can both be `70`. Human setup progress goes to stderr and is
 suppressed with `--quiet`/`--json`.
 
-- Setup still installing: wait and retry. Restart required: leave that decision to the user.
+- Prerequisite errors: follow the setup guidance above; keep elevation and restart under user control.
 - Input unavailable: restore the existing client or use the error's reconnect command.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
   **not `winapp update`**. Obtain consent before closing a Sandbox for a version change.

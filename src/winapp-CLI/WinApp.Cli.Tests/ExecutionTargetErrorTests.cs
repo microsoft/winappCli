@@ -7,17 +7,14 @@ using WinApp.Cli.ExecutionTargets.Abstractions;
 namespace WinApp.Cli.Tests;
 
 /// <summary>
-/// Pins the released execution-target failure contract. The spec makes <c>code</c> values stable
-/// once released and pins the envelope shape, so these tests are intentionally change-detectors:
-/// renaming a code or reshaping the envelope is a breaking change for every consumer parsing
-/// <c>--json</c> output and must be a deliberate, reviewed act.
+/// Pins execution-target failure codes and their JSON envelope shape.
+/// Once released, codes must remain stable for consumers parsing <c>--json</c> output.
 /// </summary>
 [TestClass]
 public class ExecutionTargetErrorTests
 {
     /// <summary>
-    /// The exact released code set, in spec order. Update this only when intentionally adding a
-    /// code — never to make a rename compile.
+    /// The exact code set, in spec order.
     /// </summary>
     private static readonly string[] ExpectedCodes =
     [
@@ -40,22 +37,20 @@ public class ExecutionTargetErrorTests
         "sandbox_target_stale",
         "sandbox_stale_handle",
         "sandbox_artifact_failed",
-        "sandbox_setup_requires_elevation",
+        "sandbox_setup_required",
         "sandbox_setup_requires_restart",
-        "sandbox_setup_failed",
         "sandbox_setup_incomplete",
         "target_invalid",
         "target_invalid_arguments",
     ];
 
     [TestMethod]
-    public void AllCodes_MatchTheReleasedSnapshot()
+    public void AllCodes_MatchTheSnapshot()
     {
         CollectionAssert.AreEqual(
             ExpectedCodes,
             ExecutionTargetErrorCodes.All.ToArray(),
-            "Execution-target error codes are a stable public contract. Adding a code is allowed; " +
-            "renaming, reordering, or removing one breaks released consumers.");
+            "Execution-target error codes must match the expected public contract.");
     }
 
     [TestMethod]

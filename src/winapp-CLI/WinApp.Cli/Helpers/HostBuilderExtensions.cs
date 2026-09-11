@@ -96,7 +96,6 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IWindowsSandboxCli, WindowsSandboxCli>()
             .AddSingleton<IWindowsSandboxWindowController, WindowsSandboxWindowController>()
             .AddSingleton<IWindowsSandboxHostProbe, WindowsSandboxHostProbe>()
-            .AddSingleton<IWindowsFeatureEnabler, WindowsFeatureEnabler>()
             .AddSingleton<IWindowsSandboxSetup, WindowsSandboxSetup>()
             .AddSingleton<WindowsSandboxLifecycle>()
             .AddSingleton<IGuestSessionProbe, GuestSessionProbe>()

@@ -28,13 +28,17 @@ public class ExecutionTargetOrchestratorTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
-    public async Task Prepare_UnsupportedHost_FailsBeforeTouchingTheTarget()
+    [DataRow(ExecutionTargetErrorCodes.Unsupported)]
+    [DataRow(ExecutionTargetErrorCodes.SetupRequired)]
+    [DataRow(ExecutionTargetErrorCodes.SetupRequiresRestart)]
+    [DataRow(ExecutionTargetErrorCodes.SetupIncomplete)]
+    public async Task Prepare_UnsupportedHost_FailsBeforeTouchingTheTarget(string code)
     {
         var backend = new FakeBackend
         {
             Support = TargetSupportResult.Unsupported(new ExecutionTargetErrorInfo
             {
-                Code = ExecutionTargetErrorCodes.Unsupported,
+                Code = code,
                 Message = "Windows Sandbox is not installed.",
             })
         };
@@ -47,7 +51,7 @@ public class ExecutionTargetOrchestratorTests
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => orchestrator.PrepareAsync(PrepareTargetOptions.Mutating, TestContext.CancellationToken));
 
-        Assert.AreEqual(ExecutionTargetErrorCodes.Unsupported, failure.Error.Code);
+        Assert.AreEqual(code, failure.Error.Code);
 
         // Nothing was started, and nothing fell back to running locally.
         Assert.AreEqual(0, backend.EnsureCalls);

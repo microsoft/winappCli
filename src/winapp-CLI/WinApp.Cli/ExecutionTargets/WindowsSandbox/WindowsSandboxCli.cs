@@ -608,7 +608,7 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
         ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.Unsupported,
             "The Windows Sandbox command line (wsb.exe) is not available on this host.",
-            userAction: "Run the command again so winapp can finish setting up Windows Sandbox.",
+            userAction: "Check Windows Sandbox prerequisites, then open Windows Sandbox from the Start menu to finish any client setup or update.",
             example: "winapp run . --on sandbox");
 
     private static T? Deserialize<T>(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)

@@ -22,13 +22,19 @@ app to exit. The Sandbox stays running between commands and rebuilds.
   and matching x86 dependencies; an x64 runtime does not satisfy an x86 app.
 - Keep the host session unlocked for real input and screen capture.
 
-Requesting `--on sandbox` allows winapp to enable the Windows Sandbox optional feature
-and install the Sandbox client if needed. Windows may ask for administrator permission.
-If a restart is required, winapp stops and tells you; **you decide when to restart**.
-Setup can take several minutes. If it reports `sandbox_setup_incomplete`, wait and retry
-the command to resume installation.
+Enable **Windows Sandbox** in **Turn Windows features on or off**, or run this from an
+administrator terminal:
 
-Setup, a cold connection, or a reconnect can briefly take focus. Once connected, winapp
+```powershell
+dism.exe /Online /Enable-Feature /FeatureName:Containers-DisposableClientVM /All /NoRestart
+```
+
+Save your work and restart Windows when ready. Then open Windows Sandbox from the Start
+menu and finish any client installation or update. winapp does not enable the feature,
+install the client, request elevation, or restart Windows. If prerequisites are missing,
+it stops with setup instructions; an observed pending Windows restart is reported separately.
+
+A cold connection or reconnect can briefly take focus. Once connected, winapp
 keeps its own client window off-screen without activating it. A Sandbox window you
 opened yourself is left in place.
 
@@ -76,7 +82,7 @@ does not launch; retrying rebuilds its guest copy. If build files change while w
 preparing them, finish the build and retry.
 
 Warm UI commands report only their result, without repeating a Sandbox preparation
-message. Initial setup and recovery still report progress. Use `--verbose` for
+message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
 connection timings and diagnostic details; `--quiet` and `--json` suppress progress.
 JSON runs include a guest process ID and target scope:
 
@@ -328,10 +334,10 @@ copying a suggestion keeps it on the same execution target.
 
 | Error or symptom | What to do |
 |---|---|
-| `sandbox_unsupported`, `sandbox_setup_failed` | Check Windows edition/version, firmware virtualization, and optional-feature policy |
-| `sandbox_setup_requires_elevation` | Let the user approve elevation, or run the error's setup command from an approved elevated terminal |
-| `sandbox_setup_requires_restart` | Let the user choose when to restart, then retry |
-| `sandbox_setup_incomplete` | Wait for Windows installation to finish, then retry |
+| `sandbox_unsupported` | Check Windows edition/version and firmware virtualization |
+| `sandbox_setup_required` | Enable Windows Sandbox using the instructions above, then restart when ready |
+| `sandbox_setup_requires_restart` | Windows reports a pending restart; save work and restart when ready, then retry |
+| `sandbox_setup_incomplete` | Open Windows Sandbox from Start and finish client setup/update, then retry |
 | `sandbox_unmanaged_instance`, `sandbox_target_ambiguous` | Inspect the reported instances/windows; do not stop unrelated work to resolve ambiguity |
 | `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing client or reconnect as directed, then retry |
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested, then close/retry only with consent |

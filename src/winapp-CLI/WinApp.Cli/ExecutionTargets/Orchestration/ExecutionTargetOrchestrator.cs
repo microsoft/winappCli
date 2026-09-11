@@ -214,9 +214,8 @@ internal sealed class ExecutionTargetOrchestrator(
     /// </summary>
     /// <remarks>
     /// The counterpart to <see cref="PrepareAsync"/> for commands that only report. It deliberately
-    /// skips every step that could change what it is about to describe: no support probe (which may
-    /// enable a Windows feature or ask for elevation), no instance creation, no client reconnect, no
-    /// agent repair, and no lock. A target that is not running is a result, not an error.
+    /// skips prerequisite validation, instance creation, client reconnect, agent repair, and locking.
+    /// A target that is not running is a result, not an error.
     /// <para>
     /// The caller owns <see cref="TargetInspection.Target"/> and must dispose it when it is not null.
     /// </para>
@@ -343,8 +342,8 @@ internal sealed class ExecutionTargetOrchestrator(
                     catch (ExecutionTargetException ex) when (ex.Error.Code is ExecutionTargetErrorCodes.Unsupported
                         or ExecutionTargetErrorCodes.StartFailed or ExecutionTargetErrorCodes.TransportFailed)
                     {
-                        // Cold hosts may not even have a working provider CLI yet. Let normal
-                        // setup diagnose/repair that; do not hide busy or ambiguous ownership errors.
+                        // Cold hosts may not have a working provider CLI. Report prerequisite
+                        // guidance through the support check; do not hide busy or ownership errors.
                         logger?.LogDebug("Target {Target}: warm attachment unavailable ({Code}); checking setup.",
                             backend.Target.Selector, ex.Error.Code);
                     }

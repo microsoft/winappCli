@@ -160,11 +160,8 @@ internal sealed class WindowsSandboxBackend(
 
     /// <inheritdoc/>
     /// <remarks>
-    /// <b>Not read-only, despite the name.</b> The name comes from
-    /// <see cref="IExecutionTargetBackend"/>; for Windows Sandbox this is the point at which
-    /// <c>--on sandbox</c>'s consent is spent, so it can enable a Windows feature behind a UAC prompt
-    /// and install the Sandbox client. Anything that only wants to know the host's state must call
-    /// <see cref="IWindowsSandboxSetup.InspectAsync"/> instead.
+    /// Prerequisites are checked without changing Windows features or installing the client.
+    /// Missing prerequisites are returned as errors with user-controlled setup instructions.
     /// </remarks>
     public async Task<TargetSupportResult> ProbeSupportAsync(CancellationToken cancellationToken)
     {
@@ -178,14 +175,7 @@ internal sealed class WindowsSandboxBackend(
             });
         }
 
-        // Probed before the application is built, so anything unusable fails in seconds rather than
-        // after a long build. There is never a silent fallback to local execution.
-        //
-        // Deliberately NOT short-circuited on `cli.IsAvailable`. That only proves a `wsb.exe` file
-        // resolves, and the alias is a zero-byte APPEXECLINK whose package may never have
-        // initialized -- which is precisely the host state that used to fail. The setup runner is
-        // the thing that asks `wsb --version`, and it returns immediately when the answer is yes, so
-        // routing through it costs one cheap probe and closes the hole.
+        // Alias existence is not readiness: the client must answer before a build starts.
         if (setup is null)
         {
             return cli.IsAvailable
@@ -199,10 +189,6 @@ internal sealed class WindowsSandboxBackend(
                 });
         }
 
-        // `--on sandbox` is explicit consent to make Windows Sandbox usable, so missing prerequisites
-        // are installed rather than reported. Only what winapp genuinely cannot do -- elevation the
-        // user declined, a restart, an unsupported edition, a Store or policy failure -- comes back
-        // as an error, and it says exactly which of those it was.
         try
         {
             var facts = await setup.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);

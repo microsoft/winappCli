@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Win32;
 using System.Runtime.Versioning;
 using Windows.Management.Deployment;
 using WinApp.Cli.ExecutionTargets.Orchestration;
@@ -20,11 +21,8 @@ internal interface IWindowsSandboxHostProbe
 /// </summary>
 /// <remarks>
 /// <para>
-/// Three independent signals are collected, because no single one distinguishes the states that
-/// need different fixes. The System32 payload says whether the optional feature is enabled; the
-/// package query says whether the Store-delivered client has been delivered and is healthy; and
-/// <c>wsb.exe --version</c> says whether the two are actually joined up and usable. Only the last
-/// is proof.
+/// Checks the feature payload, client package health, and <c>wsb.exe --version</c>.
+/// If the client is not ready, Windows servicing and update restart markers help guide recovery.
 /// </para>
 /// <para>
 /// Every probe is deliberately non-elevated. <c>dism /Online /Get-FeatureInfo</c> and
@@ -56,6 +54,8 @@ internal sealed class WindowsSandboxHostProbe(IProcessRunner processRunner) : IW
     /// <summary>Whether this host is Windows; a seam only so the non-Windows case is testable.</summary>
     internal Func<bool> IsWindows { get; set; } = OperatingSystem.IsWindows;
 
+    internal Func<bool?> QueryRestartPending { get; set; } = ReadRestartPending;
+
     /// <inheritdoc/>
     public async Task<WindowsSandboxHostFacts> ProbeAsync(CancellationToken cancellationToken)
     {
@@ -77,6 +77,10 @@ internal sealed class WindowsSandboxHostProbe(IProcessRunner processRunner) : IW
         var version = alias is null
             ? null
             : await TryReadVersionAsync(alias, cancellationToken).ConfigureAwait(false);
+        var restartPending = !string.IsNullOrWhiteSpace(version) &&
+            (package.Status is null || string.Equals(package.Status, "Ok", StringComparison.Ordinal))
+                ? null
+                : QueryRestartPending();
 
         return new WindowsSandboxHostFacts
         {
@@ -87,15 +91,31 @@ internal sealed class WindowsSandboxHostProbe(IProcessRunner processRunner) : IW
             AliasPresent = alias is not null,
             ExecutablePath = alias,
             Version = version,
+            RestartPending = restartPending,
             Detail = package.Detail,
         };
+    }
+
+    private static bool? ReadRestartPending()
+    {
+        try
+        {
+            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var servicing = machine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending");
+            using var update = machine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired");
+            return servicing is not null || update is not null;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not read Windows restart state: {0}", ex.Message);
+            return null;
+        }
     }
 
     /// <summary>Absolute path of the feature payload, which is also the client bootstrapper.</summary>
     /// <remarks>
     /// Built from <see cref="Environment.SystemDirectory"/> rather than from <c>%SystemRoot%</c>, so
-    /// an environment variable cannot redirect either the readiness check or the process winapp
-    /// later launches to make the client initialize.
+    /// an environment variable cannot redirect the readiness check.
     /// </remarks>
     internal static string PayloadExecutablePath() =>
         TargetPathSafety.CombineInsideRoot(

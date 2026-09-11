@@ -14,6 +14,9 @@ internal enum WindowsSandboxSetupState
     /// </summary>
     FeaturePayloadMissing,
 
+    /// <summary>Windows reports a pending restart and the Sandbox client is not ready.</summary>
+    RestartRequired,
+
     /// <summary>
     /// The feature payload is present but the Store-delivered client is not usable yet — it is
     /// still being downloaded, still being serviced, or has never been initialized on this account.
@@ -29,7 +32,7 @@ internal enum WindowsSandboxSetupState
 /// </summary>
 /// <remarks>
 /// Every member records something that was actually measured. Nothing here is inferred: a cause
-/// winapp cannot observe — enterprise policy, an offline Store, a pending reboot — is never asserted
+/// winapp cannot observe — enterprise policy or an offline Store — is never asserted
 /// from the absence of something else, because telling a user to enable a feature that is already
 /// enabled is worse than telling them nothing.
 /// </remarks>
@@ -81,6 +84,9 @@ internal sealed record WindowsSandboxHostFacts
     /// </remarks>
     public string? Version { get; init; }
 
+    /// <summary>Whether Windows servicing or Windows Update reports a pending restart; null if unreadable.</summary>
+    public bool? RestartPending { get; init; }
+
     /// <summary>Diagnostic detail from the last probe, for setup failure context.</summary>
     public string? Detail { get; init; }
 
@@ -96,12 +102,12 @@ internal sealed record WindowsSandboxHostFacts
     public bool IsPackageHealthy =>
         PackageStatus is null || string.Equals(PackageStatus, "Ok", StringComparison.Ordinal);
 
-    /// <summary>Classifies these facts into the state the setup runner acts on.</summary>
+    /// <summary>Classifies these facts for prerequisite guidance.</summary>
     public WindowsSandboxSetupState State => WindowsSandboxReadiness.Classify(this);
 }
 
 /// <summary>
-/// Decides what — if anything — winapp still has to do before Windows Sandbox can be used.
+/// Classifies which prerequisites are missing before Windows Sandbox can be used.
 /// </summary>
 /// <remarks>
 /// Kept as a pure function over observed facts so the decision itself can be exercised exhaustively
@@ -131,18 +137,16 @@ internal static class WindowsSandboxReadiness
             return WindowsSandboxSetupState.NotWindows;
         }
 
-        // A version reply is the only proof that the client works. It is deliberately checked before
-        // the payload: a host can be ready through a client winapp did not watch arrive, and
-        // re-running setup against a working Sandbox would start one for no reason.
-        //
-        // Package health is consulted alongside it rather than ignored. A package Windows reports as
-        // Disabled, Servicing, or otherwise not OK is one that can stop working mid-command or is
-        // being replaced underneath us, so a version reply from it is not a durable "ready" -- and
-        // an unhealthy package with a working alias is exactly the state a mid-update machine is in.
-        // A package winapp could not observe at all (PackageStatus null) is not held against it.
+        // A healthy client that answers is ready, even when unrelated Windows updates need a restart.
         if (!string.IsNullOrWhiteSpace(facts.Version) && facts.IsPackageHealthy)
         {
             return WindowsSandboxSetupState.Ready;
+        }
+
+        // This is a machine-level observation, not proof that enabling Sandbox caused the restart.
+        if (facts.RestartPending == true)
+        {
+            return WindowsSandboxSetupState.RestartRequired;
         }
 
         // The payload is on disk, so the feature is enabled and enabling it again would do nothing.

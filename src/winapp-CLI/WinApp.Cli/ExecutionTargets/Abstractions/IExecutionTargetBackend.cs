@@ -63,7 +63,7 @@ internal sealed record EnsureTargetOptions(bool RequireInteractiveDesktop)
 /// <param name="Epoch">Generation identity every request and result is fenced against.</param>
 /// <param name="Transport">Provider-neutral channel to the guest agent.</param>
 /// <param name="Reused">
-/// True when an existing instance was reused. Drives the "Reusing Windows Sandbox..." progress line.
+/// True when an existing instance was reused.
 /// </param>
 internal sealed record TargetConnection(
     ExecutionTargetEpoch Epoch,
@@ -85,7 +85,7 @@ internal interface IExecutionTargetBackend
     ExecutionTargetRef Target { get; }
 
     /// <summary>
-    /// Ensures target prerequisites before the application is built. Setup may require user consent.
+    /// Checks target prerequisites before the application is built, without changing host configuration.
     /// </summary>
     /// <remarks>
     /// Called before application build so a missing prerequisite fails fast rather than after a

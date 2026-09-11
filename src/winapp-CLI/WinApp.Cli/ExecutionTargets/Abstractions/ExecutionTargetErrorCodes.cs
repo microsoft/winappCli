@@ -10,7 +10,7 @@ namespace WinApp.Cli.ExecutionTargets.Abstractions;
 /// </summary>
 /// <remarks>
 /// These values are part of the public contract: once released a code's meaning never changes and
-/// a code is never removed or renamed. <c>ExecutionTargetErrorCodeTests</c> pins the released set
+/// a code is never removed or renamed. <c>ExecutionTargetErrorTests</c> pins the current set
 /// so adding or renaming one is a deliberate, reviewed act rather than an accident.
 /// <para>
 /// Infrastructure codes are deliberately distinct from guest application exit codes so a caller can
@@ -84,21 +84,13 @@ internal static class ExecutionTargetErrorCodes
     /// <summary>Producing, verifying, or publishing a declared output artifact failed.</summary>
     public const string ArtifactFailed = "sandbox_artifact_failed";
 
-    /// <summary>
-    /// Enabling the Windows Sandbox optional feature needs elevation that was denied or unavailable.
-    /// </summary>
-    public const string SetupRequiresElevation = "sandbox_setup_requires_elevation";
+    /// <summary>The Windows Sandbox optional feature must be enabled by the user.</summary>
+    public const string SetupRequired = "sandbox_setup_required";
 
-    /// <summary>The optional feature was enabled and Windows requires a restart to finish.</summary>
+    /// <summary>Windows reports a pending restart and Sandbox is not ready.</summary>
     public const string SetupRequiresRestart = "sandbox_setup_requires_restart";
 
-    /// <summary>Prerequisite setup failed outright: servicing error, policy, or an offline Store.</summary>
-    public const string SetupFailed = "sandbox_setup_failed";
-
-    /// <summary>
-    /// Setup was still in progress when winapp stopped waiting. Retrying resumes it rather than
-    /// starting it again.
-    /// </summary>
+    /// <summary>The optional feature is present but its client is not ready.</summary>
     public const string SetupIncomplete = "sandbox_setup_incomplete";
 
     /// <summary>
@@ -125,7 +117,7 @@ internal static class ExecutionTargetErrorCodes
     public const string TargetInvalidArguments = "target_invalid_arguments";
 
     /// <summary>
-    /// Every released code, in the order the spec lists them. Used by the snapshot test and by
+    /// Every code, in the order the spec lists them. Used by the snapshot test and by
     /// diagnostics that need to present the full set.
     /// </summary>
     public static ImmutableArray<string> All { get; } =
@@ -149,9 +141,8 @@ internal static class ExecutionTargetErrorCodes
         TargetStale,
         StaleHandle,
         ArtifactFailed,
-        SetupRequiresElevation,
+        SetupRequired,
         SetupRequiresRestart,
-        SetupFailed,
         SetupIncomplete,
         TargetInvalid,
         TargetInvalidArguments,

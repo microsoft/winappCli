@@ -81,6 +81,20 @@ public class WindowsSandboxReadinessTests
     }
 
     [TestMethod]
+    public void PendingRestart_NotReady_TakesPrecedenceOverMissingFiles()
+    {
+        var facts = Facts() with { RestartPending = true };
+        Assert.AreEqual(WindowsSandboxSetupState.RestartRequired, facts.State);
+    }
+
+    [TestMethod]
+    public void PendingRestart_DoesNotRejectAWorkingSandbox()
+    {
+        var facts = Facts(version: "0.8.107.0") with { RestartPending = true };
+        Assert.AreEqual(WindowsSandboxSetupState.Ready, facts.State);
+    }
+
+    [TestMethod]
     public void PackageStagedWithoutPayload_StillNeedsTheFeature()
     {
         // A package can be present on a machine whose optional feature was later turned off. The
@@ -96,9 +110,8 @@ public class WindowsSandboxReadinessTests
     /// </summary>
     /// <remarks>
     /// This is the whole point of separating the two states. Guidance is derived from the state, so
-    /// pinning the state pins the guidance: the setup runner sends
-    /// <see cref="WindowsSandboxSetupState.ClientNotInitialized"/> to the client bootstrapper and
-    /// only <see cref="WindowsSandboxSetupState.FeaturePayloadMissing"/> to the feature enabler.
+    /// pinning the state pins the guidance: an uninitialized client needs Start-menu initialization,
+    /// while missing feature files need enablement instructions. Neither is performed by winapp.
     /// </remarks>
     [TestMethod]
     [DataRow(true, false, false, DisplayName = "feature enabled, nothing delivered")]
