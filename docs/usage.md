@@ -1543,10 +1543,6 @@ Every verb takes `sandbox` as its first argument. Except for `snapshot`, these c
 can prepare or start the Sandbox. See [Windows Sandbox execution](sandbox-execution.md)
 for prerequisites, permissions, lifecycle, and recovery.
 
-> [!NOTE]
-> `--on`, `winapp target`, and Windows Sandbox execution are in development and are not available
-> in a released build yet.
-
 #### target exec
 
 Run a command as the guest user.

@@ -15,9 +15,6 @@ Replace `MyApp` with your app name or the guest PID printed by `run`. `--detach`
 after launch so the next command can inspect the app; without it, `run` waits for the
 app to exit. The Sandbox stays running between commands and rebuilds.
 
-> [!NOTE]
-> Windows Sandbox execution is in development and is not available in a released build yet.
-
 ## Before you start
 
 - Use Windows 11 24H2 or newer on a supported edition, with hardware virtualization enabled.
