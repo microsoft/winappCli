@@ -37,11 +37,6 @@ internal sealed partial class UiRecordingService(
         => new(rect.left, rect.top, rect.right, rect.bottom);
 
     /// <summary>Whether a window is minimized, through the seam or from Windows.</summary>
-    /// <remarks>
-    /// A seam rather than a direct call because the activation steps are the thing
-    /// <see cref="RecordOptions.NoActivation"/> promises not to take, and a promise that cannot be
-    /// observed in a test is not a promise. Tests drive a minimized window without minimizing one.
-    /// </remarks>
     internal static Func<nint, bool> s_isWindowMinimized = static hwnd
         => global::Windows.Win32.PInvoke.IsIconic(new HWND(hwnd));
 
@@ -92,26 +87,6 @@ internal sealed partial class UiRecordingService(
             ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxEdge, MfH264MinWidth, nameof(options.MaxEdge));
         }
 
-        // Two ways of asking for incompatible things, rejected here rather than silently resolved.
-        // Screen capture reads the region of the screen the window occupies, which requires the
-        // window to be visible there and foregrounded to be on top -- the opposite of what a
-        // no-activation recording promises. An element selector crops inside a window, and the
-        // strict capture path is defined for a whole window only.
-        if (options.NoActivation && options.CaptureScreen)
-        {
-            throw new ArgumentException(
-                "A recording cannot both capture the screen and leave the window unactivated: screen " +
-                "capture reads where the window is drawn on the user's display.",
-                nameof(options));
-        }
-
-        if (options.NoActivation && !string.IsNullOrEmpty(elementId))
-        {
-            throw new ArgumentException(
-                "A no-activation recording captures a whole window, so it cannot crop to an element.",
-                nameof(elementId));
-        }
-
         var desktopBounds = uiTarget is null ? _windowCapture.GetDesktopBounds() : (PointerRect?)null;
         nint rootHwnd = 0;
         HWND hwnd = default;
@@ -145,15 +120,6 @@ internal sealed partial class UiRecordingService(
 
             if (s_isWindowMinimized(rootHwnd))
             {
-                if (options.NoActivation)
-                {
-                    // Restoring is an activation, so the only honest answers are "record nothing" or
-                    // "put the user's window back on screen without being asked". This picks the first.
-                    throw new InvalidOperationException(
-                        "The window is minimized, and restoring it would bring it onto the user's screen, " +
-                        "which this recording promised not to do. Restore the window yourself and retry.");
-                }
-
                 s_restoreWindow(rootHwnd);
                 await Task.Delay(300, ct).ConfigureAwait(false);
             }
@@ -186,19 +152,6 @@ internal sealed partial class UiRecordingService(
             if (rect.right - rect.left <= 0 || rect.bottom - rect.top <= 0)
             {
                 throw new InvalidOperationException("Window has zero size. Is it minimized?");
-            }
-
-            // Prove the window can be captured as it stands before creating any output for it. This is
-            // the same strict path the no-focus screenshot uses -- frame capture, then one non-activating
-            // PrintWindow, with a blank result reported as a failure to capture rather than written out
-            // as a black picture -- so a window that could only have been recorded by activating it
-            // fails here, with nothing on disk to clean up.
-            if (options.NoActivation &&
-                await _windowCapture.TryCaptureWindowWithoutActivationAsync(rootHwnd, ct).ConfigureAwait(false) is null)
-            {
-                throw new InvalidOperationException(
-                    "The window could not be captured where it stands, and this recording promised not to " +
-                    "activate it. Nothing was recorded.");
             }
         }
         else
@@ -242,15 +195,6 @@ internal sealed partial class UiRecordingService(
                     _logger.LogDebug(ex, "WGC recorder init failed; throwing (no silent screen fallback without --capture-screen)");
                     grabber?.Dispose();
                     grabber = null;
-
-                    // Screen capture is not a fallback available to a no-activation recording at any
-                    // consent level: it reads the user's display, where a window recorded in place is
-                    // deliberately not visible. Stated here rather than left to the CaptureScreen
-                    // guard below, so the invariant survives a change to what consent means.
-                    if (options.NoActivation)
-                    {
-                        throw;
-                    }
 
                     // Screen capture requires explicit consent because it can include overlapping windows.
                     EnsureWgcFallbackConsented(ex, options.CaptureScreen, _logger);
@@ -434,7 +378,6 @@ internal sealed partial class UiRecordingService(
             var targetClosed = false;
             var captureUnavailable = false;
             var displayChanged = false;
-            var sawBlankFrame = false;
             RecordFrameArtifactResult? frameArtifacts = null;
 
             if (options.FramesDirectory is not null)
@@ -495,9 +438,8 @@ internal sealed partial class UiRecordingService(
                         break;
                     }
 
-                    // Allow slow startup to produce its first frame. A no-activation source that
-                    // returns only blank frames must still reach its capture-unavailable deadline.
-                    if (totalFrames.HasValue && (frameIndex > 0 || sawBlankFrame) &&
+                    // Allow slow startup to produce its first frame.
+                    if (totalFrames.HasValue && frameIndex > 0 &&
                         stopwatch.Elapsed.TotalSeconds >= options.DurationSec)
                     {
                         break;
@@ -510,18 +452,7 @@ internal sealed partial class UiRecordingService(
                         {
                             var (closedSrc, closedSw, closedSh, closedVersion) = closedLatest.Value;
 
-                            // The last frame a closing capture session leaves behind gets the same
-                            // scrutiny as any other. Without this, a window that only ever produced
-                            // blank warm-up frames and then closed publishes a one-frame black MP4 --
-                            // the same false success the frame loop refuses, arriving by the one door
-                            // that skipped the check.
-                            var closedFrameIsBlank = options.NoActivation && CapturedFrame.IsBlank(closedSrc);
-
-                            if (closedFrameIsBlank)
-                            {
-                                sawBlankFrame = true;
-                            }
-                            else if (ShouldEncodeClosedDrainFrame(closedVersion, lastEncodedVersion))
+                            if (ShouldEncodeClosedDrainFrame(closedVersion, lastEncodedVersion))
                             {
                                 var closedCropW = isWholeWindowWgc ? closedSw : cropW;
                                 var closedCropH = isWholeWindowWgc ? closedSh : cropH;
@@ -550,36 +481,6 @@ internal sealed partial class UiRecordingService(
                             continue;
                         }
                         var (source, sw, sh, version) = latest.Value;
-
-                        // Frame capture reports success for a surface it produced nothing on, so a
-                        // window it cannot really see yields black frames that encode perfectly well.
-                        // The setup probe does not rule this out: it accepts a window that frame
-                        // capture could not see but a non-activating PrintWindow could, and the take
-                        // then runs on frame capture anyway. Unchecked, that is an all-black MP4
-                        // reported as a successful recording -- the exact failure a caller who cannot
-                        // watch the screen has no way to notice.
-                        if (options.NoActivation && CapturedFrame.IsBlank(source))
-                        {
-                            if (frameIndex == 0)
-                            {
-                                // Nothing usable yet. Keep polling rather than giving up on the first
-                                // frame: capture sessions can hand out an empty surface before the
-                                // first real one arrives. If none ever does, the take ends on its own
-                                // deadline and fails below, having published nothing.
-                                sawBlankFrame = true;
-                                await Task.Delay(5, ct).ConfigureAwait(false);
-                                continue;
-                            }
-
-                            // The window was rendering and stopped. Same as losing it outright: keep
-                            // the frames already captured and say why the take ended early.
-                            captureUnavailable = true;
-                            _logger.LogDebug(
-                                "Frame capture returned a blank frame and this recording cannot activate " +
-                                "the window to recover it; finalizing {Frames} frames captured so far",
-                                frameIndex);
-                            break;
-                        }
 
                         sourceVersion = version;
                         frame = ProcessFrame(
@@ -643,44 +544,11 @@ internal sealed partial class UiRecordingService(
                     }
                     else
                     {
-                        if (options.NoActivation)
-                        {
-                            // No frame capture on this system, so PrintWindow is the only path left.
-                            // The strict variant is the one that keeps the promise: it never
-                            // foregrounds the window to recover a blank frame, it reports the blank
-                            // instead.
-                            var captured = await _windowCapture
-                                .TryCaptureWindowWithoutActivationAsync((nint)hwnd, ct)
-                                .ConfigureAwait(false);
-
-                            if (captured is not { } strict)
-                            {
-                                // The window stopped being capturable where it stands. Ending the
-                                // take keeps whatever was already recorded, which is more use than
-                                // discarding good frames over a window that went blank at second 9
-                                // of 10. A take that never got a frame at all fails outright instead,
-                                // through the same path as any other capture failure.
-                                captureUnavailable = true;
-                                _logger.LogDebug(
-                                    "Window could not be captured without activating it; finalizing " +
-                                    "{Frames} frames captured so far",
-                                    frameIndex);
-                                break;
-                            }
-
-                            frame = ProcessFrame(
-                                strict.Pixels, strict.Width, strict.Height,
-                                0, 0, strict.Width, strict.Height,
-                                encoderW, encoderH, displayW, displayH);
-                        }
-                        else
-                        {
-                            var source = _windowCapture.CaptureWindowPixels((nint)hwnd, srcWidth, srcHeight);
-                            frame = ProcessFrame(
-                                source, srcWidth, srcHeight,
-                                cropX, cropY, cropW, cropH,
-                                encoderW, encoderH, displayW, displayH);
-                        }
+                        var source = _windowCapture.CaptureWindowPixels((nint)hwnd, srcWidth, srcHeight);
+                        frame = ProcessFrame(
+                            source, srcWidth, srcHeight,
+                            cropX, cropY, cropW, cropH,
+                            encoderW, encoderH, displayW, displayH);
                     }
 
                     await CommitFrameAsync(frame).ConfigureAwait(false);
@@ -725,30 +593,16 @@ internal sealed partial class UiRecordingService(
                 ct.ThrowIfCancellationRequested();
             }
 
-            if (frameIndex == 0 && sawBlankFrame)
-            {
-                // The take ended -- on its own deadline, or because the window closed -- and frame
-                // capture never produced anything but black. Treated as the window not being
-                // capturable at all, because that is what it means: the alternative is publishing a
-                // video of nothing and calling it a recording.
-                captureUnavailable = true;
-            }
-
             if (frameIndex == 0 && (captureUnavailable || displayChanged))
             {
-                // The window was capturable when the recording was set up and stopped being so before
-                // a single frame landed. Publishing an empty video would report success for a
-                // recording of nothing.
+                // Do not publish an empty recording when the desktop became unavailable.
                 if (frameOutput is not null)
                 {
                     await frameOutput.AbortAsync().ConfigureAwait(false);
                 }
 
-                throw new InvalidOperationException(desktopBounds.HasValue
-                    ? "The input desktop became unavailable or changed geometry before a frame could be captured."
-                    :
-                    "The window could not be captured where it stands, and this recording promised not " +
-                    "to activate it. Nothing was recorded.");
+                throw new InvalidOperationException(
+                    "The input desktop became unavailable or changed geometry before a frame could be captured.");
             }
 
             if (mp4Failure is null)

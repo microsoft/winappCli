@@ -103,7 +103,6 @@ public sealed class DesktopCaptureTests
         Assert.AreEqual(UiTurnMode.Observe, coordinator.Runs.Single().Mode);
         var bytes = await File.ReadAllBytesAsync(path, TestContext.CancellationToken);
         CollectionAssert.AreEqual(new byte[] { 137, 80, 78, 71 }, bytes.Take(4).ToArray());
-        Assert.AreEqual(0, capture.CapturedWithoutActivation.Count);
         Assert.AreEqual(0, capture.CapturedWithBlankRetry.Count);
     }
 
@@ -139,6 +138,36 @@ public sealed class DesktopCaptureTests
     }
 
     [TestMethod]
+    public async Task Record_WholeDesktopCompletesWithoutResolvingOrActivatingAWindow()
+    {
+        var capture = Capture((_, _, _, _, ew, eh, _, _) => Pixels(ew, eh));
+        var result = await Recorder(capture).RecordDesktopAsync(new RecordOptions
+        {
+            OutputPath = Path.Join(_root, "desktop.mp4"),
+            FramesDirectory = Path.Join(_root, "desktop.frames"),
+            DurationSec = 1,
+            Fps = 1,
+        }, TestContext.CancellationToken);
+
+        Assert.AreEqual("screen", result.Mode);
+        Assert.AreEqual("duration_elapsed", result.StopReason);
+        Assert.AreEqual(1, result.Frames);
+        Assert.AreEqual(new PointerRect(-101, -75, 0, 0), result.Coordinates!.SourceBounds);
+        Assert.IsNotNull(result.FrameArtifacts);
+        Assert.AreEqual(0, capture.CapturedWithBlankRetry.Count);
+    }
+
+    [TestMethod]
+    public async Task Record_DesktopRejectsWindowScreenCaptureOptionBeforeCreatingOutput()
+    {
+        var capture = Capture((_, _, _, _, _, _, _, _) => throw new AssertFailedException("No capture is allowed."));
+        var output = Path.Join(_root, "invalid.mp4");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => Recorder(capture).RecordDesktopAsync(
+            new RecordOptions { OutputPath = output, CaptureScreen = true }, TestContext.CancellationToken));
+        Assert.IsFalse(File.Exists(output));
+    }
+
+    [TestMethod]
     public async Task Record_DesktopChangeFinalizesOnlyOldMappingAndMarksFramesPartial()
     {
         var calls = 0;
@@ -165,7 +194,6 @@ public sealed class DesktopCaptureTests
         Assert.AreEqual((result.Width, result.Height), (manifest.Frames.Width, manifest.Frames.Height));
         Assert.AreEqual(1, manifest.Timing.SampleCount);
         Assert.AreEqual(0, capture.CapturedWithBlankRetry.Count);
-        Assert.AreEqual(0, capture.CapturedWithoutActivation.Count);
     }
 
     [TestMethod]
@@ -252,7 +280,6 @@ public sealed class DesktopCaptureTests
         DesktopBoundsOverride = () => _readBounds(),
         CaptureScreenOverride = capture,
         CaptureWindowOverride = (_, _, _) => throw new AssertFailedException("No window capture is allowed."),
-        CaptureWithoutActivationOverride = _ => throw new AssertFailedException("No window capture is allowed."),
         StartGrabberCallback = (_, _) => throw new AssertFailedException("No window grabber is allowed."),
     };
 

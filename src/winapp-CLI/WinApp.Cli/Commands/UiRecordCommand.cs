@@ -148,7 +148,6 @@ internal class UiRecordCommand : Command, IShortDescription
         /// foreground, because the alternative is failing a recording the user is standing in front
         /// of. A verb that advertises taking no focus overrides this.
         /// </remarks>
-        protected virtual bool NoActivation(ParseResult parseResult) => false;
 
         /// <summary>Records the current desktop rather than resolving an application window.</summary>
         protected virtual bool IsDesktop => false;
@@ -255,7 +254,6 @@ internal class UiRecordCommand : Command, IShortDescription
                     MaxEdge = maxEdge,
                     CaptureScreen = captureScreen,
                     FramesDirectory = framesDirectory,
-                    NoActivation = NoActivation(parseResult),
                 };
 
                 var (result, coordinationWarning) = await RecordUnderTurnAsync(

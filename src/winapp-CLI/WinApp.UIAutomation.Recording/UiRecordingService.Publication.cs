@@ -18,9 +18,9 @@ internal sealed partial class UiRecordingService
     public Task<RecordCaptureResult> RecordDesktopAsync(
         RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
     {
-        if (options.CaptureScreen || options.NoActivation)
+        if (options.CaptureScreen)
         {
-            throw new ArgumentException("Desktop recording does not accept window capture policy flags.", nameof(options));
+            throw new ArgumentException("Desktop recording does not accept the window CaptureScreen option.", nameof(options));
         }
         return RecordWithPublicationAsync(null, null, options, onRecordingStarted, ct);
     }
@@ -54,7 +54,6 @@ internal sealed partial class UiRecordingService
                 Fps = options.Fps,
                 MaxEdge = options.MaxEdge,
                 CaptureScreen = options.CaptureScreen,
-                NoActivation = options.NoActivation,
             }, ct, onRecordingStarted).ConfigureAwait(false);
 
             // Cancellation stops sampling, not publication of the finalized evidence.

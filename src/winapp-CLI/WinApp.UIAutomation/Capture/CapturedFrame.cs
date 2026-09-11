@@ -6,22 +6,13 @@ using System.Runtime.InteropServices;
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 
 /// <summary>
-/// Pure inspection of captured pixels. Shared by the screenshot path, the frame-capture backend, and
-/// video recording, all of which have to answer the same question: did this capture actually come
-/// back with anything on it?
+/// Shared blank-buffer detection for window screenshot capture.
 /// </summary>
-public static class CapturedFrame
+internal static class CapturedFrame
 {
     /// <summary>
-    /// Whether a captured BGRA buffer came back entirely black, which is what a window that was not
-    /// rendered — or was captured through a pipeline that produced nothing — looks like.
+    /// Whether every byte in a captured BGRA buffer is zero.
     /// </summary>
-    /// <remarks>
-    /// A caller that hands a blank capture on as a picture or a video frame reports success for an
-    /// image of nothing, so this is the check that turns that into an honest failure. It cannot tell a
-    /// genuinely black window apart from an unrendered one; callers that can afford to retry should,
-    /// and callers that promised not to activate the window should report the blank instead.
-    /// </remarks>
     /// <param name="pixels">The captured buffer. An empty buffer is blank.</param>
     /// <returns><see langword="true"/> when every byte is zero.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="pixels"/> is <see langword="null"/>.</exception>

@@ -69,7 +69,7 @@ index, and a `manifest.json` describing the run.
 
 Call `IUiRecordingService.RecordDesktopAsync(options, cancellationToken)` to record the calling
 process's entire virtual desktop without activating or restoring any window. Leave the
-window-specific `CaptureScreen` and `NoActivation` options false. The mode is `screen`; the caller
+window-specific `CaptureScreen` option false. The mode is `screen`; the caller
 must be per-monitor DPI aware and attached to the current interactive input desktop.
 
 The result's `Coordinates` and the frame manifest's `coordinates` map both MP4 and JPEG pixels

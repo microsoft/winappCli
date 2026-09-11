@@ -6,7 +6,7 @@ using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;
 
 /// <summary>
-/// Records a window or element region to H.264 MP4, driving the UI Automation library's capture
+/// Records a desktop, window, or element region to H.264 MP4, driving the UI Automation library's capture
 /// primitives and encoding the frames it samples.
 /// </summary>
 public interface IUiRecordingService
@@ -17,7 +17,7 @@ public interface IUiRecordingService
     /// ends the take with <c>display_changed</c>; losing the input desktop ends it with
     /// <c>capture_unavailable</c>. Already captured frames are finalized.
     /// </summary>
-    /// <param name="options">Output path, timing and size limits. Window capture policy flags must be false.</param>
+    /// <param name="options">Output path, timing and size limits. CaptureScreen must be false.</param>
     /// <param name="ct">Stops sampling; already captured evidence is finalized.</param>
     /// <param name="onRecordingStarted">Called after the first frame with frame-bundle availability.</param>
     Task<RecordCaptureResult> RecordDesktopAsync(
