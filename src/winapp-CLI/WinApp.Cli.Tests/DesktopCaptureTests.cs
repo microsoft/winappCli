@@ -89,7 +89,7 @@ public sealed class DesktopCaptureTests
             Assert.AreEqual((-101, -75, 101, 75, 101, 75, 101, 75), (x, y, width, height, ew, eh, dw, dh));
             return Pixels(ew, eh);
         });
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var coordinator = new FakeInteractiveDesktopLock();
         var path = Path.Join(_root, "desktop.png");
         var exit = await Screenshot(capture, coordinator, console, path, TestContext.CancellationToken);
@@ -117,7 +117,8 @@ public sealed class DesktopCaptureTests
             _readBounds = () => new PointerRect(0, 0, 200, 100);
             return Pixels(ew, eh);
         });
-        Assert.AreEqual(1, await Screenshot(capture, new(), new(), path, TestContext.CancellationToken));
+        using var console = new TestConsole();
+        Assert.AreEqual(1, await Screenshot(capture, new(), console, path, TestContext.CancellationToken));
         Assert.AreEqual("prior evidence", await File.ReadAllTextAsync(path, TestContext.CancellationToken));
     }
 
@@ -132,7 +133,8 @@ public sealed class DesktopCaptureTests
             cancellation.Cancel();
             return Pixels(ew, eh);
         });
-        await Assert.ThrowsAsync<OperationCanceledException>(() => Screenshot(capture, new(), new(), path, cancellation.Token));
+        using var console = new TestConsole();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Screenshot(capture, new(), console, path, cancellation.Token));
         Assert.AreEqual("prior evidence", await File.ReadAllTextAsync(path, TestContext.CancellationToken));
     }
 
@@ -208,7 +210,7 @@ public sealed class DesktopCaptureTests
     [TestMethod]
     public async Task Record_HiddenCommandPinsSharedTurnButReleasesSectionAfterFirstFrame()
     {
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var coordinator = new FakeInteractiveDesktopLock();
         var recording = new FakeUiRecordingService { RecordResult = new RecordCaptureResult { Mode = "screen" } };
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
