@@ -12,6 +12,7 @@ using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.ApiSearch;
 using WinApp.Cli.Services.Controls;
 using WinApp.Cli.Services.InteractiveDesktop;
 
@@ -44,6 +45,8 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IPackageInstallationService, PackageInstallationService>()
             .AddSingleton<IPackageLayoutService, PackageLayoutService>()
             .AddSingleton<IWinappDirectoryService, WinappDirectoryService>()
+            .AddSingleton<IApiMetadataService, ApiMetadataService>()
+            .AddSingleton<ISdkPackageSource, SdkPackageSource>()
             .AddSingleton<IWinmdService, WinmdService>()
             .AddSingleton<IWinmdsLockfileService, WinmdsLockfileService>()
             .AddSingleton<IProjectDetectionService, ProjectDetectionService>()
@@ -152,6 +155,17 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<ToolCommand, ToolCommand.Handler>()
                 .UseCommandHandler<MSStoreCommand, MSStoreCommand.Handler>(false)
                 .UseCommandHandler<CreateExternalCatalogCommand, CreateExternalCatalogCommand.Handler>()
+                // API discovery commands
+                .UseCommandHandler<FindApiCommand, FindApiCommand.Handler>()
+                .UseCommandHandler<FindApiMembersCommand, FindApiMembersCommand.Handler>()
+                .UseCommandHandler<FindApiCheckPropertyCommand, FindApiCheckPropertyCommand.Handler>()
+                .UseCommandHandler<FindApiTypesCommand, FindApiTypesCommand.Handler>()
+                .UseCommandHandler<FindApiEnumsCommand, FindApiEnumsCommand.Handler>()
+                .UseCommandHandler<FindApiNamespacesCommand, FindApiNamespacesCommand.Handler>()
+                .UseCommandHandler<FindApiPackagesCommand, FindApiPackagesCommand.Handler>()
+                .UseCommandHandler<FindApiStatsCommand, FindApiStatsCommand.Handler>()
+                .UseCommandHandler<FindApiProjectsCommand, FindApiProjectsCommand.Handler>()
+                .UseCommandHandler<FindApiRefreshCommand, FindApiRefreshCommand.Handler>()
                 // UI Automation commands
                 .ConfigureCommand<UiCommand>()
                 .UseCommandHandler<UiStatusCommand, UiStatusCommand.Handler>()

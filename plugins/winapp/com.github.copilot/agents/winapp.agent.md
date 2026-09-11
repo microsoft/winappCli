@@ -103,9 +103,17 @@ Driving a UI while other workflows may be running?
    have used the desktop, so transient UI (menus, flyouts) is gone
 
 Building a WinUI 3 UI and need to find the right control or a working sample?
-└─ winapp find-ui "<what you want>"   (search WinUI 3 Gallery + Community Toolkit; Reactor is opt-in via --source reactor)
+└─ winapp find-ui "<what you want>"   (agent-first: fetch real gallery code instead of inventing XAML)
    ├─ Then fetch full code for a match → winapp find-ui --id <scenario-id>
+   ├─ Searches WinUI 3 Gallery + Community Toolkit; Reactor is opt-in via --source reactor
    └─ WinUI-only (not WPF/WinForms); distinct from `ui search`, which inspects a *running* app
+
+Need to know whether a Windows/WinRT API exists, or what a type/enum actually offers?
+└─ winapp find-api "<what you want>"   (agent-first: the project's real .winmd metadata — never guess an API)
+   ├─ List a type's properties/events/methods → winapp find-api members <Type> [<Type>...]
+   ├─ Check a property before writing XAML → winapp find-api check-property <Type> <Prop> [<Prop>...]
+   ├─ List an enum's values → winapp find-api enums <EnumType> [<EnumType>...]
+   └─ Batch subjects in ONE call; distinct from `find-ui`, which finds sample code rather than API surface
 ```
 
 ## Critical rules — always follow these
@@ -313,7 +321,33 @@ with `winapp target snapshot sandbox`; it does not create a VM. Consult
 **Purpose:** Generate a `CodeIntegrityExternal.cat` catalog file for sparse packages with `AllowExternalContent`.
 **When to use:** When your sparse package manifest uses `TrustedLaunch` and you need to catalog external executable files.
 
-### `winapp find-ui "<query>"` — WinUI control & sample search
+### `winapp find-api [query]` — API metadata discovery (agent-first)
+**Agent-first:** this command exists for *you*. It prevents the failure mode of confidently emitting a type, property, or enum value that does not exist. Ground every Windows/WinRT symbol you are not certain about here before writing it, and prefer it over recall or web search — it describes the exact metadata *this* project references. Use `--json` to gate codegen on the result.
+**Purpose:** Search a project's referenced WinRT/.NET API metadata (`.winmd`/`.dll` + XML docs) for types and members, and inspect them — without guessing API shapes. The index builds automatically after a restore; run `winapp find-api refresh` to (re)build it manually.
+**When to use:** When an AI agent or developer needs to confirm that a type/property/enum exists, discover the members of a control, or find the right API by intent (e.g. "acrylic brush") before writing WinUI/WinRT code. Add `--json` for machine-readable output.
+
+**Key subcommands:**
+- `find-api "<query>" ["<query>"...]` — lexical search for types/members by name or intent (bare form).
+- `find-api members <type> [<type>...]` — list properties, events, and methods of a type (accepts a short name like `NavigationView` or a fully-qualified name). An unfiltered listing shows declared members with signatures and summarizes inherited members by declaring type (names only), and omits dependency-property identifier statics and descriptions to save context; use `--filter <text>` or `--all` to reach the complete surface with full signatures.
+- `find-api check-property <type> <property> [<property>...]` — verify (dependency/attached) properties exist on a type; suggests near-matches when they don't, and flags read-only properties (`writable: false`) that exist but can't be assigned.
+- `find-api enums <type> [<type>...]` — list an enum's values (accepts a short or fully-qualified name).
+- `find-api packages` / `find-api stats` — show indexed packages / index statistics for the project.
+- `find-api refresh [--scan] [--project <name>]` — rebuild the API index for the project (forces a full re-index).
+
+Works in .NET/C++ projects (from `project.assets.json`) and in Electron or other non-MSBuild apps driven by `winapp.yaml` (from the `.winapp/winmds.lock.json` that `winapp restore` writes). Either way the project must be restored first.
+
+**Batch your lookups.** `search`, `members`, `enums`, and `check-property` each accept
+multiple subjects in one invocation. Cost is dominated by the number of calls, not the
+size of the answer, so verify everything you're unsure about in a single call
+(`find-api check-property InfoBar Severity IsOpen Message`) rather than one per turn.
+Batch at two moments: before writing code, and **after a build fails** — read the whole
+error list, collect every uncertain symbol from all of it, and verify them in one call
+before editing. Fixing compile errors one at a time costs a lookup, an edit, and a full
+rebuild per symbol. A single subject keeps the original payload shape; a batch returns
+`{ count, results: [...] }` and exits non-zero if *any* subject is missing.
+
+### `winapp find-ui "<query>"` — WinUI control & sample search (agent-first)
+**Agent-first:** this command exists for *you*. Before hand-writing XAML for a control you have not just looked at, fetch a real scenario here — the code comes from the shipping WinUI 3 Gallery and Windows Community Toolkit, so it compiles. Prefer it over recall or a blog post, and use `--json` for a parseable result on every path.
 **Purpose:** Lexically search **WinUI** controls and samples (WinUI 3 Gallery + Windows Community Toolkit, plus curated core patterns) for a working code example. The microsoft-ui-reactor ReactorGallery is an **opt-in** source, excluded from a normal search and searched only via `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app — Reactor/MVU projects only). WinUI-only — not WPF/WinForms.
 **When to use:** When building a WinUI 3 UI and you need to discover which control fits an intent and get a real code example (XAML and/or C# for Gallery/Toolkit; C#-only for Reactor), without leaving the CLI. Distinct from `winapp ui search`, which searches a *running app's* UI tree.
 **Workflow:** search compactly to find the control and its scenario ids, then fetch full code with `--id`.

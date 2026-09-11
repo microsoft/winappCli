@@ -87,7 +87,8 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestDesktopCaptureCommand guestDesktopCaptureCommand,
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
-        TargetCommand targetCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
+        TargetCommand targetCommand,
+        FindApiCommand findApiCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(newCommand);
@@ -108,6 +109,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(createExternalCatalogCommand);
         Subcommands.Add(findUiCommand);
         Subcommands.Add(uiCommand);
+        Subcommands.Add(findApiCommand);
         Subcommands.Add(completeCommand);
         Subcommands.Add(guestAgentCommand);
         Subcommands.Add(guestDesktopCaptureCommand);
@@ -129,7 +131,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
             ("Setup", [typeof(InitCommand), typeof(NewCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
             ("Packaging & Signing", [typeof(PackageCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(CertCommand), typeof(ManifestCommand), typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand)]),
             ("Development Tools", [typeof(CreateDebugIdentityCommand), typeof(MSStoreCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(RunCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
-            ("Discovery", [typeof(FindUiCommand)]),
+            ("Discovery", [typeof(FindApiCommand), typeof(FindUiCommand)]),
             ("UI Automation", [typeof(UiCommand)])
         );
     }

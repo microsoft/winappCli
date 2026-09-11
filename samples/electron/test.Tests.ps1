@@ -63,18 +63,13 @@ Describe "Electron Sample" {
         It "Should create a new Electron app" -Skip:$script:skip {
             Push-Location $script:tempDir
             try {
-                $maxRetries = 3
-                $created = $false
-                for ($i = 1; $i -le $maxRetries; $i++) {
-                    if ($i -gt 1) {
-                        Remove-Item -Path (Join-Path $script:tempDir "electron-app") -Recurse -Force -ErrorAction SilentlyContinue
-                        npm cache clean --force 2>$null
-                        Start-Sleep -Seconds 2
-                    }
+                $created = Invoke-WithRetry -OperationName "create-electron-app" -MaxAttempts 3 -OnRetry {
+                    Remove-Item -Path (Join-Path $script:tempDir "electron-app") -Recurse -Force -ErrorAction SilentlyContinue
+                    npm cache clean --force 2>$null
+                } -ScriptBlock {
                     npx -y create-electron-app@latest electron-app
-                    if ($LASTEXITCODE -eq 0) { $created = $true; break }
                 }
-                $created | Should -Be $true -Because "Electron app creation should succeed within $maxRetries attempts"
+                $created | Should -Be $true -Because "Electron app creation should succeed within 3 attempts"
                 $script:appDir = Join-Path $script:tempDir "electron-app"
                 $script:appDir | Should -Exist
 
@@ -85,8 +80,12 @@ Describe "Electron Sample" {
                     Write-Host "Electron binary not found after scaffold — running npx install-electron..."
                     Push-Location $script:appDir
                     try {
-                        & npx --yes install-electron 2>&1 | ForEach-Object { Write-Host $_ }
-                        $LASTEXITCODE | Should -Be 0 -Because "install-electron must exit cleanly"
+                        # Retried: this pulls ~100 MB from GitHub releases, and a dropped
+                        # connection surfaces as 'TypeError: fetch failed' with exit code 1.
+                        $installed = Invoke-WithRetry -OperationName "install-electron" -MaxAttempts 3 -ScriptBlock {
+                            & npx --yes install-electron 2>&1 | ForEach-Object { Write-Host $_ }
+                        }
+                        $installed | Should -Be $true -Because "install-electron must exit cleanly"
                         $electronExe | Should -Exist -Because "Electron binary should be present after install-electron"
                     } finally { Pop-Location }
                 }
@@ -275,8 +274,10 @@ Describe "Electron Sample" {
                 Push-Location $script:appDir
                 try {
                     Write-Host "Running npx install-electron to fetch Electron binary..."
-                    & npx --yes install-electron 2>&1 | ForEach-Object { Write-Host $_ }
-                    $LASTEXITCODE | Should -Be 0 -Because "install-electron must succeed"
+                    $installed = Invoke-WithRetry -OperationName "install-electron" -MaxAttempts 3 -ScriptBlock {
+                        & npx --yes install-electron 2>&1 | ForEach-Object { Write-Host $_ }
+                    }
+                    $installed | Should -Be $true -Because "install-electron must succeed"
                 } finally { Pop-Location }
             }
             $exe | Should -Exist -Because "Electron binary is required for add-electron-debug-identity"
