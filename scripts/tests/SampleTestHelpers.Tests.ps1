@@ -113,3 +113,82 @@ Describe 'ConvertTo-ArgumentList' {
         }
     }
 }
+
+Describe 'Invoke-WithRetry' {
+
+    Context 'Return shape' {
+        It 'returns a strict boolean when the command writes to stdout' {
+            # Regression: a PowerShell function returns everything written to the output
+            # stream, so invoking a native command bare inside the block made this return
+            # @('...command output...', $true). The caller's 'Should -Be $true' then failed
+            # on a command that had actually succeeded -- which is how a green
+            # 'create-electron-app' run reported the whole electron sample as broken.
+            $result = Invoke-WithRetry -OperationName 'emits-stdout' -MaxAttempts 1 -ScriptBlock {
+                cmd /c "echo Resolving package manager& exit 0"
+            }
+            ($result -is [bool]) | Should -BeTrue
+            $result | Should -Be $true
+        }
+
+        It 'returns a strict boolean when a failing command writes to stdout' {
+            $result = Invoke-WithRetry -OperationName 'fails-with-stdout' -MaxAttempts 1 -ScriptBlock {
+                cmd /c "echo partial output& exit 1"
+            }
+            ($result -is [bool]) | Should -BeTrue
+            $result | Should -Be $false
+        }
+
+        It 'returns a strict boolean when the retry cleanup writes to stdout' {
+            $script:cleanupAttempts = 0
+            $result = Invoke-WithRetry -OperationName 'onretry-stdout' -MaxAttempts 2 -OnRetry {
+                cmd /c "echo cleaning cache& exit 0"
+            } -ScriptBlock {
+                $script:cleanupAttempts++
+                if ($script:cleanupAttempts -lt 2) { cmd /c "exit 1" } else { cmd /c "exit 0" }
+            }
+            ($result -is [bool]) | Should -BeTrue
+            $result | Should -Be $true
+        }
+    }
+
+    Context 'Retry behavior' {
+        It 'stops as soon as the command succeeds' {
+            $script:calls = 0
+            $result = Invoke-WithRetry -OperationName 'succeeds-first' -MaxAttempts 3 -ScriptBlock {
+                $script:calls++
+                cmd /c "exit 0"
+            }
+            $result | Should -Be $true
+            $script:calls | Should -Be 1
+        }
+
+        It 'retries a transient failure and reports success' {
+            $script:calls = 0
+            $result = Invoke-WithRetry -OperationName 'transient' -MaxAttempts 3 -ScriptBlock {
+                $script:calls++
+                if ($script:calls -lt 2) { cmd /c "exit 1" } else { cmd /c "exit 0" }
+            }
+            $result | Should -Be $true
+            $script:calls | Should -Be 2
+        }
+
+        It 'gives up after MaxAttempts and reports failure' {
+            $script:calls = 0
+            $result = Invoke-WithRetry -OperationName 'always-fails' -MaxAttempts 2 -ScriptBlock {
+                $script:calls++
+                cmd /c "exit 1"
+            }
+            $result | Should -Be $false
+            $script:calls | Should -Be 2
+        }
+
+        It 'reads the exit code through a Write-Host pipeline' {
+            # The install-electron call sites pipe through ForEach-Object { Write-Host $_ },
+            # which must not hide the native command's exit code.
+            $result = Invoke-WithRetry -OperationName 'piped' -MaxAttempts 1 -ScriptBlock {
+                & cmd /c "echo output& exit 1" 2>&1 | ForEach-Object { Write-Host $_ }
+            }
+            $result | Should -Be $false
+        }
+    }
+}
