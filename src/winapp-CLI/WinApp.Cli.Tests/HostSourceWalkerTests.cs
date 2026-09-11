@@ -35,6 +35,28 @@ public class HostSourceWalkerTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void ReparseCheck_RefusesAttributeQueryFailures(bool accessDenied)
+    {
+        Exception cause = accessDenied ? new UnauthorizedAccessException("denied") : new IOException("unreadable");
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
+            HostSourceWalker.IsReparsePoint(@"C:\source\restricted", _ => throw cause));
+        Assert.AreEqual(ExecutionTargetErrorCodes.DeploymentDirty, failure.Error.Code);
+        Assert.AreSame(cause, failure.InnerException);
+        Assert.IsNotNull(failure.Error.UserAction);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void ReparseCheck_MissingComponentsAreNotLinks(bool fileMissing)
+    {
+        Exception cause = fileMissing ? new FileNotFoundException() : new DirectoryNotFoundException();
+        Assert.IsFalse(HostSourceWalker.IsReparsePoint(@"C:\source\missing", _ => throw cause));
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void GuestDelete_PrunesEmptyDirectoriesWithoutFollowingLinks(bool deleteStaleFile)

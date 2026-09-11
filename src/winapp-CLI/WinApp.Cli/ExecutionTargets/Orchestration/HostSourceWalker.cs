@@ -213,16 +213,23 @@ internal static class HostSourceWalker
     /// component of a path. A component that does not exist cannot redirect anything; the open that
     /// follows will fail on its own terms and produce a better error than this method could.
     /// </remarks>
-    private static bool IsReparsePoint(string path)
+    internal static bool IsReparsePoint(string path, Func<string, FileAttributes>? getAttributes = null)
     {
         try
         {
-            return File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint);
+            return (getAttributes ?? File.GetAttributes)(path).HasFlag(FileAttributes.ReparsePoint);
         }
-        catch (Exception ex) when (
-            ex is FileNotFoundException or DirectoryNotFoundException or UnauthorizedAccessException or IOException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             return false;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.DeploymentDirty,
+                $"Cannot inspect '{path}' for symbolic links or junctions; the operation was refused.",
+                userAction: "Check that the source path is accessible and its attributes can be read, then retry.",
+                innerException: ex);
         }
     }
 
