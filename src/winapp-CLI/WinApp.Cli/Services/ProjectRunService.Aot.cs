@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.ComponentModel;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -38,18 +37,6 @@ internal sealed partial class ProjectRunService
                 workingDirectory,
                 cancellationToken,
                 requireConcreteRid: true);
-
-        var beforePublish = await TryEvaluateAotPropertiesAsync(
-            csproj,
-            options,
-            workingDirectory,
-            csWinRTMetadata,
-            cancellationToken);
-        if (beforePublish is not null && EvaluationIsComplete(beforePublish) &&
-            !IsTrue(GetProp(beforePublish, "PublishAot")))
-        {
-            throw new ProjectRunException(BuildPublishAotRequiredMessage(csproj));
-        }
 
         // A build-context pre-restore does not cover publish-conditional dependencies.
         var publish = await RunAotPublishPassAsync(
@@ -93,64 +80,6 @@ internal sealed partial class ProjectRunService
         }
 
         return new ProjectBuildOutcome(resolution, 0);
-    }
-
-    private async Task<IReadOnlyDictionary<string, string>?> TryEvaluateAotPropertiesAsync(
-        FileInfo csproj,
-        ProjectRunOptions options,
-        DirectoryInfo workingDirectory,
-        string? csWinRTMetadata,
-        CancellationToken cancellationToken)
-    {
-        var arguments = BuildEvaluateArguments(
-            csproj,
-            options,
-            csWinRTMetadata,
-            aotPublishContext: true);
-        logger.LogDebug(
-            "{UISymbol} dotnet {Arguments}",
-            UiSymbols.Note,
-            RedactSecretsForDisplay(arguments));
-
-        try
-        {
-            var (exitCode, stdout, _) = await dotNetService.RunDotnetCommandAsync(
-                workingDirectory,
-                arguments,
-                cancellationToken);
-            return exitCode == 0
-                ? MsBuildPropertyReader.Parse(stdout, RequestedProperties)
-                : null;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
-
-    private static bool EvaluationIsComplete(IReadOnlyDictionary<string, string> properties)
-    {
-        var assetsFile = GetProp(properties, "ProjectAssetsFile");
-        var projectDirectory = GetProp(properties, "MSBuildProjectDirectory");
-        if (string.IsNullOrWhiteSpace(assetsFile) ||
-            string.IsNullOrWhiteSpace(projectDirectory) ||
-            !Path.IsPathFullyQualified(projectDirectory))
-        {
-            return false;
-        }
-
-        try
-        {
-            return File.Exists(Path.GetFullPath(assetsFile, projectDirectory));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return false;
-        }
     }
 
     private async Task<(int ExitCode, string Output, string Error)> RunAotPublishPassAsync(
@@ -558,7 +487,7 @@ internal sealed partial class ProjectRunService
     {
         var retry = WindowsCommandLine.JoinArguments(
             ["winapp", "run", csproj.FullName, "--aot", "-p", "PublishAot=true"]);
-        return $"Native AOT is not enabled for '{csproj.Name}'. Add <PublishAot>true</PublishAot> to the project, or retry with: {retry}";
+        return $"Native AOT is not enabled for '{csproj.Name}'. Add <PublishAot>true</PublishAot> inside a <PropertyGroup> in the project, or retry with: {retry}";
     }
 
 }

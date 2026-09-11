@@ -90,14 +90,6 @@ public sealed class ProjectRunServiceAotTests
             arguments.ToList(),
             "--getProperty:AppxPackageRecipe");
 
-        var evaluation = WindowsCommandLine.SplitArguments(
-            ProjectRunService.BuildEvaluateArguments(
-                project,
-                options with { Properties = ["_IsPublishing=false"] },
-                aotPublishContext: true)).ToList();
-        Assert.IsTrue(
-            evaluation.IndexOf("-p:_IsPublishing=true") >
-            evaluation.IndexOf("-p:_IsPublishing=false"));
         CollectionAssert.DoesNotContain(
             WindowsCommandLine.SplitArguments(
                 ProjectRunService.BuildEvaluateArguments(project, options)).ToList(),
@@ -105,7 +97,7 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
-    public async Task PublishAot_FalseEffectiveValueFailsBeforePublish()
+    public async Task PublishAot_FalsePublishedValueFailsBeforeLaunchResolution()
     {
         var project = WriteProject();
         var assets = WriteFile("obj\\project.assets.json", "{}");
@@ -114,10 +106,7 @@ public sealed class ProjectRunServiceAotTests
             assets,
             publishAot: false,
             packaging: "None");
-        var dotnet = new FakeDotNetService
-        {
-            RunDotnetCommandHandler = _ => (0, properties, string.Empty),
-        };
+        var dotnet = SuccessfulDotnet(properties);
         var service = NewService(dotnet);
 
         var error = await Assert.ThrowsAsync<ProjectRunException>(() =>
@@ -125,11 +114,11 @@ public sealed class ProjectRunServiceAotTests
 
         StringAssert.Contains(error.Message, "<PublishAot>true</PublishAot>");
         StringAssert.Contains(error.Message, "-p PublishAot=true");
-        Assert.AreEqual(0, dotnet.ArgumentListInvocations.Count);
+        Assert.AreEqual(1, dotnet.ArgumentListInvocations.Count);
     }
 
     [TestMethod]
-    public async Task PublishAot_UnknownEvaluationLetsPublishSurfaceNoRestoreFailure()
+    public async Task PublishAot_MissingAssetsLetsPublishSurfaceNoRestoreFailure()
     {
         var project = WriteProject();
         var properties = PropertyJson(
@@ -202,7 +191,9 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
-    public async Task PublishAot_UsesPropertiesReturnedByPublishTarget()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task PublishAot_UsesPropertiesReturnedByPublishTarget(bool previousRestoreEnabledAot)
     {
         var project = WriteProject();
         var assets = WriteFile("obj\\project.assets.json", "{}");
@@ -211,7 +202,7 @@ public sealed class ProjectRunServiceAotTests
         var preEvaluation = PropertyJson(
             project,
             assets,
-            publishAot: true,
+            publishAot: previousRestoreEnabledAot,
             packaging: "None",
             publishDir: "stale-evaluation",
             assemblyName: "StaleValue");
@@ -451,7 +442,7 @@ public sealed class ProjectRunServiceAotTests
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task PublishAot_PublishConditionalValueIsAcceptedWithoutRunningTargetsDuringPreflight(
+    public async Task PublishAot_PublishConditionalValueUsesPublishedProperties(
         bool restored)
     {
         var project = WriteProject(
@@ -483,10 +474,7 @@ public sealed class ProjectRunServiceAotTests
             targetName: "Conditional");
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = arguments =>
-                arguments.Contains("-p:_IsPublishing=true", StringComparison.Ordinal)
-                    ? (0, publishingProperties, string.Empty)
-                    : (0, ordinaryProperties, string.Empty),
+            RunDotnetCommandHandler = _ => (0, ordinaryProperties, string.Empty),
             RunDotnetArgumentListHandler = _ =>
                 (0, publishingProperties, string.Empty),
         };
@@ -499,8 +487,6 @@ public sealed class ProjectRunServiceAotTests
 
         Assert.AreEqual(executable.FullName, outcome.Resolution!.RunCommand);
         Assert.AreEqual(1, dotnet.ArgumentListInvocations.Count);
-        Assert.IsTrue(dotnet.StringInvocations.Any(arguments =>
-            arguments.Contains("-p:_IsPublishing=true", StringComparison.Ordinal)));
         Assert.IsTrue(dotnet.StringInvocations.All(arguments =>
             arguments.StartsWith("msbuild ", StringComparison.Ordinal) &&
             !arguments.Contains("-t:", StringComparison.OrdinalIgnoreCase) &&

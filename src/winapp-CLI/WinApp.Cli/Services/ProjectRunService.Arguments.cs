@@ -234,8 +234,7 @@ internal sealed partial class ProjectRunService
         string? csWinRTMetadataFolder = null,
         bool includeRuntimeIdentifier = true,
         bool includePlatform = true,
-        bool includePublishProfile = true,
-        bool aotPublishContext = false)
+        bool includePublishProfile = true)
     {
         var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
 
@@ -277,12 +276,6 @@ internal sealed partial class ProjectRunService
         if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
         {
             tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
-        }
-
-        if (aotPublishContext)
-        {
-            tokens.Add("-p:_IsPublishing=true");
-            tokens.Add("-p:IncludePublishItemsOutputGroup=true");
         }
 
         foreach (var name in RequestedProperties)

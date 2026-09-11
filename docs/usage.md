@@ -778,10 +778,12 @@ Packaged vs. unpackaged is detected automatically from the project's effective `
 
 Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getProperty`).
 
-**Native AOT:** enable AOT in the project, then add `--aot`:
+**Native AOT:** add this property group inside the project file's `<Project>` element, then add `--aot`:
 
 ```xml
-<PublishAot>true</PublishAot>
+<PropertyGroup>
+  <PublishAot>true</PublishAot>
+</PropertyGroup>
 ```
 
 ```powershell
@@ -2010,7 +2012,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
 
