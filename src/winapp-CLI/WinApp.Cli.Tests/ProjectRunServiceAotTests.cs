@@ -345,6 +345,26 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
+    public async Task PublishAot_AmbiguousAuthoredManifestsFailInsteadOfSelectingStalePackage()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        WriteFile("publish\\Package.appxmanifest", "<Package>stale manifest</Package>");
+        WriteFile("publish\\appxmanifest.xml", "<Package>current manifest</Package>");
+        var properties = PropertyJson(
+            project, assets, publishAot: true, packaging: "",
+            winAppRunSupportActive: true);
+        var service = NewService(SuccessfulDotnet(properties));
+
+        var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(() =>
+            service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None));
+
+        StringAssert.Contains(error.Message, "both Package.appxmanifest and appxmanifest.xml");
+        StringAssert.Contains(error.Message, "Remove the stale manifest");
+    }
+
+    [TestMethod]
     public async Task PublishAot_AuthoredManifestMissingFromPublishFailsWithoutSourceFallback()
     {
         var project = WriteProject();

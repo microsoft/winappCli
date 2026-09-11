@@ -328,6 +328,13 @@ internal sealed partial class ProjectRunService
             }
             else
             {
+                if (File.Exists(Path.Join(publishDirectory, "Package.appxmanifest")) &&
+                    File.Exists(Path.Join(publishDirectory, "appxmanifest.xml")))
+                {
+                    throw new ProjectRunException(
+                        $"The publish directory '{publishDirectory}' contains both Package.appxmanifest and appxmanifest.xml. " +
+                        "Remove the stale manifest and configure the project to publish only the intended package manifest.");
+                }
                 var publishedManifest = ManifestHelper.FindManifest(publishDirectory);
                 if (!publishedManifest.Exists)
                 {
