@@ -237,7 +237,7 @@ internal sealed partial class ProjectRunService
                 continue;
             }
 
-            if (IsBuildOnlyReference(element))
+            if (ProjectReferenceMetadata.IsBuildOnly(element))
             {
                 continue;
             }
@@ -249,38 +249,6 @@ internal sealed partial class ProjectRunService
         }
 
         return includes;
-    }
-
-    /// <summary>
-    /// Returns <see langword="true"/> when a <c>&lt;ProjectReference&gt;</c> is a build-time-only reference —
-    /// an analyzer / source generator (<c>OutputItemType="Analyzer"</c>) or one whose output assembly is not
-    /// consumed at runtime (<c>ReferenceOutputAssembly="false"</c>). The marker may be an attribute or a
-    /// child element; matching is case-insensitive.
-    /// </summary>
-    private static bool IsBuildOnlyReference(XElement reference)
-    {
-        if (string.Equals(ReadMetadata(reference, "OutputItemType"), "Analyzer", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return string.Equals(ReadMetadata(reference, "ReferenceOutputAssembly"), "false", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Reads MSBuild item metadata that may be authored either as an attribute or a child element on the
-    /// item, namespace-agnostic; <see langword="null"/> when absent.
-    /// </summary>
-    private static string? ReadMetadata(XElement item, string name)
-    {
-        var attribute = item.Attribute(name)?.Value;
-        if (!string.IsNullOrWhiteSpace(attribute))
-        {
-            return attribute.Trim();
-        }
-
-        var child = item.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, name, StringComparison.OrdinalIgnoreCase));
-        return string.IsNullOrWhiteSpace(child?.Value) ? null : child.Value.Trim();
     }
 
     /// <summary>
@@ -390,13 +358,13 @@ internal sealed partial class ProjectRunService
         foreach (var element in doc.Descendants().Where(e => e.Name.LocalName == "ProjectReference"))
         {
             var include = element.Attribute("Include")?.Value;
-            if (string.IsNullOrWhiteSpace(include) || IsBuildOnlyReference(element))
+            if (string.IsNullOrWhiteSpace(include) || ProjectReferenceMetadata.IsBuildOnly(element))
             {
                 continue;
             }
 
             // GlobalPropertiesToRemove and UndefineProperties are equivalent spellings.
-            var removed = $"{ReadMetadata(element, "GlobalPropertiesToRemove")};{ReadMetadata(element, "UndefineProperties")}";
+            var removed = $"{ProjectReferenceMetadata.Read(element, "GlobalPropertiesToRemove")};{ProjectReferenceMetadata.Read(element, "UndefineProperties")}";
             var stripsRid = removed
                 .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Any(p => string.Equals(p, "RuntimeIdentifier", StringComparison.OrdinalIgnoreCase));

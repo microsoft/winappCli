@@ -387,7 +387,7 @@ internal sealed partial class ProjectRunService
 
     /// <summary>Extracts every listed project path (any type) from a classic <c>.sln</c> file.</summary>
     private static List<string> ExtractSlnAllProjectPaths(string text) =>
-        SlnAnyProjectPathRegex().Matches(text).Select(m => m.Groups[1].Value).ToList();
+        SolutionProjectReader.ExtractSlnAllProjectPaths(text);
 
     /// <summary>Extracts the relative <c>.csproj</c> paths listed in a classic <c>.sln</c> file.</summary>
     private static List<string> ExtractSlnProjectPaths(string text) =>
@@ -396,26 +396,8 @@ internal sealed partial class ProjectRunService
             .ToList();
 
     /// <summary>Extracts every listed project path (any type) from an XML <c>.slnx</c> solution.</summary>
-    private static List<string> ExtractSlnxAllProjectPaths(string text)
-    {
-        XDocument doc;
-        try
-        {
-            doc = XDocument.Parse(text);
-        }
-        catch (System.Xml.XmlException)
-        {
-            return [];
-        }
-
-        return doc.Descendants()
-            .Where(e => string.Equals(e.Name.LocalName, "Project", StringComparison.OrdinalIgnoreCase))
-            .Select(e => e.Attributes()
-                .FirstOrDefault(a => string.Equals(a.Name.LocalName, "Path", StringComparison.OrdinalIgnoreCase))?.Value)
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Select(p => p!)
-            .ToList();
-    }
+    private static List<string> ExtractSlnxAllProjectPaths(string text) =>
+        SolutionProjectReader.ExtractSlnxAllProjectPaths(text);
 
     /// <summary>Extracts the relative <c>.csproj</c> paths from an XML <c>.slnx</c> solution.</summary>
     private static List<string> ExtractSlnxProjectPaths(string text) =>
@@ -768,18 +750,8 @@ internal sealed partial class ProjectRunService
     /// under <paramref name="solutionDir"/>. Returns <c>null</c> when the path is malformed so callers skip
     /// it.
     /// </summary>
-    private static string? TryResolveSolutionRelativePath(string solutionDir, string relative)
-    {
-        try
-        {
-            var normalized = relative.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
-            return Path.GetFullPath(Path.Combine(solutionDir, normalized));
-        }
-        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
-        {
-            return null;
-        }
-    }
+    private static string? TryResolveSolutionRelativePath(string solutionDir, string relative) =>
+        SolutionProjectReader.TryResolveRelativePath(solutionDir, relative);
 
     /// <summary>De-duplicates absolute project paths (case-insensitive) into <see cref="FileInfo"/> entries, preserving first-seen order.</summary>
     private static List<FileInfo> DistinctProjectFiles(IEnumerable<string> fullPaths)

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.IO;
+using Windows.Win32;
 
 namespace WinApp.Cli.Helpers;
 
@@ -103,22 +104,325 @@ internal static class PathSafety
 
         // Check boundary itself first — a reparse-point boundary would make
         // every descendant probe silently follow it.
-        if (IsReparseOrProbeUnknown(normalizedBoundary))
+        return WalkForReparsePoint(normalizedBoundary, normalizedPath);
+    }
+
+    /// <summary>
+    /// True when reaching <paramref name="path"/> from <paramref name="root"/> traverses a
+    /// reparse point (symlink or junction).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Project files, solutions, and lockfiles all live in the repository, so cloning a
+    /// repository is enough to choose the paths this tool resolves. A relative path is
+    /// otherwise harmless, but a directory symlink checked into the repository can turn
+    /// <c>libs\Lib\Lib.csproj</c> into a location on an SMB share, and merely probing it
+    /// authenticates to whoever answers. Reparse points are detected by attribute, before
+    /// any call that would follow them.
+    /// </para>
+    /// <para>
+    /// Unlike <see cref="HasReparsePointOnPath"/> this imposes no containment requirement —
+    /// a solution in <c>src\</c> legitimately lists <c>..\libs\Lib\Lib.csproj</c> — so the
+    /// walk starts at the deepest directory <paramref name="root"/> and
+    /// <paramref name="path"/> share.
+    /// </para>
+    /// <para>
+    /// A network <paramref name="root"/> returns <c>false</c>: the caller selected that
+    /// location deliberately, everything beneath it is already remote, and there is no
+    /// local-to-network transition left to prevent.
+    /// </para>
+    /// </remarks>
+    public static bool CrossesReparsePoint(string path, string root)
+    {
+        string fullPath;
+        string fullRoot;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+            fullRoot = Path.GetFullPath(root);
+        }
+        catch
         {
             return true;
         }
 
-        if (isBoundaryItself)
+        if (IsNetworkPath(fullRoot))
         {
             return false;
         }
 
-        var remainder = normalizedPath.Substring(normalizedBoundary.Length);
+        // A local root can only reach the network by being redirected, and every
+        // redirection below is a reparse point the walk would catch. A path that is
+        // already network-shaped got there some other way; refuse it outright.
+        if (IsNetworkPath(fullPath))
+        {
+            return true;
+        }
+
+        string? start = DeepestCommonAncestor(
+            NormalizeForContainment(fullRoot),
+            NormalizeForContainment(fullPath));
+        if (start is null)
+        {
+            // Different volumes: no ancestor inside the caller's tree to start from.
+            return true;
+        }
+
+        return WalkForReparsePoint(start, NormalizeForContainment(fullPath));
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> itself is a reparse point (junction/symlink), without
+    /// following it, or is network-shaped. Unlike <see cref="CrossesReparsePoint"/> this checks
+    /// only the single node, so a package folder a developer relocated with a junction can be
+    /// trusted while a redirected child beneath it is still rejected.
+    /// </summary>
+    public static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            string full = Path.GetFullPath(path);
+            return IsNetworkPath(full) || IsReparseOrProbeUnknown(NormalizeForContainment(full));
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Whether any component of <paramref name="path"/> is a link that resolves to a
+    /// network location. Unlike <see cref="IsNetworkPath"/>, which reads the path as
+    /// written, this inspects each redirection without opening its target. A link at
+    /// <c>D:\packages</c> pointing at <c>\\server\share</c> is not network-shaped as a
+    /// string, but reading through it can authenticate outward.
+    /// </summary>
+    /// <remarks>
+    /// Redirections that leave the machine or cannot be safely resolved are refused.
+    /// A junction that relocates a package cache onto another local volume is a normal
+    /// developer setup, which is why this is not simply a reparse-point check — that is
+    /// <see cref="CrossesReparsePoint"/>, and applying it to a user-configured location
+    /// outside the repository would reject ordinary machines.
+    /// </remarks>
+    public static bool RedirectsToNetwork(string path) =>
+        RedirectsToNetwork(path, static info => info.LinkTarget);
+
+    internal static bool RedirectsToNetwork(
+        string path, Func<FileSystemInfo, string?> readLinkTarget)
+    {
+        const int MaxLinkHops = 64;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int linkHops = 0;
+        try
+        {
+            while (true)
+            {
+                string? full = NormalizeLocalPathWithoutProbing(path);
+                if (full is null || !visited.Add(full))
+                {
+                    return true;
+                }
+
+                string? root = Path.GetPathRoot(full);
+                if (string.IsNullOrEmpty(root))
+                {
+                    return true;
+                }
+
+                string current = root;
+                string[] segments = full[root.Length..].Split(
+                    [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                    StringSplitOptions.RemoveEmptyEntries);
+                bool redirected = false;
+                for (int index = 0; index < segments.Length; index++)
+                {
+                    current = Path.Combine(current, segments[index]);
+                    FileAttributes attributes;
+                    try
+                    {
+                        attributes = File.GetAttributes(current);
+                    }
+                    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                    {
+                        return false;
+                    }
+                    if ((attributes & FileAttributes.ReparsePoint) == 0)
+                    {
+                        continue;
+                    }
+                    if (++linkHops > MaxLinkHops)
+                    {
+                        return true;
+                    }
+
+                    FileSystemInfo info = attributes.HasFlag(FileAttributes.Directory)
+                        ? new DirectoryInfo(current)
+                        : new FileInfo(current);
+                    // Even ResolveLinkTarget(false) constructs a target FileSystemInfo,
+                    // which can probe short names. LinkTarget only reads the reparse data.
+                    string? target = readLinkTarget(info);
+                    if (string.IsNullOrEmpty(target) || IsNetworkPath(target))
+                    {
+                        return true;
+                    }
+
+                    // The target's parents can themselves be links. Restart from its
+                    // root before probing them, keeping the original unvisited suffix.
+                    path = Path.Combine(
+                        Path.IsPathRooted(target) ? target : Path.Combine(Path.GetDirectoryName(current)!, target),
+                        string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
+                    redirected = true;
+                    break;
+                }
+                if (!redirected)
+                {
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {
+            return true;
+        }
+    }
+
+    internal static unsafe string? NormalizeLocalPathWithoutProbing(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Contains('\0') || IsNetworkPath(path))
+        {
+            return null;
+        }
+
+        // Unlike Path.GetFullPath on ordinary Windows paths, GetFullPathName does
+        // not expand 8.3 names by calling GetLongPathName on an unchecked target.
+        Span<char> buffer = stackalloc char[512];
+        fixed (char* input = path)
+        {
+            uint length;
+            fixed (char* output = buffer)
+            {
+                length = PInvoke.GetFullPathName(input, (uint)buffer.Length, output, null);
+            }
+            if (length >= buffer.Length && length <= 32768)
+            {
+                buffer = new char[length];
+                fixed (char* output = buffer)
+                {
+                    length = PInvoke.GetFullPathName(input, (uint)buffer.Length, output, null);
+                }
+            }
+            if (length == 0 || length >= buffer.Length)
+            {
+                return null;
+            }
+            string full = new(buffer[..(int)length]);
+            string? root = Path.GetPathRoot(full);
+            if (string.IsNullOrEmpty(root) || IsNetworkPath(full))
+            {
+                return null;
+            }
+            string extendedRoot = root.StartsWith(@"\\?\", StringComparison.Ordinal)
+                ? root
+                : root.StartsWith(@"\\.\", StringComparison.Ordinal) ? @"\\?\" + root[4..] : @"\\?\" + root;
+            // With an extended base and relative suffix, .NET removes dot segments
+            // lexically. The prefix also prevents later attribute reads expanding ~.
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(full[root.Length..], extendedRoot));
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> is <paramref name="root"/> itself or lives beneath
+    /// it. Pure string containment: this answers "does the repository control this location",
+    /// not "is it safe to touch" — pair it with <see cref="CrossesReparsePoint"/> for that.
+    /// </summary>
+    public static bool IsUnder(string path, string root)
+    {
+        string normalizedPath;
+        string normalizedRoot;
+        try
+        {
+            normalizedPath = NormalizeForContainment(Path.GetFullPath(path));
+            normalizedRoot = NormalizeForContainment(Path.GetFullPath(root));
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string rootWithSep = normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? normalizedRoot
+            : normalizedRoot + Path.DirectorySeparatorChar;
+        return normalizedPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The deepest directory both paths share, or <c>null</c> when they do not share a
+    /// volume. Both inputs must already be absolute and normalized.
+    /// </summary>
+    private static string? DeepestCommonAncestor(string a, string b)
+    {
+        var separators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+        var aParts = a.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+        var bParts = b.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+
+        int shared = 0;
+        while (shared < aParts.Length
+            && shared < bParts.Length
+            && string.Equals(aParts[shared], bParts[shared], StringComparison.OrdinalIgnoreCase))
+        {
+            shared++;
+        }
+
+        if (shared == 0)
+        {
+            return null;
+        }
+
+        // Rebuild from the original string so the volume keeps its trailing separator
+        // (`C:` alone is drive-relative and would probe the wrong path).
+        int consumed = 0;
+        int index = 0;
+        while (index < a.Length && consumed < shared)
+        {
+            if (separators.Contains(a[index]))
+            {
+                index++;
+                continue;
+            }
+            while (index < a.Length && !separators.Contains(a[index]))
+            {
+                index++;
+            }
+            consumed++;
+        }
+
+        return NormalizeForContainment(a.Substring(0, index));
+    }
+
+    /// <summary>
+    /// Walks each path component from <paramref name="start"/> down to
+    /// <paramref name="target"/>, returning true at the first reparse point.
+    /// <paramref name="target"/> must live under <paramref name="start"/>.
+    /// </summary>
+    private static bool WalkForReparsePoint(string start, string target)
+    {
+        if (IsReparseOrProbeUnknown(start))
+        {
+            return true;
+        }
+
+        var remainder = target.Substring(Math.Min(start.Length, target.Length));
         var segments = remainder.Split(
             new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
             StringSplitOptions.RemoveEmptyEntries);
 
-        var current = normalizedBoundary;
+        var current = start;
         foreach (var seg in segments)
         {
             current = Path.Combine(current, seg);
@@ -131,8 +435,11 @@ internal static class PathSafety
         return false;
     }
 
-    // True for UNC / network paths (`\\server\share`, `\\?\UNC\…`,
-    // `\\.\UNC\…`). Local DOS device paths (`\\?\C:\…`) are not network.
+    // True for any path that is not plainly a local drive: UNC (`\\server\share`,
+    // `\\?\UNC\…`, `\\.\UNC\…`) and every other DOS device path. Only a drive letter
+    // (`\\?\C:\…`) or a volume GUID (`\\?\Volume{…}\…`) after the device prefix names
+    // local storage; `\\?\GLOBALROOT\Device\Mup\server\share` reaches the SMB redirector
+    // just as a UNC path does, so an allow-list is the only safe reading.
     public static bool IsNetworkPath(string path)
     {
         if (string.IsNullOrEmpty(path))
@@ -142,28 +449,26 @@ internal static class PathSafety
 
         var p = path.Replace('/', '\\');
 
+        if (p.Length < 3 || p[0] != '\\' || p[1] != '\\')
+        {
+            return false;
+        }
+
         // Plain UNC: \\server\share…
-        if (p.Length >= 3
-            && p[0] == '\\' && p[1] == '\\'
-            && p[2] != '?' && p[2] != '.')
+        if (p[2] != '?' && p[2] != '.')
         {
             return true;
         }
 
-        // Device-prefixed UNC: \\?\UNC\… or \\.\UNC\…
-        if (p.Length >= 8
-            && p[0] == '\\' && p[1] == '\\'
-            && (p[2] == '?' || p[2] == '.')
-            && p[3] == '\\'
-            && (p[4] == 'U' || p[4] == 'u')
-            && (p[5] == 'N' || p[5] == 'n')
-            && (p[6] == 'C' || p[6] == 'c')
-            && p[7] == '\\')
+        // Device path: \\?\<device>… or \\.\<device>…
+        if (p.Length < 4 || p[3] != '\\')
         {
             return true;
         }
-
-        return false;
+        var device = p.Substring(4);
+        bool isDriveLetter = device.Length >= 2 && char.IsAsciiLetter(device[0]) && device[1] == ':';
+        bool isVolumeGuid = device.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase);
+        return !isDriveLetter && !isVolumeGuid;
     }
 
     // Preserve `C:\`; `C:` is drive-relative and would probe the wrong path.
@@ -253,4 +558,47 @@ internal static class PathSafety
             throw;
         }
     }
+
+    /// <summary>
+    /// Synchronous counterpart to <see cref="AtomicWriteAllTextAsync"/>: stage to a sibling
+    /// temp file, flush to disk, rename over the destination. Defaults to UTF-8 without a BOM.
+    /// </summary>
+    public static void AtomicWriteAllText(string path, string contents, System.Text.Encoding? encoding = null)
+    {
+        var dir = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(dir))
+        {
+            dir = Directory.GetCurrentDirectory();
+        }
+        var tmp = Path.Combine(dir, Path.GetFileName(path) + ".tmp-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 4096))
+            using (var sw = new StreamWriter(fs, encoding ?? Utf8NoBom))
+            {
+                sw.Write(contents);
+                sw.Flush();
+                fs.Flush(flushToDisk: true);
+            }
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(tmp))
+                {
+                    File.Delete(tmp);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best-effort cleanup: a temp file we cannot delete is not worth
+                // masking the original write failure, which is rethrown below.
+            }
+            throw;
+        }
+    }
+
+    private static readonly System.Text.UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 }

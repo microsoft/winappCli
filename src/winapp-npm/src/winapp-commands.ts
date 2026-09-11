@@ -305,6 +305,216 @@ export async function embedIdentity(options: EmbedIdentityOptions): Promise<Wina
 }
 
 // ---------------------------------------------------------------------------
+// find-api
+// ---------------------------------------------------------------------------
+
+export interface FindApiOptions extends CommonOptions {
+  /** What to search for, e.g. "acrylic brush" or "NavigationView". Matched lexically against type and member names across the project's indexed API metadata. Pass several quoted queries to run them in a single call. */
+  query?: string | string[];
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum number of namespace-grouped results to return. */
+  max?: number;
+  /** Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. */
+  project?: string;
+  /** Project directory to query (defaults to the current directory). Used to locate the indexed project. */
+  projectDir?: string;
+}
+
+/**
+ * Agent-first: built primarily for AI coding agents to ground code generation in the API surface a project actually references instead of guessing (pair it with --json); it works just as well typed by hand. Search and inspect the Windows/WinRT API surface (types, members, enums) available to a project, resolved from its referenced .winmd/.dll metadata. The bare form searches; sub-verbs drill into a specific type or the index itself. Search, members, enums, and check-property each accept several subjects in one call — batch your lookups rather than issuing one call per question. The index is built from the project's restored NuGet/SDK packages and refreshed automatically when the project is restored.
+ */
+export async function findApi(options: FindApiOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['find-api'];
+  if (options.query) {
+    const queryArr = Array.isArray(options.query) ? options.query : [options.query];
+    args.push(...queryArr);
+  }
+  if (options.json) args.push('--json');
+  if (options.max !== undefined) args.push('--max', options.max.toString());
+  if (options.project) args.push('--project', options.project);
+  if (options.projectDir) args.push('--project-dir', options.projectDir);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// find-api check-property
+// ---------------------------------------------------------------------------
+
+export interface FindApiCheckPropertyOptions extends CommonOptions {
+  /** The type to check. */
+  type?: string;
+  /** One or more property names to validate on the type. Pass several to check them all in a single call. */
+  property?: string | string[];
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. */
+  project?: string;
+  /** Project directory to query (defaults to the current directory). Used to locate the indexed project. */
+  projectDir?: string;
+}
+
+/**
+ * Validate that one or more properties exist on a type before you write XAML/code against it. Pass several property names to check them in one call. On a miss, suggests similar properties on the type, attached-property forms, and other types that declare the property. Exits non-zero when any property does not exist.
+ */
+export async function findApiCheckProperty(options: FindApiCheckPropertyOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['find-api', 'check-property'];
+  if (options.type) args.push(options.type);
+  if (options.property) {
+    const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
+    args.push(...propertyArr);
+  }
+  if (options.json) args.push('--json');
+  if (options.project) args.push('--project', options.project);
+  if (options.projectDir) args.push('--project-dir', options.projectDir);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// find-api enums
+// ---------------------------------------------------------------------------
+
+export interface FindApiEnumsOptions extends CommonOptions {
+  /** One or more enum types to list, e.g. Symbol or Microsoft.UI.Xaml.Controls.Symbol. Pass several to list them in a single call. */
+  type?: string | string[];
+  /** Only list values whose name contains this text (case-insensitive), e.g. --filter folder. The unfiltered total is still reported. Prefer listing the whole enum once over repeated filtered calls — most enums are small enough that the full list is cheaper than several narrowed lookups. */
+  filter?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. */
+  project?: string;
+  /** Project directory to query (defaults to the current directory). Used to locate the indexed project. */
+  projectDir?: string;
+}
+
+/**
+ * List the values of one or more enum types. Pass several type names to list them in one call. Exits non-zero when a type exists but is not an enum.
+ */
+export async function findApiEnums(options: FindApiEnumsOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['find-api', 'enums'];
+  if (options.type) {
+    const typeArr = Array.isArray(options.type) ? options.type : [options.type];
+    args.push(...typeArr);
+  }
+  if (options.filter) args.push('--filter', options.filter);
+  if (options.json) args.push('--json');
+  if (options.project) args.push('--project', options.project);
+  if (options.projectDir) args.push('--project-dir', options.projectDir);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// find-api members
+// ---------------------------------------------------------------------------
+
+export interface FindApiMembersOptions extends CommonOptions {
+  /** One or more types to inspect. Accepts short names (NavigationView) or fully-qualified names (Microsoft.UI.Xaml.Controls.NavigationView). Pass several to resolve them in a single call. */
+  type?: string | string[];
+  /** List the complete member surface: include dependency-property identifier statics (BackgroundProperty) and per-member descriptions, both of which an unfiltered listing omits to save context. Implied by --verbose, and usable together with --json (--verbose is not). */
+  all?: boolean;
+  /** Only list members whose name contains this text (case-insensitive), e.g. --filter background. Totals for the unfiltered type are still reported. Applies to every type in the call. */
+  filter?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. */
+  project?: string;
+  /** Project directory to query (defaults to the current directory). Used to locate the indexed project. */
+  projectDir?: string;
+}
+
+/**
+ * List the properties, events, and methods of one or more types (with XML-doc descriptions and inherited members), resolved from the project's indexed API metadata. Pass several type names to inspect them all in one call.
+ */
+export async function findApiMembers(options: FindApiMembersOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['find-api', 'members'];
+  if (options.type) {
+    const typeArr = Array.isArray(options.type) ? options.type : [options.type];
+    args.push(...typeArr);
+  }
+  if (options.all) args.push('--all');
+  if (options.filter) args.push('--filter', options.filter);
+  if (options.json) args.push('--json');
+  if (options.project) args.push('--project', options.project);
+  if (options.projectDir) args.push('--project-dir', options.projectDir);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// find-api packages
+// ---------------------------------------------------------------------------
+
+export interface FindApiPackagesOptions extends CommonOptions {
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. */
+  project?: string;
+  /** Project directory to query (defaults to the current directory). Used to locate the indexed project. */
+  projectDir?: string;
+}
+
+/**
+ * List the NuGet/SDK packages whose API metadata is indexed for a project, with per-package type and member counts.
+ */
+export async function findApiPackages(options: FindApiPackagesOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['find-api', 'packages'];
+  if (options.json) args.push('--json');
+  if (options.project) args.push('--project', options.project);
+  if (options.projectDir) args.push('--project-dir', options.projectDir);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// find-api refresh
+// ---------------------------------------------------------------------------
+
+export interface FindApiRefreshOptions extends CommonOptions {
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. */
+  project?: string;
+  /** Project directory to query (defaults to the current directory). Used to locate the indexed project. */
+  projectDir?: string;
+  /** Recursively discover and index every project under the directory instead of just the top-level project(s). */
+  scan?: boolean;
+}
+
+/**
+ * Rebuild the API metadata index for a project from its restored packages. Runs automatically when a project is restored; run it manually to force a re-index or to index a project for the first time.
+ */
+export async function findApiRefresh(options: FindApiRefreshOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['find-api', 'refresh'];
+  if (options.json) args.push('--json');
+  if (options.project) args.push('--project', options.project);
+  if (options.projectDir) args.push('--project-dir', options.projectDir);
+  if (options.scan) args.push('--scan');
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// find-api stats
+// ---------------------------------------------------------------------------
+
+export interface FindApiStatsOptions extends CommonOptions {
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project name to query (matches the .csproj/.vcxproj name), or 'sdk' to query the machine-wide Windows SDK scope instead of a project. */
+  project?: string;
+  /** Project directory to query (defaults to the current directory). Used to locate the indexed project. */
+  projectDir?: string;
+}
+
+/**
+ * Show aggregate statistics for a project's API index: package, namespace, type, member, and .winmd file counts.
+ */
+export async function findApiStats(options: FindApiStatsOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['find-api', 'stats'];
+  if (options.json) args.push('--json');
+  if (options.project) args.push('--project', options.project);
+  if (options.projectDir) args.push('--project-dir', options.projectDir);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // find-ui
 // ---------------------------------------------------------------------------
 
@@ -326,7 +536,7 @@ export interface FindUiOptions extends CommonOptions {
 }
 
 /**
- * Search WinUI controls and samples for a working code example. WinUI-only: covers the WinUI 3 Gallery and the Windows Community Toolkit by default (plus the microsoft-ui-reactor ReactorGallery as an opt-in source via --source reactor); not WPF/WinForms. A corpus is baked into the CLI, so this works offline and behind proxies; when GitHub is reachable it refreshes to the latest samples and caches them per-user.
+ * Agent-first: built primarily for AI coding agents to pull a real WinUI sample into the editor instead of inventing markup (pair it with --json); it works just as well typed by hand. Search WinUI controls and samples for a working code example. WinUI-only: covers the WinUI 3 Gallery and the Windows Community Toolkit by default (plus the microsoft-ui-reactor ReactorGallery as an opt-in source via --source reactor); not WPF/WinForms. A corpus is baked into the CLI, so this works offline and behind proxies; when GitHub is reachable it refreshes to the latest samples and caches them per-user.
  */
 export async function findUi(options: FindUiOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-ui'];

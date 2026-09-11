@@ -26,6 +26,7 @@ Telemetry **is collected** when using any winapp CLI command, including:
 - `winapp tool`
 - `winapp update`
 - `winapp find-ui`
+- `winapp find-api`
 
 ## How to opt out
 
@@ -88,6 +89,7 @@ The telemetry feature collects the following data:
 | Caller | The value of the `WINAPP_CLI_CALLER` environment variable, if set. This allows wrapper tools (like the npm package) to identify themselves. |
 | Project context | For `init`, `run`, `restore`, `update`, and `package`, a separate correlated event records bounded categories describing the project family (`dotnet`, `node`, `cpp`, `rust`, `dart`, `hybrid`, `mixed`, or `unknown`), recognized app framework (such as `winui`, `wpf`, `winforms`, `maui`, `electron`, `tauri`, `flutter`, `react-native-windows`, `avalonia`, `uwp`, `windows-app-sdk`, or `other-dotnet`), target kind, detection source, confidence, packaging model, and whether `run` used project or folder execution. It doesn't include project names, paths, repositories, versions, dependency lists, or source. |
 | `find-ui` usage | For the `winapp find-ui` command only, an additional usage event with non-personal, bounded values: the mode (`search`, `fetch`, or `list`); the selected `--source` (a fixed value — `gallery`, `toolkit`, `reactor`, or `core`); the catalog scenario IDs fetched (e.g. `gallery-tabview-1`), which identify built-in WinUI sample controls, never your code; whether `--json` was used; and result/ID counts. The free-form search query is **never** collected, and any requested IDs that don't match a real catalog entry are counted but **not** collected as text. |
+| `find-api` usage | For the `winapp find-api` command only, an additional usage event with non-personal, bounded values: the verb (a fixed value — `search`, `members`, `check-property`, `types`, `enums`, `namespaces`, `packages`, `stats`, `projects`, or `refresh`); whether `--json` was used; a result count; and whether the lookup found a match. The free-form arguments — the search query and any type, namespace, or property name — are **never** collected. |
 | `winapp ui` desktop coordination | For `winapp ui` commands only, a privacy-minimized summary of how the command shared the desktop with other UI workflows: how the workflow identity was resolved (`Workflow` or `Anonymous` — never the identity itself), the coordination mode (`Observe`, `TurnShared`, or `DesktopExclusive`), how the turn was obtained (new, continuation, queued, handoff-after-idle, or detached), the outcome (completed, cancelled, coordination failure, or corruption recovery), and **coarse buckets** for how long this command waited for the desktop, how many commands were queued, and how long the owning workflow had held its turn. |
 
 ### Sanitization of sensitive data
