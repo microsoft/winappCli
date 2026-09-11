@@ -896,7 +896,7 @@ export interface RunOptions extends CommonOptions {
   noLaunch?: boolean;
   /** Project and single-file mode: skip restoring before building. Ignored in folder mode. */
   noRestore?: boolean;
-  /** Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory is used, and winapp keeps it matching the build — a file your app no longer contains is removed from it on the next run. A directory you name here is only ever added to: winapp never deletes anything from it, so point it at a fresh path when files removed from your app must disappear from the layout. */
+  /** Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. */
   outputAppxDirectory?: string;
   /** Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. */
   project?: string;

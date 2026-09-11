@@ -81,7 +81,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         OutputAppXDirectoryOption = new Option<DirectoryInfo?>("--output-appx-directory")
         {
-            Description = "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory is used, and winapp keeps it matching the build — a file your app no longer contains is removed from it on the next run. A directory you name here is only ever added to: winapp never deletes anything from it, so point it at a fresh path when files removed from your app must disappear from the layout."
+            Description = "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used."
         };
 
         ManagedAppXDirectoryOption = new Option<DirectoryInfo?>("--managed-appx-directory")
