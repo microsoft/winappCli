@@ -36,7 +36,7 @@ internal sealed partial class ProjectRunService
                 options,
                 workingDirectory,
                 cancellationToken,
-                requireConcreteRid: true);
+                aotPublish: true);
 
         // A build-context pre-restore does not cover publish-conditional dependencies.
         var publish = await RunAotPublishPassAsync(
@@ -101,46 +101,75 @@ internal sealed partial class ProjectRunService
         Action<string> writeLine;
         if (options.Json || !logger.IsEnabled(LogLevel.Information))
         {
-            writeLine = static line => Console.Error.WriteLine(line);
+            writeLine = static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line));
         }
         else
         {
             ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Publishing Native AOT...");
-            var writeLock = new object();
-            writeLine = line =>
-            {
-                lock (writeLock)
-                {
-                    ansiConsole.WriteLine(line);
-                }
-            };
+            writeLine = CreateSynchronizedRedactedLineWriter();
         }
 
         var propertyJsonStarted = false;
+        string? pendingOpeningBrace = null;
         var outputLock = new object();
         void WritePublishOutput(string line)
         {
             lock (outputLock)
             {
-                if (!propertyJsonStarted &&
-                    line.TrimStart().StartsWith('{'))
+                if (propertyJsonStarted)
+                {
+                    return;
+                }
+                var trimmed = line.Trim();
+                if (pendingOpeningBrace is not null)
+                {
+                    if (trimmed.StartsWith("\"Properties\":", StringComparison.Ordinal))
+                    {
+                        pendingOpeningBrace = null;
+                        propertyJsonStarted = true;
+                        return;
+                    }
+                    writeLine(pendingOpeningBrace);
+                    pendingOpeningBrace = null;
+                }
+                // MSBuild ends stdout with its Properties envelope. A project message beginning
+                // with '{' is not enough evidence to hide it or any diagnostics that follow.
+                if (trimmed == "{")
+                {
+                    pendingOpeningBrace = line;
+                }
+                else if (trimmed.StartsWith('{') &&
+                    trimmed[1..].TrimStart().StartsWith("\"Properties\":", StringComparison.Ordinal))
                 {
                     propertyJsonStarted = true;
                 }
-                if (!propertyJsonStarted)
+                else
                 {
                     writeLine(line);
                 }
             }
         }
 
-        return await dotNetService.RunDotnetCommandAsync(
-            workingDirectory,
-            arguments,
-            BuildAotPublishEnvironment(),
-            WritePublishOutput,
-            writeLine,
-            cancellationToken);
+        try
+        {
+            return await dotNetService.RunDotnetCommandAsync(
+                workingDirectory,
+                arguments,
+                BuildAotPublishEnvironment(),
+                WritePublishOutput,
+                writeLine,
+                cancellationToken);
+        }
+        finally
+        {
+            lock (outputLock)
+            {
+                if (pendingOpeningBrace is not null)
+                {
+                    writeLine(pendingOpeningBrace);
+                }
+            }
+        }
     }
 
     internal static IReadOnlyDictionary<string, string>? BuildAotPublishEnvironment(

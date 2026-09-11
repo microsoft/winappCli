@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Spectre.Console.Testing;
 using WinApp.Cli.Helpers;
@@ -14,6 +15,7 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public sealed class ProjectRunServiceAotTests
 {
+    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
     private DirectoryInfo _tempDirectory = null!;
     private readonly List<TestConsole> _consoles = [];
 
@@ -494,6 +496,97 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false, LogLevel.Information)]
+    [DataRow(false, LogLevel.Warning)]
+    [DataRow(true, LogLevel.None)]
+    public async Task PublishAot_RedactsStdoutAndStderr(bool json, LogLevel level)
+    {
+        var project = WriteProject();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetArgumentListHandler = _ => (
+                17,
+                "PUBLISH-STDOUT https://user:STDOUT_SECRET@feed.example/index.json",
+                "PUBLISH-STDERR https://feed.example/index.json?sig=STDERR_SECRET"),
+        };
+        using var logger = new LevelLogger<ProjectRunService>(level);
+        var service = NewService(dotnet, logger: logger);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            var outcome = await service.PublishAotAndResolveAsync(
+                project, Options() with { Json = json }, CancellationToken.None);
+            Assert.AreEqual(17, outcome.ExitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        var consoleOutput = _consoles.Last().Output;
+        var output = json || level == LogLevel.Warning ? stderr.ToString() : consoleOutput;
+        StringAssert.Contains(output, "PUBLISH-STDOUT");
+        StringAssert.Contains(output, "PUBLISH-STDERR");
+        Assert.IsFalse(output.Contains("STDOUT_SECRET", StringComparison.Ordinal));
+        Assert.IsFalse(output.Contains("STDERR_SECRET", StringComparison.Ordinal));
+        if (json || level == LogLevel.Warning)
+        {
+            Assert.AreEqual(string.Empty, consoleOutput);
+        }
+    }
+
+    [TestMethod]
+    public async Task PublishAot_BracePrefixedMessagesDoNotHideLaterErrors()
+    {
+        var project = WriteProject();
+        const string diagnostics = "{starting publish}\nerror CS1001: expected identifier\n{\nerror CS1002: expected semicolon\n{";
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetArgumentListHandler = _ => (17, diagnostics, string.Empty),
+        };
+        using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = NewService(dotnet, logger: logger);
+
+        var outcome = await service.PublishAotAndResolveAsync(
+            project, Options(), CancellationToken.None);
+
+        Assert.AreEqual(17, outcome.ExitCode);
+        StringAssert.Contains(_consoles.Last().Output, diagnostics.Replace("\n", Environment.NewLine, StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PublishAot_HidesOnlyTheFinalPropertiesEnvelope(bool indented)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        var properties = PropertyJson(project, assets, publishAot: true, packaging: "None");
+        if (indented)
+        {
+            using var parsed = JsonDocument.Parse(properties);
+            properties = JsonSerializer.Serialize(parsed.RootElement, IndentedJsonOptions);
+        }
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetArgumentListHandler = _ => (0, "Publish diagnostic\n" + properties, string.Empty),
+        };
+        using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = NewService(dotnet, logger: logger);
+
+        var outcome = await service.PublishAotAndResolveAsync(
+            project, Options(), CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        StringAssert.Contains(_consoles.Last().Output, "Publish diagnostic");
+        Assert.IsFalse(_consoles.Last().Output.Contains("\"Properties\"", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void PublishEnvironment_AddsInstalledVsWhereDirectoryOnce()
     {
         var installer = _tempDirectory.CreateSubdirectory("Installer");
@@ -522,7 +615,8 @@ public sealed class ProjectRunServiceAotTests
 
     private ProjectRunService NewService(
         FakeDotNetService dotnet,
-        FakeCsWinRTMetadataShimService? shim = null)
+        FakeCsWinRTMetadataShimService? shim = null,
+        ILogger<ProjectRunService>? logger = null)
     {
         var console = new TestConsole();
         _consoles.Add(console);
@@ -533,7 +627,7 @@ public sealed class ProjectRunServiceAotTests
                 dotnet),
             shim ?? new FakeCsWinRTMetadataShimService(),
             console,
-            NullLogger<ProjectRunService>.Instance);
+            logger ?? NullLogger<ProjectRunService>.Instance);
     }
 
     private static ProjectRunOptions Options(bool noRestore = false) =>
