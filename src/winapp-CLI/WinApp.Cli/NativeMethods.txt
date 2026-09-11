@@ -43,6 +43,7 @@ PROCESS_ACCESS_RIGHTS
 DBG_CONTINUE
 DBG_EXCEPTION_NOT_HANDLED
 GetShortPathName
+GetFullPathName
 GetForegroundWindow
 SetForegroundWindow
 IsIconic
