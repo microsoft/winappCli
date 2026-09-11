@@ -143,10 +143,13 @@ public class MsixServiceIdentityTests : BaseCommandTests
         return recipePath;
     }
 
-    private Task InvokeCopyFilesFromRecipeAsync(FileInfo recipe, DirectoryInfo outputDir)
+    private Task InvokeCopyFilesFromRecipeAsync(
+        FileInfo recipe,
+        DirectoryInfo outputDir,
+        CancellationToken cancellationToken = default)
     {
         return (Task)CopyFilesFromRecipeMethod.Invoke(
-            null, [recipe, outputDir, TestTaskContext, CancellationToken.None])!;
+            null, [recipe, outputDir, TestTaskContext, cancellationToken])!;
     }
 
     private void InvokeSyncFilesToOutputDirectory(DirectoryInfo input, DirectoryInfo output, FileInfo manifest)
@@ -312,6 +315,66 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsFalse(File.Exists(Path.Join(outputDir.FullName, "App.dll")));
         Assert.IsTrue(File.Exists(Path.Join(outputDir.FullName, "App.exe")));
         Assert.IsTrue(File.Exists(Path.Join(outputDir.FullName, "user.txt")));
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_FailedCopyRetainsOnlyStagedOwnership()
+    {
+        var manifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        var source = Path.Join(_tempDirectory.FullName, "source.bin");
+        var lockedSource = Path.Join(_tempDirectory.FullName, "locked.bin");
+        await File.WriteAllTextAsync(manifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(source, "new", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(lockedSource, "locked", TestContext.CancellationToken);
+        var output = _tempDirectory.CreateSubdirectory("layout");
+        var recipe = new FileInfo(WriteRecipe(manifest, (source, "previous.bin")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+        var untouched = Path.Join(output.FullName, "untouched.bin");
+        var blocked = Path.Join(output.FullName, "blocked.bin");
+        await File.WriteAllTextAsync(untouched, "keep untouched", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(blocked, "keep blocked", TestContext.CancellationToken);
+        recipe = new FileInfo(WriteRecipe(
+            manifest,
+            (source, "completed.bin"),
+            (lockedSource, "blocked.bin"),
+            (source, "previous.bin"),
+            (source, "untouched.bin")));
+
+        using (var locked = new FileStream(lockedSource, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => InvokeCopyFilesFromRecipeAsync(recipe, output));
+        }
+
+        Assert.IsTrue(File.Exists(Path.Join(output.FullName, "completed.bin")));
+        recipe = new FileInfo(WriteRecipe(manifest));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "completed.bin")), "Completed copies from a failed attempt must remain tracked.");
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "previous.bin")), "Previously owned files must remain tracked even if not reached.");
+        Assert.AreEqual("keep blocked", await File.ReadAllTextAsync(blocked, TestContext.CancellationToken));
+        Assert.AreEqual("keep untouched", await File.ReadAllTextAsync(untouched, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_PreCanceledAttemptPreservesExistingOwnership()
+    {
+        var manifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        var source = Path.Join(_tempDirectory.FullName, "source.bin");
+        await File.WriteAllTextAsync(manifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(source, "old", TestContext.CancellationToken);
+        var output = _tempDirectory.CreateSubdirectory("layout");
+        var recipe = new FileInfo(WriteRecipe(manifest, (source, "old.bin")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+        recipe = new FileInfo(WriteRecipe(manifest));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => InvokeCopyFilesFromRecipeAsync(recipe, output, cancellation.Token));
+
+        Assert.IsTrue(File.Exists(Path.Join(output.FullName, "old.bin")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "old.bin")));
     }
 
     // ---- SyncFilesToOutputDirectory -----------------------------------------------

@@ -433,30 +433,41 @@ internal partial class MsixService
         var currentFiles = mappings.Keys
             .Select(path => Path.GetRelativePath(outputDir.FullName, path))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var deleted = ReconcilePreviousRecipeFiles(outputDir, currentFiles);
+        var (deleted, stagedFiles) = ReconcilePreviousRecipeFiles(outputDir, currentFiles);
 
         int copied = 0, skipped = 0;
-        foreach (var (destPath, source) in mappings)
+        try
         {
-            var destFile = new FileInfo(destPath);
-
-            // Skip unchanged files (same size and timestamp)
-            if (destFile.Exists)
+            foreach (var (destPath, source) in mappings)
             {
-                if (destFile.Length == source.Length &&
+                cancellationToken.ThrowIfCancellationRequested();
+                var destFile = new FileInfo(destPath);
+                var relativePath = Path.GetRelativePath(outputDir.FullName, destPath);
+
+                // Skip unchanged files (same size and timestamp)
+                if (destFile.Exists &&
+                    destFile.Length == source.Length &&
                     destFile.LastWriteTimeUtc == source.LastWriteTimeUtc)
                 {
+                    stagedFiles.Add(relativePath);
                     skipped++;
                     continue;
                 }
-            }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
-            source.CopyTo(destPath, overwrite: true);
-            copied++;
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+                source.CopyTo(destPath, overwrite: true);
+                stagedFiles.Add(relativePath);
+                copied++;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        finally
+        {
+            // Completed copies must remain owned after failure or cancellation; destinations
+            // that were never reached must not become eligible for deletion on the next run.
+            await WriteRecipeLayoutStateAsync(outputDir, stagedFiles, CancellationToken.None);
         }
 
-        await WriteRecipeLayoutStateAsync(outputDir, currentFiles, cancellationToken);
         taskContext.AddDebugMessage(
             $"{UiSymbols.Check} AppX layout from recipe: {copied} copied, {skipped} unchanged, {deleted} stale removed");
     }
@@ -513,14 +524,15 @@ internal partial class MsixService
         return destination;
     }
 
-    private static int ReconcilePreviousRecipeFiles(
+    private static (int Deleted, HashSet<string> RetainedFiles) ReconcilePreviousRecipeFiles(
         DirectoryInfo outputDir,
         HashSet<string> currentFiles)
     {
+        var retainedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var statePath = Path.Join(outputDir.FullName, RecipeLayoutStateFileName);
         if (!File.Exists(statePath))
         {
-            return 0;
+            return (0, retainedFiles);
         }
 
         var staleFiles = new List<string>();
@@ -536,6 +548,10 @@ internal partial class MsixService
                 if (!currentFiles.Contains(relativePath))
                 {
                     staleFiles.Add(relativePath);
+                }
+                else
+                {
+                    retainedFiles.Add(relativePath);
                 }
             }
         }
@@ -569,7 +585,7 @@ internal partial class MsixService
                 Directory.Delete(directory);
             }
         }
-        return deleted;
+        return (deleted, retainedFiles);
     }
 
     private static Task WriteRecipeLayoutStateAsync(
