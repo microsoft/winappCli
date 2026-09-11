@@ -90,6 +90,31 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    public async Task Record_OverwriteIsExplicitAndPassedToTheRecordingService()
+    {
+        var command = GetRequiredService<UiRecordCommand>();
+        var output = Path.Join(_tempDirectory.FullName, "overwrite.mp4");
+        await File.WriteAllTextAsync(output, "previous take");
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", output, "--overwrite", "--json"]);
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(_fakeRecording.LastRecordOptions!.Overwrite);
+    }
+
+    [TestMethod]
+    public async Task Record_OverwriteCaptureFailureLeavesTheExistingVideoUntouched()
+    {
+        var command = GetRequiredService<UiRecordCommand>();
+        var output = Path.Join(_tempDirectory.FullName, "failed-overwrite.mp4");
+        await File.WriteAllTextAsync(output, "previous take");
+        _fakeRecording.RecordException = new IOException("capture unavailable");
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", output, "--overwrite", "--json"]);
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual("previous take", await File.ReadAllTextAsync(output));
+    }
+
+    [TestMethod]
     public void Record_Frames_DerivedPathHandlesFramesExtension()
     {
         var outputPath = Path.Join(_tempDirectory.FullName, "capture.frames");

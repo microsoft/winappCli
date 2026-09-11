@@ -58,8 +58,15 @@ Does the project already have an appxmanifest.xml?
    │  │  └─ winapp sign <file> <cert>
    │  └─ With Azure Trusted Signing (cloud-managed identity, no local PFX)?
    │     └─ winapp az-sign <file>
-   └─ Need to run a Windows SDK tool directly (makeappx, signtool, makepri)?
-      └─ winapp tool <toolname> <args>
+   ├─ Need to run a Windows SDK tool directly (makeappx, signtool, makepri)?
+   │  └─ winapp tool <toolname> <args>
+   └─ Need to remove a development registration?
+      └─ winapp unregister  (add --on sandbox to remove it from the Sandbox instead)
+
+Need to run or automate the app somewhere other than the user's own desktop?
+├─ Yes → use the winapp-sandbox skill for run / ui / unregister --on sandbox,
+│        guest commands, file transfers, and whole-desktop evidence
+└─ No → the same commands without --on sandbox act on this machine
 
 Want to inspect or interact with a running app's UI?
 ├─ See element tree → winapp ui inspect -a <appname>
@@ -73,6 +80,7 @@ Want to inspect or interact with a running app's UI?
 ├─ Wait for UI state → winapp ui wait-for <selector> -a <appname> --timeout 5000
 ├─ Inject touch gestures (tap/swipe/pinch/long-press) → winapp ui touch <selector> -a <appname> --gesture swipe --direction right --distance 200
 ├─ Inject pen/stylus ink stroke or tap → winapp ui pen <selector> -a <appname> --path "10,10 200,200"
+├─ Do any of the above without taking over the user's desktop → add --on sandbox
 └─ List app windows → winapp ui list-windows -a <appname> [--show-hidden]
 
 Driving a UI while other workflows may be running?
@@ -125,6 +133,10 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 7. **Prefer `winapp package --cert` over separate sign step.** The `package` command can generate the MSIX and sign it in one step with `--cert ./devcert.pfx`. Only use `winapp sign` separately when signing an already-packaged MSIX or a standalone executable.
 
 8. **Run `winapp --cli-schema` for the full CLI reference.** If you need exact option names, defaults, argument types, or details about any command, run `winapp --cli-schema` — it outputs the complete CLI structure as JSON. Use this whenever the information in this file isn't sufficient.
+
+9. **Use the `winapp-sandbox` skill before guest execution or automation.** Never drop `--on sandbox` to work around an error. Explain setup/elevation and possible brief focus changes; leave reboot and Sandbox-stop decisions to the user.
+
+10. **Sandbox does not isolate builds or guest workflows from each other.** Project evaluation, restore, and compilation run on the host. All apps inside the one Sandbox share a user and desktop; do not use it to build untrusted projects or separate mutually untrusted workflows.
 
 ## Complete command reference
 
@@ -223,7 +235,23 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `--debug-output` — capture `OutputDebugString` messages and first-chance exceptions (prevents other debuggers like VS/VS Code from attaching). For WinUI apps it also auto-runs a stowed-exception (`0xC000027B`) triage pass (`!xamlstowed`/`!xamltriage`) that recovers the originating HRESULT and native XAML dispatch stack. The first triage run downloads debugger components (engine bits from NuGet + `JsProvider.dll` from the WinDbg CDN) and caches them under `~\.winapp\dbgtools\`; if downloads are blocked, install Debugging Tools for Windows or point `WINAPP_DBGTOOLS_DIR` at a debugger directory containing `dbgeng.dll` and `JsProvider.dll`.
 - `--symbols` — with `--debug-output`, download Microsoft public symbols for richer native crash stacks (first run downloads and caches them)
 - `--output-appx-directory <path>` — custom output directory for the loose layout
+- `--on sandbox` — build on the host and run in the guest. Use `--detach` before follow-up UI commands; `--debug-output` requires a packaged app. See `winapp-sandbox` for runtime and app-lifetime limits.
 **Requires:** Folder mode — built app output directory + `appxmanifest.xml`. Project mode — a `.csproj`/`.sln`/`.slnx` (or directory containing one) + .NET SDK 8.0.100+. Single-file mode — a `.cs` file-based app + .NET SDK 10.0.300+ (no manifest needed).
+
+### `winapp unregister`
+**Purpose:** Remove a development package registration created by `winapp run` / `create-debug-identity`.
+**When to use:** To clean up a registration, or when a stale one is causing install/launch failures.
+**Key options:**
+- `--manifest <path>` — manifest identifying the package (default: auto-detect)
+- `--force` — skip the install-location check and unregister even if the package was registered from a different project tree
+- `--on sandbox` — remove a winapp-owned guest development registration; requires a manifest and does not support `--force`. See `winapp-sandbox` for cleanup.
+- `--json` — machine-readable output
+
+### `winapp target`
+Use the **winapp-sandbox** skill for guest setup (`exec`), file transfer (`push`/`pull`),
+readiness (`snapshot`), and whole-desktop evidence (`screenshot`/`record`). Start diagnosis
+with `winapp target snapshot sandbox`; it does not create a VM. Consult
+`winapp target <verb> --help` for syntax.
 
 ### `winapp cert generate`
 **Purpose:** Create a self-signed PFX certificate for local testing.
@@ -347,7 +375,7 @@ rebuild per symbol. A single subject keeps the original payload shape; a batch r
 - `ui search <selector> -a <app> [--max N]` — find elements; output shows semantic slugs. Surfaces invokable ancestor for all non-invokable results
 - `ui get-property <selector> -a <app> [-p <prop>]` — read UIA properties (including ToggleState, Value, IsSelected, ExpandCollapseState)
 - `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window. **`--capture-screen` needs exactly one window** — it reads whatever is in front, and only one window can be. `-w <hwnd>` selects one: that window's screen region, including any dialog or overlay visibly on top of it. If `-a` matches several top-level or owned windows there is no such selection and it fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. If a capture reports `foreground_not_target`, the window could not be brought to the front — do the same thing: list the windows and target one with `-w <hwnd>`.
-- `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--capture-screen] [--json]` — record window or element region to an H.264 MP4 using Windows Graphics Capture + Media Foundation. Default is 0 — records until stopped (Ctrl+C interactively, or a newline/EOF on stdin for programmatic callers); use `--duration-sec N` for a timed run. Add `--frames` to retain timestamped JPEGs, `frames.ndjson`, and `manifest.json` under `<output-name>.frames`. JSON results include `elapsedMs`, `achievedFps`, `cadenceRatio`, `stopReason`, optional `frameArtifacts`, and the capture `mode` (`"wgc"`, `"screen"`, or `"printwindow"`).
+- `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--capture-screen] [--json]` — record a window or element to MP4. Prefer a positive CLI duration; npm helpers require `durationSec`. Use a fresh output path unless replacement is explicitly intended. See **winapp-ui-automation** for overwrite behavior, frame artifacts, and partial-output recovery.
 - `ui invoke <selector> -a <app>` — activate element by slug or text search. Auto-walks to invokable ancestor for non-invokable elements.
 - `ui hover <selector> -a <app> [--dwell-time <ms>]` — move mouse to element center to trigger tooltips, flyouts, and hover states. Use with `ui screenshot --capture-screen` to capture the result.
 - `ui drag <from> <to> -a <app> [--right]` — press the mouse button at one point, move to another, and release (reorder, resize, sliders, drag-and-drop). Each of `<from>`/`<to>` is an element selector (drags from/to its center) or screen coordinates `x,y` as reported by `ui inspect`.
@@ -362,6 +390,10 @@ rebuild per symbol. A single subject keeps the original payload shape; a batch r
 - `ui list-windows -a <app> [--show-hidden]` — list windows, popups, and dialogs with HWNDs (untitled zero-size windows hidden by default)
 - `ui get-focused -a <app>` — show the element with keyboard focus
 - `ui yield` — release this workflow's UI turn early instead of waiting out the 4s idle grace. Requires `WINAPP_UI_WORKFLOW_ID`; takes no app or selector. Idempotent, never releases another workflow's turn, and fails with `ui_turn_busy` if your own workflow still has a command running.
+
+**Guest UI:** use **winapp-sandbox** for `--on sandbox` targeting, workflow identity,
+client requirements, and host artifact delivery; use **winapp-ui-automation** for selectors
+and app interactions.
 
 ## Framework-specific guidance
 
@@ -458,6 +490,9 @@ winapp restore --quiet                     # Restore packages (non-interactive)
 winapp package ./dist --cert $CERT_PATH --cert-password $CERT_PWD --quiet
 ```
 
+### Run and automate in Windows Sandbox
+Follow the **winapp-sandbox** skill's launch → inspect → act → verify workflow.
+
 ## Error diagnosis
 
 When the user encounters an error, check these common causes:
@@ -472,6 +507,7 @@ When the user encounters an error, check these common causes:
 | "Certificate not trusted" | Dev cert not installed | Run `winapp cert install ./devcert.pfx` as admin |
 | "Build tools not found" | First run, tools not downloaded | winapp auto-downloads tools; ensure internet access |
 | Windows APIs fail at runtime | Debug identity not registered | Register debug identity after build and before launching: `winapp create-debug-identity <exe>` (or `npx winapp node add-electron-debug-identity` for Electron) — this is **mandatory** for any app using identity-requiring APIs |
+| Sandbox setup, runtime, input, capture, or version error | See the structured `error.code` and `userAction` | Follow **winapp-sandbox** recovery guidance; do not reboot, stop an instance, remove unrelated packages, or fall back to the host without consent |
 
 ## Key files and concepts
 

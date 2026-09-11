@@ -10,6 +10,8 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -17,13 +19,14 @@ using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
-internal partial class RunCommand : Command, IShortDescription
+internal partial class RunCommand : Command, IShortDescription, ITargetAwareCommand
 {
     public string ShortDescription => "Run a Windows app: build and launch from a .cs file-based app, a .csproj/.sln, or launch an existing build-output folder.";
 
     public static Argument<FileSystemInfo> InputArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }
     public static Option<DirectoryInfo?> OutputAppXDirectoryOption { get; }
+    public static Option<DirectoryInfo?> ManagedAppXDirectoryOption { get; }
     public static Option<string> ArgsOption { get; }
     public static Option<bool> NoLaunchOption { get; }
     public static Option<bool> WithAliasOption { get; }
@@ -81,6 +84,18 @@ internal partial class RunCommand : Command, IShortDescription
             Description = "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used."
         };
 
+        ManagedAppXDirectoryOption = new Option<DirectoryInfo?>("--managed-appx-directory")
+        {
+            Description = "Internal: layout directory winapp created for this deployment and maintains exactly, as it does the generated AppX directory. Used by host-driven Windows Sandbox registration, where the layout must sit beside the deployed payload rather than inside it.",
+
+            // Hidden, like the guest verbs it serves (guest-launch, guest-agent): an internal step of
+            // a host-driven workflow, not something to type. It is the same directive the default
+            // AppX directory already carries -- "winapp made this, keep it matching the build" --
+            // just for a path only the host can name, so the guest is told outright instead of
+            // guessing ownership back out of the path it was handed.
+            Hidden = true,
+        };
+
         ArgsOption = new Option<string>("--args")
         {
             Description = "Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value)."
@@ -113,9 +128,9 @@ internal partial class RunCommand : Command, IShortDescription
 
         DetachOption = new Option<bool>("--detach")
         {
-            Description = "Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Prints the PID to stdout (or in JSON with --json)."
+            Description = "Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope."
         };
-        
+
         CleanOption = new Option<bool>("--clean")
         {
             Description = "Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments."
@@ -182,12 +197,44 @@ internal partial class RunCommand : Command, IShortDescription
         };
     }
 
+    /// <summary>
+    /// Turns the two layout-directory options into one value carrying the path and its ownership.
+    /// </summary>
+    /// <remarks>
+    /// The two are mutually exclusive rather than merged: they name the same thing and disagree
+    /// about who owns it, and silently preferring one would decide a deletion question by argument
+    /// order.
+    /// </remarks>
+    internal static bool TryResolveLayoutOutput(ParseResult parseResult, out LayoutOutput layoutOutput, out string? error)
+    {
+        var userSupplied = parseResult.GetValue(OutputAppXDirectoryOption);
+        var winappManaged = parseResult.GetValue(ManagedAppXDirectoryOption);
+
+        if (userSupplied is not null && winappManaged is not null)
+        {
+            layoutOutput = LayoutOutput.Generated;
+            error = "--output-appx-directory and --managed-appx-directory cannot be used together. Use --output-appx-directory.";
+            return false;
+        }
+
+        layoutOutput = (userSupplied, winappManaged) switch
+        {
+            (not null, _) => LayoutOutput.UserSupplied(userSupplied),
+            (_, not null) => LayoutOutput.WinappManaged(winappManaged),
+            _ => LayoutOutput.Generated,
+        };
+
+        error = null;
+        return true;
+    }
+
     public RunCommand() : base("run", "Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
         Options.Add(ManifestOption);
         Options.Add(OutputAppXDirectoryOption);
+        Options.Add(ManagedAppXDirectoryOption);
         Options.Add(ArgsOption);
         Options.Add(NoLaunchOption);
         Options.Add(WithAliasOption);
@@ -221,6 +268,10 @@ internal partial class RunCommand : Command, IShortDescription
         IManifestTemplateService manifestTemplateService,
         IManifestService manifestService,
         IProjectContextDetector projectContextDetector,
+        ExecutionTargetOrchestrator executionTargetOrchestrator,
+        GuestApplicationRunner guestApplicationRunner,
+        TargetRuntimeService targetRuntimeService,
+        IWinappDirectoryService winappDirectoryService,
         ILogger<RunCommand> logger) : AsynchronousCommandLineAction
     {
         // Test seams for the execution-alias launch path. They isolate the two operating-system
@@ -260,6 +311,15 @@ internal partial class RunCommand : Command, IShortDescription
 
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
+            // GuestLaunchCommand shares this handler (it needs the same app-launcher/package-
+            // registration/debug-output dependencies and the extracted post-launch logic) but is a
+            // structurally distinct verb with its own option set, so it is dispatched before any of
+            // the ordinary run's own parsing runs.
+            if (parseResult.CommandResult.Command is GuestLaunchCommand)
+            {
+                return await InvokeGuestLaunchAsync(parseResult, cancellationToken);
+            }
+
             // input is optional (ArgumentArity.ZeroOrOne). The final FileSystemInfo is resolved
             // below, AFTER the passthrough split, because a bare `winapp run -- <app-arg>` makes the
             // parser greedily bind the first post-'--' token to this positional. That "stolen" case is
@@ -267,7 +327,6 @@ internal partial class RunCommand : Command, IShortDescription
             // tokens; when it happens we fall back to the current directory (see resolution below).
             var inputArg = parseResult.GetValue(InputArgument);
             var manifest = parseResult.GetValue(ManifestOption);
-            var outputAppXDirectory = parseResult.GetValue(OutputAppXDirectoryOption);
             var appArgs = parseResult.GetValue(ArgsOption);
             var noLaunch = parseResult.GetValue(NoLaunchOption);
             var withAlias = parseResult.GetValue(WithAliasOption);
@@ -278,7 +337,13 @@ internal partial class RunCommand : Command, IShortDescription
             var clean = parseResult.GetValue(CleanOption);
             var useSymbols = parseResult.GetValue(SymbolsOption);
             var executable = parseResult.GetValue(ExecutableOption);
+            var executionTarget = ExecutionTargetSelection.Resolve(parseResult);
             var isJson = parseResult.GetValue(WinAppRootCommand.JsonOption);
+
+            if (!TryResolveLayoutOutput(parseResult, out var layoutOutput, out var layoutOutputError))
+            {
+                return Fail(layoutOutputError!, isJson);
+            }
 
             // Reject a valueless -p/--property. The option uses ZeroOrMore arity so a bare
             // '-p' (no Name=Value) parses without a value instead of raising a System.CommandLine
@@ -427,6 +492,20 @@ internal partial class RunCommand : Command, IShortDescription
                 return Fail(ex.Message, isJson);
             }
 
+            // Probed before the project is resolved or built, so an unsupported host costs seconds
+            // rather than a full build — and never silently falls back to running locally.
+            if (!executionTarget.IsLocal)
+            {
+                try
+                {
+                    await executionTargetOrchestrator.EnsureSupportedAsync(cancellationToken);
+                }
+                catch (ExecutionTargetException ex)
+                {
+                    return TargetOutput.Fail(ansiConsole, isJson, ex.Error);
+                }
+            }
+
             // Route folder mode (existing, unchanged behavior) vs project mode (build a .csproj).
             // Project mode is keyed on the input pointing at / containing a top-level buildable .csproj.
             RunInputResolution inputResolution;
@@ -503,12 +582,12 @@ internal partial class RunCommand : Command, IShortDescription
 
             if (inputResolution.Mode == WinAppRunMode.SingleFile)
             {
-                return await RunSingleFileModeAsync(parseResult, inputResolution.SingleFile!, appArgs, isJson, cancellationToken);
+                return await RunSingleFileModeAsync(parseResult, inputResolution.SingleFile!, layoutOutput, appArgs, isJson, executionTarget, cancellationToken);
             }
 
             if (inputResolution.Mode == WinAppRunMode.Project)
             {
-                return await RunProjectModeAsync(parseResult, inputResolution.Csproj!, inputResolution.Solution, inputResolution.SelectionReason, appArgs, isJson, cancellationToken);
+                return await RunProjectModeAsync(parseResult, inputResolution.Csproj!, inputResolution.Solution, inputResolution.SelectionReason, appArgs, isJson, executionTarget, cancellationToken);
             }
 
             // Folder mode: the FileSystemInfo converter yields a DirectoryInfo for an existing
@@ -538,10 +617,10 @@ internal partial class RunCommand : Command, IShortDescription
                 outputType: DetectFolderOutputType(inputFolder, executable));
 
             return await ExecuteRunPipelineAsync(
-                inputFolder, manifest, outputAppXDirectory, appArgs,
+                inputFolder, manifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: null, projectFile: null, framework: null, noRestore: false, selfContained: false,
-                folderAliasDecision, cancellationToken);
+                folderAliasDecision, executionTarget, cancellationToken);
         }
 
         /// <summary>
@@ -610,7 +689,7 @@ internal partial class RunCommand : Command, IShortDescription
         internal async Task<int> ExecuteRunPipelineAsync(
             DirectoryInfo inputFolder,
             FileInfo? manifest,
-            DirectoryInfo? outputAppXDirectory,
+            LayoutOutput layoutOutput,
             string? appArgs,
             bool noLaunch,
             bool withAlias,
@@ -627,10 +706,22 @@ internal partial class RunCommand : Command, IShortDescription
             bool noRestore,
             bool selfContained,
             AliasLaunchDecision aliasDecision,
+            ExecutionTargetRef executionTarget,
             CancellationToken cancellationToken,
             Action? onRegistered = null,
             PackageGraphSource? packageGraph = null)
         {
+            // A non-local target diverges here rather than later: everything below this point registers a
+            // package and launches a process on this machine, which is exactly what running
+            // somewhere else must not do.
+            if (!executionTarget.IsLocal)
+            {
+                return await ExecutePackagedTargetRunAsync(
+                    inputFolder, manifest, layoutOutput, appArgs,
+                    noLaunch, aliasDecision, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
+                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, cancellationToken);
+            }
+
             uint processId = 0;
             var resolvedUseAlias = aliasDecision.UseAlias;
             string? packageFamilyName = null;
@@ -684,12 +775,26 @@ internal partial class RunCommand : Command, IShortDescription
                         }
                     }
 
-                    outputAppXDirectory ??= new DirectoryInfo(Path.Combine(inputFolder.FullName, "AppX"));
+                    // Whether winapp owns this directory decides whether it may later delete files
+                    // from it. That travels with the path from the call site (see LayoutOutput):
+                    // once the default is filled in, the cases are indistinguishable from the path.
+                    var outputAppXDirectory = layoutOutput.Resolve(
+                        () => new DirectoryInfo(Path.Combine(inputFolder.FullName, "AppX")));
                     resolvedOutputDir = outputAppXDirectory;
 
                     // Validate that the manifest and output paths are usable (check long path support if needed)
                     LongPathHelper.ValidatePathLength(resolvedManifest.FullName);
                     LongPathHelper.ValidatePathLength(outputAppXDirectory.FullName);
+
+                    // Held from materialization through registration -- the point at which Windows has
+                    // taken its own copy of the layout's contents. A second run against the same
+                    // directory could otherwise replace its contents in between, and this run would
+                    // register the other one's app. It is released before the run waits on the
+                    // application, so an open app never blocks another run against this build output.
+                    using var layoutLease = LayoutLease.Acquire(
+                        winappDirectoryService.GetGlobalWinappDirectory(),
+                        outputAppXDirectory,
+                        cancellationToken);
 
                     // Confirm the alias is free BEFORE registering. Windows silently ignores a claim on an
                     // alias another package owns, so registering first would produce an app whose alias
@@ -729,6 +834,7 @@ internal partial class RunCommand : Command, IShortDescription
                         inputFolder,
                         outputAppXDirectory,
                         taskContext,
+                        layoutOutput.Reconciliation,
                         clean,
                         executable,
                         runtimeArch,
@@ -811,6 +917,48 @@ internal partial class RunCommand : Command, IShortDescription
                 return success;
             }
 
+            return await LaunchRegisteredApplicationAsync(
+                aumid, packageName, packageFullName, resolvedOutputDir!, inputFolder, appArgs, processId,
+                resolvedUseAlias, debugOutput, unregisterOnExit, detach, useSymbols, isJson,
+                packageFamilyName, aliasDecision.Explicit, targetSelector: null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Waits for, detaches from, or drives the debug loop over an application that has already
+        /// been launched via AUMID (or is about to launch via alias), then unregisters afterward if
+        /// asked.
+        /// </summary>
+        /// <remarks>
+        /// Extracted verbatim from the tail of <see cref="ExecuteRunPipelineAsync"/> (no behavior
+        /// change) so the ordinary local run and the guest-launch verb
+        /// (<c>InvokeGuestLaunchAsync</c>, in RunCommand.GuestLaunch.cs) -- which never registers or
+        /// unregisters anything itself -- share one implementation of "what happens after launch"
+        /// rather than risk two that drift apart.
+        /// </remarks>
+        private async Task<int> LaunchRegisteredApplicationAsync(
+            string? aumid,
+            string? packageName,
+            string? packageFullName,
+            DirectoryInfo resolvedOutputDir,
+            DirectoryInfo inputFolder,
+            string? appArgs,
+            uint processId,
+            bool withAlias,
+            bool debugOutput,
+            bool unregisterOnExit,
+            bool detach,
+            bool useSymbols,
+            bool isJson,
+            string? packageFamilyName,
+            bool aliasWasRequested,
+            string? targetSelector,
+            CancellationToken cancellationToken)
+        {
+            if (!isJson && targetSelector is not null && !withAlias && processId > 0)
+            {
+                WriteTargetLaunchConfirmation(targetSelector, processId, waitForExit: !detach);
+            }
+
             // --detach: return immediately after launch without waiting for exit
             if (detach)
             {
@@ -818,7 +966,7 @@ internal partial class RunCommand : Command, IShortDescription
                 {
                     PrintJson(aumid, processId, errorMessage: null);
                 }
-                else
+                else if (targetSelector is null)
                 {
                     // Surface the launched PID for automation, consistent with the unpackaged
                     // project-mode detach path (Change 3 / L6).
@@ -830,9 +978,11 @@ internal partial class RunCommand : Command, IShortDescription
             // Alias launch: run in this terminal with inherited stdio. When the alias was a default rather
             // than an explicit request and the app turns out not to have one, fall through to AUMID
             // instead of failing — a default must never turn a run that works into an error.
-            if (resolvedUseAlias)
+            if (withAlias)
             {
-                var aliasExitCode = await LaunchViaExecutionAliasAsync(resolvedOutputDir!, inputFolder, appArgs, debugOutput, useSymbols, packageFullName, packageFamilyName, aliasDecision.Explicit, cancellationToken);
+                var aliasExitCode = await LaunchViaExecutionAliasAsync(
+                    resolvedOutputDir, inputFolder, appArgs, debugOutput, useSymbols,
+                    packageFullName, packageFamilyName, aliasWasRequested, targetSelector, cancellationToken);
                 if (aliasExitCode is int code)
                 {
                     if (unregisterOnExit && packageName != null)
@@ -869,7 +1019,6 @@ internal partial class RunCommand : Command, IShortDescription
                 }
                 return exitCode;
             }
-
 
             // Wait for the launched process to exit before returning.
             // The process may have already exited by the time we get here (common for
@@ -1145,6 +1294,7 @@ internal partial class RunCommand : Command, IShortDescription
             string? packageFullName,
             string? packageFamilyName,
             bool aliasWasRequested,
+            string? targetSelector,
             CancellationToken cancellationToken)
         {
             // Read the manifest that was actually REGISTERED, not whatever the directory probe prefers.
@@ -1261,6 +1411,14 @@ internal partial class RunCommand : Command, IShortDescription
                     return 1;
                 }
 
+                if (targetSelector is not null)
+                {
+                    WriteTargetLaunchConfirmation(
+                        targetSelector,
+                        unchecked((uint)process.Id),
+                        waitForExit: true);
+                }
+
                 if (debugOutput)
                 {
                     var exitCode = await debugOutputService.RunDebugLoopAsync(unchecked((uint)process.Id), cancellationToken,
@@ -1290,6 +1448,19 @@ internal partial class RunCommand : Command, IShortDescription
                 return 1;
             }
         }
+
+        private void WriteTargetLaunchConfirmation(string targetSelector, uint processId, bool waitForExit)
+        {
+            ansiConsole.MarkupLineInterpolated(
+                $"Started the application in Windows Sandbox (PID: {processId}).");
+            ansiConsole.MarkupLineInterpolated(
+                $"UI target: --on {targetSelector} -a {processId}");
+
+            if (waitForExit)
+            {
+                ansiConsole.MarkupLine("Waiting for the application to exit...");
+            }
+        }
     }
 }
 
@@ -1298,6 +1469,53 @@ internal sealed class RunCommandResult
     public string? AUMID { get; set; }
     public uint? ProcessId { get; set; }
     public string? Error { get; set; }
+
+    /// <summary>True when the app ran on an execution target rather than on this machine.</summary>
+    /// <remarks>
+    /// Every member below is additive and omitted entirely when absent, so a local run's payload is
+    /// byte-for-byte what it has always been.
+    /// </remarks>
+    public bool? Sandbox { get; set; }
+
+    /// <summary>Where <see cref="ProcessId"/> is meaningful, for example <c>sandbox</c>.</summary>
+    public string? ProcessScope { get; set; }
+
+    /// <summary>
+    /// The exact arguments to append to a <c>winapp ui</c> command to reach this app, for example
+    /// <c>--on sandbox -a 4212</c>.
+    /// </summary>
+    /// <remarks>
+    /// Both halves are here on purpose. A process ID means nothing without the target it belongs to,
+    /// so this never contains a bare number and never encodes the target into the application value:
+    /// a caller that copies this string gets a command that runs where the app actually is, and a
+    /// caller that copies only the number gets something that visibly does not work rather than
+    /// something that quietly acts on the wrong machine.
+    /// </remarks>
+    public string? UiTargetArgs { get; set; }
+
+    /// <summary>Which execution target ran it, provider-neutral.</summary>
+    public ExecutionTargetInfo? ExecutionTarget { get; set; }
+}
+
+/// <summary>Provider-neutral description of the target a command ran on.</summary>
+/// <remarks>
+/// Explicit target selection populates the same object without changing any existing process,
+/// package, or artifact field. The epoch is what scopes the process ID and any window handle: values
+/// from a previous generation are rejected rather than resolved against a recreated guest.
+/// </remarks>
+internal sealed class ExecutionTargetInfo
+{
+    /// <summary>Target kind, for example <c>sandbox</c>.</summary>
+    public string? Kind { get; set; }
+
+    /// <summary>Target identity within that kind, for example <c>default</c>.</summary>
+    public string? Id { get; set; }
+
+    /// <summary>Target processor architecture.</summary>
+    public string? Architecture { get; set; }
+
+    /// <summary>Opaque generation identity the process ID and handles belong to.</summary>
+    public string? Epoch { get; set; }
 }
 
 [JsonSerializable(typeof(RunCommandResult))]

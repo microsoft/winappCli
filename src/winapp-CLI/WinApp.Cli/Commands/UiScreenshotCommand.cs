@@ -351,7 +351,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                     $"--capture-screen needs exactly one window, but {windows.Count} windows matched. " +
                     "Live-screen capture reads whatever is in front, so several windows cannot be captured together.";
                 var hint =
-                    $"Run 'winapp ui list-windows{DescribeApp(uiTarget)}' and retry with '-w <hwnd>' for the window you want, " +
+                    $"Run '{UiCommandAdvice.Command($"list-windows{DescribeApp(uiTarget)}")}' and retry with '-w <hwnd>' for the window you want, " +
                     "or drop --capture-screen to composite all of them from their own window contents.";
 
                 logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
@@ -485,7 +485,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
 
             var pngBytes = pass.IsComposite
                 ? ComposeSideBySide(captures)
-                : EncodePng(captures[0].Pixels, captures[0].Width, captures[0].Height);
+                : PngImage.Encode(captures[0].Pixels, captures[0].Width, captures[0].Height);
 
             var dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
             if (dir is not null)
@@ -685,20 +685,6 @@ internal class UiScreenshotCommand : Command, IShortDescription
             }
 
             return candidates;
-        }
-
-        private static byte[] EncodePng(byte[] bgraPixels, int width, int height)
-        {
-            using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
-            unsafe
-            {
-                var ptr = (byte*)bitmap.GetPixels().ToPointer();
-                System.Runtime.InteropServices.Marshal.Copy(bgraPixels, 0, (nint)ptr, bgraPixels.Length);
-            }
-
-            using var image = SKImage.FromBitmap(bitmap);
-            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            return data.ToArray();
         }
     }
 }

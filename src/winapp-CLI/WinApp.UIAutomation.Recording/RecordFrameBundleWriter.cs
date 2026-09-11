@@ -22,7 +22,7 @@ internal interface IRecordFrameSink : IAsyncDisposable
 
 internal sealed class RecordFrameBundleConfiguration
 {
-    public const long DefaultMaximumBundleBytes = 1024L * 1024 * 1024;
+    public const long DefaultMaximumBundleBytes = RecordingArtifactPublisher.DefaultMaximumFrameBundleBytes;
 
     public required string FinalDirectory { get; init; }
     public required string VideoPath { get; init; }
@@ -30,6 +30,7 @@ internal sealed class RecordFrameBundleConfiguration
     public required int Height { get; init; }
     public required RecordFrameRequestManifest Requested { get; init; }
     public required ILogger Logger { get; init; }
+    public CaptureCoordinates? Coordinates { get; init; }
     public long MaximumBundleBytes { get; init; } = DefaultMaximumBundleBytes;
 }
 
@@ -215,6 +216,7 @@ internal sealed class RecordFrameBundleWriter : IRecordFrameSink
             : completion.CadenceRatio;
         var manifest = new RecordFrameBundleManifest
         {
+            Coordinates = _configuration.Coordinates,
             Status = completion.Status == "complete" && IsTruncated
                 ? "truncated"
                 : completion.Status,

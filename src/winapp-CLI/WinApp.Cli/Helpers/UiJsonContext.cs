@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
@@ -138,6 +139,7 @@ internal sealed class UiClickResult
 
 internal sealed class UiScreenshotResult
 {
+    public CaptureCoordinates? Coordinates { get; set; }
     public string? ElementId { get; set; }
     public string FilePath { get; set; } = "";
     public int Width { get; set; }
@@ -148,6 +150,15 @@ internal sealed class UiScreenshotResult
 
     /// <summary>For composite multi-window screenshots, details of each captured window. Null for single-window captures.</summary>
     public UiScreenshotWindowInfo[]? Windows { get; set; }
+
+    /// <summary>
+    /// Which execution target, and which incarnation of it, produced the image.
+    /// </summary>
+    /// <remarks>
+    /// Omitted for a capture of this machine, so <c>winapp ui screenshot</c> keeps exactly the shape
+    /// it always had, and present for <c>winapp target screenshot</c>.
+    /// </remarks>
+    public ExecutionTargetScope? ExecutionTarget { get; set; }
 }
 
 internal sealed class UiScreenshotWindowInfo
@@ -163,6 +174,7 @@ internal sealed class UiScreenshotWindowInfo
 
 internal sealed class UiRecordResult
 {
+    public CaptureCoordinates? Coordinates { get; set; }
     public string Path { get; set; } = "";
     public int DurationSec { get; set; }
     public int Fps { get; set; }
@@ -178,6 +190,16 @@ internal sealed class UiRecordResult
     public string StopReason { get; set; } = "";
     public RecordFrameArtifactResult? FrameArtifacts { get; set; }
     public string[]? Warnings { get; set; }
+
+    /// <summary>
+    /// Which execution target, and which incarnation of it, produced the recording.
+    /// </summary>
+    /// <remarks>
+    /// Omitted for a recording made on this machine, so <c>winapp ui record</c> keeps exactly the
+    /// shape it always had, and present for <c>winapp target record</c> — where a caller comparing
+    /// two files needs to know the second one came from a different generation of the target.
+    /// </remarks>
+    public ExecutionTargetScope? ExecutionTarget { get; set; }
 }
 
 internal sealed class UiRecordStartedEvent

@@ -2,27 +2,14 @@
 // Licensed under the MIT License.
 
 /**
- * Hand-written guard wrapper for uiRecord.
- *
- * winapp-commands.ts is AUTO-GENERATED. The raw generated delegate for `ui record`
- * is intentionally NOT exported (underscore-prefixed, module-internal) so it cannot
- * bypass this guard. This module is the only public entry point for recording.
- *
- * The guard validates that `durationSec` is provided and positive before calling the
- * CLI, because unbounded recording (durationSec == 0) is only supportable via the CLI
- * with Ctrl+C or piped stdin, which the npm wrapper has no way to drive.
- *
- * `CommonOptions.signal` (issue #764) does NOT relax this. An `AbortSignal` force-terminates the
- * child, so it can stop an unbounded recording only by killing it — leaving partial or invalid MP4
- * output with no graceful finalization. A finite `durationSec` remains required so the normal path
- * always produces a valid recording.
- *
- * This file must NOT be edited by the code generator; it is hand-maintained.
+ * Hand-maintained public wrapper. A finite duration is required: AbortSignal kills the
+ * child on Windows and cannot guarantee MP4 finalization. The generated delegate is private.
  */
 
 import { callWinappCliCapture } from './winapp-cli-utils';
 import type { CallWinappCliCaptureOptions, CallWinappCliCaptureResult } from './winapp-cli-utils';
 import type { UiRecordOptions as GeneratedUiRecordOptions, WinappResult } from './winapp-commands';
+import { assertBoundedRecordDuration } from './record-duration';
 
 /**
  * Stricter version of `UiRecordOptions` where `durationSec` is **required** (not optional).
@@ -31,6 +18,8 @@ import type { UiRecordOptions as GeneratedUiRecordOptions, WinappResult } from '
  */
 export type UiRecordOptions = Omit<GeneratedUiRecordOptions, 'durationSec'> & {
   durationSec: number;
+  /** Replace an existing recording only after the new take finishes. */
+  overwrite?: boolean;
 };
 
 type UiRecordArgSpec = {
@@ -48,6 +37,8 @@ export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'json', flag: '--json', kind: 'boolean' },
   { property: 'maxEdge', flag: '--max-edge', kind: 'value' },
   { property: 'output', flag: '--output', kind: 'value' },
+  { property: 'overwrite', flag: '--overwrite', kind: 'boolean' },
+  { property: 'on', flag: '--on', kind: 'value' },
   { property: 'window', flag: '--window', kind: 'value' },
   { property: 'quiet', flag: '--quiet', kind: 'boolean' },
   { property: 'verbose', flag: '--verbose', kind: 'boolean' },
@@ -91,29 +82,7 @@ export function buildUiRecordArgs(options: UiRecordOptions): string[] {
  * @throws {Error} if `options.durationSec` is not provided or is ≤ 0.
  */
 export async function uiRecord(options: UiRecordOptions): Promise<WinappResult> {
-  // Runtime guard for JS callers who may pass undefined/null despite the TypeScript type.
-  if (options === null || typeof options !== 'object') {
-    throw new Error(
-      `uiRecord: options must be an object with durationSec as a finite integer in [1, 86400]. ` +
-        'Got: null or undefined options. Pass options.durationSec > 0.'
-    );
-  }
-  // durationSec must be a finite integer in [1, 86400]: reject NaN, ±Infinity, non-integers,
-  // values < 1, and values > 86400 (CLI upper bound). durationSec == 0 (unbounded) is only
-  // supported via the CLI with Ctrl+C or piped stdin — the npm wrapper has no way to stop it.
-  if (
-    typeof options.durationSec !== 'number' ||
-    !Number.isFinite(options.durationSec) ||
-    !Number.isInteger(options.durationSec) ||
-    options.durationSec < 1 ||
-    options.durationSec > 86400
-  ) {
-    throw new Error(
-      `uiRecord: durationSec must be a finite integer in [1, 86400]. Got: ${options.durationSec}. ` +
-        'Unbounded recording (durationSec == 0) is only supported via the CLI with Ctrl+C or piped stdin. ' +
-        'Pass options.durationSec > 0.'
-    );
-  }
+  assertBoundedRecordDuration('uiRecord', options);
 
   const args = buildUiRecordArgs(options);
   const captureOpts: CallWinappCliCaptureOptions = {};
@@ -133,26 +102,7 @@ export async function _uiRecordWithCapture(
   options: UiRecordOptions,
   capture: (args: string[], opts: CallWinappCliCaptureOptions) => Promise<CallWinappCliCaptureResult>
 ): Promise<WinappResult> {
-  // Runtime guard for JS callers who may pass undefined/null despite the TypeScript type.
-  if (options === null || typeof options !== 'object') {
-    throw new Error(
-      `uiRecord: options must be an object with durationSec as a finite integer in [1, 86400]. ` +
-        'Got: null or undefined options. Pass options.durationSec > 0.'
-    );
-  }
-  if (
-    typeof options.durationSec !== 'number' ||
-    !Number.isFinite(options.durationSec) ||
-    !Number.isInteger(options.durationSec) ||
-    options.durationSec < 1 ||
-    options.durationSec > 86400
-  ) {
-    throw new Error(
-      `uiRecord: durationSec must be a finite integer in [1, 86400]. Got: ${options.durationSec}. ` +
-        'Unbounded recording (durationSec == 0) is only supported via the CLI with Ctrl+C or piped stdin. ' +
-        'Pass options.durationSec > 0.'
-    );
-  }
+  assertBoundedRecordDuration('uiRecord', options);
   const args = buildUiRecordArgs(options);
   const captureOpts: CallWinappCliCaptureOptions = {};
   if (options.cwd) captureOpts.cwd = options.cwd;

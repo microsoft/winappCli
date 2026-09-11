@@ -9,13 +9,15 @@ using System.CommandLine.Parsing;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
-internal class UnregisterCommand : Command, IShortDescription
+internal partial class UnregisterCommand : Command, IShortDescription, ITargetAwareCommand
 {
     public string ShortDescription => "Unregister a sideloaded development package.";
 
@@ -28,6 +30,7 @@ internal class UnregisterCommand : Command, IShortDescription
     public static Option<string> ConfigurationOption { get; }
     public static Option<string> ArchOption { get; }
     public static Option<string> RuntimeOption { get; }
+
 
     static UnregisterCommand()
     {
@@ -81,6 +84,7 @@ internal class UnregisterCommand : Command, IShortDescription
         {
             Description = "Target .NET runtime identifier (e.g. win-x64) used when resolving a .cs file-based app's identity. Only its architecture is used, and it overrides --arch. Only applies to a .cs input."
         };
+
     }
 
     public UnregisterCommand() : base("unregister", "Unregisters a sideloaded development package. Only removes packages registered in development mode (e.g., via 'winapp run' or 'create-debug-identity').")
@@ -97,10 +101,13 @@ internal class UnregisterCommand : Command, IShortDescription
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
-    public class Handler(
+    public partial class Handler(
         IPackageRegistrationService packageRegistrationService,
+        IAppLauncherService appLauncherService,
         IProjectRunService projectRunService,
         ICurrentDirectoryProvider currentDirectoryProvider,
+        ExecutionTargetOrchestrator orchestrator,
+        GuestApplicationRunner guestApplicationRunner,
         IAnsiConsole ansiConsole,
         ILogger<UnregisterCommand> logger) : AsynchronousCommandLineAction
     {
@@ -109,6 +116,7 @@ internal class UnregisterCommand : Command, IShortDescription
             var input = parseResult.GetValue(InputArgument);
             var manifest = parseResult.GetValue(ManifestOption);
             var force = parseResult.GetValue(ForceOption);
+            var target = ExecutionTargetSelection.Resolve(parseResult);
             var prune = parseResult.GetValue(PruneOption);
             var properties = parseResult.GetValue(PropertyOption) ?? [];
             var outputAppXDirectory = parseResult.GetValue(OutputAppXDirectoryOption);
@@ -129,6 +137,19 @@ internal class UnregisterCommand : Command, IShortDescription
 
             if (prune)
             {
+                if (!target.IsLocal)
+                {
+                    return TargetOutput.RejectOptions(
+                        ansiConsole,
+                        isJson,
+                        new ExecutionTargetErrorInfo
+                        {
+                            Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
+                            Message = "'--prune' is not supported with '--on'. It sweeps registrations on the selected machine rather than removing one proven deployment.",
+                            UserAction = "Run '--prune' locally without '--on', or name one target package with --manifest.",
+                        });
+                }
+
                 if (input != null || manifest != null)
                 {
                     return FailWith(
@@ -145,6 +166,19 @@ internal class UnregisterCommand : Command, IShortDescription
                 }
 
                 return await PruneOrphanedRegistrationsAsync(force, isJson, cancellationToken);
+            }
+
+            if (!target.IsLocal && input is not null)
+            {
+                return TargetOutput.RejectOptions(
+                    ansiConsole,
+                    isJson,
+                    new ExecutionTargetErrorInfo
+                    {
+                        Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
+                        Message = "A .cs file-based app cannot currently be used with 'unregister --on'.",
+                        UserAction = "Pass the manifest that identifies the deployed package instead.",
+                    });
             }
 
             // An input and --manifest are two different ways to name a package, and they can name
@@ -187,6 +221,7 @@ internal class UnregisterCommand : Command, IShortDescription
             }
 
             string packageName;
+            MsixIdentityResult? targetIdentity = null;
 
             // A registration legitimately belongs to more than one directory: `run` copies an explicit
             // --manifest into the input's own AppX layout, and --output-appx-directory puts that layout
@@ -276,6 +311,7 @@ internal class UnregisterCommand : Command, IShortDescription
                 // Parse package name from manifest
                 var manifestContent = await File.ReadAllTextAsync(resolvedManifest.FullName, Encoding.UTF8, cancellationToken);
                 var identity = MsixService.ParseAppxManifestAsync(manifestContent);
+                targetIdentity = identity;
                 packageName = identity.PackageName;
 
                 // Trust BOTH the manifest's own directory and the current directory. They are the same
@@ -297,6 +333,31 @@ internal class UnregisterCommand : Command, IShortDescription
             if (outputAppXDirectory != null)
             {
                 trustedRoots.Add(outputAppXDirectory.FullName);
+            }
+
+            // A selected target never touches this machine's registrations, and this machine's
+            // state never decides what happens on that target.
+            if (!target.IsLocal)
+            {
+                if (force)
+                {
+                    return TargetOutput.RejectOptions(
+                        ansiConsole,
+                        isJson,
+                        new ExecutionTargetErrorInfo
+                        {
+                            Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
+                            Message =
+                                "'--force' is not supported with '--on'. Target packages are removed only when winapp can prove ownership.",
+                            UserAction = "Retry without '--force'.",
+                        });
+                }
+
+                return await UnregisterOnTargetAsync(
+                    targetIdentity ?? throw new InvalidOperationException(
+                        "Target unregister requires a manifest-derived package identity."),
+                    isJson,
+                    cancellationToken);
             }
 
             // Search for both the exact name and the .debug variant
@@ -571,10 +632,10 @@ internal class UnregisterCommand : Command, IShortDescription
 
             var json = JsonSerializer.Serialize(result, UnregisterJsonContext.Default.UnregisterResult);
 
-            // Straight to the underlying stdout writer, not ansiConsole.WriteLine: Spectre's word-wrapping
-            // layer injects raw CR/LF *inside* the JSON string values once a message exceeds the
-            // (redirected) console width of ~80 columns, so strict parsers reject the payload. Several
-            // validation errors here are long enough to trigger it every time. Mirrors RunCommand.PrintJson.
+            // Written straight to the underlying stdout writer rather than through Spectre's
+            // word-wrapping layer, which injects CR/LF *inside* JSON string values once a message
+            // exceeds the console width and produces a document strict parsers reject. Matches how
+            // run/cert/ui emit their machine-readable output.
             ansiConsole.Profile.Out.Writer.WriteLine(json);
         }
     }

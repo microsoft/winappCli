@@ -12,6 +12,18 @@ namespace WinApp.Cli.Services;
 /// </summary>
 internal sealed class ProcessRunner : IProcessRunner
 {
+    /// <summary>Starts the child, optionally detached from this process's standard handles.</summary>
+    private static Process? StartProcess(ProcessStartInfo psi, bool outlivesCaller)
+    {
+        if (!outlivesCaller)
+        {
+            return Process.Start(psi);
+        }
+
+        using var _ = Helpers.StandardHandleInheritance.Suppress();
+        return Process.Start(psi);
+    }
+
     public async Task<ProcessRunResult> RunAsync(
         ProcessRunRequest request,
         Action<string>? onOutputLine = null,
@@ -42,7 +54,10 @@ internal sealed class ProcessRunner : IProcessRunner
             }
         }
 
-        using var process = Process.Start(psi)
+        // Started inside the suppression scope when the child will outlive this process, so it
+        // cannot take a duplicate of the caller's captured stdout/stderr pipe with it. The child's
+        // own redirected pipes are created inheritable by .NET and are unaffected.
+        using var process = StartProcess(psi, request.OutlivesCaller)
             ?? throw new InvalidOperationException($"Failed to start process '{request.FileName}'.");
 
         var stdout = new StringBuilder();

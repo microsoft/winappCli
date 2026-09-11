@@ -387,7 +387,7 @@ internal partial class MsixService
             if (recipeFile != null)
             {
                 taskContext.AddDebugMessage($"Using appxrecipe for staging: {recipeFile.Name}");
-                await CopyFilesFromRecipeAsync(recipeFile, stagingDir, taskContext, cancellationToken);
+                await CopyFilesFromRecipeAsync(recipeFile, stagingDir, taskContext, LayoutReconciliation.None, cancellationToken);
             }
             else
             {

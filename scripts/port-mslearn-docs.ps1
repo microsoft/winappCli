@@ -564,6 +564,7 @@ $TocLabels = [ordered]@{
     "usage.md"                                   = "Commands and usage"
     "debugging.md"                               = "Debugging with package identity"
     "ui-automation.md"                           = "UI Automation"
+    "sandbox-execution.md"                       = "Windows Sandbox execution"
     "security.md"                                = "Security guidance"
     "guides/index.md"                            = "Framework guides"
     "guides/dotnet.md"                           = ".NET / WPF / WinForms"
@@ -652,6 +653,7 @@ $tocTree = @(
     (New-TocNode "usage.md")
     (New-TocNode "debugging.md")
     (New-TocNode "ui-automation.md")
+    (New-TocNode "sandbox-execution.md")
     (New-TocNode "security.md")
     (New-TocNode "guides/index.md" @(
         (New-TocNode "guides/dotnet.md")

@@ -6,6 +6,7 @@ using Spectre.Console;
 using System.CommandLine;
 using System.Xml;
 using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -44,8 +45,10 @@ internal partial class RunCommand
         private async Task<int> RunSingleFileModeAsync(
             ParseResult parseResult,
             FileInfo singleFile,
+            LayoutOutput layoutOutput,
             string? appArgs,
             bool isJson,
+            ExecutionTargetRef executionTarget,
             CancellationToken cancellationToken)
         {
             var configuration = parseResult.GetValue(ConfigurationOption) ?? "Debug";
@@ -155,7 +158,7 @@ internal partial class RunCommand
                     unpackaged, singleFile, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols,
                     executable, manifest, outputAppXDirectory, isJson,
-                    cancellationToken);
+                    executionTarget, cancellationToken);
             }
 
             // Resolve the effective executable ONCE, before the manifest is generated. Generation writes a
@@ -213,7 +216,7 @@ internal partial class RunCommand
             // files found" ambiguity, because every WinAppSDK self-contained output ships a
             // RestartAgent.exe beside the app.
             return await ExecuteRunPipelineAsync(
-                outputFolder, resolvedManifest, outputAppXDirectory, appArgs,
+                outputFolder, resolvedManifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols,
                 effectiveExecutable,
                 isJson,
@@ -223,6 +226,7 @@ internal partial class RunCommand
                 noRestore: noRestore,
                 selfContained: resolution.SelfContained,
                 aliasDecision,
+                executionTarget,
                 cancellationToken,
                 // Reported only once the package actually exists — see ReportSingleFileRegistrationImpact.
                 onRegistered: () => ReportSingleFileRegistrationImpact(
@@ -723,4 +727,3 @@ internal partial class RunCommand
         }
     }
 }
-

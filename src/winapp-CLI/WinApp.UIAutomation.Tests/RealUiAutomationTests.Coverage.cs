@@ -955,7 +955,7 @@ public partial class RealUiAutomationTests
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
         UiAutomationService.s_getRootElement = (_, _) => root;
 
-        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsExactlyAsync<UiValueSetException>(
             () => svc.SetValueAsync(uiTarget, model, "hello", CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "could not be set via ValuePattern");

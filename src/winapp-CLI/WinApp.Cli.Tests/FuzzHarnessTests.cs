@@ -61,7 +61,12 @@ public class FuzzHarnessTests
     [TestMethod]
     public void FuzzTargets_MatchTheSignatureLibFuzzerBindsTo()
     {
-        foreach (var name in new[] { nameof(FuzzableCode.FuzzArchive), nameof(FuzzableCode.FuzzParseCentralDirectory) })
+        foreach (var name in new[]
+                 {
+                     nameof(FuzzableCode.FuzzArchive),
+                     nameof(FuzzableCode.FuzzParseCentralDirectory),
+                     nameof(FuzzableCode.FuzzGuestFrame),
+                 })
         {
             var method = typeof(FuzzableCode).GetMethod(name, BindingFlags.Public | BindingFlags.Static);
             Assert.IsNotNull(method, $"{name} must be public and static.");
