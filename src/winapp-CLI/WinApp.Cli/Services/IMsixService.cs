@@ -31,6 +31,24 @@ internal interface IMsixService
         bool runtimeAlreadyBundled = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Delivers an SDK-produced MSIX (from <c>PublishNativeMsixAsync</c>): copies it to the final
+    /// destination per folder-mode <c>--output</c> precedence and signs it once if requested, without
+    /// repackaging the SDK output.
+    /// </summary>
+    public Task<CreateMsixPackageResult> DeliverNativeMsixAsync(
+        FileInfo producedMsix,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        CancellationToken cancellationToken = default);
+
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(
         DirectoryInfo[] inputFolders,
         FileSystemInfo? outputPath,

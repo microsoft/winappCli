@@ -139,6 +139,18 @@ internal sealed class FakeProjectRunService : IProjectRunService
             ?? throw new InvalidOperationException("FakeProjectRunService.NativeMsixOutcome was not configured."));
     }
 
+    /// <summary>Returned from <see cref="IsNativeMsixProjectAsync"/>. Default false = generic publish-layout path.</summary>
+    public bool IsNativeMsixProject { get; set; }
+
+    /// <summary>Records each <see cref="IsNativeMsixProjectAsync"/> invocation.</summary>
+    public List<FileInfo> IsNativeMsixProjectCalls { get; } = [];
+
+    public Task<bool> IsNativeMsixProjectAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        IsNativeMsixProjectCalls.Add(csproj);
+        return Task.FromResult(IsNativeMsixProject);
+    }
+
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         IsDefinitivelyUnpackagedCalls.Add(csproj);

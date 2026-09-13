@@ -157,6 +157,60 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_NativeMsixProject_LetsSdkPackageAndDelivers()
+    {
+        // An MSIX-tooling project takes the native path: the SDK produces the package during publish and
+        // winapp delivers it — it must NOT go through the generic publish/repackage path.
+        var csproj = CreateCsproj();
+        var produced = new FileInfo(Path.Join(_tempDirectory.FullName, "App_1.0.0.0_arm64.msix"));
+        File.WriteAllText(produced.FullName, "msix");
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.NativeMsixOutcome = new NativeMsixPublishOutcome(produced, 0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeProjectRunService.PublishNativeMsixCalls.Count, "Native project must use the SDK native packaging path");
+        Assert.AreEqual(1, _fakeMsixService.DeliverNativeMsixCalls.Count, "The SDK-produced package must be delivered, not repackaged");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "Native project must not use the generic publish path");
+        Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "Native project must not go through MsixService repackaging");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_NativeMsixProject_RejectsManifestOption()
+    {
+        // --manifest is a generic-layout option; an MSIX-tooling project configures AppxManifest in the
+        // project, so reject it before packaging rather than silently ignoring it.
+        var csproj = CreateCsproj();
+        var manifest = new FileInfo(Path.Join(_tempDirectory.FullName, "Package.appxmanifest"));
+        File.WriteAllText(manifest.FullName, "<Package/>");
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--manifest", manifest.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count, "--manifest must be rejected before packaging a native project");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_NativeMsixProject_PropagatesPackagingFailure()
+    {
+        // Native packaging failure is reported as-is — never a silent fall back to generic packaging.
+        var csproj = CreateCsproj();
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.NativeMsixOutcome = new NativeMsixPublishOutcome(null, 7);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(7, exitCode, "The native publish exit code must propagate");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A failed native project must not fall back to generic packaging");
+        Assert.AreEqual(0, _fakeMsixService.DeliverNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
     public async Task ProjectMode_DefaultsToReleaseConfiguration()
     {
         var csproj = CreateCsproj();

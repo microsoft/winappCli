@@ -139,8 +139,92 @@ internal partial class PackageCommand
                 return Fail(UnpackagedProjectMessage(csproj.Name));
             }
 
-            // Publish (not build): package the deployment payload (PublishDir), so AOT / trimmed / single-file /
-            // self-contained apps package what actually ships rather than the managed build output.
+            // MSIX-tooling projects (WinUI / EnableMsixTooling): let the Windows App SDK's own MSIX targets
+            // produce the package during publish, then sign and deliver it. The SDK owns file selection and
+            // Native AOT native/managed filtering, so winapp never repackages the output. A native project
+            // that fails to package is reported as-is — never a silent fall back to generic packaging.
+            if (await projectRunService.IsNativeMsixProjectAsync(csproj, buildOptions, cancellationToken))
+            {
+                if (manifestPath != null)
+                {
+                    return Fail("--manifest is not supported for an MSIX-tooling project; configure the <AppxManifest> item in the project instead.");
+                }
+                if (executable != null)
+                {
+                    return Fail("--executable is not supported for an MSIX-tooling project; the SDK resolves the entry point from the project.");
+                }
+                if (skipPri)
+                {
+                    return Fail("--skip-pri is not supported for an MSIX-tooling project; the project's own resource build controls PRI generation.");
+                }
+
+                var packageStagingDir = new DirectoryInfo(Path.Join(Path.GetTempPath(), $"winapp-native-pack-{Guid.NewGuid():N}"));
+                packageStagingDir.Create();
+                try
+                {
+                    NativeMsixPublishOutcome nativeOutcome;
+                    try
+                    {
+                        nativeOutcome = await projectRunService.PublishNativeMsixAsync(csproj, buildOptions, packageStagingDir, cancellationToken);
+                    }
+                    catch (ProjectRunException ex)
+                    {
+                        return Fail(ex.Message);
+                    }
+
+                    if (nativeOutcome.PackagePath is null)
+                    {
+                        // Native packaging failed — dotnet already surfaced diagnostics. Propagate its exit code.
+                        return nativeOutcome.ExitCode == 0 ? 1 : nativeOutcome.ExitCode;
+                    }
+
+                    var nativeAutoSign = certPath != null || generateCert;
+                    return await statusService.ExecuteWithStatusAsync("Delivering MSIX package...", async (taskContext, ct) =>
+                    {
+                        try
+                        {
+                            var result = await msixService.DeliverNativeMsixAsync(
+                                nativeOutcome.PackagePath, output, name, taskContext,
+                                nativeAutoSign, certPath, certPassword, generateCert, installCert, publisher, ct);
+
+                            taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
+                            if (result.Signed)
+                            {
+                                taskContext.AddStatusMessage($"{UiSymbols.Lock} Package has been signed");
+                            }
+
+                            return (0, "MSIX package creation completed.");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            taskContext.AddDebugMessage($"Stack Trace: {ex.StackTrace}");
+                            return (1, $"{UiSymbols.Error} Failed to create MSIX package: {ex.GetBaseException().Message}");
+                        }
+                    }, cancellationToken);
+                }
+                finally
+                {
+                    try
+                    {
+                        packageStagingDir.Refresh();
+                        if (packageStagingDir.Exists)
+                        {
+                            packageStagingDir.Delete(recursive: true);
+                        }
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup of the native packaging scratch directory.
+                    }
+                }
+            }
+
+            // Generic publish-layout path (no active MSIX tooling): publish and package the deployment
+            // payload (PublishDir) with a resolved distribution manifest.
             ProjectBuildOutcome outcome;
             try
             {

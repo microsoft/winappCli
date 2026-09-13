@@ -112,6 +112,16 @@ internal interface IProjectRunService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Cheap, side-effect-free probe (no build) reporting whether the Windows App SDK MSIX packaging
+    /// targets are active (<c>MsixPackageSupport</c> / <c>EnableMsixTooling</c>). Selects the native
+    /// MSIX packaging path over the generic publish-layout path. Indeterminate → <see langword="false"/>.
+    /// </summary>
+    Task<bool> IsNativeMsixProjectAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cheap, side-effect-free probe (no build) that reports whether the project is DEFINITIVELY
     /// unpackaged — i.e. it declares an explicit <c>WindowsPackageType=None</c>. Used by the run
     /// handler to fail fast on identity-only options (e.g. <c>--no-launch</c>) that are meaningless

@@ -44,6 +44,9 @@ internal sealed partial class ProjectRunService(
         "WindowsPackageType",
         "WindowsAppSDKSelfContained",
         "EnableMsixTooling",
+        // Whether the Windows App SDK MSIX packaging targets are active for this project. Distinguishes a
+        // native-MSIX project (winapp lets the SDK produce the package) from a generic publish-layout one.
+        "MsixPackageSupport",
         "_WinAppRunSupportActive",
         "OutputType",
         // The app's own launch preference. Read here so a .csproj run directly gets the same behavior as
@@ -566,6 +569,48 @@ internal sealed partial class ProjectRunService(
         ProjectRunOptions options,
         CancellationToken cancellationToken)
     {
+        var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+
+        // Only an EXPLICIT WindowsPackageType=None is definitive. An unset value is NOT — a packaged app
+        // declaring identity via an emitted recipe also evaluates empty here pre-build, so
+        // DeterminePackaging's post-build recipe fallback stays authoritative. Evaluation failure →
+        // indeterminate; let the authoritative build classify.
+        return props is not null
+            && string.Equals(GetProp(props, "WindowsPackageType"), "None", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Cheap, side-effect-free probe (no build) that reports whether the Windows App SDK MSIX packaging
+    /// targets are active for the project (<c>MsixPackageSupport</c> or <c>EnableMsixTooling</c>). When
+    /// true, <c>winapp pack</c> lets the SDK produce the package via <see cref="PublishNativeMsixAsync"/>
+    /// rather than assembling a generic publish layout. Indeterminate/failed evaluation returns
+    /// <see langword="false"/> so the generic path stays the default.
+    /// </summary>
+    public async Task<bool> IsNativeMsixProjectAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+    {
+        var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+        if (props is null)
+        {
+            return false;
+        }
+
+        return IsTrue(GetProp(props, "MsixPackageSupport"))
+            || IsTrue(GetProp(props, "EnableMsixTooling"));
+    }
+
+    /// <summary>
+    /// Runs the shared evaluate pass (same effective TFM / RID / platform / shim / profile as a real build)
+    /// and returns the parsed <see cref="RequestedProperties"/>, or <see langword="null"/> when dotnet
+    /// could not be started or evaluation failed. Evaluate-only: no build is triggered.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>?> TryEvaluateProjectPropertiesAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+    {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
 
         // Pin the same effective TFM the real build/evaluate passes use, so a multi-targeted project
@@ -581,8 +626,6 @@ internal sealed partial class ProjectRunService(
             csWinRTMetadata,
             cancellationToken);
 
-        // Reuse the exact evaluate pass (same -p/RID/TFM/shim as a real build) so the WindowsPackageType we
-        // read matches what the build would see. Evaluate-only — no build is triggered.
         var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata);
         int exitCode;
         string stdout;
@@ -596,22 +639,10 @@ internal sealed partial class ProjectRunService(
         }
         catch (Exception)
         {
-            // Starting/communicating with dotnet failed → indeterminate; let the authoritative build classify.
-            return false;
+            return null;
         }
 
-        if (exitCode != 0)
-        {
-            // Evaluation failed → indeterminate; let the authoritative build classify.
-            return false;
-        }
-
-        var props = MsBuildPropertyReader.Parse(stdout, RequestedProperties);
-
-        // Only an EXPLICIT WindowsPackageType=None is definitive. An unset value is NOT — a packaged app
-        // declaring identity via an emitted recipe also evaluates empty here pre-build, so
-        // DeterminePackaging's post-build recipe fallback stays authoritative.
-        return string.Equals(GetProp(props, "WindowsPackageType"), "None", StringComparison.OrdinalIgnoreCase);
+        return exitCode != 0 ? null : MsBuildPropertyReader.Parse(stdout, RequestedProperties);
     }
 
     /// <summary>

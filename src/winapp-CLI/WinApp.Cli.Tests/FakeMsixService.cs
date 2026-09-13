@@ -231,6 +231,35 @@ internal class FakeMsixService : IMsixService
         return Task.FromResult(new CreateMsixPackageResult(new FileInfo("fake.msix"), PackageSigned));
     }
 
+    /// <summary>Captured arguments of the most recent <see cref="DeliverNativeMsixAsync"/> call.</summary>
+    public sealed record DeliverNativeArgs(FileInfo ProducedMsix, FileInfo? Output, string? Name, bool AutoSign, FileInfo? CertPath, string? Publisher);
+
+    public List<DeliverNativeArgs> DeliverNativeMsixCalls { get; } = [];
+
+    public Task<CreateMsixPackageResult> DeliverNativeMsixAsync(
+        FileInfo producedMsix,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        CancellationToken cancellationToken = default)
+    {
+        DeliverNativeMsixCalls.Add(new DeliverNativeArgs(producedMsix, output, name, autoSign, certPath, publisher));
+        if (PackageExceptionToThrow != null)
+        {
+            throw PackageExceptionToThrow;
+        }
+        var delivered = output is { } o && string.Equals(o.Extension, ".msix", StringComparison.OrdinalIgnoreCase)
+            ? o
+            : new FileInfo(Path.Combine(output?.FullName ?? Directory.GetCurrentDirectory(), name is { Length: > 0 } ? $"{name}.msix" : producedMsix.Name));
+        return Task.FromResult(new CreateMsixPackageResult(delivered, autoSign && PackageSigned));
+    }
+
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(
         DirectoryInfo[] inputFolders,
         FileSystemInfo? outputPath,
