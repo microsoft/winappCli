@@ -100,6 +100,18 @@ internal interface IProjectRunService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Publishes an MSIX-tooling project so the Windows App SDK's own MSIX targets produce the package
+    /// during publish (<c>PublishAppxPackage=true</c>), and returns the produced (unsigned) <c>.msix</c>.
+    /// The SDK owns file selection and native/managed filtering, so the caller signs and delivers the
+    /// artifact without repackaging it. <paramref name="packageDir"/> is a caller-owned scratch directory.
+    /// </summary>
+    Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        DirectoryInfo packageDir,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cheap, side-effect-free probe (no build) that reports whether the project is DEFINITIVELY
     /// unpackaged — i.e. it declares an explicit <c>WindowsPackageType=None</c>. Used by the run
     /// handler to fail fast on identity-only options (e.g. <c>--no-launch</c>) that are meaningless

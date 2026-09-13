@@ -384,6 +384,29 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void BuildNativeMsixPublishArguments_TriggersSdkPackagingAndCapturesOutput()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "arm64", null, NoBuild: false, NoRestore: false, Properties: []);
+        var pkgDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "pkgout"));
+
+        var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
+
+        StringAssert.StartsWith(args, "publish ");
+        StringAssert.Contains(args, "-r win-arm64");
+        // The SDK produces the package during publish, keeping the native (published) payload...
+        StringAssert.Contains(args, "-p:PublishAppxPackage=true");
+        StringAssert.Contains(args, "-p:IncludePublishItemsOutputGroup=true");
+        // ...exactly once (no separate build-time package), unsigned, single package, into winapp's scratch dir...
+        StringAssert.Contains(args, "-p:GenerateAppxPackageOnBuild=false");
+        StringAssert.Contains(args, "-p:AppxBundle=Never");
+        StringAssert.Contains(args, "-p:AppxPackageSigningEnabled=false");
+        StringAssert.Contains(args, $"-p:AppxPackageDir={pkgDir.FullName}{Path.DirectorySeparatorChar}");
+        // ...and reports the execution-time artifact path.
+        StringAssert.Contains(args, "--getProperty:AppxPackageOutput");
+    }
+
+    [TestMethod]
     public void BuildBuildPassArguments_Arm64_UsesArmRid_NoForcedPlatform()
     {
         var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));

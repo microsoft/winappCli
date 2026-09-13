@@ -46,6 +46,7 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public List<ProjectClassificationInputs?> ResolveInputClassificationInputs { get; } = [];
     public List<FileInfo> BuildAndResolveCalls { get; } = [];
     public List<FileInfo> PublishAndResolveCalls { get; } = [];
+    public List<FileInfo> PublishNativeMsixCalls { get; } = [];
     public List<ProjectRunOptions> BuildOptions { get; } = [];
     public List<ProjectRunOptions> AotOptions { get; } = [];
     public List<FileInfo> BuildAndResolveSingleFileCalls { get; } = [];
@@ -117,6 +118,25 @@ internal sealed class FakeProjectRunService : IProjectRunService
 
         return Task.FromResult(AotOutcome
             ?? throw new InvalidOperationException("FakeProjectRunService.AotOutcome was not configured."));
+    }
+
+    /// <summary>Returned from <see cref="PublishNativeMsixAsync"/> when no exception is configured.</summary>
+    public NativeMsixPublishOutcome? NativeMsixOutcome { get; set; }
+
+    /// <summary>When set, <see cref="PublishNativeMsixAsync"/> throws it (simulates a guardrail violation).</summary>
+    public ProjectRunException? NativeMsixThrows { get; set; }
+
+    public Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(FileInfo csproj, ProjectRunOptions options, DirectoryInfo packageDir, CancellationToken cancellationToken)
+    {
+        PublishNativeMsixCalls.Add(csproj);
+        BuildOptions.Add(options);
+        if (NativeMsixThrows != null)
+        {
+            throw NativeMsixThrows;
+        }
+
+        return Task.FromResult(NativeMsixOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.NativeMsixOutcome was not configured."));
     }
 
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)

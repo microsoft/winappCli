@@ -153,6 +153,13 @@ internal sealed record ProjectClassificationInputs(
 internal sealed record ProjectBuildOutcome(ProjectRunResolution? Resolution, int ExitCode);
 
 /// <summary>
+/// Result of a native MSIX publish pass. <see cref="PackagePath"/> is the SDK-produced <c>.msix</c>
+/// (from the evaluated <c>AppxPackageOutput</c>), or <see langword="null"/> when publish/packaging failed,
+/// in which case <see cref="ExitCode"/> carries dotnet's exit code.
+/// </summary>
+internal sealed record NativeMsixPublishOutcome(FileInfo? PackagePath, int ExitCode);
+
+/// <summary>
 /// User-provided build inputs for single-file mode (a <c>.cs</c> file-based app).
 /// <para>
 /// Deliberately a much smaller set than <see cref="ProjectRunOptions"/>. A file-based app declares its
