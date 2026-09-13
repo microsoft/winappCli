@@ -157,6 +157,21 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_DefaultsToReleaseConfiguration()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("Release", _fakeProjectRunService.BuildOptions[0].Configuration,
+            "pack produces a distributable, so project mode must default to Release when no -c is given");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_ThreadsOwningSolutionIntoBuildOptions()
     {
         var csproj = CreateCsproj();

@@ -97,8 +97,8 @@ internal partial class PackageCommand : Command, IShortDescription
 
         ConfigurationOption = new Option<string>("--configuration")
         {
-            Description = "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Debug.",
-            DefaultValueFactory = _ => "Debug",
+            Description = "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Release.",
+            DefaultValueFactory = _ => "Release",
         };
         ConfigurationOption.Aliases.Add("-c");
 

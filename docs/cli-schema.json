@@ -2313,14 +2313,14 @@
           "recursive": false
         },
         "--configuration": {
-          "description": "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Debug.",
+          "description": "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Release.",
           "hidden": false,
           "aliases": [
             "-c"
           ],
           "valueType": "System.String",
           "hasDefaultValue": true,
-          "defaultValue": "Debug",
+          "defaultValue": "Release",
           "arity": {
             "minimum": 1,
             "maximum": 1

@@ -48,7 +48,7 @@ internal partial class PackageCommand
             }
 
             // Project-mode build inputs.
-            var configuration = parseResult.GetValue(ConfigurationOption) ?? "Debug";
+            var configuration = parseResult.GetValue(ConfigurationOption) ?? "Release";
             var archOption = parseResult.GetValue(ArchOption);
             var runtimeOption = parseResult.GetValue(RuntimeOption);
             var noBuild = parseResult.GetValue(NoBuildOption);
