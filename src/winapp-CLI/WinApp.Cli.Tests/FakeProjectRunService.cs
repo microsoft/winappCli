@@ -24,6 +24,7 @@ internal sealed class FakeProjectRunService : IProjectRunService
 
     /// <summary>Returned from <see cref="BuildAndResolveAsync"/> when no exception is configured.</summary>
     public ProjectBuildOutcome? BuildOutcome { get; set; }
+    public ProjectBuildOutcome? AotOutcome { get; set; }
 
     /// <summary>When set, <see cref="BuildAndResolveAsync"/> throws it (simulates a guardrail violation).</summary>
     public ProjectRunException? BuildThrows { get; set; }
@@ -46,6 +47,7 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public List<FileInfo> BuildAndResolveCalls { get; } = [];
     public List<FileInfo> PublishAndResolveCalls { get; } = [];
     public List<ProjectRunOptions> BuildOptions { get; } = [];
+    public List<ProjectRunOptions> AotOptions { get; } = [];
     public List<FileInfo> BuildAndResolveSingleFileCalls { get; } = [];
     public List<SingleFileRunOptions> SingleFileBuildOptions { get; } = [];
 
@@ -102,6 +104,19 @@ internal sealed class FakeProjectRunService : IProjectRunService
 
         return Task.FromResult(BuildOutcome
             ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured."));
+    }
+
+    public Task<ProjectBuildOutcome> PublishAotAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        BuildAndResolveCalls.Add(csproj);
+        AotOptions.Add(options);
+        if (BuildThrows != null)
+        {
+            throw BuildThrows;
+        }
+
+        return Task.FromResult(AotOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.AotOutcome was not configured."));
     }
 
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)

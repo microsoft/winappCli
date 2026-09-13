@@ -143,10 +143,13 @@ public class MsixServiceIdentityTests : BaseCommandTests
         return recipePath;
     }
 
-    private Task InvokeCopyFilesFromRecipeAsync(FileInfo recipe, DirectoryInfo outputDir)
+    private Task InvokeCopyFilesFromRecipeAsync(
+        FileInfo recipe,
+        DirectoryInfo outputDir,
+        CancellationToken cancellationToken = default)
     {
         return (Task)CopyFilesFromRecipeMethod.Invoke(
-            null, [recipe, outputDir, TestTaskContext, CancellationToken.None])!;
+            null, [recipe, outputDir, TestTaskContext, cancellationToken])!;
     }
 
     private void InvokeSyncFilesToOutputDirectory(DirectoryInfo input, DirectoryInfo output, FileInfo manifest)
@@ -218,7 +221,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task CopyFilesFromRecipeAsync_MissingSourceFile_IsSkipped()
+    public async Task CopyFilesFromRecipeAsync_MissingSourceFile_Fails()
     {
         var srcDir = _tempDirectory.CreateSubdirectory("recipe-src");
         var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "AppxManifest.xml"));
@@ -228,10 +231,155 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var recipe = new FileInfo(WriteRecipe(srcManifest, (missing, "does-not-exist.dll")));
         var outputDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "layout"));
 
+        var error = await Assert.ThrowsExactlyAsync<FileNotFoundException>(
+            () => InvokeCopyFilesFromRecipeAsync(recipe, outputDir));
+
+        StringAssert.Contains(error.Message, "does-not-exist.dll");
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_ResolvesRelativeIncludesFromRecipeDirectory()
+    {
+        var srcManifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(
+            srcManifest.FullName,
+            BuildMSBuildManifest(),
+            TestContext.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Join(_tempDirectory.FullName, "relative.bin"),
+            "relative",
+            TestContext.CancellationToken);
+        var recipe = new FileInfo(WriteRecipe(
+            srcManifest,
+            ("relative.bin", @"Content\relative.bin")));
+        var outputDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
+
         await InvokeCopyFilesFromRecipeAsync(recipe, outputDir);
 
-        Assert.IsTrue(File.Exists(Path.Combine(outputDir.FullName, "appxmanifest.xml")), "Manifest still copied");
-        Assert.IsFalse(File.Exists(Path.Combine(outputDir.FullName, "does-not-exist.dll")), "Missing source must not produce a dest file");
+        Assert.AreEqual(
+            "relative",
+            await File.ReadAllTextAsync(
+                Path.Join(outputDir.FullName, "Content", "relative.bin"),
+                TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_RejectsDestinationOutsideLayout()
+    {
+        var srcManifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(
+            srcManifest.FullName,
+            BuildMSBuildManifest(),
+            TestContext.CancellationToken);
+        var source = new FileInfo(Path.Join(_tempDirectory.FullName, "escape.bin"));
+        await File.WriteAllTextAsync(source.FullName, "escape", TestContext.CancellationToken);
+        var recipe = new FileInfo(WriteRecipe(
+            srcManifest,
+            (source.FullName, @"..\escape.bin")));
+        var outputDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
+
+        var error = await Assert.ThrowsExactlyAsync<InvalidDataException>(
+            () => InvokeCopyFilesFromRecipeAsync(recipe, outputDir));
+
+        StringAssert.Contains(error.Message, "outside the output directory");
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_RemovesOnlyPreviouslyStagedFiles()
+    {
+        var srcManifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(
+            srcManifest.FullName,
+            BuildMSBuildManifest(),
+            TestContext.CancellationToken);
+        var oldFile = new FileInfo(Path.Join(_tempDirectory.FullName, "old.dll"));
+        var newFile = new FileInfo(Path.Join(_tempDirectory.FullName, "new.exe"));
+        await File.WriteAllTextAsync(oldFile.FullName, "old", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(newFile.FullName, "new", TestContext.CancellationToken);
+        var outputDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
+
+        var recipe = new FileInfo(WriteRecipe(
+            srcManifest,
+            (oldFile.FullName, "App.dll")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, outputDir);
+        await File.WriteAllTextAsync(
+            Path.Join(outputDir.FullName, "user.txt"),
+            "keep",
+            TestContext.CancellationToken);
+
+        recipe = new FileInfo(WriteRecipe(
+            srcManifest,
+            (newFile.FullName, "App.exe")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, outputDir);
+
+        Assert.IsFalse(File.Exists(Path.Join(outputDir.FullName, "App.dll")));
+        Assert.IsTrue(File.Exists(Path.Join(outputDir.FullName, "App.exe")));
+        Assert.IsTrue(File.Exists(Path.Join(outputDir.FullName, "user.txt")));
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_FailedCopyRetainsOnlyStagedOwnership()
+    {
+        var manifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        var source = Path.Join(_tempDirectory.FullName, "source.bin");
+        var lockedSource = Path.Join(_tempDirectory.FullName, "locked.bin");
+        await File.WriteAllTextAsync(manifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(source, "new", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(lockedSource, "locked", TestContext.CancellationToken);
+        var output = _tempDirectory.CreateSubdirectory("layout");
+        var recipe = new FileInfo(WriteRecipe(
+            manifest,
+            (source, "previous.bin"),
+            (source, "retired.bin")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+        var untouched = Path.Join(output.FullName, "untouched.bin");
+        var blocked = Path.Join(output.FullName, "blocked.bin");
+        await File.WriteAllTextAsync(untouched, "keep untouched", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(blocked, "keep blocked", TestContext.CancellationToken);
+        recipe = new FileInfo(WriteRecipe(
+            manifest,
+            (source, "completed.bin"),
+            (lockedSource, "blocked.bin"),
+            (source, "previous.bin"),
+            (source, "untouched.bin")));
+
+        using (var locked = new FileStream(lockedSource, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => InvokeCopyFilesFromRecipeAsync(recipe, output));
+        }
+
+        Assert.IsTrue(File.Exists(Path.Join(output.FullName, "completed.bin")));
+        Assert.IsTrue(File.Exists(Path.Join(output.FullName, "retired.bin")), "A failed replacement must not remove the old layout's stale payload.");
+        recipe = new FileInfo(WriteRecipe(manifest));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "completed.bin")), "Completed copies from a failed attempt must remain tracked.");
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "previous.bin")), "Previously owned files must remain tracked even if not reached.");
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "retired.bin")), "A successful replacement must reconcile the deferred stale payload.");
+        Assert.AreEqual("keep blocked", await File.ReadAllTextAsync(blocked, TestContext.CancellationToken));
+        Assert.AreEqual("keep untouched", await File.ReadAllTextAsync(untouched, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_PreCanceledAttemptPreservesExistingOwnership()
+    {
+        var manifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        var source = Path.Join(_tempDirectory.FullName, "source.bin");
+        await File.WriteAllTextAsync(manifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(source, "old", TestContext.CancellationToken);
+        var output = _tempDirectory.CreateSubdirectory("layout");
+        var recipe = new FileInfo(WriteRecipe(manifest, (source, "old.bin")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+        recipe = new FileInfo(WriteRecipe(manifest));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => InvokeCopyFilesFromRecipeAsync(recipe, output, cancellation.Token));
+
+        Assert.IsTrue(File.Exists(Path.Join(output.FullName, "old.bin")));
+        await InvokeCopyFilesFromRecipeAsync(recipe, output);
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "old.bin")));
     }
 
     // ---- SyncFilesToOutputDirectory -----------------------------------------------
@@ -524,6 +672,52 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.AreEqual("App", result.ApplicationId);
         Assert.IsTrue(File.Exists(Path.Combine(output.FullName, "appxmanifest.xml")), "Layout manifest should be produced from the recipe");
         Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls);
+    }
+
+    [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_ExplicitExternalRecipeWinsOverPublishDirectoryManifest()
+    {
+        var publishDirectory = _tempDirectory.CreateSubdirectory("publish-output");
+        await File.WriteAllTextAsync(
+            Path.Join(publishDirectory.FullName, "Package.appxmanifest"),
+            BuildRawManifest("StalePackage", "stale.exe"),
+            TestContext.CancellationToken);
+
+        var generatedDirectory = _tempDirectory.CreateSubdirectory("generated-output");
+        var generatedManifest = new FileInfo(
+            Path.Join(generatedDirectory.FullName, "AppxManifest.xml"));
+        var nativeExe = new FileInfo(Path.Join(generatedDirectory.FullName, "native.exe"));
+        await File.WriteAllTextAsync(
+            generatedManifest.FullName,
+            BuildMSBuildManifest(),
+            TestContext.CancellationToken);
+        await File.WriteAllTextAsync(
+            nativeExe.FullName,
+            "native",
+            TestContext.CancellationToken);
+        var recipe = new FileInfo(WriteRecipe(
+            generatedManifest,
+            (nativeExe.FullName, "TestApp.exe")));
+        var output = new DirectoryInfo(Path.Join(publishDirectory.FullName, "AppX"));
+
+        await _msixService.AddLooseLayoutIdentityAsync(
+            generatedManifest,
+            publishDirectory,
+            output,
+            TestTaskContext,
+            selfContained: true,
+            appxRecipe: recipe,
+            cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual(
+            "native",
+            await File.ReadAllTextAsync(
+                Path.Join(output.FullName, "TestApp.exe"),
+                TestContext.CancellationToken));
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "Package.appxmanifest")));
+        Assert.AreEqual(
+            Path.Join(output.FullName, "appxmanifest.xml"),
+            _fakeRegistration.RegisterLooseLayoutCalls.Single());
     }
 
     [TestMethod]
@@ -1348,4 +1542,3 @@ internal sealed class ScriptedMtBuildToolsService : IBuildToolsService
         return _inner.RunBuildToolAsync(tool, arguments, taskContext, printErrors, toolPathOverride, environment, workingDirectory, cancellationToken);
     }
 }
-
