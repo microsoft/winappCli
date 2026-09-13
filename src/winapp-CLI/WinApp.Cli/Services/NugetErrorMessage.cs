@@ -46,7 +46,12 @@ internal static partial class NugetErrorMessage
 
             if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
             {
-                return raw;
+                // Fail closed for URL-shaped values that may carry credentials. Invalid ports, malformed
+                // user-info, and partially expanded templates are most likely to appear on failure paths,
+                // which is exactly when NuGet echoes the source into logs.
+                return trimmed.IndexOfAny(['?', '@']) >= 0
+                    ? "<redacted-url>" + punctuation
+                    : raw;
             }
 
             var hasUserInfo = !string.IsNullOrEmpty(uri.UserInfo);

@@ -158,7 +158,23 @@ internal class FakeDotNetService : IDotNetService
         {
             return Task.FromResult(RunDotnetStreamingHandler(arguments, onOutputLine, onErrorLine));
         }
+        if (RunDotnetCommandHandler is not null)
+        {
+            var (exitCode, output, error) = RunDotnetCommandHandler(arguments);
+            ForwardLines(output, onOutputLine);
+            ForwardLines(error, onErrorLine);
+            return Task.FromResult(exitCode);
+        }
         return Task.FromResult(0);
+    }
+
+    private static void ForwardLines(string text, Action<string>? callback)
+    {
+        using var reader = new StringReader(text);
+        while (reader.ReadLine() is { } line)
+        {
+            callback?.Invoke(line);
+        }
     }
 
     /// <summary>

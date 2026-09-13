@@ -6,7 +6,8 @@ This sample is a **multi-project Visual Studio solution** used to exercise
 
 ## What This Sample Shows
 
-- A classic `.sln` (`WinUISolution.sln`) with three projects:
+- A classic `.sln` (`WinUISolution.sln`) and a configuration-free `.slnx`
+  (`WinUISolution.slnx`) with three projects:
   - **`App`** — a packaged WinUI 3 desktop app (the runnable app).
   - **`App.Core`** — a WinUI 3 class library referenced by `App` that
     deliberately declares **no `<Platforms>`** (see below).
@@ -62,9 +63,9 @@ When given a solution (or a directory containing one), `winapp run`:
 winapp run WinUISolution.sln
 
 # Same, but only build + register the debug identity without launching (no GUI).
-winapp run WinUISolution.sln --no-launch
+winapp run WinUISolution.slnx --no-launch
 
-# Point at the directory instead of the .sln explicitly (directory mode finds the .sln).
+# Point at the directory instead of a solution explicitly (directory mode prefers the .slnx migration pair).
 winapp run .
 
 # Explicitly select a specific project.
@@ -79,9 +80,10 @@ dotnet build WinUISolution.sln -c Debug -p:Platform=x64
 `test.Tests.ps1` (Pester 5.x) validates solution mode end-to-end:
 
 - **Phase 1** copies the sources to a clean temp directory and runs
-  `winapp run WinUISolution.sln --no-launch`, asserting the **`App`** project is
-  auto-selected and built (no ambiguity error), then that `--project App.Tests`
-  reaches the explicitly selected test project.
+  `winapp run WinUISolution.slnx --no-launch`, asserting the **`App`** project is
+  auto-selected and built (no ambiguity error). It also verifies that the
+  configuration-free `.slnx` restores without an `MSB4126` solution-platform error
+  when `--project App.Tests` resolves an explicit project platform.
 - **Phase 2** restores and builds the existing solution to verify the committed
   sample still compiles.
 

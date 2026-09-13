@@ -17,7 +17,6 @@ internal sealed partial class UiRecordingService
     private sealed class RecordFrameArtifactSetup
     {
         public required RecordOptions Options { get; init; }
-        public required DateTimeOffset StartedUtc { get; init; }
         public required int EncoderWidth { get; init; }
         public required int EncoderHeight { get; init; }
     }
@@ -29,7 +28,6 @@ internal sealed partial class UiRecordingService
         {
             FinalDirectory = setup.Options.FramesDirectory!,
             VideoPath = setup.Options.OutputPath,
-            StartedUtc = setup.StartedUtc,
             Width = setup.EncoderWidth,
             Height = setup.EncoderHeight,
             Requested = new RecordFrameRequestManifest

@@ -585,16 +585,17 @@ public sealed class ProjectRunServicePublishProfileTests
         Assert.IsNotNull(outcome.Resolution);
         Assert.IsFalse(dotnet.StringInvocations.Any(arguments =>
             arguments.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)));
-        var siblingRestore = dotnet.StringInvocations.Single(arguments =>
+        var siblingRestore = dotnet.StreamingCalls.Single(arguments =>
             arguments.StartsWith("restore ", StringComparison.Ordinal)
             && arguments.Contains("Server.csproj", StringComparison.Ordinal));
         Assert.IsFalse(
             siblingRestore.Contains("-p:PublishProfile=", StringComparison.Ordinal),
             "the selected app's profile must not flow into an unrelated solution sibling");
-        Assert.AreEqual(1, dotnet.StreamingCalls.Count);
-        StringAssert.Contains(dotnet.StreamingCalls[0], "-p:PublishProfile=win-arm64.pubxml");
+        var appBuild = dotnet.StreamingCalls.Single(arguments =>
+            arguments.StartsWith($"build {app.FullName}", StringComparison.Ordinal));
+        StringAssert.Contains(appBuild, "-p:PublishProfile=win-arm64.pubxml");
         Assert.IsFalse(
-            dotnet.StreamingCalls[0].Contains("--no-restore", StringComparison.Ordinal),
+            appBuild.Contains("--no-restore", StringComparison.Ordinal),
             "the target still needs its profile-specific restore graph");
     }
 

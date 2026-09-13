@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using WinApp.Cli.Services.InteractiveDesktop;
 
@@ -131,7 +133,8 @@ public class InteractiveDesktopRealAppTests : IDisposable
 
     // ------------------------------------------------------------------ real winapp.exe agents
 
-    private sealed record AgentRun(Process Process, Task<int> Completion, Task<string> Output);
+    private sealed record AgentRun(
+        Process Process, Task<int> Completion, Task<string> Output, Task<string> StandardOutput);
 
     /// <summary>
     /// Launches a real <c>winapp.exe</c> as <paramref name="ownerId"/> against the fixture window.
@@ -140,13 +143,15 @@ public class InteractiveDesktopRealAppTests : IDisposable
     /// Both pipes are drained concurrently: <c>ui</c> commands emit payloads large enough to fill the
     /// pipe buffer, and waiting for exit without reading would deadlock.
     /// </remarks>
-    private AgentRun StartAgent(string ownerId, params string[] args)
+    private AgentRun StartAgent(
+        string ownerId, string[] args, bool redirectStandardInput = false, Action<string>? onErrorLine = null)
     {
         var startInfo = new ProcessStartInfo(_winappPath)
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = redirectStandardInput,
             CreateNoWindow = true,
         };
 
@@ -163,7 +168,19 @@ public class InteractiveDesktopRealAppTests : IDisposable
         _children.Add(process);
 
         var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
+        async Task<string> ReadErrorAsync()
+        {
+            var error = new StringBuilder();
+            while (await process.StandardError.ReadLineAsync() is { } line)
+            {
+                error.AppendLine(line);
+                onErrorLine?.Invoke(line);
+            }
+
+            return error.ToString();
+        }
+
+        var stderr = ReadErrorAsync();
         var completion = Task.Run(async () =>
         {
             await process.WaitForExitAsync();
@@ -171,7 +188,7 @@ public class InteractiveDesktopRealAppTests : IDisposable
         });
         var output = Task.Run(async () => await stdout + await stderr);
 
-        return new AgentRun(process, completion, output);
+        return new AgentRun(process, completion, output, stdout);
     }
 
     private async Task<(int ExitCode, string Output)> RunAgentAsync(string ownerId, params string[] args)
@@ -404,23 +421,34 @@ public class InteractiveDesktopRealAppTests : IDisposable
     [TestMethod]
     public async Task RecordingPinsTheOwnerWhileSameOwnerInputContinuesAndAnotherOwnerWaits()
     {
-        const int recordSeconds = 8;
         var outputPath = Path.Combine(_scratchDirectory, "pinned.mp4");
 
-        // Explicit precondition: this test injects real keystrokes, so it must not inherit menu mode or
-        // a stray foreground window from whatever ran before it.
+        // The screen recording must not inherit menu mode or a stray foreground window.
         _fixture.CloseFileMenu();
         Assert.IsFalse(_fixture.IsFileMenuOpen, "no drop-down may be capturing keyboard input");
 
+        // Stop the recording ourselves after input completes, rather than racing capture duration
+        // against process/encoder startup. Screen capture always permits same-owner input; the
+        // PrintWindow fallback on hosts without WGC deliberately does not.
+        var recordingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var recorder = StartAgent(OwnerA, WithTarget(
-            "ui", "record", "--duration-sec", recordSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "-o", outputPath));
+            "ui", "record", "--duration-sec", "0", "--capture-screen", "-o", outputPath),
+            redirectStandardInput: true,
+            onErrorLine: line =>
+            {
+                if (line.Contains("\"recording-started\"", StringComparison.Ordinal))
+                {
+                    recordingStarted.TrySetResult();
+                }
+            });
 
         await WaitForAgentStateAsync(
             recorder,
-            s => s.Owner?.Key == KeyOf(OwnerA) && s.OwnerCommands.Any(
-                c => c.Mode == UiTurnMode.TurnShared && c.Status == UiCommandStatus.Running),
-            "the recording must register as a running shared command owned by agent A");
+            s => recordingStarted.Task.IsCompletedSuccessfully
+                && s.Owner?.Key == KeyOf(OwnerA) && s.OwnerCommands.Any(
+                    c => c.Pid == recorder.Process.Id
+                        && c.Mode == UiTurnMode.TurnShared && c.Status == UiCommandStatus.Running),
+            "the recording must commit its first frame while holding agent A's shared turn");
 
         // A different owner's mutation must not interleave with the recording.
         var agentB = StartAgent(OwnerB, WithTarget("ui", "click", "btnInvoke"));
@@ -436,17 +464,12 @@ public class InteractiveDesktopRealAppTests : IDisposable
         // deterministically (the button handler sets the result box) and does not depend on desktop-wide
         // keyboard focus, which other tests in this class legitimately disturb. Keystroke ordering itself
         // is covered by the send-keys coverage in RealUiAutomationTests.
-        var inputTimer = Stopwatch.StartNew();
-        var (actionExit, actionOutput) = await RunAgentAsync(OwnerA, WithTarget("ui", "invoke", "Click Me"));
-        inputTimer.Stop();
+        var (actionExit, actionOutput) = await RunAgentAsync(OwnerA, WithTarget("ui", "invoke", "Click Me"))
+            .WaitAsync(TimeSpan.FromSeconds(20));
 
         Assert.AreEqual(0, actionExit, $"same-owner input must proceed during the recording. Output: {actionOutput}");
         Assert.IsFalse(recorder.Process.HasExited, "the recording must still be running when same-owner input completes");
         Assert.IsFalse(agentB.Process.HasExited, "agent B must still be waiting while the recording owner is active");
-
-        Assert.IsTrue(
-            inputTimer.ElapsedMilliseconds < recordSeconds * 1000,
-            $"same-owner input waited {inputTimer.ElapsedMilliseconds} ms, which suggests it was blocked by the recording");
 
         // The control updates on the app's UI thread after the invoke is dispatched, so poll briefly
         // rather than sampling once and racing the message pump.
@@ -461,13 +484,26 @@ public class InteractiveDesktopRealAppTests : IDisposable
         Assert.AreEqual("clicked", result,
             "the same-owner command must have really acted on the app while the recording was running");
 
-        Assert.AreEqual(0, await recorder.Completion, $"the recording should succeed. Output: {await recorder.Output}");
-        Assert.IsTrue(File.Exists(outputPath), "the recording must have produced its output file");
+        var pinnedState = ReadState();
+        Assert.AreEqual(KeyOf(OwnerA), pinnedState.Owner?.Key);
+        Assert.IsTrue(pinnedState.OwnerCommands.Any(
+            c => c.Pid == recorder.Process.Id && c.Status == UiCommandStatus.Running),
+            "the recording must still pin agent A's turn after the input takes effect");
+        Assert.IsTrue(pinnedState.Waiters.Any(w => w.Pid == agentB.Process.Id),
+            "agent B must still be queued until we stop the recording");
 
-        Assert.AreEqual(0, await agentB.Completion, $"agent B should run once the recording releases the turn. Output: {await agentB.Output}");
-        Assert.IsTrue(
-            agentB.Process.ExitTime >= recorder.Process.ExitTime.AddMilliseconds(-250),
-            "agent B must not have completed before the recording released the turn");
+        await recorder.Process.StandardInput.WriteLineAsync();
+        await recorder.Process.StandardInput.FlushAsync();
+        Assert.AreEqual(0, await recorder.Completion.WaitAsync(TimeSpan.FromSeconds(20)),
+            $"the recording should succeed. Output: {await recorder.Output}");
+        Assert.IsTrue(File.Exists(outputPath), "the recording must have produced its output file");
+        using var recordingResult = JsonDocument.Parse(await recorder.StandardOutput);
+        Assert.AreEqual("screen", recordingResult.RootElement.GetProperty("mode").GetString());
+        Assert.AreEqual("cancelled", recordingResult.RootElement.GetProperty("stopReason").GetString(),
+            "recording must stop on our stdin signal, not end before the input completes");
+
+        Assert.AreEqual(0, await agentB.Completion.WaitAsync(TimeSpan.FromSeconds(20)),
+            $"agent B should run once the recording releases the turn. Output: {await agentB.Output}");
     }
 
     /// <summary>
