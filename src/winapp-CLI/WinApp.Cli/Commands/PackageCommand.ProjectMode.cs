@@ -223,8 +223,12 @@ internal partial class PackageCommand
                 }
             }
 
-            // Generic publish-layout path (no active MSIX tooling): publish and package the deployment
-            // payload (PublishDir) with a resolved distribution manifest.
+            // Generic publish-layout path: for a project without active MSIX tooling, publish and package the
+            // deployment payload (PublishDir) with a resolved distribution manifest. This ALSO serves as the
+            // intentional fallback when native detection is indeterminate (IsNativeMsixProjectAsync returned
+            // false because the cheap evaluate could not run): the resolver's recipe-aware TargetDir handling
+            // still packages an MSIX-tooling app correctly rather than failing. Do not remove that recipe
+            // handling as "dead code" — it is the safety net for the detection-failure case.
             ProjectBuildOutcome outcome;
             try
             {
