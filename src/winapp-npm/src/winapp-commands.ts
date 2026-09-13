@@ -767,7 +767,7 @@ export interface PackageOptions extends CommonOptions {
   cert?: string;
   /** Certificate password (default: password) */
   certPassword?: string;
-  /** Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Debug. */
+  /** Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Release. */
   configuration?: string;
   /** Path to the executable relative to the input folder. */
   executable?: string;
@@ -787,7 +787,7 @@ export interface PackageOptions extends CommonOptions {
   noRestore?: boolean;
   /** Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. */
   output?: string;
-  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p Configuration=Release). Ignored for folder/bundle/manifest inputs. */
+  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Set configuration, RID, and framework with -c, -r, and -f (a -p Configuration/RuntimeIdentifier/TargetFramework is dropped so build and evaluation stay in sync). Ignored for folder/bundle/manifest inputs. */
   property?: string | string[];
   /** Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;

@@ -919,7 +919,7 @@ internal sealed partial class ProjectRunService(
 
         if (streamedExit == 0)
         {
-            PrintBuildSucceeded(csproj, options, stopwatch.Elapsed);
+            PrintBuildSucceeded(csproj, options, stopwatch.Elapsed, publish);
         }
 
         return streamedExit;
@@ -929,9 +929,9 @@ internal sealed partial class ProjectRunService(
     /// Prints the persistent build-completion line (UX). Callers gate this to info-enabled, non-json paths
     /// so it never pollutes <c>--json</c> stdout or a <c>--quiet</c> run.
     /// </summary>
-    private void PrintBuildSucceeded(FileInfo csproj, ProjectRunOptions options, TimeSpan elapsed) =>
+    private void PrintBuildSucceeded(FileInfo csproj, ProjectRunOptions options, TimeSpan elapsed, bool publish = false) =>
         ansiConsole.MarkupLineInterpolated(
-            $"{UiSymbols.Check} Built {Path.GetFileNameWithoutExtension(csproj.Name)} in {elapsed.TotalSeconds:0.0}s");
+            $"{UiSymbols.Check} {(publish ? "Published" : "Built")} {Path.GetFileNameWithoutExtension(csproj.Name)} in {elapsed.TotalSeconds:0.0}s");
 
     /// <summary>
     /// Maps the CLI's effective log level to a dotnet <c>-v</c> verbosity for the build pass. <c>--verbose</c>

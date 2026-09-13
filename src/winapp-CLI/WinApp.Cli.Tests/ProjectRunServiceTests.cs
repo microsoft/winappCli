@@ -367,6 +367,23 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void BuildBuildPassArguments_Publish_UsesPublishVerbAndIncludesPublishItems()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var publishArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: true);
+        var buildArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: false);
+
+        StringAssert.StartsWith(publishArgs, "publish ");
+        // Native AOT / trimmed publish replaces the managed build output; the package output group must
+        // include published items or `winapp pack` packages the wrong (managed-build) payload.
+        StringAssert.Contains(publishArgs, "-p:IncludePublishItemsOutputGroup=true");
+        // The build pass (winapp run) must not set it — that path packages nothing.
+        Assert.IsFalse(buildArgs.Contains("IncludePublishItemsOutputGroup"), "build pass must not set the publish-items flag");
+    }
+
+    [TestMethod]
     public void BuildBuildPassArguments_Arm64_UsesArmRid_NoForcedPlatform()
     {
         var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));

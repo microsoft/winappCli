@@ -110,6 +110,16 @@ internal sealed partial class ProjectRunService
             tokens.Add("--no-build");
         }
 
+        if (publish)
+        {
+            // Native AOT (and other deployment transforms) replace the managed build output with the
+            // published payload. Without this the Windows SDK MSIX targets default the flag to false for
+            // AOT, so the generated .appxrecipe references the managed build and `winapp pack` would package
+            // the wrong payload. Match the Native AOT publisher and include publish items in the package
+            // output group. Harmless for a plain managed publish (build and publish payloads coincide).
+            tokens.Add("-p:IncludePublishItemsOutputGroup=true");
+        }
+
         if (!options.OmitRuntimeIdentifier)
         {
             tokens.Add("-r");

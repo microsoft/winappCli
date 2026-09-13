@@ -340,7 +340,8 @@ internal partial class MsixService
         string manifestContent,
         DotNetPackageListJson? dotNetPackageList,
         TaskContext taskContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? targetArch = null)
     {
         var allPackages = await GetAllUserPackagesAsync(dotNetPackageList, taskContext, cancellationToken);
         if (allPackages.Count == 0)
@@ -349,7 +350,10 @@ internal partial class MsixService
         }
 
         var nugetCacheDir = nugetService.GetNuGetGlobalPackagesDir();
-        var architecture = WorkspaceSetupService.GetSystemArchitecture();
+        // Discover components for the PACKAGE target architecture, not the host — otherwise packaging an
+        // arm64 project on an x64 machine looks up x64 native binaries and misses the component's activation
+        // entry. Falls back to the host architecture when the caller does not specify one.
+        var architecture = targetArch ?? WorkspaceSetupService.GetSystemArchitecture();
 
         // DiscoverWinRTComponents filters out packages that have a package.appxfragment
         // (WinAppSDK sub-packages), and only returns packages with both a .winmd and a matching DLL.

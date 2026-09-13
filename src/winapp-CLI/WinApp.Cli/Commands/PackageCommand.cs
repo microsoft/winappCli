@@ -131,7 +131,7 @@ internal partial class PackageCommand : Command, IShortDescription
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p Configuration=Release). Ignored for folder/bundle/manifest inputs.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Set configuration, RID, and framework with -c, -r, and -f (a -p Configuration/RuntimeIdentifier/TargetFramework is dropped so build and evaluation stay in sync). Ignored for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };

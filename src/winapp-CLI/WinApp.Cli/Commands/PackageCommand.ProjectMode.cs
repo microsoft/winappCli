@@ -87,26 +87,14 @@ internal partial class PackageCommand
             if (parseResult.GetResult(PropertyOption) is OptionResult propertyResult &&
                 propertyResult.IdentifierTokenCount > propertyResult.Tokens.Count)
             {
-                return Fail("A --property/-p option was provided without a value. Expected Name=Value (for example: -p Configuration=Release).");
+                return Fail("A --property/-p option was provided without a value. Expected Name=Value (for example: -p WindowsPackageType=None).");
             }
 
-            // Reject malformed -p values early so they never become a nonsensical MSBuild argument.
-            foreach (var property in properties)
+            // Reject malformed -p values (missing '=', or ';'/',' packing that would smuggle a dedicated-flag
+            // property past the name-only ForwardableProperties filter) using the same validator winapp run uses.
+            if (MsBuildPropertyValidator.Validate(properties) is { } propertyError)
             {
-                if (property.Contains(';'))
-                {
-                    var offendingName = property[..property.IndexOfAny(['=', ';'])];
-                    return Fail(
-                        $"Invalid --property '{offendingName}'. A single -p cannot pack multiple properties with ';'. " +
-                        "Pass one property per repeatable -p (for example: -p A=1 -p B=2), or escape a literal ';' in a value as '%3B'.");
-                }
-
-                var separator = property.IndexOf('=');
-                if (separator <= 0 || string.IsNullOrWhiteSpace(property[..separator]))
-                {
-                    var shown = separator > 0 ? property[..separator] : (separator == 0 ? "(empty)" : property);
-                    return Fail($"Invalid --property '{shown}'. Expected Name=Value (for example: -p Configuration=Release).");
-                }
+                return Fail(propertyError);
             }
 
             // Resolve the target architecture: --runtime's arch beats --arch; else the process arch.

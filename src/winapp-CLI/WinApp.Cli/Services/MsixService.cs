@@ -413,7 +413,7 @@ internal partial class MsixService(
             }
         }
 
-        (manifestContent, var packageArch) = await UpdateAppxManifestContentAsync(manifestContent, null, null, resolvedExePath, sparse: isSparseManifest, selfContained: selfContained, dotNetPackageList, taskContext, cancellationToken);
+        (manifestContent, var packageArch) = await UpdateAppxManifestContentAsync(manifestContent, null, null, resolvedExePath, sparse: isSparseManifest, selfContained: selfContained, dotNetPackageList, taskContext, cancellationToken, targetArch);
 
         // Parse the manifest to extract identity, executable, and architecture info
         var manifestDoc = AppxManifestDocument.Parse(manifestContent);
@@ -959,7 +959,8 @@ internal partial class MsixService(
         bool selfContained,
         DotNetPackageListJson? dotNetPackageList,
         TaskContext taskContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? targetArch = null)
     {
         var doc = AppxManifestDocument.Parse(originalAppxManifestContent);
 
@@ -1063,7 +1064,7 @@ internal partial class MsixService(
         // so we skip them here to avoid duplication.
         if (!selfContained)
         {
-            modifiedContent = await AddThirdPartyWinRTExtensionsToAppxManifestAsync(modifiedContent, dotNetPackageList, taskContext, cancellationToken);
+            modifiedContent = await AddThirdPartyWinRTExtensionsToAppxManifestAsync(modifiedContent, dotNetPackageList, taskContext, cancellationToken, targetArch);
         }
 
         // Stamp build metadata with CLI version

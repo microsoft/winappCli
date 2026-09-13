@@ -331,7 +331,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Project-mode options** (a `.csproj` input only; ignored for folder/bundle/manifest inputs):
 
-- `--configuration <name>` (`-c`) - Build configuration (default: `Debug`)
+- `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
 - `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
 - `--runtime <rid>` (`-r`) - Target .NET runtime identifier (e.g. `win-x64`); uses only the RID's architecture and overrides `--arch`
 - `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects

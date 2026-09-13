@@ -1313,7 +1313,8 @@ public class MsixServiceTests
             true,
             null,
             CreateTestTaskContext(),
-            CancellationToken.None
+            CancellationToken.None,
+            null
         ]) as dynamic;
 
         Assert.IsNotNull(resultTask, "Reflection call did not return a Task");

@@ -230,7 +230,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
     private async Task<string> InvokeAddThirdPartyExtensionsAsync(string manifest, DotNetPackageListJson? packageList)
     {
         return await (Task<string>)AddThirdPartyExtensionsMethod.Invoke(
-            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None])!;
+            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None, null])!;
     }
 
     private async Task InvokeAppendThirdPartyEntriesAsync(StringBuilder sb, DotNetPackageListJson? packageList)

@@ -350,6 +350,20 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_CommaPackedProperty_Errors()
+    {
+        // A single -p must not pack multiple properties with ',' — MSBuild splits on ',' and could smuggle a
+        // dedicated-flag property (e.g. RuntimeIdentifier) past the -c/-r/-f contract. Matches winapp run.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "A=1,B=2"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A comma-packed -p must be rejected before publishing");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_OutputMsixbundle_RejectedBeforeBuilding()
     {
         var csproj = CreateCsproj();
