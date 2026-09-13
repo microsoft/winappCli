@@ -172,6 +172,35 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_UsesEvaluatedManifest_WhenNotInPackagingOutput()
+    {
+        // A packaged (EnableMsixTooling) WinUI app publishes its payload to PublishDir but the
+        // MSBuild-generated AppxManifest.xml and .appxrecipe live in the build output
+        // (FinalAppxManifestName / AppxPackageRecipe), not the publish folder. Pack must thread that
+        // evaluated manifest into packaging rather than failing to find one in the output folder.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        var generated = _tempDirectory.CreateSubdirectory($"gen_{Guid.NewGuid():N}");
+        var manifest = new FileInfo(Path.Join(generated.FullName, "AppxManifest.xml"));
+        File.WriteAllText(manifest.FullName, TestManifestContent);
+        var recipe = new FileInfo(Path.Join(generated.FullName, "app.build.appxrecipe"));
+        File.WriteAllText(recipe.FullName, "<Project />");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(
+                csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64", null, false,
+                AppxManifestPath: manifest.FullName, AppxRecipePath: recipe.FullName),
+            0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode, "The evaluated manifest must be used when the output folder has none");
+        Assert.AreEqual(1, _fakeMsixService.CreatePackageCalls.Count);
+        Assert.AreEqual(manifest.FullName, _fakeMsixService.LastCreatePackageArgs!.ManifestPath!.FullName,
+            "The FinalAppxManifestName-resolved manifest must be threaded into packaging");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_ThreadsOwningSolutionIntoBuildOptions()
     {
         var csproj = CreateCsproj();

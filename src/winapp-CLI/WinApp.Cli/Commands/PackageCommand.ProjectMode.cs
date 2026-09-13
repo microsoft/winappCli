@@ -179,14 +179,24 @@ internal partial class PackageCommand
 
             var targetDir = new DirectoryInfo(resolution.TargetDir);
 
-            // Guardrail: packaged (per the evaluated WindowsPackageType) but no manifest in the publish
-            // output is a misconfiguration — surface it clearly rather than the generic pipeline error.
-            if (manifestPath == null && !ManifestHelper.FindManifest(targetDir.FullName).Exists)
+            // Prefer an explicit --manifest, then the MSBuild-evaluated packaged manifest
+            // (FinalAppxManifestName), then a manifest discovered in the packaging output. For an
+            // MSIX-tooling app the evaluated manifest and its .appxrecipe live in the build output that
+            // resolution.TargetDir already points at, so recipe-based staging in MsixService assembles the
+            // full package (manifest + compiled XAML + source-tree assets).
+            var effectiveManifest = manifestPath
+                ?? (resolution.AppxManifestPath is { Length: > 0 } resolvedManifest && File.Exists(resolvedManifest)
+                    ? new FileInfo(resolvedManifest)
+                    : null);
+
+            // Guardrail: packaged (per the evaluated WindowsPackageType) but no manifest anywhere is a
+            // misconfiguration — surface it clearly rather than the generic pipeline error.
+            if (effectiveManifest == null && !ManifestHelper.FindManifest(targetDir.FullName).Exists)
             {
                 var message = noBuild
-                    ? $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the publish output ({targetDir.FullName}). " +
-                      "Remove --no-build to re-publish the packaged layout, or point at an up-to-date publish."
-                    : $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the publish output ({targetDir.FullName}). " +
+                    ? $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the packaging output ({targetDir.FullName}). " +
+                      "Remove --no-build to re-publish the packaged layout, or point at an up-to-date build."
+                    : $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the packaging output ({targetDir.FullName}). " +
                       "Ensure the project is a packaged WinUI app (EnableMsixTooling=true with a Package.appxmanifest).";
                 return Fail(message);
             }
@@ -218,7 +228,7 @@ internal partial class PackageCommand
 
                     var result = await msixService.CreateMsixPackageAsync(
                         targetDir, output, taskContext, name, skipPri, autoSign, certPath, certPassword,
-                        generateCert, installCert, publisher, manifestPath, selfContainedModel, executable,
+                        generateCert, installCert, publisher, effectiveManifest, selfContainedModel, executable,
                         projectFile: csproj,
                         framework: resolution.Framework,
                         noRestore: resolution.NoRestore,

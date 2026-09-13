@@ -428,10 +428,16 @@ internal sealed partial class ProjectRunService(
         var runArguments = GetProp(props, "RunArguments");
         var selfContained = string.Equals(GetProp(props, "WindowsAppSDKSelfContained"), "true", StringComparison.OrdinalIgnoreCase);
 
-        // Publish mode packages the PublishDir, not the build TargetDir. PublishDir is an evaluated property
-        // (typically the relative `bin/<cfg>/<tfm>/<rid>/publish/`); resolve it to an absolute path against
-        // the project directory so downstream packaging/manifest discovery reads the deployment payload.
-        if (publish)
+        // Publish mode packages the deployment payload from PublishDir — EXCEPT for an MSIX-tooling app
+        // (WinUI / EnableMsixTooling), whose package is assembled from an MSBuild-generated .appxrecipe.
+        // That recipe, the generated AppxManifest.xml and the compiled XAML live in the build output
+        // (TargetDir); `dotnet publish` does NOT reproduce that layout in PublishDir (its publish folder
+        // omits the manifest, the recipe and the .xbf). So keep TargetDir when a recipe exists — recipe-based
+        // staging in MsixService gathers the manifest, compiled XAML and source-tree assets — and redirect
+        // to PublishDir only for recipe-less apps (self-contained / trimmed / single-file / AOT / simple),
+        // whose publish folder is the complete payload.
+        var appxRecipePath = ResolveEvaluatedFileIfPresent(props, "AppxPackageRecipe", workingDir.FullName);
+        if (publish && appxRecipePath is null)
         {
             var publishDir = GetProp(props, "PublishDir");
             if (!string.IsNullOrEmpty(publishDir))
@@ -441,6 +447,16 @@ internal sealed partial class ProjectRunService(
         }
 
         var packaging = DeterminePackaging(props, targetDir);
+
+        // For a packaged app, carry the MSBuild-evaluated manifest and recipe so callers can package the
+        // authoritative layout (aligns with the Native AOT resolver). Only meaningful when packaged.
+        var appxManifestPath = packaging == ProjectPackaging.Packaged
+            ? ResolveEvaluatedFileIfPresent(props, "FinalAppxManifestName", workingDir.FullName)
+            : null;
+        if (packaging != ProjectPackaging.Packaged)
+        {
+            appxRecipePath = null;
+        }
 
         if (string.IsNullOrEmpty(targetDir))
         {
@@ -473,9 +489,41 @@ internal sealed partial class ProjectRunService(
             string.IsNullOrEmpty(outputType) ? null : outputType,
             ReadAliasPreference(props),
             GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
-            GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null);
+            GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null,
+            AppxManifestPath: appxManifestPath,
+            AppxRecipePath: appxRecipePath);
 
         return new ProjectBuildOutcome(resolution, 0);
+    }
+
+    /// <summary>
+    /// Resolves an evaluated MSBuild path property (relative to <paramref name="projectDirectory"/>) to an
+    /// absolute path, returning <c>null</c> when the property is unset or the resolved file does not exist.
+    /// Non-throwing counterpart to the Native AOT resolver's <c>ResolveEvaluatedFile</c>, used for the
+    /// optional packaged-app manifest/recipe where absence is a normal (non-packaged / non-recipe) case.
+    /// </summary>
+    private static string? ResolveEvaluatedFileIfPresent(
+        IReadOnlyDictionary<string, string> properties,
+        string name,
+        string projectDirectory)
+    {
+        var value = GetProp(properties, name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        string resolved;
+        try
+        {
+            resolved = Path.GetFullPath(value, projectDirectory);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        return File.Exists(resolved) ? resolved : null;
     }
 
     // RunCommand is an apphost path when UseAppHost is on, but a bare command name (e.g. "dotnet", with
