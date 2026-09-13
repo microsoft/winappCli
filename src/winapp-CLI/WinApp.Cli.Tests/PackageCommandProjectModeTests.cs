@@ -86,8 +86,9 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
 
         Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeProjectRunService.PublishAndResolveCalls.Count, "Project mode must publish (not build) the project");
         Assert.AreEqual(1, _fakeMsixService.CreatePackageCalls.Count, "Packaged project should call CreateMsixPackageAsync once");
-        Assert.AreEqual(targetDir.FullName, _fakeMsixService.CreatePackageCalls[0].FullName, "Packaging must target the build output (TargetDir)");
+        Assert.AreEqual(targetDir.FullName, _fakeMsixService.CreatePackageCalls[0].FullName, "Packaging must target the publish output (PublishDir)");
 
         var args = _fakeMsixService.LastCreatePackageArgs!;
         Assert.AreEqual(csproj.FullName, args.ProjectFile!.FullName, "The resolved project must be threaded into packaging");
@@ -235,7 +236,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "A definitively-unpackaged project must fail before the build");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A definitively-unpackaged project must fail before publishing");
     }
 
     [TestMethod]
@@ -289,7 +290,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [missing]);
 
         Assert.AreEqual(1, exitCode);
-        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count);
     }
 
     [TestMethod]
@@ -301,7 +302,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "Foo"]);
 
         Assert.AreEqual(1, exitCode);
-        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "A malformed -p must be rejected before building");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A malformed -p must be rejected before publishing");
     }
 
     [TestMethod]
@@ -313,7 +314,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--output", "out.msixbundle"]);
 
         Assert.AreEqual(1, exitCode);
-        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "A single .csproj cannot produce a .msixbundle — reject before building");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A single .csproj cannot produce a .msixbundle — reject before publishing");
     }
 
     // ---- Classification ------------------------------------------------------
@@ -330,7 +331,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [dir.FullName]);
 
         Assert.AreEqual(0, exitCode);
-        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "A directory named *.csproj must not enter project mode");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A directory named *.csproj must not enter project mode");
         Assert.AreEqual(1, _fakeMsixService.CreatePackageCalls.Count);
         Assert.IsNull(_fakeMsixService.LastCreatePackageArgs!.ProjectFile, "Folder mode must not thread a project file");
     }

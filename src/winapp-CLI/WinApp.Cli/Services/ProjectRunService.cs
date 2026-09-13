@@ -24,6 +24,10 @@ internal sealed partial class ProjectRunService(
     private static readonly string[] RequestedProperties =
     [
         "TargetDir",
+        // The publish output directory (`bin/<cfg>/<tfm>/<rid>/publish/`). Distinct from TargetDir — it is
+        // where deployment transforms (trimming, single-file, ReadyToRun, Native AOT, self-contained) land,
+        // so `winapp pack` (publish mode) packages this, not the build output.
+        "PublishDir",
         "RunCommand",
         "RunArguments",
         // The project.assets.json restore wrote for THESE build inputs. Package discovery reads it rather
@@ -244,9 +248,29 @@ internal sealed partial class ProjectRunService(
     }
 
     /// <inheritdoc />
-    public async Task<ProjectBuildOutcome> BuildAndResolveAsync(
+    public Task<ProjectBuildOutcome> BuildAndResolveAsync(
         FileInfo csproj,
         ProjectRunOptions options,
+        CancellationToken cancellationToken)
+        => BuildOrPublishAndResolveAsync(csproj, options, publish: false, cancellationToken);
+
+    /// <summary>
+    /// Publishes the project (<c>dotnet publish</c>) and resolves the evaluated <c>PublishDir</c> as the
+    /// payload — where deployment transforms (trimming, single-file, ReadyToRun, Native AOT, self-contained)
+    /// land — so <c>winapp pack</c> packages what actually ships, not the build output. Mirrors
+    /// <see cref="BuildAndResolveAsync"/>; the returned <c>ProjectRunResolution.TargetDir</c> is the publish
+    /// directory. (General publish; the Native-AOT-specific verification lives with <c>winapp run --aot</c>.)
+    /// </summary>
+    public Task<ProjectBuildOutcome> PublishAndResolveAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+        => BuildOrPublishAndResolveAsync(csproj, options, publish: true, cancellationToken);
+
+    private async Task<ProjectBuildOutcome> BuildOrPublishAndResolveAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        bool publish,
         CancellationToken cancellationToken)
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
@@ -302,13 +326,15 @@ internal sealed partial class ProjectRunService(
         // single combined pass would build silently. The evaluate pass is fed the SAME effective
         // Configuration/RID/Platform/TFM/-p as the build so its TargetDir/RunCommand match what was
         // actually built.
-        if (!options.NoBuild)
+        // Run the compile pass: build mode skips it under --no-build (just evaluate existing output); publish
+        // mode ALWAYS runs it — `dotnet publish --no-build` still executes the publish targets/transforms.
+        if (publish || !options.NoBuild)
         {
-            var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
+            var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken, publish);
             if (buildExit != 0)
             {
                 // dotnet's diagnostics were already streamed live; log the summary and propagate the exit code.
-                logger.LogError("{UISymbol} Build failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, buildExit);
+                logger.LogError("{UISymbol} {Op} failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, publish ? "Publish" : "Build", csproj.Name, buildExit);
                 return new ProjectBuildOutcome(null, buildExit);
             }
         }
@@ -348,8 +374,9 @@ internal sealed partial class ProjectRunService(
         // the output path — bin\ARM64\Debug\<tfm>\win-arm64\ versus the bin\Debug\<tfm>\ that Visual
         // Studio and a plain `dotnet build` produce. So drop those injected knobs progressively and take
         // the first variant whose TargetDir exists. A winapp build writes the fully-qualified path, so it
-        // matches on the first try and never gets here.
-        if (options.NoBuild)
+        // matches on the first try and never gets here. Build mode only: publish mode ran the publish pass
+        // (even under --no-build) and resolves the payload from PublishDir below.
+        if (options.NoBuild && !publish)
         {
             var primaryTargetDir = GetProp(props, "TargetDir");
             if (!string.IsNullOrEmpty(primaryTargetDir) && !Directory.Exists(primaryTargetDir))
@@ -405,6 +432,19 @@ internal sealed partial class ProjectRunService(
         var runCommand = GetProp(props, "RunCommand");
         var runArguments = GetProp(props, "RunArguments");
         var selfContained = string.Equals(GetProp(props, "WindowsAppSDKSelfContained"), "true", StringComparison.OrdinalIgnoreCase);
+
+        // Publish mode packages the PublishDir, not the build TargetDir. PublishDir is an evaluated property
+        // (typically the relative `bin/<cfg>/<tfm>/<rid>/publish/`); resolve it to an absolute path against
+        // the project directory so downstream packaging/manifest discovery reads the deployment payload.
+        if (publish)
+        {
+            var publishDir = GetProp(props, "PublishDir");
+            if (!string.IsNullOrEmpty(publishDir))
+            {
+                targetDir = Path.GetFullPath(publishDir, workingDir.FullName);
+            }
+        }
+
         var packaging = DeterminePackaging(props, targetDir);
 
         if (string.IsNullOrEmpty(targetDir))
@@ -696,18 +736,19 @@ internal sealed partial class ProjectRunService(
         ProjectRunOptions options,
         DirectoryInfo workingDir,
         string? csWinRTMetadataFolder,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool publish = false)
     {
         var verbosity = ResolveBuildVerbosity(logger, options.Json);
 
-        var banner = $"Building {csproj.Name} ({options.Configuration} | {options.Architecture})...";
+        var banner = $"{(publish ? "Publishing" : "Building")} {csproj.Name} ({options.Configuration} | {options.Architecture})...";
         var stopwatch = Stopwatch.StartNew();
 
         // --json/--quiet: stdout stays pure JSON, so route the invocation AND build output to stderr
         // (Console.Error is synchronized, so concurrent stdout/stderr callbacks are safe).
         if (options.Json || !logger.IsEnabled(LogLevel.Information))
         {
-            var redirectedArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder);
+            var redirectedArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, publish: publish);
             // --json emits the invocation on stderr (the injected args stay discoverable); --quiet suppresses it.
             if (options.Json)
             {
@@ -725,7 +766,7 @@ internal sealed partial class ProjectRunService(
         // failures are self-describing.
         var nativeTerminal = NativeTerminalGateOverrideForTests?.Invoke()
             ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger);
-        var buildArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal);
+        var buildArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal, publish);
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} {banner}");
         ansiConsole.MarkupLineInterpolated($"[dim]   dotnet {Markup.Escape(RedactSecretsForDisplay(buildArgs))}[/]");
 

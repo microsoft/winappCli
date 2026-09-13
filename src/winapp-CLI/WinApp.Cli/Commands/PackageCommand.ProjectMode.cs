@@ -26,11 +26,11 @@ internal partial class PackageCommand
         }
 
         /// <summary>
-        /// The actionable error when a project resolves to a packageable-layout dead end: it builds
+        /// The actionable error when a project resolves to a packageable-layout dead end: it publishes
         /// as an unpackaged (<c>WindowsPackageType=None</c>) app with no MSIX manifest to package.
         /// </summary>
         private static string UnpackagedProjectMessage(string csprojName)
-            => $"'{csprojName}' builds as an unpackaged app (WindowsPackageType=None), which has no MSIX " +
+            => $"'{csprojName}' publishes as an unpackaged app (WindowsPackageType=None), which has no MSIX " +
                "manifest to package. To create an MSIX, configure the project as a packaged WinUI app " +
                "(EnableMsixTooling=true with a Package.appxmanifest), or package a pre-built layout folder " +
                "that contains an AppxManifest.xml.";
@@ -144,17 +144,19 @@ internal partial class PackageCommand
 
             var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, Json: false, Solution: solution);
 
-            // Fast-fail: an unpackaged app can never be packaged. Reject before paying the build cost
+            // Fast-fail: an unpackaged app can never be packaged. Reject before paying the publish cost
             // when the project is definitively WindowsPackageType=None (skipped under --no-build).
             if (!noBuild && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
             {
                 return Fail(UnpackagedProjectMessage(csproj.Name));
             }
 
+            // Publish (not build): package the deployment payload (PublishDir), so AOT / trimmed / single-file /
+            // self-contained apps package what actually ships rather than the managed build output.
             ProjectBuildOutcome outcome;
             try
             {
-                outcome = await projectRunService.BuildAndResolveAsync(csproj, buildOptions, cancellationToken);
+                outcome = await projectRunService.PublishAndResolveAsync(csproj, buildOptions, cancellationToken);
             }
             catch (ProjectRunException ex)
             {
@@ -163,7 +165,7 @@ internal partial class PackageCommand
 
             if (outcome.Resolution is null)
             {
-                // Build failed — dotnet already surfaced its diagnostics. Propagate its exit code.
+                // Publish failed — dotnet already surfaced its diagnostics. Propagate its exit code.
                 return outcome.ExitCode == 0 ? 1 : outcome.ExitCode;
             }
 
@@ -177,14 +179,14 @@ internal partial class PackageCommand
 
             var targetDir = new DirectoryInfo(resolution.TargetDir);
 
-            // Guardrail: packaged (per the evaluated WindowsPackageType) but no manifest in the build
+            // Guardrail: packaged (per the evaluated WindowsPackageType) but no manifest in the publish
             // output is a misconfiguration — surface it clearly rather than the generic pipeline error.
             if (manifestPath == null && !ManifestHelper.FindManifest(targetDir.FullName).Exists)
             {
                 var message = noBuild
-                    ? $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the build output ({targetDir.FullName}). " +
-                      "Remove --no-build to rebuild the packaged layout, or point at an up-to-date packaged build."
-                    : $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the build output ({targetDir.FullName}). " +
+                    ? $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the publish output ({targetDir.FullName}). " +
+                      "Remove --no-build to re-publish the packaged layout, or point at an up-to-date publish."
+                    : $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the publish output ({targetDir.FullName}). " +
                       "Ensure the project is a packaged WinUI app (EnableMsixTooling=true with a Package.appxmanifest).";
                 return Fail(message);
             }

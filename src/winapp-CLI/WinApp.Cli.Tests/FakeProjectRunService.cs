@@ -44,6 +44,7 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public List<string?> ResolveInputSelectors { get; } = [];
     public List<ProjectClassificationInputs?> ResolveInputClassificationInputs { get; } = [];
     public List<FileInfo> BuildAndResolveCalls { get; } = [];
+    public List<FileInfo> PublishAndResolveCalls { get; } = [];
     public List<ProjectRunOptions> BuildOptions { get; } = [];
     public List<FileInfo> BuildAndResolveSingleFileCalls { get; } = [];
     public List<SingleFileRunOptions> SingleFileBuildOptions { get; } = [];
@@ -107,6 +108,19 @@ internal sealed class FakeProjectRunService : IProjectRunService
     {
         IsDefinitivelyUnpackagedCalls.Add(csproj);
         return Task.FromResult(DefinitivelyUnpackaged);
+    }
+
+    public Task<ProjectBuildOutcome> PublishAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        PublishAndResolveCalls.Add(csproj);
+        BuildOptions.Add(options);
+        if (BuildThrows != null)
+        {
+            throw BuildThrows;
+        }
+
+        return Task.FromResult(BuildOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured."));
     }
 
     public Task<SingleFileBuildOutcome> BuildAndResolveSingleFileAsync(FileInfo singleFile, SingleFileRunOptions options, CancellationToken cancellationToken)

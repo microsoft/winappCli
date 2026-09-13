@@ -79,6 +79,19 @@ internal interface IProjectRunService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Publishes the project (<c>dotnet publish</c>, honoring <c>--no-build</c> as publish's own
+    /// skip-the-managed-Build semantics) and resolves the evaluated <c>PublishDir</c> as the payload, so
+    /// callers package what actually ships (deployment-transformed output: trimming, single-file,
+    /// ReadyToRun, Native AOT, self-contained). Mirrors <see cref="BuildAndResolveAsync"/> except the
+    /// returned <see cref="Models.ProjectRunResolution.TargetDir"/> is the publish directory.
+    /// </summary>
+    /// <exception cref="ProjectRunException">Thrown on a guardrail violation (e.g. a non-executable project).</exception>
+    Task<ProjectBuildOutcome> PublishAndResolveAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cheap, side-effect-free probe (no build) that reports whether the project is DEFINITIVELY
     /// unpackaged — i.e. it declares an explicit <c>WindowsPackageType=None</c>. Used by the run
     /// handler to fail fast on identity-only options (e.g. <c>--no-launch</c>) that are meaningless

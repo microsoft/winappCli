@@ -71,17 +71,25 @@ internal sealed partial class ProjectRunService
     /// no-<c>&lt;Platforms&gt;</c> reference would break (MSB3030/PRI252). <c>EnableDynamicPlatformResolution</c>
     /// is never injected. A user-supplied <c>-p:Platform</c> still flows through (and suppresses injection).
     /// </summary>
-    internal static string BuildBuildPassArguments(FileInfo csproj, ProjectRunOptions options, string verbosity, string? csWinRTMetadataFolder = null, bool nativeTerminal = false)
+    internal static string BuildBuildPassArguments(FileInfo csproj, ProjectRunOptions options, string verbosity, string? csWinRTMetadataFolder = null, bool nativeTerminal = false, bool publish = false)
     {
         var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
 
         var tokens = new List<string>
         {
-            "build",
+            // `winapp pack` publishes (the deployment payload); `winapp run` builds. `dotnet publish
+            // --no-build` still runs the publish targets/transforms — it only skips the managed Build — so
+            // a publish pass adds --no-build rather than skipping the pass the way build mode does.
+            publish ? "publish" : "build",
             csproj.FullName,
             "-c",
             options.Configuration,
         };
+
+        if (publish && options.NoBuild)
+        {
+            tokens.Add("--no-build");
+        }
 
         if (!options.OmitRuntimeIdentifier)
         {
