@@ -271,10 +271,35 @@ internal partial class MsixService(
     /// <summary>
     /// Creates an MSIX package from a prepared package directory
     /// </summary>
+    /// <param name="manifestPath">Path to the manifest file (optional)</param>
+    /// <param name="selfContained">
+    /// Self-contained model: when true, the manifest is <b>not</b> given a Windows App SDK framework
+    /// <c>PackageDependency</c> (and third-party WinRT activation goes in the SxS manifest), and — unless
+    /// <paramref name="runtimeAlreadyBundled"/> is set — the Windows App SDK runtime is copied/embedded
+    /// into the layout.
+    /// </param>
+    /// <param name="projectFile">
+    /// Project mode: the resolved <c>.csproj</c> whose package graph drives dependency/WinRT-extension
+    /// manifest updates and self-contained runtime resolution. When null (folder/bundle mode) the current
+    /// directory is probed instead (unchanged behavior).
+    /// </param>
+    /// <param name="framework">Project mode: the built target framework, used to narrow the package list.</param>
+    /// <param name="noRestore">Project mode: forward <c>--no-restore</c> to package-list discovery.</param>
+    /// <param name="packageGraph">
+    /// Project mode: the built project's evaluated <c>project.assets.json</c> (+ RID) so the Windows App SDK
+    /// dependency is read from the graph that was actually built. When null, package discovery falls back to
+    /// <c>dotnet package list</c>, which re-evaluates with the default configuration/RID (folder mode).
+    /// </param>
+    /// <param name="targetArch">
+    /// Project mode: the target architecture (<c>x64</c>/<c>arm64</c>/<c>x86</c>) for self-contained runtime
+    /// staging and activation-manifest embedding. When null the host architecture is used (folder mode).
+    /// </param>
+    /// <param name="runtimeAlreadyBundled">
+    /// Project mode: the build already produced a self-contained layout, so skip re-copying/re-embedding the
+    /// runtime even though <paramref name="selfContained"/> is true (avoids a double-bundle).
+    /// </param>
     /// <param name="installDevCert">Install certificate to machine</param>
     /// <param name="publisher">Publisher name for certificate generation (default: extracted from manifest)</param>
-    /// <param name="manifestPath">Path to the manifest file (optional)</param>
-    /// <param name="selfContained">Enable self-contained deployment</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Result containing the MSIX path and signing status</returns>
     public async Task<CreateMsixPackageResult> CreateMsixPackageAsync(
@@ -292,6 +317,13 @@ internal partial class MsixService(
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        PackageGraphSource? packageGraph = null,
+        string? targetArch = null,
+        bool runtimeAlreadyBundled = false,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default)
     {
         // Validate input folder and manifest
@@ -361,8 +393,11 @@ internal partial class MsixService(
         manifestContent = await ResolveResourceLanguageXGenerateAsync(manifestContent, inputFolder, taskContext, cancellationToken);
 
         // Update manifest content to ensure it's either referencing Windows App SDK or is self-contained
-        // Fetch dotnet package list once for all downstream operations
-        var dotNetPackageList = await FetchDotNetPackageListAsync(cancellationToken);
+        // Fetch dotnet package list once for all downstream operations. In project mode a resolved
+        // projectFile drives this (with framework/no-restore), and packageGraph — the build's evaluated
+        // project.assets.json — makes discovery read the graph that was actually built (correct
+        // configuration/RID/TFM) instead of re-evaluating with defaults; folder mode falls back to the cwd probe.
+        var dotNetPackageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
 
         // Determine executable path for ProcessorArchitecture auto-detection, and detect whether
         // this is a sparse (AllowExternalContent) manifest so the rewrite applies sparse
@@ -379,7 +414,7 @@ internal partial class MsixService(
             }
         }
 
-        (manifestContent, var packageArch) = await UpdateAppxManifestContentAsync(manifestContent, null, null, resolvedExePath, sparse: isSparseManifest, selfContained: selfContained, dotNetPackageList, taskContext, cancellationToken);
+        (manifestContent, var packageArch) = await UpdateAppxManifestContentAsync(manifestContent, null, null, resolvedExePath, sparse: isSparseManifest, selfContained: selfContained, dotNetPackageList, taskContext, cancellationToken, targetArch);
 
         // Parse the manifest to extract identity, executable, and architecture info
         var manifestDoc = AppxManifestDocument.Parse(manifestContent);
@@ -548,25 +583,53 @@ internal partial class MsixService(
                 taskContext.AddDebugMessage("Skipping PRI generation — existing resources.pri found in input folder");
             }
 
-            // Handle self-contained deployment if requested
-            if (selfContained && executablePath != null)
+            // Handle self-contained deployment if requested. Skip re-bundling when the build already
+            // produced a self-contained layout (runtimeAlreadyBundled) to avoid a double-bundle.
+            if (selfContained && !runtimeAlreadyBundled && executablePath != null)
             {
                 taskContext.AddDebugMessage($"{UiSymbols.Package} Preparing self-contained Windows App SDK runtime...");
 
-                var winAppSDKDeploymentDir = await PrepareRuntimeForPackagingAsync(stagingDir, dotNetPackageList, taskContext, cancellationToken);
+                var winAppSDKDeploymentDir = await PrepareRuntimeForPackagingAsync(stagingDir, dotNetPackageList, taskContext, cancellationToken, targetArch);
 
                 // Add WindowsAppSDK.manifest to existing manifest
                 var resolvedDeploymentDir = Path.Combine(winAppSDKDeploymentDir.FullName, "..", "extracted");
                 var windowsAppSDKManifestPath = new FileInfo(Path.Combine(resolvedDeploymentDir, "AppxManifest.xml"));
-                await EmbedActivationManifestToExeAsync(executablePath, winAppSDKDeploymentDir, windowsAppSDKManifestPath, dotNetPackageList, taskContext, cancellationToken);
+                await EmbedActivationManifestToExeAsync(executablePath, winAppSDKDeploymentDir, windowsAppSDKManifestPath, dotNetPackageList, taskContext, cancellationToken, targetArch);
             }
 
-            await CreateMsixPackageFromFolderAsync(stagingDir, outputMsixPath, taskContext, cancellationToken);
-
-            // Handle certificate generation and signing
+            // When signing, build and sign the package at a sibling staging path, then atomically move it
+            // over the final path only after signing succeeds — a failed sign must never leave an
+            // unsigned/partial artifact at the destination or clobber a previous good one. Without signing,
+            // write the final package directly.
             if (autoSign)
             {
-                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, resolvedManifestPath, taskContext, cancellationToken);
+                var stagingMsix = CreateStagingSiblingPath(outputMsixPath);
+                try
+                {
+                    await CreateMsixPackageFromFolderAsync(stagingDir, stagingMsix, taskContext, cancellationToken);
+                    await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, stagingMsix, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl);
+                    File.Move(stagingMsix.FullName, outputMsixPath.FullName, overwrite: true);
+                }
+                catch
+                {
+                    try
+                    {
+                        stagingMsix.Refresh();
+                        if (stagingMsix.Exists)
+                        {
+                            stagingMsix.Delete();
+                        }
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup of the staged (unpublished) artifact.
+                    }
+                    throw;
+                }
+            }
+            else
+            {
+                await CreateMsixPackageFromFolderAsync(stagingDir, outputMsixPath, taskContext, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -612,7 +675,21 @@ internal partial class MsixService(
         return await dotNetService.GetPackageListAsync(csproj, cancellationToken: cancellationToken);
     }
 
-    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext, CancellationToken cancellationToken)
+    /// <summary>
+    /// Builds a unique sibling staging path in the same directory as <paramref name="finalPath"/> that keeps
+    /// the final extension (e.g. <c>.msix</c> / <c>.msixbundle</c>). signtool recognizes an MSIX/bundle by
+    /// its extension and refuses to sign a <c>.tmp</c> file, so the staged-then-signed artifact must carry
+    /// the real extension while a same-directory sibling keeps the final move atomic.
+    /// </summary>
+    private static FileInfo CreateStagingSiblingPath(FileInfo finalPath)
+    {
+        var directory = finalPath.Directory!.FullName;
+        var stem = Path.GetFileNameWithoutExtension(finalPath.Name);
+        var extension = finalPath.Extension; // includes the leading dot, or empty when there is none
+        return new FileInfo(Path.Combine(directory, $"{stem}.winapp-{Guid.NewGuid():N}{extension}"));
+    }
+
+    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext, CancellationToken cancellationToken, string? timestampUrl = null)
     {
         if (certPath == null && generateDevCert)
         {
@@ -654,7 +731,7 @@ internal partial class MsixService(
         }
 
         // Sign the package
-        await certificateService.SignFileAsync(outputMsixPath, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+        await certificateService.SignFileAsync(outputMsixPath, certPath, taskContext, certificatePassword, timestampUrl, cancellationToken);
     }
 
     private async Task CreateMsixPackageFromFolderAsync(DirectoryInfo inputFolder, FileInfo outputMsixPath, TaskContext taskContext, CancellationToken cancellationToken)
@@ -924,7 +1001,8 @@ internal partial class MsixService(
         bool selfContained,
         DotNetPackageListJson? dotNetPackageList,
         TaskContext taskContext,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? targetArch = null)
     {
         var doc = AppxManifestDocument.Parse(originalAppxManifestContent);
 
@@ -1028,7 +1106,7 @@ internal partial class MsixService(
         // so we skip them here to avoid duplication.
         if (!selfContained)
         {
-            modifiedContent = await AddThirdPartyWinRTExtensionsToAppxManifestAsync(modifiedContent, dotNetPackageList, taskContext, cancellationToken);
+            modifiedContent = await AddThirdPartyWinRTExtensionsToAppxManifestAsync(modifiedContent, dotNetPackageList, taskContext, cancellationToken, targetArch);
         }
 
         // Stamp build metadata with CLI version

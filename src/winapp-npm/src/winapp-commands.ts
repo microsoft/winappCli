@@ -759,14 +759,20 @@ export async function newCommand(options: NewOptions = {}): Promise<WinappResult
 // ---------------------------------------------------------------------------
 
 export interface PackageOptions extends CommonOptions {
-  /** One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). */
+  /** A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). */
   inputFolder: string | string[];
+  /** Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture. */
+  arch?: string | string[];
   /** Path to signing certificate (will auto-sign if provided) */
   cert?: string;
   /** Certificate password (default: password) */
   certPassword?: string;
+  /** Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release. */
+  configuration?: string;
   /** Path to the executable relative to the input folder. */
   executable?: string;
+  /** Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  framework?: string;
   /** Generate a new development certificate */
   generateCert?: boolean;
   /** Install certificate to machine */
@@ -775,8 +781,16 @@ export interface PackageOptions extends CommonOptions {
   manifest?: string;
   /** Package name (default: from manifest) */
   name?: string;
+  /** Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  noBuild?: boolean;
+  /** Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  noRestore?: boolean;
+  /** Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. */
+  noSign?: boolean;
   /** Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. */
   output?: string;
+  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  property?: string | string[];
   /** Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
   /** Bundle Windows App SDK runtime for self-contained deployment */
@@ -786,20 +800,33 @@ export interface PackageOptions extends CommonOptions {
 }
 
 /**
- * Create MSIX installer from your built app. Run after building your app. A manifest (Package.appxmanifest or appxmanifest.xml) is required for packaging - it must be in current working directory, passed as --manifest or be in the input folder. Use --cert devcert.pfx to sign for testing. Example: winapp package ./dist --manifest Package.appxmanifest --cert ./devcert.pfx
+ * Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.
  */
 export async function packageApp(options: PackageOptions): Promise<WinappResult> {
   const args: string[] = ['package'];
   const inputFolderArr = Array.isArray(options.inputFolder) ? options.inputFolder : [options.inputFolder];
   args.push(...inputFolderArr);
+  if (options.arch) {
+    const archArr = Array.isArray(options.arch) ? options.arch : [options.arch];
+    for (const v of archArr) args.push('--arch', v);
+  }
   if (options.cert) args.push('--cert', options.cert);
   if (options.certPassword) args.push('--cert-password', options.certPassword);
+  if (options.configuration) args.push('--configuration', options.configuration);
   if (options.executable) args.push('--executable', options.executable);
+  if (options.framework) args.push('--framework', options.framework);
   if (options.generateCert) args.push('--generate-cert');
   if (options.installCert) args.push('--install-cert');
   if (options.manifest) args.push('--manifest', options.manifest);
   if (options.name) args.push('--name', options.name);
+  if (options.noBuild) args.push('--no-build');
+  if (options.noRestore) args.push('--no-restore');
+  if (options.noSign) args.push('--no-sign');
   if (options.output) args.push('--output', options.output);
+  if (options.property) {
+    const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
+    for (const v of propertyArr) args.push('--property', v);
+  }
   if (options.publisher) args.push('--publisher', options.publisher);
   if (options.selfContained) args.push('--self-contained');
   if (options.skipPri) args.push('--skip-pri');

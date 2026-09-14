@@ -471,6 +471,46 @@ internal static class PathSafety
         return !isDriveLetter && !isVolumeGuid;
     }
 
+    /// <summary>
+    /// True when <paramref name="path"/> resolves onto a drive letter mapped to a network location
+    /// (<see cref="DriveType.Network"/>). Unlike <see cref="IsNetworkPath"/>, which reads the path
+    /// syntactically, this queries the drive type — a cheap, non-authenticating call — so a <c>Z:\</c>
+    /// drive mapped to an SMB share is caught before any file probe that would authenticate to it.
+    /// </summary>
+    public static bool IsNetworkDriveRoot(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        string? root;
+        try
+        {
+            root = Path.GetPathRoot(Path.GetFullPath(path));
+        }
+        catch
+        {
+            return true; // Unresolvable path: bias to unsafe.
+        }
+
+        // Only a drive-letter root (e.g. "Z:\") can be a DriveType.Network mapping; UNC roots are handled by
+        // IsNetworkPath, and volume-GUID / relative roots are not drive mappings.
+        if (string.IsNullOrEmpty(root) || root.Length < 2 || !char.IsAsciiLetter(root[0]) || root[1] != ':')
+        {
+            return false;
+        }
+
+        try
+        {
+            return new DriveInfo(root).DriveType == DriveType.Network;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // Preserve `C:\`; `C:` is drive-relative and would probe the wrong path.
     private static string NormalizeForContainment(string path)
     {

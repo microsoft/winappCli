@@ -23,6 +23,51 @@ internal interface IMsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        PackageGraphSource? packageGraph = null,
+        string? targetArch = null,
+        bool runtimeAlreadyBundled = false,
+        string? timestampUrl = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delivers an SDK-produced MSIX (from <c>PublishNativeMsixAsync</c>): copies it to the final
+    /// destination per folder-mode <c>--output</c> precedence and signs it once if requested, without
+    /// repackaging the SDK output.
+    /// </summary>
+    public Task<CreateMsixPackageResult> DeliverNativeMsixAsync(
+        FileInfo producedMsix,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        string? timestampUrl = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Composes one architecture <c>.msixbundle</c> from per-slice packages (each a complete <c>.msix</c>):
+    /// validates cross-slice identity/version, bundles via <see cref="IBundleService"/>, signs once if
+    /// requested, and delivers per <c>--output</c> precedence.
+    /// </summary>
+    public Task<CreateMsixBundleResult> CreateBundleFromPackagesAsync(
+        IReadOnlyList<FileInfo> sliceMsixFiles,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default);
 
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(
