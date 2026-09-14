@@ -1205,7 +1205,7 @@ Supported strategies are:
 - `copied-linked-content` — available linked or external source `Content`/`PRIResource` was copied to an active explicit target `Include` and the source/target bytes match.
 - `intentionally-not-migrated` — records the decision but deliberately leaves `UWMIG012` pending.
 
-Evidence files must participate in the contained target build: the target project, an active automatically imported `Directory.Build.props`/`Directory.Build.targets`, or a file reached through active literal imports. Conditioned evidence is accepted only when the CLI can prove the condition from stable project facts. A rationale cannot override missing files, inactive imports/items, project-item metadata, or content equality. Later `migrate verify` rechecks every decision and reopens `UWMIG012` if its evidence becomes stale.
+Evidence files must participate in the contained target build: the target project, an active automatically imported `Directory.Build.props`/`Directory.Build.targets`, or a file reached through active literal imports. Conditioned evidence is accepted only when the CLI can prove the condition from stable project facts. A rationale cannot override missing files, inactive imports/items, project-item metadata, or content equality. Later `migrate verify` rechecks every decision and reopens `UWMIG012` if its evidence becomes stale. Report updates are serialized per target; if another `migrate` process holds the report transaction lock too long, retry after that process completes.
 
 The target must be new or contain only `.git`/`.github` metadata. Source and target cannot overlap. The official WinUI template pack must be available; run `winapp new --list` to install or repair it.
 
@@ -2056,6 +2056,5 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
