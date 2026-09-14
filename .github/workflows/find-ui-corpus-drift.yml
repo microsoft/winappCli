@@ -157,8 +157,10 @@ jobs:
             $line = "- ``$($file.Name)`` — $oldCount → $freshCount scenarios ($(if ($delta -ge 0) { "+$delta" } else { "$delta" }))"
 
             if ($oldCount -gt 0 -and $freshCount -lt ($oldCount * (1 - $regressionThreshold))) {
-              $lost = [math]::Round((1 - ($freshCount / $oldCount)) * 100, 1)
-              $regressions += "$line — **lost $lost% of its scenarios**"
+              # State the threshold crossing rather than a rounded percentage: rounding can
+              # print the boundary value the workflow treats as routine for a loss that is
+              # actually past it. The exact counts are already in $line.
+              $regressions += "$line — **lost more than $($regressionThreshold * 100)% of its scenarios**"
             } else {
               $routine += $line
             }

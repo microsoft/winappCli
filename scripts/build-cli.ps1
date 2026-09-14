@@ -295,8 +295,10 @@ try
                     $Line = "[BAKE]   {0,-10} {1,5} -> {2,5}  ({3})" -f $Provider, $Old, $New, $Change
 
                     if ($Old -gt 0 -and $New -lt ($Old * (1 - $BakeDropThreshold))) {
-                        $Lost = [math]::Round((1 - ($New / $Old)) * 100, 1)
-                        Write-Warning "$Line -- lost $Lost% of its scenarios. Check the fetcher for '$Provider' before shipping this corpus."
+                        # State the threshold crossing rather than a rounded percentage: rounding
+                        # can print the boundary value that is treated as routine for a loss that
+                        # is actually past it. The exact counts are already in $Line.
+                        Write-Warning "$Line -- lost more than $($BakeDropThreshold * 100)% of its scenarios. Check the fetcher for '$Provider' before shipping this corpus."
                     } else {
                         Write-Host $Line -ForegroundColor Gray
                     }
