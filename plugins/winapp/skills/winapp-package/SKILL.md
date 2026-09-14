@@ -30,6 +30,9 @@ winapp package ./MyApp.csproj -c Debug --arch arm64 --cert ./devcert.pfx
 
 # Package an already-built output without rebuilding
 winapp package ./MyApp.csproj --no-build
+
+# Produce an architecture .msixbundle from one project (publishes each arch, then bundles)
+winapp package ./MyApp.csproj --arch x64 --arch arm64 --cert ./devcert.pfx
 ```
 
 Project mode is triggered only by an explicit `.csproj`. It publishes the project — so trimmed or

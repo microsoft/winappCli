@@ -269,6 +269,46 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_MultipleArches_ProducesBundle()
+    {
+        var csproj = CreateCsproj();
+        var produced = new FileInfo(Path.Join(_tempDirectory.FullName, "App_1.0.0.0_x64.msix"));
+        File.WriteAllText(produced.FullName, "msix");
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.NativeMsixOutcome = new NativeMsixPublishOutcome(produced, 0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "x64", "--arch", "arm64"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(2, _fakeProjectRunService.PublishNativeMsixCalls.Count, "one native publish per requested architecture");
+        Assert.AreEqual(1, _fakeMsixService.CreateBundleFromPackagesCalls.Count, "the produced slices must be bundled once");
+        Assert.AreEqual(2, _fakeMsixService.CreateBundleFromPackagesCalls[0].Slices.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_DuplicateArch_Rejected()
+    {
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "x64", "--arch", "x64"]);
+
+        Assert.AreEqual(1, exitCode, "a duplicate --arch must be rejected");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_MultipleArches_RequireBundleOutputExtension()
+    {
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "x64", "--arch", "arm64", "--output", "app.msix"]);
+
+        Assert.AreEqual(1, exitCode, "two architectures produce a .msixbundle, so a .msix --output is rejected");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_DefaultsToReleaseConfiguration()
     {
         var csproj = CreateCsproj();

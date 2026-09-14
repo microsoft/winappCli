@@ -761,8 +761,8 @@ export async function newCommand(options: NewOptions = {}): Promise<WinappResult
 export interface PackageOptions extends CommonOptions {
   /** A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). */
   inputFolder: string | string[];
-  /** Project mode: target architecture (x64, arm64, or x86). Ignored for folder/bundle/manifest inputs. Default: the current process architecture. */
-  arch?: string;
+  /** Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Ignored for folder/bundle/manifest inputs. Default: the current process architecture. */
+  arch?: string | string[];
   /** Path to signing certificate (will auto-sign if provided) */
   cert?: string;
   /** Certificate password (default: password) */
@@ -806,7 +806,10 @@ export async function packageApp(options: PackageOptions): Promise<WinappResult>
   const args: string[] = ['package'];
   const inputFolderArr = Array.isArray(options.inputFolder) ? options.inputFolder : [options.inputFolder];
   args.push(...inputFolderArr);
-  if (options.arch) args.push('--arch', options.arch);
+  if (options.arch) {
+    const archArr = Array.isArray(options.arch) ? options.arch : [options.arch];
+    for (const v of archArr) args.push('--arch', v);
+  }
   if (options.cert) args.push('--cert', options.cert);
   if (options.certPassword) args.push('--cert-password', options.certPassword);
   if (options.configuration) args.push('--configuration', options.configuration);

@@ -49,6 +49,24 @@ internal interface IMsixService
         string? publisher = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Composes one architecture <c>.msixbundle</c> from per-slice packages (each a complete <c>.msix</c>):
+    /// validates cross-slice identity/version, bundles via <see cref="IBundleService"/>, signs once if
+    /// requested, and delivers per <c>--output</c> precedence.
+    /// </summary>
+    public Task<CreateMsixBundleResult> CreateBundleFromPackagesAsync(
+        IReadOnlyList<FileInfo> sliceMsixFiles,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        CancellationToken cancellationToken = default);
+
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(
         DirectoryInfo[] inputFolders,
         FileSystemInfo? outputPath,

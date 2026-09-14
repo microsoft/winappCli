@@ -32,7 +32,7 @@ internal partial class PackageCommand : Command, IShortDescription
 
     // Project-mode options (mirrors winapp run; inert unless the input is a .csproj).
     public static Option<string> ConfigurationOption { get; }
-    public static Option<string?> ArchOption { get; }
+    public static Option<string[]> ArchOption { get; }
     public static Option<string?> FrameworkOption { get; }
     public static Option<bool> NoBuildOption { get; }
     public static Option<bool> NoRestoreOption { get; }
@@ -106,9 +106,11 @@ internal partial class PackageCommand : Command, IShortDescription
         };
         ConfigurationOption.Aliases.Add("-c");
 
-        ArchOption = new Option<string?>("--arch")
+        ArchOption = new Option<string[]>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Ignored for folder/bundle/manifest inputs. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Ignored for folder/bundle/manifest inputs. Default: the current process architecture.",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = true,
         };
 
         FrameworkOption = new Option<string?>("--framework")

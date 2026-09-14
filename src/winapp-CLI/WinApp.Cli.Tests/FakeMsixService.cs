@@ -260,6 +260,35 @@ internal class FakeMsixService : IMsixService
         return Task.FromResult(new CreateMsixPackageResult(delivered, autoSign && PackageSigned));
     }
 
+    /// <summary>Captured arguments of the most recent <see cref="CreateBundleFromPackagesAsync"/> call.</summary>
+    public sealed record BundleFromPackagesArgs(IReadOnlyList<FileInfo> Slices, FileInfo? Output, string? Name, bool AutoSign);
+
+    public List<BundleFromPackagesArgs> CreateBundleFromPackagesCalls { get; } = [];
+
+    public Task<CreateMsixBundleResult> CreateBundleFromPackagesAsync(
+        IReadOnlyList<FileInfo> sliceMsixFiles,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        CancellationToken cancellationToken = default)
+    {
+        CreateBundleFromPackagesCalls.Add(new BundleFromPackagesArgs(sliceMsixFiles, output, name, autoSign));
+        if (PackageExceptionToThrow != null)
+        {
+            throw PackageExceptionToThrow;
+        }
+        var bundle = output is { } o && string.Equals(o.Extension, ".msixbundle", StringComparison.OrdinalIgnoreCase)
+            ? o
+            : new FileInfo(Path.Combine(output?.FullName ?? Directory.GetCurrentDirectory(), $"{name ?? "App"}.msixbundle"));
+        return Task.FromResult(new CreateMsixBundleResult(bundle, autoSign && PackageSigned, []));
+    }
+
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(
         DirectoryInfo[] inputFolders,
         FileSystemInfo? outputPath,

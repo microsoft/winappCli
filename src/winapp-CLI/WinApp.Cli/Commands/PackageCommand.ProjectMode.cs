@@ -49,7 +49,7 @@ internal partial class PackageCommand
 
             // Project-mode build inputs.
             var configuration = parseResult.GetValue(ConfigurationOption) ?? "Release";
-            var archOption = parseResult.GetValue(ArchOption);
+            var archInputs = parseResult.GetValue(ArchOption) ?? [];
             var noBuild = parseResult.GetValue(NoBuildOption);
             var noRestore = parseResult.GetValue(NoRestoreOption);
             var properties = parseResult.GetValue(PropertyOption) ?? [];
@@ -74,8 +74,36 @@ internal partial class PackageCommand
             var selfContainedFlag = parseResult.GetValue(SelfContainedOption);
             var executable = parseResult.GetValue(ExecutableOption);
 
-            // A single .csproj produces one .msix; reject a .msixbundle --output before building.
-            var outputExtensionError = ValidateOutputExtension(output, isBundle: false);
+            // A single .csproj produces one .msix; two or more architectures produce one .msixbundle. Resolve
+            // the requested architectures (each canonicalized to x64/arm64/x86) and reject duplicates before
+            // validating the --output extension against the artifact type.
+            var resolvedArches = new List<string>();
+            if (archInputs.Length == 0)
+            {
+                if (!RunArchHelper.TryResolveArchitecture(null, runtimeOption: null, out var defaultArch, out var defaultErr))
+                {
+                    return Fail(defaultErr!);
+                }
+                resolvedArches.Add(defaultArch);
+            }
+            else
+            {
+                foreach (var archInput in archInputs)
+                {
+                    if (!RunArchHelper.TryResolveArchitecture(archInput, runtimeOption: null, out var resolvedArch, out var archErr))
+                    {
+                        return Fail(archErr!);
+                    }
+                    if (resolvedArches.Contains(resolvedArch))
+                    {
+                        return Fail($"Duplicate --arch '{resolvedArch}'. Pass each architecture at most once.");
+                    }
+                    resolvedArches.Add(resolvedArch);
+                }
+            }
+            var isBundle = resolvedArches.Count >= 2;
+
+            var outputExtensionError = ValidateOutputExtension(output, isBundle);
             if (outputExtensionError != null)
             {
                 logger.LogError("{Message}", outputExtensionError);
@@ -112,21 +140,18 @@ internal partial class PackageCommand
 
             // --arch is the dedicated target selector. A simultaneous explicit -p RuntimeIdentifier is a
             // conflicting target selection (a -p RuntimeIdentifier alone remains an advanced exact-RID override).
-            if (archOption != null && properties.Any(p => p.StartsWith("RuntimeIdentifier=", StringComparison.OrdinalIgnoreCase)))
+            if (archInputs.Length > 0 && properties.Any(p => p.StartsWith("RuntimeIdentifier=", StringComparison.OrdinalIgnoreCase)))
             {
                 return Fail("--arch conflicts with an explicit -p RuntimeIdentifier. Use --arch alone to select the architecture, or pass -p RuntimeIdentifier alone for an exact-RID override.");
             }
 
-            // Resolve the target architecture from --arch; else the current process architecture.
-            if (!RunArchHelper.TryResolveArchitecture(archOption, runtimeOption: null, out var architecture, out var archError))
-            {
-                return Fail(archError!);
-            }
+            // Single-package mode targets one architecture; the bundle path drives each slice's own.
+            var architecture = resolvedArches[0];
 
             // Immediate context line so the pre-build dotnet steps don't look hung.
             if (logger.IsEnabled(LogLevel.Information))
             {
-                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Search} {csproj.Name}  ·  {configuration} | {architecture}");
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Search} {csproj.Name}  ·  {configuration} | {(isBundle ? string.Join(", ", resolvedArches) : architecture)}");
             }
 
             // A capable SDK (>= 8.0.100) is required for MSBuild --getProperty.
@@ -151,6 +176,16 @@ internal partial class PackageCommand
             }
 
             var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, Json: false, Solution: solution);
+
+            // Two or more architectures: publish/package each as an unsigned slice, then compose one signed
+            // architecture .msixbundle (spec §8). Single-package mode continues below.
+            if (isBundle)
+            {
+                return await RunProjectBundleModeAsync(
+                    csproj, resolvedArches, buildOptions, output, name, publisher,
+                    certPath, certPassword, generateCert, installCert, noSign,
+                    selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
+            }
 
             // Fast-fail: an unpackaged app can never be packaged. Reject before paying the publish cost
             // when the project is definitively WindowsPackageType=None (skipped under --no-build).
@@ -358,6 +393,210 @@ internal partial class PackageCommand
                     return (1, $"{UiSymbols.Error} Failed to create MSIX package: {ex.GetBaseException().Message}");
                 }
             }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Publishes and packages every requested architecture as an unsigned slice, then composes one
+        /// signed architecture .msixbundle (spec §8). Each slice uses the same publish/packaging path as
+        /// single-package mode (native SDK packaging or generic publish layout).
+        /// </summary>
+        private async Task<int> RunProjectBundleModeAsync(
+            FileInfo csproj,
+            List<string> arches,
+            ProjectRunOptions baseOptions,
+            FileInfo? output,
+            string? name,
+            string? publisher,
+            FileInfo? certPath,
+            string certPassword,
+            bool generateCert,
+            bool installCert,
+            bool noSign,
+            bool selfContainedFlag,
+            FileInfo? manifestPath,
+            string? executable,
+            bool skipPri,
+            CancellationToken cancellationToken)
+        {
+            var bundleStagingDir = new DirectoryInfo(Path.Join(Path.GetTempPath(), $"winapp-bundle-{Guid.NewGuid():N}"));
+            bundleStagingDir.Create();
+            try
+            {
+                var sliceMsixFiles = new List<FileInfo>();
+                for (var i = 0; i < arches.Count; i++)
+                {
+                    var arch = arches[i];
+                    if (logger.IsEnabled(LogLevel.Information))
+                    {
+                        ansiConsole.MarkupLineInterpolated($"{UiSymbols.Package} Packaging {arch} slice ({i + 1} of {arches.Count})...");
+                    }
+
+                    var sliceDir = bundleStagingDir.CreateSubdirectory($"slice-{arch}");
+                    var sliceOptions = baseOptions with { Architecture = arch };
+                    var (sliceMsix, exitCode, error) = await ProduceProjectSliceAsync(
+                        csproj, sliceOptions, sliceDir, selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
+
+                    if (error != null)
+                    {
+                        return Fail(error);
+                    }
+                    if (sliceMsix == null)
+                    {
+                        return exitCode == 0 ? 1 : exitCode;
+                    }
+                    sliceMsixFiles.Add(sliceMsix);
+                }
+
+                var autoSign = (certPath != null || generateCert) && !noSign;
+                return await statusService.ExecuteWithStatusAsync("Creating MSIX bundle...", async (taskContext, ct) =>
+                {
+                    try
+                    {
+                        var result = await msixService.CreateBundleFromPackagesAsync(
+                            sliceMsixFiles, output, name, taskContext,
+                            autoSign, certPath, certPassword, generateCert, installCert, publisher, ct);
+
+                        taskContext.AddStatusMessage($"{UiSymbols.Package} Bundle: {result.BundlePath}");
+                        if (result.Signed)
+                        {
+                            taskContext.AddStatusMessage($"{UiSymbols.Lock} Bundle has been signed");
+                        }
+                        return (0, "MSIX bundle creation completed.");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        taskContext.AddDebugMessage($"Stack Trace: {ex.StackTrace}");
+                        return (1, $"{UiSymbols.Error} Failed to create MSIX bundle: {ex.GetBaseException().Message}");
+                    }
+                }, cancellationToken);
+            }
+            finally
+            {
+                try
+                {
+                    bundleStagingDir.Refresh();
+                    if (bundleStagingDir.Exists)
+                    {
+                        bundleStagingDir.Delete(recursive: true);
+                    }
+                }
+                catch
+                {
+                    // Best-effort cleanup of the bundle staging directory.
+                }
+            }
+        }
+
+        /// <summary>
+        /// Produces one UNSIGNED package for a single architecture slice into <paramref name="sliceDir"/>,
+        /// using native SDK packaging for an MSIX-tooling project or the generic publish-layout path
+        /// otherwise. Returns the produced .msix, or an exit code / actionable error on failure.
+        /// </summary>
+        private async Task<(FileInfo? Msix, int ExitCode, string? Error)> ProduceProjectSliceAsync(
+            FileInfo csproj,
+            ProjectRunOptions sliceOptions,
+            DirectoryInfo sliceDir,
+            bool selfContainedFlag,
+            FileInfo? manifestPath,
+            string? executable,
+            bool skipPri,
+            CancellationToken cancellationToken)
+        {
+            if (await projectRunService.IsNativeMsixProjectAsync(csproj, sliceOptions, cancellationToken))
+            {
+                if (manifestPath != null)
+                {
+                    return (null, 1, "--manifest is not supported for an MSIX-tooling project; configure the <AppxManifest> item in the project instead.");
+                }
+                if (executable != null)
+                {
+                    return (null, 1, "--executable is not supported for an MSIX-tooling project; the SDK resolves the entry point from the project.");
+                }
+                if (skipPri)
+                {
+                    return (null, 1, "--skip-pri is not supported for an MSIX-tooling project; the project's own resource build controls PRI generation.");
+                }
+
+                var nativeOptions = selfContainedFlag
+                    ? sliceOptions with { Properties = [.. sliceOptions.Properties, "WindowsAppSDKSelfContained=true"] }
+                    : sliceOptions;
+                try
+                {
+                    var outcome = await projectRunService.PublishNativeMsixAsync(csproj, nativeOptions, sliceDir, cancellationToken);
+                    return (outcome.PackagePath, outcome.ExitCode, null);
+                }
+                catch (ProjectRunException ex)
+                {
+                    return (null, 1, ex.Message);
+                }
+            }
+
+            // Generic publish-layout slice.
+            ProjectBuildOutcome outcome2;
+            try
+            {
+                outcome2 = await projectRunService.PublishAndResolveAsync(csproj, sliceOptions, cancellationToken);
+            }
+            catch (ProjectRunException ex)
+            {
+                return (null, 1, ex.Message);
+            }
+            if (outcome2.Resolution is null)
+            {
+                return (null, outcome2.ExitCode == 0 ? 1 : outcome2.ExitCode, null);
+            }
+            var resolution = outcome2.Resolution;
+            if (resolution.Packaging == ProjectPackaging.Unpackaged)
+            {
+                return (null, 1, UnpackagedProjectMessage(csproj.Name));
+            }
+
+            var targetDir = new DirectoryInfo(resolution.TargetDir);
+            var effectiveManifest = manifestPath
+                ?? (resolution.AppxManifestPath is { Length: > 0 } resolvedManifest && File.Exists(resolvedManifest)
+                    ? new FileInfo(resolvedManifest)
+                    : null);
+            if (effectiveManifest == null && !ManifestHelper.FindManifest(targetDir.FullName).Exists)
+            {
+                return (null, 1, $"'{csproj.Name}' resolves to a packaged (MSIX) app but no AppxManifest.xml was found in the packaging output ({targetDir.FullName}).");
+            }
+
+            var selfContainedModel = resolution.SelfContained || selfContainedFlag;
+            var runtimeAlreadyBundled = resolution.SelfContained;
+            var packageGraph = string.IsNullOrWhiteSpace(resolution.ProjectAssetsFile)
+                ? null
+                : new PackageGraphSource(new FileInfo(resolution.ProjectAssetsFile), resolution.ProjectAssetsRuntimeIdentifier);
+
+            FileInfo? producedMsix = null;
+            var exit = await statusService.ExecuteWithStatusAsync($"Packaging {resolution.Architecture} slice...", async (taskContext, ct) =>
+            {
+                try
+                {
+                    var result = await msixService.CreateMsixPackageAsync(
+                        targetDir, sliceDir, taskContext, packageName: null, skipPri, autoSign: false, certificatePath: null,
+                        certificatePassword: "password", generateDevCert: false, installDevCert: false, publisher: null,
+                        effectiveManifest, selfContainedModel, executable,
+                        projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore,
+                        packageGraph: packageGraph, targetArch: resolution.Architecture,
+                        runtimeAlreadyBundled: runtimeAlreadyBundled, cancellationToken: ct);
+                    producedMsix = result.MsixPath;
+                    return (0, "Slice packaged.");
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    return (1, ex.GetBaseException().Message);
+                }
+            }, cancellationToken);
+
+            return exit == 0 ? (producedMsix, 0, null) : (null, exit, null);
         }
     }
 }
