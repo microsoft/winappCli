@@ -176,7 +176,7 @@ const PASSTHROUGH_COMMANDS = {
 };
 
 // ---------------------------------------------------------------------------
-// Flatten schema into leaf commands
+// Flatten schema into invokable commands
 // ---------------------------------------------------------------------------
 function flattenCommands(node, parentPath = []) {
   const results = [];

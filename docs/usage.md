@@ -832,6 +832,20 @@ winapp run . --verbose
 winapp run . --detach -- --my-flag value
 ```
 
+#### Project mode (classic UWP)
+
+Classic, non-SDK-style UWP `.csproj` files are detected automatically. `winapp run` builds them with Visual Studio MSBuild, selects an installed compatible Windows SDK when the project's exact SDK is unavailable, produces an unsigned loose AppX layout, installs restored framework APPX dependencies, registers the layout, and launches it by AUMID.
+
+The Visual Studio **Universal Windows Platform development** workload is required. `--framework` does not apply to classic UWP; use `--arch`, `--configuration`, `--no-build`, `--no-restore`, and repeatable `--property` values instead.
+
+```powershell
+# Build and launch a classic UWP project
+winapp run .\LegacyApp\LegacyApp.csproj --arch x64
+
+# Launch an existing loose layout without rebuilding
+winapp run .\LegacyApp\LegacyApp.csproj --arch x64 --no-build
+```
+
 #### Single-file mode (.NET file-based apps)
 
 .NET 10 lets you run a single `.cs` file with no project file, configuring it with `#:` directives at

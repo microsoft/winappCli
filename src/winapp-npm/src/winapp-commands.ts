@@ -740,6 +740,24 @@ export async function migrate(options: MigrateOptions): Promise<WinappResult> {
 }
 
 // ---------------------------------------------------------------------------
+// migrate verify
+// ---------------------------------------------------------------------------
+
+export interface MigrateVerifyOptions extends CommonOptions {
+  /** Migrated WinUI project directory containing migration-report.json. */
+  target: string;
+}
+
+/**
+ * Re-run namespace residual and project-item checks against the recorded migration inventory without modifying application source or behavioral validation.
+ */
+export async function migrateVerify(options: MigrateVerifyOptions): Promise<WinappResult> {
+  const args: string[] = ['migrate', 'verify'];
+  args.push(options.target);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // new
 // ---------------------------------------------------------------------------
 
@@ -907,7 +925,7 @@ export interface RunOptions extends CommonOptions {
 }
 
 /**
- * Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
+ * Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. Project mode uses dotnet build for modern projects or Visual Studio MSBuild for classic UWP, then launches the app; single-file mode builds the .cs and launches it, generating a manifest from its #:property directives when packaged; folder mode creates a debug-signed layout, registers the package, and launches it.
  */
 export async function run(options: RunOptions = {}): Promise<WinappResult> {
   const args: string[] = ['run'];
