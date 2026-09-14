@@ -97,6 +97,7 @@ internal partial class MigrateCommand
                 "Directory.Build.props",
                 "ImportDirectoryBuildProps",
                 "DirectoryBuildPropsPath",
+                evaluateImportControl: false,
                 graph,
                 context);
             AddAutomaticDirectoryBuildFile(
@@ -105,6 +106,7 @@ internal partial class MigrateCommand
                 "Directory.Build.targets",
                 "ImportDirectoryBuildTargets",
                 "DirectoryBuildTargetsPath",
+                evaluateImportControl: true,
                 graph,
                 context);
             if (graph.IncompleteReasons.Count > 0)
@@ -215,10 +217,6 @@ internal partial class MigrateCommand
                 && IsProjectElement(element, "Import")))
             {
                 var importValue = import.Attribute("Project")?.Value.Trim();
-                if (string.IsNullOrWhiteSpace(importValue))
-                {
-                    continue;
-                }
                 var condition = EvaluateElementCondition(import, context);
                 if (condition == DeterministicCondition.False)
                 {
@@ -228,6 +226,12 @@ internal partial class MigrateCommand
                 {
                     graph.IncompleteReasons.Add(
                         $"Import '{importValue}' in '{relativePath}' is conditioned and cannot be proven inactive.");
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(importValue))
+                {
+                    graph.IncompleteReasons.Add(
+                        $"Active Import in '{relativePath}' does not contain a literal Project path.");
                     continue;
                 }
                 if (!string.IsNullOrWhiteSpace(
@@ -284,23 +288,27 @@ internal partial class MigrateCommand
             string fileName,
             string importEnabledProperty,
             string overridePathProperty,
+            bool evaluateImportControl,
             ProjectEvidenceGraph graph,
             ProjectConditionContext context)
         {
-            var importStatus = GetAutomaticDirectoryBuildImportStatus(
-                graph.Documents.Values,
-                importEnabledProperty,
-                overridePathProperty,
-                context,
-                out var reason);
-            if (importStatus == DirectoryBuildImportStatus.Disabled)
+            if (evaluateImportControl)
             {
-                return;
-            }
-            if (importStatus == DirectoryBuildImportStatus.Unmodeled)
-            {
-                graph.IncompleteReasons.Add(reason);
-                return;
+                var importStatus = GetAutomaticDirectoryBuildImportStatus(
+                    graph.Documents.Values,
+                    importEnabledProperty,
+                    overridePathProperty,
+                    context,
+                    out var reason);
+                if (importStatus == DirectoryBuildImportStatus.Disabled)
+                {
+                    return;
+                }
+                if (importStatus == DirectoryBuildImportStatus.Unmodeled)
+                {
+                    graph.IncompleteReasons.Add(reason);
+                    return;
+                }
             }
 
             var automaticFile = FindNearestAncestorFile(
@@ -457,7 +465,7 @@ internal partial class MigrateCommand
             IReadOnlyCollection<string> evidenceFiles,
             string itemType,
             string targetPath,
-            IReadOnlyCollection<MigrationProjectItemMetadata> requiredMetadata,
+            List<MigrationProjectItemMetadata> requiredMetadata,
             bool allowUpdate)
         {
             var selectedFiles = new[] { graph.TargetProject }
@@ -485,6 +493,18 @@ internal partial class MigrateCommand
                     out var removalReason))
             {
                 return new ProjectItemEvidenceResult([], removalReason);
+            }
+            if (requiredMetadata.Count > 0
+                && HasPotentialMetadataConflict(
+                    graph,
+                    itemType,
+                    targetPath,
+                    requiredMetadata,
+                    out var metadataConflictReason))
+            {
+                return new ProjectItemEvidenceResult(
+                    [],
+                    metadataConflictReason);
             }
 
             var matches = new List<MigrationLocation>();
@@ -588,10 +608,11 @@ internal partial class MigrateCommand
                 out var hasUnknownUseWinUiOverride);
             if (hasUnknownUseWinUi
                 || hasUnknownUseWinUiOverride
-                || !useWinUi.Any(value =>
-                    bool.TryParse(value, out var enabled) && enabled)
+                || useWinUi.Count == 0
+                || useWinUi.Any(value =>
+                    !bool.TryParse(value, out var enabled) || !enabled)
                 || allUseWinUi.Any(value =>
-                    bool.TryParse(value, out var enabled) && !enabled))
+                    !bool.TryParse(value, out var enabled) || !enabled))
             {
                 reason =
                     "The active target build does not deterministically enable UseWinUI, so default .resw PRIResource inclusion cannot be proven.";
@@ -612,7 +633,7 @@ internal partial class MigrateCommand
                     out var hasUnknown);
                 if (hasUnknown
                     || values.Any(value =>
-                        bool.TryParse(value, out var enabled) && !enabled))
+                        !bool.TryParse(value, out var enabled) || !enabled))
                 {
                     reason =
                         $"{propertyName} prevents deterministic SDK default PRIResource coverage.";
@@ -739,6 +760,123 @@ internal partial class MigrateCommand
             return false;
         }
 
+        private static bool HasPotentialMetadataConflict(
+            ProjectEvidenceGraph graph,
+            string itemType,
+            string targetPath,
+            IReadOnlyCollection<MigrationProjectItemMetadata> requiredMetadata,
+            out string reason)
+        {
+            reason = string.Empty;
+            var context = new ProjectConditionContext(
+                Path.GetFileNameWithoutExtension(graph.TargetProject));
+            foreach (var (relativePath, document) in graph.Documents)
+            {
+                foreach (var item in document.Descendants().Where(element =>
+                    IsEvaluationItem(element)
+                    && IsProjectElement(element, itemType)))
+                {
+                    var include = item.Attribute("Include")?.Value;
+                    var update = item.Attribute("Update")?.Value;
+                    var literalTargetMatches =
+                        ItemAttributeMatches(include, targetPath)
+                        || ItemAttributeMatches(update, targetPath);
+                    var nonLiteralUpdate = IsNonLiteralItemSpec(update);
+                    if (!literalTargetMatches && !nonLiteralUpdate)
+                    {
+                        continue;
+                    }
+                    var itemCondition = EvaluateElementCondition(item, context);
+                    if (itemCondition == DeterministicCondition.False)
+                    {
+                        continue;
+                    }
+                    foreach (var metadata in requiredMetadata)
+                    {
+                        if (RemovesMetadata(
+                                item.Attribute("RemoveMetadata")?.Value,
+                                metadata.Name))
+                        {
+                            reason = nonLiteralUpdate
+                                ? $"An active nonliteral {itemType} Update in '{relativePath}' may remove required metadata '{metadata.Name}'."
+                                : $"Active {itemType} evidence in '{relativePath}' removes required metadata '{metadata.Name}'.";
+                            return true;
+                        }
+                        var metadataAttribute = item.Attributes().FirstOrDefault(
+                            attribute =>
+                                attribute.Name.Namespace == XNamespace.None
+                                && attribute.Name.LocalName.Equals(
+                                    metadata.Name,
+                                    StringComparison.OrdinalIgnoreCase));
+                        if (metadataAttribute is not null
+                            && (itemCondition == DeterministicCondition.Unknown
+                                || !string.Equals(
+                                    metadataAttribute.Value.Trim(),
+                                    metadata.Value.Trim(),
+                                    StringComparison.Ordinal)))
+                        {
+                            reason = nonLiteralUpdate
+                                ? $"An active nonliteral {itemType} Update in '{relativePath}' may conflict with required metadata '{metadata.Name}'."
+                                : $"Active {itemType} evidence in '{relativePath}' conflicts with required metadata '{metadata.Name}'.";
+                            return true;
+                        }
+                        foreach (var targetMetadata in item.Elements().Where(element =>
+                            IsProjectElement(element, metadata.Name)))
+                        {
+                            var metadataCondition = EvaluateElementCondition(
+                                targetMetadata,
+                                context);
+                            if (itemCondition == DeterministicCondition.Unknown
+                                || metadataCondition == DeterministicCondition.Unknown)
+                            {
+                                reason =
+                                    $"A conditioned {itemType} update in '{relativePath}' may change required metadata '{metadata.Name}'.";
+                                return true;
+                            }
+                            if (metadataCondition == DeterministicCondition.True
+                                && !string.Equals(
+                                    targetMetadata.Value.Trim(),
+                                    metadata.Value.Trim(),
+                                    StringComparison.Ordinal))
+                            {
+                                reason = nonLiteralUpdate
+                                    ? $"An active nonliteral {itemType} Update in '{relativePath}' may conflict with required metadata '{metadata.Name}'."
+                                    : $"Active {itemType} evidence in '{relativePath}' conflicts with required metadata '{metadata.Name}'.";
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static bool IsNonLiteralItemSpec(string? value) =>
+            !string.IsNullOrWhiteSpace(value)
+            && (value.Contains("$(", StringComparison.Ordinal)
+                || value.Contains("@(", StringComparison.Ordinal)
+                || value.IndexOfAny(['*', '?']) >= 0);
+
+        private static bool RemovesMetadata(
+            string? value,
+            string metadataName)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+            if (value.Contains("$(", StringComparison.Ordinal)
+                || value.Contains("@(", StringComparison.Ordinal))
+            {
+                return true;
+            }
+            return value.Split(
+                    ';',
+                    StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries)
+                .Contains(metadataName, StringComparer.OrdinalIgnoreCase);
+        }
+
         private static bool IncludeExcludesTarget(
             XElement item,
             string targetPath) =>
@@ -813,14 +951,24 @@ internal partial class MigrateCommand
             XElement targetItem,
             IReadOnlyCollection<MigrationProjectItemMetadata> requiredMetadata,
             ProjectConditionContext context) =>
-            requiredMetadata.All(metadata => targetItem.Elements().Any(element =>
-                IsProjectElement(element, metadata.Name)
-                && EvaluateElementCondition(element, context)
-                    == DeterministicCondition.True
-                && string.Equals(
-                    element.Value.Trim(),
-                    metadata.Value.Trim(),
-                    StringComparison.Ordinal)));
+            requiredMetadata.All(metadata =>
+                targetItem.Elements().Any(element =>
+                    IsProjectElement(element, metadata.Name)
+                    && EvaluateElementCondition(element, context)
+                        == DeterministicCondition.True
+                    && string.Equals(
+                        element.Value.Trim(),
+                        metadata.Value.Trim(),
+                        StringComparison.Ordinal))
+                || targetItem.Attributes().Any(attribute =>
+                    attribute.Name.Namespace == XNamespace.None
+                    && attribute.Name.LocalName.Equals(
+                        metadata.Name,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        attribute.Value.Trim(),
+                        metadata.Value.Trim(),
+                        StringComparison.Ordinal)));
 
         private static DeterministicCondition EvaluateElementCondition(
             XElement element,

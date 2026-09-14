@@ -25,13 +25,11 @@ internal static class MigrationPathResolver
         {
             fullPath = Path.TrimEndingDirectorySeparator(
                 Path.GetFullPath(value));
-            if ((File.Exists(fullPath) || Directory.Exists(fullPath))
-                && File.GetAttributes(fullPath).HasFlag(
-                    FileAttributes.ReparsePoint))
+            if (!TryEnsureNoReparsePoints(
+                    fullPath,
+                    out error))
             {
                 fullPath = string.Empty;
-                error =
-                    "The migration root cannot be a reparse point.";
                 return false;
             }
             return true;
@@ -159,6 +157,37 @@ internal static class MigrationPathResolver
             normalizedRelativePath = string.Empty;
             error = $"The path could not be inspected safely: {exception.Message}";
             return false;
+        }
+        return true;
+    }
+
+    private static bool TryEnsureNoReparsePoints(
+        string path,
+        out string error)
+    {
+        error = string.Empty;
+        var pathRoot = Path.GetPathRoot(path);
+        if (string.IsNullOrWhiteSpace(pathRoot))
+        {
+            error = "The migration root has no filesystem root.";
+            return false;
+        }
+
+        var current = pathRoot;
+        var relative = Path.GetRelativePath(pathRoot, path);
+        foreach (var segment in relative.Split(
+            Path.DirectorySeparatorChar,
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if ((File.Exists(current) || Directory.Exists(current))
+                && File.GetAttributes(current).HasFlag(
+                    FileAttributes.ReparsePoint))
+            {
+                error =
+                    $"The migration root cannot traverse reparse point '{current}'.";
+                return false;
+            }
         }
         return true;
     }

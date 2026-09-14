@@ -492,6 +492,13 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
               </ItemGroup>
             </Project>
             """);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <PropertyGroup>
+                <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+              </PropertyGroup>
+            """);
 
         var result = await InvokeDecisionAsync(
             target,
@@ -578,7 +585,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             target,
             """
               <PropertyGroup>
-                <enabledefaultitems>false</enabledefaultitems>
+                <enabledefaultitems>0</enabledefaultitems>
               </PropertyGroup>
             """);
 
@@ -592,6 +599,82 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
 
         Assert.AreEqual(1, result.ExitCode, result.Output);
         StringAssert.Contains(result.Output, "EnableDefaultItems");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_RejectsConflictingMetadataUpdate()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "ConflictingMetadataApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+                <PRIResource Update="Resources\fr-fr\Resources.resw">
+                  <SubType>Code</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "A later update must not override the preserved source metadata.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "conflicts with required metadata");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_RejectsNonliteralMetadataUpdate()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "NonliteralMetadataApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <PropertyGroup>
+                <ReviewedResource>Resources\fr-fr\Resources.resw</ReviewedResource>
+              </PropertyGroup>
+              <ItemGroup>
+                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+                <PRIResource Update="$(ReviewedResource)">
+                  <SubType>Code</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "A property-expanded update can override the required metadata.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "nonliteral");
+        StringAssert.Contains(result.Output, "may conflict");
     }
 
     [TestMethod]
@@ -946,6 +1029,11 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         var physicalRoot = _tempDirectory.CreateSubdirectory(
             "reparse-physical-source");
         await WriteAsync(physicalRoot, "Outside.csproj", "<not-msbuild />");
+        var nestedPhysicalRoot = physicalRoot.CreateSubdirectory("Nested");
+        await WriteAsync(
+            nestedPhysicalRoot,
+            "Outside.csproj",
+            "<not-msbuild />");
         var linkPath = Path.Combine(
             _tempDirectory.FullName,
             "reparse-source-link");
@@ -969,26 +1057,33 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         var report = JsonNode.Parse(await File.ReadAllTextAsync(
             reportPath,
             TestContext.CancellationToken))!;
-        report["source"]!["root"] = linkPath;
-        report["source"]!["projectFile"] = "Outside.csproj";
-        await File.WriteAllTextAsync(
-            reportPath,
-            report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
-            TestContext.CancellationToken);
-        var before = await File.ReadAllTextAsync(
-            reportPath,
-            TestContext.CancellationToken);
-
-        var (exit, output) = await InvokeVerifyAsync(target);
-
-        Assert.AreEqual(1, exit, output);
-        StringAssert.Contains(output, "root");
-        StringAssert.Contains(output, "reparse point");
-        Assert.AreEqual(
-            before,
-            await File.ReadAllTextAsync(
+        foreach (var sourceRoot in new[]
+        {
+            linkPath,
+            Path.Combine(linkPath, "Nested")
+        })
+        {
+            report["source"]!["root"] = sourceRoot;
+            report["source"]!["projectFile"] = "Outside.csproj";
+            await File.WriteAllTextAsync(
                 reportPath,
-                TestContext.CancellationToken));
+                report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+                TestContext.CancellationToken);
+            var before = await File.ReadAllTextAsync(
+                reportPath,
+                TestContext.CancellationToken);
+
+            var (exit, output) = await InvokeVerifyAsync(target);
+
+            Assert.AreEqual(1, exit, output);
+            StringAssert.Contains(output, "root");
+            StringAssert.Contains(output, "reparse point");
+            Assert.AreEqual(
+                before,
+                await File.ReadAllTextAsync(
+                    reportPath,
+                    TestContext.CancellationToken));
+        }
     }
 
     [TestMethod]
