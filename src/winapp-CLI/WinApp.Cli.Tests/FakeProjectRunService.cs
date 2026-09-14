@@ -151,6 +151,12 @@ internal sealed class FakeProjectRunService : IProjectRunService
         return Task.FromResult(IsNativeMsixProject);
     }
 
+    /// <summary>Returned from <see cref="EvaluateProjectSigningAsync"/>. Default null = no project signing configuration.</summary>
+    public ProjectSigningProperties? ProjectSigning { get; set; }
+
+    public Task<ProjectSigningProperties?> EvaluateProjectSigningAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+        => Task.FromResult(ProjectSigning);
+
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         IsDefinitivelyUnpackagedCalls.Add(csproj);

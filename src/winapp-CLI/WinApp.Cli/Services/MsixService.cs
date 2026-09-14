@@ -647,7 +647,7 @@ internal partial class MsixService(
         return await dotNetService.GetPackageListAsync(csproj, cancellationToken: cancellationToken);
     }
 
-    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext, CancellationToken cancellationToken)
+    private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext, CancellationToken cancellationToken, string? timestampUrl = null)
     {
         if (certPath == null && generateDevCert)
         {
@@ -689,7 +689,7 @@ internal partial class MsixService(
         }
 
         // Sign the package
-        await certificateService.SignFileAsync(outputMsixPath, certPath, taskContext, certificatePassword, cancellationToken: cancellationToken);
+        await certificateService.SignFileAsync(outputMsixPath, certPath, taskContext, certificatePassword, timestampUrl, cancellationToken);
     }
 
     private async Task CreateMsixPackageFromFolderAsync(DirectoryInfo inputFolder, FileInfo outputMsixPath, TaskContext taskContext, CancellationToken cancellationToken)

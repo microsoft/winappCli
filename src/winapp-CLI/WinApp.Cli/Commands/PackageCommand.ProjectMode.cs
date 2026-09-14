@@ -177,14 +177,23 @@ internal partial class PackageCommand
 
             var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, Json: false, Solution: solution);
 
+            // Resolve one signing policy up front (CLI overrides project config; reject unsupported project
+            // signing rather than silently ignoring it) and reuse it for the single package or every slice.
+            var (resolvedPolicy, signingError) = await ResolveSigningPolicyAsync(
+                csproj, buildOptions, noSign, certPath, generateCert, installCert, certPassword, cancellationToken);
+            if (signingError != null)
+            {
+                return Fail(signingError);
+            }
+            var signing = resolvedPolicy!.Value;
+
             // Two or more architectures: publish/package each as an unsigned slice, then compose one signed
             // architecture .msixbundle (spec §8). Single-package mode continues below.
             if (isBundle)
             {
                 return await RunProjectBundleModeAsync(
                     csproj, resolvedArches, buildOptions, output, name, publisher,
-                    certPath, certPassword, generateCert, installCert, noSign,
-                    selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
+                    signing, selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
             }
 
             // Fast-fail: an unpackaged app can never be packaged. Reject before paying the publish cost
@@ -240,14 +249,14 @@ internal partial class PackageCommand
                         return nativeOutcome.ExitCode == 0 ? 1 : nativeOutcome.ExitCode;
                     }
 
-                    var nativeAutoSign = (certPath != null || generateCert) && !noSign;
                     return await statusService.ExecuteWithStatusAsync("Delivering MSIX package...", async (taskContext, ct) =>
                     {
                         try
                         {
                             var result = await msixService.DeliverNativeMsixAsync(
                                 nativeOutcome.PackagePath, output, name, taskContext,
-                                nativeAutoSign, certPath, certPassword, generateCert, installCert, publisher, ct);
+                                signing.ShouldSign, signing.Cert, signing.CertPassword, signing.GenerateCert,
+                                signing.InstallCert, publisher, signing.TimestampUrl, ct);
 
                             taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
                             if (result.Signed)
@@ -362,11 +371,9 @@ internal partial class PackageCommand
             {
                 try
                 {
-                    var autoSign = (certPath != null || generateCert) && !noSign;
-
                     var result = await msixService.CreateMsixPackageAsync(
-                        targetDir, output, taskContext, name, skipPri, autoSign, certPath, certPassword,
-                        generateCert, installCert, publisher, effectiveManifest, selfContainedModel, executable,
+                        targetDir, output, taskContext, name, skipPri, signing.ShouldSign, signing.Cert, signing.CertPassword,
+                        signing.GenerateCert, signing.InstallCert, publisher, effectiveManifest, selfContainedModel, executable,
                         projectFile: csproj,
                         framework: resolution.Framework,
                         noRestore: resolution.NoRestore,
@@ -396,6 +403,70 @@ internal partial class PackageCommand
         }
 
         /// <summary>
+        /// One resolved signing policy for the final artifact: whether to sign and with which certificate,
+        /// password, and timestamp server. Bundles and single packages sign once using this.
+        /// </summary>
+        private readonly record struct SigningPolicy(
+            bool ShouldSign, FileInfo? Cert, string CertPassword, bool GenerateCert, bool InstallCert, string? TimestampUrl);
+
+        /// <summary>
+        /// Resolves the single signing policy (spec §6): <c>--no-sign</c> → unsigned; an explicit
+        /// <c>--cert</c>/<c>--generate-cert</c> → sign with the CLI certificate (overriding project config);
+        /// otherwise honor the project's <c>PackageCertificateKeyFile</c>. Reports an actionable error for a
+        /// selected-but-unsupported policy (certificate-store thumbprint / cloud) or an enabled policy with
+        /// no usable certificate, rather than silently ignoring it or downgrading to unsigned.
+        /// </summary>
+        private async Task<(SigningPolicy? Policy, string? Error)> ResolveSigningPolicyAsync(
+            FileInfo csproj,
+            ProjectRunOptions buildOptions,
+            bool noSign,
+            FileInfo? certPath,
+            bool generateCert,
+            bool installCert,
+            string certPassword,
+            CancellationToken cancellationToken)
+        {
+            var unsigned = new SigningPolicy(false, null, certPassword, false, false, null);
+
+            if (noSign)
+            {
+                return (unsigned, null);
+            }
+            if (certPath != null || generateCert)
+            {
+                // An explicit CLI signing request overrides any project signing configuration.
+                return (new SigningPolicy(true, certPath, certPassword, generateCert, installCert, null), null);
+            }
+
+            var props = await projectRunService.EvaluateProjectSigningAsync(csproj, buildOptions, cancellationToken);
+            if (props is null || props.SigningEnabled == false)
+            {
+                // Could not evaluate, or signing explicitly disabled → deliver unsigned.
+                return (unsigned, null);
+            }
+
+            if (!string.IsNullOrEmpty(props.KeyFilePath))
+            {
+                if (!File.Exists(props.KeyFilePath))
+                {
+                    return (null, $"The project's signing certificate (PackageCertificateKeyFile) was not found: {props.KeyFilePath}. Provide --cert <pfx>, fix the project configuration, or use --no-sign.");
+                }
+                // Project PFX signing: an absent PackageCertificatePassword means no password (not the CLI default).
+                return (new SigningPolicy(true, new FileInfo(props.KeyFilePath), props.Password ?? string.Empty, false, installCert, props.TimestampUrl), null);
+            }
+            if (!string.IsNullOrEmpty(props.Thumbprint))
+            {
+                return (null, "This project signs with a certificate-store certificate (PackageCertificateThumbprint), which winapp project mode does not support yet. Sign with --cert <pfx>, or pass --no-sign and use your existing signing pipeline.");
+            }
+            if (props.SigningEnabled == true)
+            {
+                return (null, "AppxPackageSigningEnabled=true but no PackageCertificateKeyFile is configured. Provide --cert <pfx>, configure a project signing certificate, or use --no-sign.");
+            }
+
+            return (unsigned, null);
+        }
+
+        /// <summary>
         /// Publishes and packages every requested architecture as an unsigned slice, then composes one
         /// signed architecture .msixbundle (spec §8). Each slice uses the same publish/packaging path as
         /// single-package mode (native SDK packaging or generic publish layout).
@@ -407,11 +478,7 @@ internal partial class PackageCommand
             FileInfo? output,
             string? name,
             string? publisher,
-            FileInfo? certPath,
-            string certPassword,
-            bool generateCert,
-            bool installCert,
-            bool noSign,
+            SigningPolicy signing,
             bool selfContainedFlag,
             FileInfo? manifestPath,
             string? executable,
@@ -447,14 +514,15 @@ internal partial class PackageCommand
                     sliceMsixFiles.Add(sliceMsix);
                 }
 
-                var autoSign = (certPath != null || generateCert) && !noSign;
+                var autoSign = signing.ShouldSign;
                 return await statusService.ExecuteWithStatusAsync("Creating MSIX bundle...", async (taskContext, ct) =>
                 {
                     try
                     {
                         var result = await msixService.CreateBundleFromPackagesAsync(
                             sliceMsixFiles, output, name, taskContext,
-                            autoSign, certPath, certPassword, generateCert, installCert, publisher, ct);
+                            autoSign, signing.Cert, signing.CertPassword, signing.GenerateCert, signing.InstallCert,
+                            publisher, signing.TimestampUrl, ct);
 
                         taskContext.AddStatusMessage($"{UiSymbols.Package} Bundle: {result.BundlePath}");
                         if (result.Signed)

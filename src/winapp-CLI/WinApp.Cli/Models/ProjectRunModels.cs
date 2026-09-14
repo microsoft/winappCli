@@ -160,6 +160,23 @@ internal sealed record ProjectBuildOutcome(ProjectRunResolution? Resolution, int
 internal sealed record NativeMsixPublishOutcome(FileInfo? PackagePath, int ExitCode);
 
 /// <summary>
+/// The project's evaluated MSIX signing configuration (spec §6), used to resolve one signing policy for
+/// the final artifact. All values are as MSBuild evaluated them; <see cref="KeyFilePath"/> is resolved to
+/// an absolute path. <see langword="null"/> members mean the property was unset.
+/// </summary>
+/// <param name="SigningEnabled"><c>AppxPackageSigningEnabled</c> (null = unset).</param>
+/// <param name="KeyFilePath">Absolute path of <c>PackageCertificateKeyFile</c>, or null.</param>
+/// <param name="Password"><c>PackageCertificatePassword</c>, or null (absent = no supplied password).</param>
+/// <param name="Thumbprint"><c>PackageCertificateThumbprint</c> (certificate-store signing), or null.</param>
+/// <param name="TimestampUrl"><c>AppxPackageSigningTimestampServerUrl</c>, or null.</param>
+internal sealed record ProjectSigningProperties(
+    bool? SigningEnabled,
+    string? KeyFilePath,
+    string? Password,
+    string? Thumbprint,
+    string? TimestampUrl);
+
+/// <summary>
 /// User-provided build inputs for single-file mode (a <c>.cs</c> file-based app).
 /// <para>
 /// Deliberately a much smaller set than <see cref="ProjectRunOptions"/>. A file-based app declares its

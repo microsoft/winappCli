@@ -247,6 +247,7 @@ internal class FakeMsixService : IMsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default)
     {
         DeliverNativeMsixCalls.Add(new DeliverNativeArgs(producedMsix, output, name, autoSign, certPath, publisher));
@@ -276,6 +277,7 @@ internal class FakeMsixService : IMsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default)
     {
         CreateBundleFromPackagesCalls.Add(new BundleFromPackagesArgs(sliceMsixFiles, output, name, autoSign));

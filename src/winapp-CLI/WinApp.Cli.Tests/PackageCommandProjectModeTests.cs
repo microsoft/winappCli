@@ -309,6 +309,75 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_ProjectThumbprintSigning_Rejected()
+    {
+        // Certificate-store thumbprint signing is the selected, enabled policy but unsupported — it must
+        // error with a remedy, not be silently ignored.
+        var csproj = CreateCsproj();
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.ProjectSigning = new ProjectSigningProperties(true, null, null, "ABCD1234", null);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count, "an unsupported signing policy must be rejected before packaging");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_SigningEnabledWithoutCertificate_Rejected()
+    {
+        // AppxPackageSigningEnabled=true with no usable certificate must error, never downgrade to unsigned.
+        var csproj = CreateCsproj();
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.ProjectSigning = new ProjectSigningProperties(true, null, null, null, null);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_ProjectKeyFileSigning_UsedForNative()
+    {
+        var csproj = CreateCsproj();
+        var pfx = new FileInfo(Path.Join(_tempDirectory.FullName, "proj.pfx"));
+        File.WriteAllText(pfx.FullName, "pfx");
+        var produced = new FileInfo(Path.Join(_tempDirectory.FullName, "App_1.0.0.0_arm64.msix"));
+        File.WriteAllText(produced.FullName, "msix");
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.NativeMsixOutcome = new NativeMsixPublishOutcome(produced, 0);
+        _fakeProjectRunService.ProjectSigning = new ProjectSigningProperties(true, pfx.FullName, "secret", null, "http://timestamp");
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        var call = _fakeMsixService.DeliverNativeMsixCalls[0];
+        Assert.IsTrue(call.AutoSign, "the project's PFX signing configuration must sign the artifact");
+        Assert.AreEqual(pfx.FullName, call.CertPath!.FullName);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_SigningDisabledWithRetainedThumbprint_DeliversUnsigned()
+    {
+        // AppxPackageSigningEnabled=false is an unsigned policy even with a retained thumbprint (spec §6).
+        var csproj = CreateCsproj();
+        var produced = new FileInfo(Path.Join(_tempDirectory.FullName, "App_1.0.0.0_arm64.msix"));
+        File.WriteAllText(produced.FullName, "msix");
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.NativeMsixOutcome = new NativeMsixPublishOutcome(produced, 0);
+        _fakeProjectRunService.ProjectSigning = new ProjectSigningProperties(false, null, null, "ABCD1234", null);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsFalse(_fakeMsixService.DeliverNativeMsixCalls[0].AutoSign, "disabled signing must not sign, even with a retained thumbprint");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_DefaultsToReleaseConfiguration()
     {
         var csproj = CreateCsproj();

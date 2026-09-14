@@ -122,6 +122,16 @@ internal interface IProjectRunService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Evaluates the project's MSIX signing configuration (<c>AppxPackageSigningEnabled</c>,
+    /// <c>PackageCertificateKeyFile</c>, etc.) so the caller can resolve one signing policy. Null when
+    /// evaluation could not run.
+    /// </summary>
+    Task<ProjectSigningProperties?> EvaluateProjectSigningAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cheap, side-effect-free probe (no build) that reports whether the project is DEFINITIVELY
     /// unpackaged — i.e. it declares an explicit <c>WindowsPackageType=None</c>. Used by the run
     /// handler to fail fast on identity-only options (e.g. <c>--no-launch</c>) that are meaningless

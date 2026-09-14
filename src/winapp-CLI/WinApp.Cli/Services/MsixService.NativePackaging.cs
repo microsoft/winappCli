@@ -28,6 +28,7 @@ internal partial class MsixService
         bool generateDevCert,
         bool installDevCert,
         string? publisher,
+        string? timestampUrl,
         CancellationToken cancellationToken)
     {
         // The produced package carries its own AppxManifest.xml; extract it for publisher resolution and
@@ -66,7 +67,7 @@ internal partial class MsixService
                     await SignMsixPackageAsync(
                         finalMsixPath.Directory!, certPassword, generateDevCert, installDevCert,
                         Path.GetFileNameWithoutExtension(finalMsixPath.Name), extractedPublisher,
-                        stagingMsix, certPath, manifestTemp, taskContext, cancellationToken);
+                        stagingMsix, certPath, manifestTemp, taskContext, cancellationToken, timestampUrl);
                     signed = true;
                 }
 

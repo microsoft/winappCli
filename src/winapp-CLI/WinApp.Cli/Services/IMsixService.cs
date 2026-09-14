@@ -47,6 +47,7 @@ internal interface IMsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -65,6 +66,7 @@ internal interface IMsixService
         bool generateDevCert = false,
         bool installDevCert = false,
         string? publisher = null,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default);
 
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(

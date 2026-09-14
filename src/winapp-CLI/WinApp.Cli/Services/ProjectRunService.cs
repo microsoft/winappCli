@@ -47,6 +47,12 @@ internal sealed partial class ProjectRunService(
         // Whether the Windows App SDK MSIX packaging targets are active for this project. Distinguishes a
         // native-MSIX project (winapp lets the SDK produce the package) from a generic publish-layout one.
         "MsixPackageSupport",
+        // Project signing configuration, resolved into one signing policy for the final artifact (spec §6).
+        "AppxPackageSigningEnabled",
+        "PackageCertificateKeyFile",
+        "PackageCertificatePassword",
+        "PackageCertificateThumbprint",
+        "AppxPackageSigningTimestampServerUrl",
         "_WinAppRunSupportActive",
         "OutputType",
         // The app's own launch preference. Read here so a .csproj run directly gets the same behavior as
@@ -599,6 +605,49 @@ internal sealed partial class ProjectRunService(
 
         return IsTrue(GetProp(props, "MsixPackageSupport"))
             || IsTrue(GetProp(props, "EnableMsixTooling"));
+    }
+
+    /// <summary>
+    /// Evaluates the project's MSIX signing configuration (spec §6) so the caller can resolve one signing
+    /// policy for the final artifact. Returns <see langword="null"/> when evaluation could not run.
+    /// </summary>
+    public async Task<ProjectSigningProperties?> EvaluateProjectSigningAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+    {
+        var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+        if (props is null)
+        {
+            return null;
+        }
+
+        var workingDir = (csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory())).FullName;
+        var enabledRaw = GetProp(props, "AppxPackageSigningEnabled");
+        bool? enabled = string.IsNullOrWhiteSpace(enabledRaw)
+            ? null
+            : string.Equals(enabledRaw, "true", StringComparison.OrdinalIgnoreCase);
+
+        var keyFile = GetProp(props, "PackageCertificateKeyFile");
+        string? resolvedKeyFile = null;
+        if (!string.IsNullOrWhiteSpace(keyFile))
+        {
+            try
+            {
+                resolvedKeyFile = Path.GetFullPath(keyFile, workingDir);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                resolvedKeyFile = keyFile;
+            }
+        }
+
+        return new ProjectSigningProperties(
+            enabled,
+            resolvedKeyFile,
+            GetProp(props, "PackageCertificatePassword") is { Length: > 0 } pwd ? pwd : null,
+            GetProp(props, "PackageCertificateThumbprint") is { Length: > 0 } tp ? tp : null,
+            GetProp(props, "AppxPackageSigningTimestampServerUrl") is { Length: > 0 } ts ? ts : null);
     }
 
     /// <summary>
