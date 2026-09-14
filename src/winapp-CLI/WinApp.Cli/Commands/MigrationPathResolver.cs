@@ -69,7 +69,11 @@ internal static class MigrationPathResolver
             Path.DirectorySeparatorChar,
             StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(segment =>
-            segment.TrimEnd(' ', '.') == ".."))
+        {
+            var canonicalSegment = segment.TrimEnd(' ', '.');
+            return canonicalSegment.Length == 0
+                || canonicalSegment == "..";
+        }))
         {
             error = "The path cannot contain parent-directory traversal.";
             return false;

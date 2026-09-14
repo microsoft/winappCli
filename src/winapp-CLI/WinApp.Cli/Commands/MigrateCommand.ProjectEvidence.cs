@@ -288,14 +288,18 @@ internal partial class MigrateCommand
                 {
                     continue;
                 }
-                if (property.Name.LocalName == overridePathProperty
+                if (property.Name.LocalName.Equals(
+                        overridePathProperty,
+                        StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrWhiteSpace(property.Value))
                 {
                     reason =
                         $"Automatic Directory.Build discovery is overridden by {overridePathProperty}.";
                     return false;
                 }
-                if (property.Name.LocalName == importEnabledProperty
+                if (property.Name.LocalName.Equals(
+                        importEnabledProperty,
+                        StringComparison.OrdinalIgnoreCase)
                     && bool.TryParse(property.Value.Trim(), out var enabled)
                     && !enabled)
                 {
@@ -513,14 +517,20 @@ internal partial class MigrateCommand
             var context = new ProjectConditionContext(
                 Path.GetFileNameWithoutExtension(graph.TargetProject));
             var useWinUi = FindActivePropertyValues(
-                graph,
+                [targetDocument],
                 "UseWinUI",
                 context,
                 out var hasUnknownUseWinUi);
+            var allUseWinUi = FindActivePropertyValues(
+                graph,
+                "UseWinUI",
+                context,
+                out var hasUnknownUseWinUiOverride);
             if (hasUnknownUseWinUi
+                || hasUnknownUseWinUiOverride
                 || !useWinUi.Any(value =>
                     bool.TryParse(value, out var enabled) && enabled)
-                || useWinUi.Any(value =>
+                || allUseWinUi.Any(value =>
                     bool.TryParse(value, out var enabled) && !enabled))
             {
                 reason =
@@ -606,10 +616,21 @@ internal partial class MigrateCommand
             string propertyName,
             ProjectConditionContext context,
             out bool hasUnknown)
+            => FindActivePropertyValues(
+                graph.Documents.Values,
+                propertyName,
+                context,
+                out hasUnknown);
+
+        private static List<string> FindActivePropertyValues(
+            IEnumerable<XDocument> documents,
+            string propertyName,
+            ProjectConditionContext context,
+            out bool hasUnknown)
         {
             hasUnknown = false;
             var values = new List<string>();
-            foreach (var document in graph.Documents.Values)
+            foreach (var document in documents)
             {
                 foreach (var property in document.Descendants().Where(element =>
                     IsEvaluationProperty(element)

@@ -423,7 +423,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             target,
             """
               <PropertyGroup>
-                <EnableDefaultItems>false</EnableDefaultItems>
+                <enabledefaultitems>false</enabledefaultitems>
               </PropertyGroup>
             """);
 
@@ -437,6 +437,57 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
 
         Assert.AreEqual(1, result.ExitCode, result.Output);
         StringAssert.Contains(result.Output, "EnableDefaultItems");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_DirectoryBuildTargetsCannotEstablishSdkDefaults()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "LateUseWinUiApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        var project = Directory.EnumerateFiles(
+            target.FullName,
+            "*.csproj",
+            SearchOption.TopDirectoryOnly)
+            .Single();
+        var projectText = await File.ReadAllTextAsync(
+            project,
+            TestContext.CancellationToken);
+        projectText = projectText.Replace(
+            "<UseWinUI>true</UseWinUI>",
+            string.Empty,
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(
+            project,
+            projectText,
+            TestContext.CancellationToken);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <PropertyGroup>
+                <UseWinUI>true</UseWinUI>
+              </PropertyGroup>
+              <ItemGroup>
+                <PRIResource Update="Resources\en-us\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "A late targets property cannot prove SDK default inclusion.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "does not deterministically enable UseWinUI");
     }
 
     [TestMethod]
@@ -568,6 +619,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         foreach (var mutation in new[]
         {
             (Section: "source", Value: @"nested/..\..\Outside.csproj"),
+            (Section: "source", Value: @"...\Outside.csproj"),
             (Section: "target", Value: Path.Combine(target.FullName, originalTargetProject)),
             (Section: "target", Value: $@"..\{outside.Name}\Outside.csproj")
         })

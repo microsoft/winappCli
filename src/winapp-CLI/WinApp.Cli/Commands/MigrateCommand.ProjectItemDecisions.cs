@@ -165,12 +165,12 @@ internal partial class MigrateCommand
                     "Available source content outside the source root must use copied-linked-content so source and target bytes can be verified.";
                 return verification;
             }
-            if (sourceItem.ReviewReason == "external-or-missing-source"
+            if (sourceItem.ReviewReason is "absolute-path" or "external-or-missing-source"
                 && !sourceContentAvailable)
             {
                 verification.Status = "invalid";
                 verification.Reason =
-                    $"{sourcePathError} Missing external source content cannot be mechanically resolved.";
+                    $"{sourcePathError} Missing absolute or external source content cannot be mechanically resolved.";
                 return verification;
             }
             if (!TryResolveTargetPath(
@@ -390,12 +390,15 @@ internal partial class MigrateCommand
             string root,
             string path)
         {
-            var canonicalRoot = Path.TrimEndingDirectorySeparator(
-                Path.GetFullPath(root));
-            var canonicalPath = Path.GetFullPath(path);
-            return canonicalPath.StartsWith(
-                canonicalRoot + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase);
+            var relativePath = Path.GetRelativePath(
+                Path.GetFullPath(root),
+                Path.GetFullPath(path));
+            return MigrationPathResolver.TryResolveContainedRelativePath(
+                root,
+                relativePath,
+                out _,
+                out _,
+                out _);
         }
 
         private static bool TryResolveSourceItemPath(

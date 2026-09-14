@@ -203,7 +203,30 @@ internal partial class MigrateCommand
                 analysis.Issues);
             foreach (var extension in FindApplicationExtensionCandidates(sourceApplications[0]))
             {
-                var category = extension.Attribute("Category")?.Value.Trim();
+                var categoryAttribute = extension.Attribute("Category");
+                var category = categoryAttribute?.Value.Trim();
+                if (categoryAttribute is null)
+                {
+                    var categoryLookalike = extension.Attributes().FirstOrDefault(
+                        attribute =>
+                            !attribute.IsNamespaceDeclaration
+                            && attribute.Name.LocalName == "Category"
+                            && SupportedActivationCategories.Contains(
+                                attribute.Value.Trim()));
+                    if (categoryLookalike is not null)
+                    {
+                        analysis.Issues.Add(new MigrationActivationIssue
+                        {
+                            Kind = "source-activation-category-namespace-unsupported",
+                            Reason =
+                                $"Activation Category attribute '{categoryLookalike.Name}' must be unqualified and was not inspected as a contract.",
+                            Location = ManifestLocation(
+                                sourceRoot,
+                                sourceManifest,
+                                extension)
+                        });
+                    }
+                }
                 if (category is null || !SupportedActivationCategories.Contains(category))
                 {
                     continue;
@@ -323,6 +346,9 @@ internal partial class MigrateCommand
                 return new ActivationMigrationResult(analysis, 0);
             }
 
+            RecordMismatchedTargetActivationNamespaces(
+                targetApplications[0],
+                analysis);
             ValidateTargetActivationPrerequisites(targetDocument, analysis);
             var changedFiles = 0;
             if (applyChanges && !analysis.Issues.Any(issue => issue.Severity == "error"))
@@ -817,6 +843,114 @@ internal partial class MigrateCommand
                         : new MigrationLocation { Path = analysis.TargetManifest }
                 });
             }
+        }
+
+        private static void RecordMismatchedTargetActivationNamespaces(
+            XElement targetApplication,
+            MigrationActivationAnalysis analysis)
+        {
+            foreach (var container in targetApplication.Elements().Where(element =>
+                element.Name.LocalName == "Extensions"
+                && element.Name != FoundationExtensions))
+            {
+                if (container.DescendantsAndSelf().Any(element =>
+                    SupportedActivationCategories.Contains(
+                        element.Attribute("Category")?.Value ?? string.Empty)))
+                {
+                    AddTargetNamespaceIssue(
+                        analysis,
+                        "target-extension-container-namespace-unsupported",
+                        $"Target Extensions container '{container.Name}' must use the foundation manifest namespace.",
+                        container);
+                }
+            }
+
+            foreach (var extension in targetApplication
+                .Elements(FoundationExtensions)
+                .SelectMany(container => container.Elements()))
+            {
+                var category = extension.Attribute("Category")?.Value;
+                if (category is null
+                    || !SupportedActivationCategories.Contains(category))
+                {
+                    continue;
+                }
+                if (extension.Name != Uap3Extension)
+                {
+                    AddTargetNamespaceIssue(
+                        analysis,
+                        "target-activation-extension-namespace-unsupported",
+                        $"Target activation extension '{extension.Name}' must use the uap3 namespace.",
+                        extension);
+                    continue;
+                }
+
+                var expectedDeclaration = category.Equals(
+                    "windows.protocol",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? Uap3Protocol
+                    : Uap3FileTypeAssociation;
+                foreach (var declaration in extension.Elements().Where(element =>
+                    element.Name.LocalName == expectedDeclaration.LocalName
+                    && element.Name != expectedDeclaration))
+                {
+                    AddTargetNamespaceIssue(
+                        analysis,
+                        "target-activation-declaration-namespace-unsupported",
+                        $"Target declaration '{declaration.Name}' must use the uap3 namespace.",
+                        declaration);
+                }
+
+                foreach (var declaration in extension.Elements(expectedDeclaration))
+                {
+                    var allowedFacts = category.Equals(
+                        "windows.protocol",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? SafeProtocolChildren
+                        : SafeFileAssociationChildren;
+                    foreach (var fact in declaration.Elements().Where(element =>
+                        allowedFacts.Any(allowed =>
+                            allowed.LocalName == element.Name.LocalName)
+                        && !allowedFacts.Contains(element.Name)))
+                    {
+                        AddTargetNamespaceIssue(
+                            analysis,
+                            "target-activation-fact-namespace-unsupported",
+                            $"Target activation fact '{fact.Name}' must use the base uap namespace.",
+                            fact);
+                    }
+                    foreach (var fileType in declaration
+                        .Elements(UapSupportedFileTypes)
+                        .SelectMany(group => group.Elements())
+                        .Where(element =>
+                            element.Name.LocalName == UapFileType.LocalName
+                            && element.Name != UapFileType))
+                    {
+                        AddTargetNamespaceIssue(
+                            analysis,
+                            "target-file-type-namespace-unsupported",
+                            $"Target FileType '{fileType.Name}' must use the base uap namespace.",
+                            fileType);
+                    }
+                }
+            }
+        }
+
+        private static void AddTargetNamespaceIssue(
+            MigrationActivationAnalysis analysis,
+            string kind,
+            string reason,
+            XObject location)
+        {
+            analysis.Issues.Add(new MigrationActivationIssue
+            {
+                Kind = kind,
+                Severity = "error",
+                Reason = reason,
+                Location = analysis.TargetManifest is null
+                    ? null
+                    : ManifestLocation(analysis.TargetManifest, location)
+            });
         }
 
         private static bool MergeSafeActivationContracts(

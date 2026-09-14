@@ -307,6 +307,13 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
                     <uap:Extension Category="windows.protocol">
                       <vendor:Protocol Name="vendor-protocol" />
                     </uap:Extension>
+                    <uap:Extension vendor:Category="windows.fileTypeAssociation">
+                      <uap:FileTypeAssociation Name="vendor-category">
+                        <uap:SupportedFileTypes>
+                          <uap:FileType>.vendor</uap:FileType>
+                        </uap:SupportedFileTypes>
+                      </uap:FileTypeAssociation>
+                    </uap:Extension>
                   </Extensions>
                 </Application>
               </Applications>
@@ -330,6 +337,8 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
             "source-activation-namespace-unsupported"));
         Assert.IsTrue(issueKinds.Contains(
             "protocol-namespace-unsupported"));
+        Assert.IsTrue(issueKinds.Contains(
+            "source-activation-category-namespace-unsupported"));
         var targetManifest = XDocument.Load(
             Path.Combine(target.FullName, "Package.appxmanifest"));
         Assert.IsFalse(targetManifest.Descendants().Any(element =>
@@ -485,6 +494,16 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
             .ToList();
         Assert.IsTrue(contracts.All(contract =>
             contract.GetProperty("verificationStatus").GetString() == "drifted"));
+        var issues = report.RootElement
+            .GetProperty("activationAnalysis")
+            .GetProperty("issues")
+            .EnumerateArray()
+            .Select(issue => issue.GetProperty("kind").GetString())
+            .ToList();
+        Assert.IsTrue(issues.Contains(
+            "target-activation-fact-namespace-unsupported"));
+        Assert.IsTrue(issues.Contains(
+            "target-file-type-namespace-unsupported"));
     }
 
     [TestMethod]
