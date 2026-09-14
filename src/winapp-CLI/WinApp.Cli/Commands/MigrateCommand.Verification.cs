@@ -150,6 +150,7 @@ internal partial class MigrateCommand
                 Path.GetFileNameWithoutExtension(sourceProject));
             foreach (var sourceImport in sourceDocument.Descendants().Where(element =>
                 IsProjectElement(element, "Import")
+                && !IsEvaluationImport(element)
                 && EvaluateElementCondition(
                     element,
                     sourceConditionContext) != DeterministicCondition.False))

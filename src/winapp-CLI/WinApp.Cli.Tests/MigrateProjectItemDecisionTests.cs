@@ -1080,6 +1080,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
                     <content Include="Data\True.json" />
                     <Content Remove="Data\Imported.json" />
                   </ItemGroup>
+                  <Import Project="Source.Items.props" />
                 </When>
                 <When Condition="'$(Configuration)' == 'Debug'">
                   <ItemGroup>
@@ -1087,7 +1088,6 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
                   </ItemGroup>
                 </When>
               </Choose>
-              <Import Project="Source.Items.props" />
             </Project>
             """);
         await WriteAsync(
