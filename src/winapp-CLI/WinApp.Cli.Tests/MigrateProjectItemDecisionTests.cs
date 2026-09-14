@@ -899,7 +899,270 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             "--rationale", "Choose-based assignments are not silently ignored.");
 
         Assert.AreEqual(1, result.ExitCode, result.Output);
-        StringAssert.Contains(result.Output, "unsupported evaluation construct");
+        StringAssert.Contains(result.Output, "unsupported MSBuild ancestor");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_ChoosePropertiesCannotEstablishSdkDefaultProof()
+    {
+        var cases = new[]
+        {
+            (Property: "EnableDefaultPriItems", Value: "false"),
+            (Property: "EnableDefaultItems", Value: "false"),
+            (
+                Property: "DefaultExcludesInProjectFolder",
+                Value: @"Resources\en-us\Resources.resw")
+        };
+        foreach (var testCase in cases)
+        {
+            var name = $"Choose{testCase.Property}App";
+            var (_, target) = await CreateDecisionMigrationAsync(
+                name,
+                includeConditionalItem: false);
+            await WriteAsync(
+                target,
+                "Directory.Build.targets",
+                """
+                <Project>
+                  <ItemGroup>
+                    <PRIResource Update="Resources\en-us\Resources.resw">
+                      <SubType>Designer</SubType>
+                    </PRIResource>
+                  </ItemGroup>
+                </Project>
+                """);
+            await AppendTargetProjectXmlAsync(
+                target,
+                $$"""
+                  <Choose>
+                    <When Condition="true">
+                      <PropertyGroup>
+                        <{{testCase.Property}}>{{testCase.Value}}</{{testCase.Property}}>
+                      </PropertyGroup>
+                    </When>
+                  </Choose>
+                """);
+            var items = await ReadReviewItemsAsync(target);
+
+            var result = await InvokeDecisionAsync(
+                target,
+                "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+                "--strategy", "sdk-default-item",
+                "--target-path", @"Resources\en-us\Resources.resw",
+                "--evidence-file", "Directory.Build.targets",
+                "--rationale", "Choose properties cannot be ignored during default-item proof.");
+
+            Assert.AreEqual(1, result.ExitCode, result.Output);
+            StringAssert.Contains(result.Output, testCase.Property);
+            StringAssert.Contains(result.Output, "unsupported MSBuild ancestor");
+        }
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_ChooseRemovalsBlockEveryResolvingStrategy()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "ChooseRemovalStrategiesApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <Choose>
+                <When Condition="true">
+                  <PropertyGroup>
+                    <EnableDefaultItems>false</EnableDefaultItems>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <priresource Remove="Resources\en-us\Resources.resw" />
+                    <PRIResource Remove="Resources\fr-fr\Resources.resw" />
+                  </ItemGroup>
+                </When>
+                <When Condition="'$(Configuration)' == 'Debug'">
+                  <ItemGroup>
+                    <content Remove="Strings\NOTICE.json" />
+                  </ItemGroup>
+                </When>
+              </Choose>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var sdk = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "A true Choose removal blocks SDK default proof.");
+        var explicitItem = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "A true Choose removal blocks explicit inclusion proof.");
+        var copied = await InvokeDecisionAsync(
+            target,
+            "--item", ItemIdByLink(items, @"Strings\NOTICE.json"),
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Strings\NOTICE.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "An unknown Choose removal blocks copied-content proof.");
+
+        foreach (var result in new[] { sdk, explicitItem, copied })
+        {
+            Assert.AreEqual(1, result.ExitCode, result.Output);
+            StringAssert.Contains(result.Output, "unsupported MSBuild ancestor");
+        }
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_ImportUnderChooseCannotAuthenticateEvidence()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "ChooseImportEvidenceApp",
+            includeConditionalItem: false);
+        await WriteAsync(
+            target,
+            "Build\\ChooseItems.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <Choose>
+                <When Condition="true">
+                  <Import Project="Build\ChooseItems.targets" />
+                </When>
+              </Choose>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Build\\ChooseItems.targets",
+            "--rationale", "An import under Choose is not modeled build evidence.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "Import");
+        StringAssert.Contains(result.Output, "unsupported MSBuild ancestor");
+    }
+
+    [TestMethod]
+    public async Task Migrate_SourceItemsUnderChooseRemainReviewRequired()
+    {
+        var source = _tempDirectory.CreateSubdirectory(
+            "SourceChooseInventoryApp");
+        await WriteAsync(
+            source,
+            "SourceChooseInventoryApp.csproj",
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <Choose>
+                <When Condition="true">
+                  <PropertyGroup>
+                    <EnableDefaultItems>false</EnableDefaultItems>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <content Include="Data\True.json" />
+                    <Content Remove="Data\Imported.json" />
+                  </ItemGroup>
+                </When>
+                <When Condition="'$(Configuration)' == 'Debug'">
+                  <ItemGroup>
+                    <priresource Include="Resources\Unknown.resw" />
+                  </ItemGroup>
+                </When>
+              </Choose>
+              <Import Project="Source.Items.props" />
+            </Project>
+            """);
+        await WriteAsync(
+            source,
+            "Source.Items.props",
+            """
+            <Project>
+              <ItemGroup>
+                <Content Include="Data\Imported.json" />
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(source, "Data\\True.json", """{"value":true}""");
+        await WriteAsync(source, "Data\\Imported.json", """{"value":"imported"}""");
+        await WriteAsync(source, "Resources\\Unknown.resw", "<root />");
+        await WriteAsync(source, "Package.appxmanifest", SourceManifest);
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "SourceChooseInventoryApp-output"));
+        ArrangeTemplateCreation(target, "SourceChooseInventoryAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var projectItems = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems");
+        var reviewItems = projectItems
+            .GetProperty("reviewRequiredItems")
+            .EnumerateArray()
+            .ToList();
+        Assert.HasCount(2, reviewItems);
+        Assert.IsTrue(reviewItems.All(item =>
+            item.GetProperty("reviewReason").GetString()
+            == "unmodeled-ancestor"));
+        Assert.AreEqual(0, projectItems.GetProperty("migratedItems").GetInt32());
+        Assert.IsTrue(
+            projectItems.GetProperty("unresolvedItems").GetArrayLength() >= 5);
+        Assert.IsTrue(report.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+            todo.GetProperty("id").GetString() == "UWMIG012"));
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_BenignUnrelatedChooseDoesNotBlockProof()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "BenignChooseApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <Choose>
+                <When Condition="true">
+                  <PropertyGroup>
+                    <UnrelatedProperty>value</UnrelatedProperty>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <Compile Include="Generated\Unrelated.cs" />
+                  </ItemGroup>
+                </When>
+              </Choose>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Unrelated Choose content cannot change PRIResource proof.");
+
+        Assert.AreEqual(0, result.ExitCode, result.Output);
     }
 
     [TestMethod]
@@ -1619,6 +1882,46 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             "decision-test",
             activation.GetProperty("contracts")[0].GetProperty("protocolName").GetString());
         Assert.AreEqual("1.3", report.RootElement.GetProperty("schemaVersion").GetString());
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_MissingSourceManifestPreservesActivationFailure()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "DecisionMissingManifestApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        var items = await ReadReviewItemsAsync(target);
+        File.Delete(Path.Combine(source.FullName, "Package.appxmanifest"));
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Recording an item decision must not erase prior activation facts.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        using var report = await ReadReportAsync(target);
+        Assert.AreEqual(
+            "failed",
+            report.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("status")
+                .GetString());
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("incomplete", activation.GetProperty("status").GetString());
+        var contract = activation.GetProperty("contracts").EnumerateArray().Single();
+        Assert.AreEqual(
+            "decision-test",
+            contract.GetProperty("protocolName").GetString());
+        Assert.AreEqual(
+            "verified",
+            contract.GetProperty("verificationStatus").GetString());
+        Assert.IsTrue(activation.GetProperty("issues").EnumerateArray().Any(issue =>
+            issue.GetProperty("kind").GetString() ==
+            "source-manifest-missing-after-analysis"));
     }
 
     private async Task<(DirectoryInfo Source, DirectoryInfo Target)> CreateDecisionMigrationAsync(

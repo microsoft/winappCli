@@ -130,7 +130,8 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
             report.ActivationAnalysis = MigrateCommand.Handler.AnalyzeActivationContracts(
                 sourceRoot,
                 targetRoot,
-                applyChanges: false).Analysis;
+                applyChanges: false,
+                report.ActivationAnalysis).Analysis;
             report.MechanicalVerification = MigrateCommand.Handler.VerifyExistingMigration(
                 sourceRoot,
                 sourceProject,

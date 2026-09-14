@@ -269,7 +269,8 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 MigrateCommand.Handler.AnalyzeActivationContracts(
                     sourceRoot,
                     targetRoot,
-                    applyChanges: false).Analysis;
+                    applyChanges: false,
+                    report.ActivationAnalysis).Analysis;
             report.MechanicalVerification =
                 MigrateCommand.Handler.VerifyExistingMigration(
                     sourceRoot,
@@ -301,7 +302,9 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 report.Todos.Any(todo => todo.Id == "UWMIG012")
                     ? "UWMIG012 remains pending."
                     : "UWMIG012 is resolved by verified project-item decisions.");
-            return 0;
+            return report.MechanicalVerification.Status == "passed"
+                ? 0
+                : 1;
         }
 
         private static void WriteAvailableItems(

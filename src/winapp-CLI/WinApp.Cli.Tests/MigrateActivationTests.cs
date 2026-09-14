@@ -840,6 +840,184 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
             && issue.GetProperty("severity").GetString() == "error"));
     }
 
+    [TestMethod]
+    public async Task Verify_MissingPreviouslyAnalyzedSourceManifestPreservesContracts()
+    {
+        var source = await CreateSourceAsync(
+            "MissingAnalyzedManifestApp",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.protocol">
+                  <uap:Protocol Name="preserved-protocol">
+                    <uap:DisplayName>Preserved Protocol</uap:DisplayName>
+                  </uap:Protocol>
+                </uap:Extension>
+                """));
+        var target = NewTarget("missing-analyzed-manifest-output");
+        ArrangeTemplateCreation(target, "MissingAnalyzedManifestAppApp");
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+        File.Delete(Path.Combine(source.FullName, "Package.appxmanifest"));
+
+        var (retainedExit, retainedOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, retainedExit, retainedOutput);
+        using (var retainedReport = await ReadReportAsync(target))
+        {
+            Assert.AreEqual(
+                "failed",
+                retainedReport.RootElement
+                    .GetProperty("mechanicalVerification")
+                    .GetProperty("status")
+                    .GetString());
+            var activation = retainedReport.RootElement.GetProperty("activationAnalysis");
+            Assert.AreEqual("incomplete", activation.GetProperty("status").GetString());
+            var contract = activation.GetProperty("contracts").EnumerateArray().Single();
+            Assert.AreEqual(
+                "windows.protocol:preserved-protocol",
+                contract.GetProperty("id").GetString());
+            Assert.AreEqual(
+                "Preserved Protocol",
+                contract.GetProperty("displayName").GetString());
+            Assert.AreEqual(
+                "verified",
+                contract.GetProperty("verificationStatus").GetString());
+            Assert.IsTrue(activation.GetProperty("issues").EnumerateArray().Any(issue =>
+                issue.GetProperty("kind").GetString() ==
+                "source-manifest-missing-after-analysis"));
+        }
+
+        var targetManifestPath = Path.Combine(
+            target.FullName,
+            "Package.appxmanifest");
+        var targetManifest = XDocument.Load(targetManifestPath);
+        targetManifest.Descendants()
+            .Single(element =>
+                element.Name.LocalName == "Extension"
+                && element.Attribute("Category")?.Value == "windows.protocol")
+            .Remove();
+        targetManifest.Save(targetManifestPath);
+
+        var (removedExit, removedOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, removedExit, removedOutput);
+        using var removedReport = await ReadReportAsync(target);
+        var removedActivation =
+            removedReport.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("incomplete", removedActivation.GetProperty("status").GetString());
+        var removedContract = removedActivation
+            .GetProperty("contracts")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual(
+            "windows.protocol:preserved-protocol",
+            removedContract.GetProperty("id").GetString());
+        Assert.AreEqual(
+            "missing",
+            removedContract.GetProperty("verificationStatus").GetString());
+    }
+
+    [TestMethod]
+    public async Task Verify_RemovedSourceContractCannotErasePriorFacts()
+    {
+        var source = await CreateSourceAsync(
+            "RemovedSourceContractApp",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.protocol">
+                  <uap:Protocol Name="removed-source-contract" />
+                </uap:Extension>
+                """));
+        var target = NewTarget("removed-source-contract-output");
+        ArrangeTemplateCreation(target, "RemovedSourceContractAppApp");
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+        await WriteAsync(
+            source,
+            "Package.appxmanifest",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.appService" />
+                """));
+        var targetManifestPath = Path.Combine(
+            target.FullName,
+            "Package.appxmanifest");
+        var targetManifest = XDocument.Load(targetManifestPath);
+        targetManifest.Descendants()
+            .Single(element =>
+                element.Name.LocalName == "Extension"
+                && element.Attribute("Category")?.Value == "windows.protocol")
+            .Remove();
+        targetManifest.Save(targetManifestPath);
+
+        var (exit, output) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, exit, output);
+        using var report = await ReadReportAsync(target);
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("incomplete", activation.GetProperty("status").GetString());
+        var contract = activation.GetProperty("contracts").EnumerateArray().Single();
+        Assert.AreEqual(
+            "windows.protocol:removed-source-contract",
+            contract.GetProperty("id").GetString());
+        Assert.AreEqual(
+            "missing",
+            contract.GetProperty("verificationStatus").GetString());
+        Assert.IsTrue(activation.GetProperty("issues").EnumerateArray().Any(issue =>
+            issue.GetProperty("kind").GetString() ==
+            "source-activation-contracts-missing-after-analysis"));
+    }
+
+    [TestMethod]
+    public async Task MigrateAndVerify_CsprojOnlySourceKeepsActivationUnavailable()
+    {
+        var source = _tempDirectory.CreateSubdirectory("CsprojOnlyActivationApp");
+        await WriteAsync(source, "CsprojOnlyActivationApp.csproj", CleanCsproj);
+        var target = NewTarget("csproj-only-activation-output");
+        ArrangeTemplateCreation(target, "CsprojOnlyActivationAppApp");
+
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        var (verifyExit, verifyOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+        Assert.AreEqual(0, verifyExit, verifyOutput);
+        using var report = await ReadReportAsync(target);
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("not-available", activation.GetProperty("status").GetString());
+        Assert.AreEqual(0, activation.GetProperty("contracts").GetArrayLength());
+        Assert.AreEqual(
+            "passed",
+            report.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("status")
+                .GetString());
+    }
+
+    [TestMethod]
+    public async Task MigrateAndVerify_ManifestOnlyBaselineKeepsNotRequired()
+    {
+        var source = _tempDirectory.CreateSubdirectory("ManifestOnlyActivationApp");
+        await WriteAsync(
+            source,
+            "Package.appxmanifest",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.appService" />
+                """));
+        var target = NewTarget("manifest-only-activation-output");
+        ArrangeTemplateCreation(target, "ManifestOnlyActivationAppApp");
+
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        var (verifyExit, verifyOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+        Assert.AreEqual(0, verifyExit, verifyOutput);
+        using var report = await ReadReportAsync(target);
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("not-required", activation.GetProperty("status").GetString());
+        Assert.AreEqual(0, activation.GetProperty("contracts").GetArrayLength());
+    }
+
     private async Task<DirectoryInfo> CreateSourceAsync(
         string name,
         string manifest)

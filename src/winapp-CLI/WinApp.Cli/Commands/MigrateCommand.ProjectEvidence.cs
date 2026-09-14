@@ -15,6 +15,21 @@ internal partial class MigrateCommand
         private const string LegacyMsBuildNamespace =
             "http://schemas.microsoft.com/developer/msbuild/2003";
 
+        private static readonly HashSet<string> ClosureRelevantProperties =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "UseWinUI",
+                "EnableDefaultItems",
+                "EnableDefaultPRIResourceItems",
+                "EnableDefaultPriItems",
+                "DefaultItemExcludes",
+                "DefaultExcludesInProjectFolder",
+                "ImportDirectoryBuildProps",
+                "ImportDirectoryBuildTargets",
+                "DirectoryBuildPropsPath",
+                "DirectoryBuildTargetsPath"
+            };
+
         private enum DeterministicCondition
         {
             False,
@@ -221,6 +236,11 @@ internal partial class MigrateCommand
 
             graph.Documents.Add(relativePath, document);
             graph.FullPaths.Add(relativePath, projectFile);
+            RecordUnmodeledClosureConstructs(
+                document,
+                relativePath,
+                context,
+                graph.IncompleteReasons);
             foreach (var import in document.Descendants().Where(element =>
                 IsEvaluationImport(element)
                 && IsProjectElement(element, "Import")))
@@ -290,6 +310,59 @@ internal partial class MigrateCommand
             }
             return true;
         }
+
+        private static void RecordUnmodeledClosureConstructs(
+            XDocument document,
+            string relativePath,
+            ProjectConditionContext context,
+            List<string> incompleteReasons)
+        {
+            foreach (var property in document.Descendants().Where(element =>
+                IsProjectElement(element, element.Name.LocalName)
+                && ClosureRelevantProperties.Contains(element.Name.LocalName)
+                && !IsEvaluationProperty(element)))
+            {
+                if (EvaluateElementCondition(property, context)
+                    != DeterministicCondition.False)
+                {
+                    incompleteReasons.Add(
+                        $"Property '{property.Name.LocalName}' in '{relativePath}' is under an unsupported MSBuild ancestor construct.");
+                }
+            }
+
+            foreach (var item in document.Descendants().Where(element =>
+                IsProjectElement(element, element.Name.LocalName)
+                && MigratedProjectItemKinds.Contains(element.Name.LocalName)
+                && HasClosureRelevantItemOperation(element)
+                && !IsEvaluationItem(element)))
+            {
+                if (EvaluateElementCondition(item, context)
+                    != DeterministicCondition.False)
+                {
+                    incompleteReasons.Add(
+                        $"{item.Name.LocalName} item evidence in '{relativePath}' is under an unsupported MSBuild ancestor construct.");
+                }
+            }
+
+            foreach (var import in document.Descendants().Where(element =>
+                IsProjectElement(element, "Import")
+                && !IsEvaluationImport(element)))
+            {
+                if (EvaluateElementCondition(import, context)
+                    != DeterministicCondition.False)
+                {
+                    incompleteReasons.Add(
+                        $"Import in '{relativePath}' is under an unsupported MSBuild ancestor construct.");
+                }
+            }
+        }
+
+        private static bool HasClosureRelevantItemOperation(
+            XElement item) =>
+            item.Attribute("Include") is not null
+            || item.Attribute("Update") is not null
+            || item.Attribute("Remove") is not null
+            || item.Attribute("RemoveMetadata") is not null;
 
         private static void AddAutomaticDirectoryBuildFile(
             string targetRoot,

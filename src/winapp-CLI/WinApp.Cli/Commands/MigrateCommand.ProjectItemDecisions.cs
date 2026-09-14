@@ -139,7 +139,11 @@ internal partial class MigrateCommand
                     "Intentionally omitted items remain review-required and do not close UWMIG012.";
                 return verification;
             }
-            if (sourceItem.ReviewReason is "conditional" or "wildcard" or "msbuild-expression")
+            if (sourceItem.ReviewReason is
+                "conditional"
+                or "wildcard"
+                or "msbuild-expression"
+                or "unmodeled-ancestor")
             {
                 verification.Status = "invalid";
                 verification.Reason =

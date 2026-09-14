@@ -129,8 +129,29 @@ internal partial class MigrateCommand
         internal static ActivationMigrationResult AnalyzeActivationContracts(
             string sourceRoot,
             string targetRoot,
-            bool applyChanges)
+            bool applyChanges,
+            MigrationActivationAnalysis? previousAnalysis = null)
         {
+            var hasPriorAnalysis =
+                HasMeaningfulPriorActivationAnalysis(previousAnalysis);
+            if (hasPriorAnalysis
+                && !string.IsNullOrWhiteSpace(
+                    previousAnalysis!.SourceManifest)
+                && (!MigrationPathResolver.TryResolveContainedRelativePath(
+                        sourceRoot,
+                        previousAnalysis.SourceManifest,
+                        out var previousSourceManifest,
+                        out _,
+                        out _)
+                    || !File.Exists(previousSourceManifest)))
+            {
+                return AnalyzeUnavailablePriorActivation(
+                    targetRoot,
+                    previousAnalysis,
+                    "source-manifest-missing-after-analysis",
+                    "The source manifest recorded by the previous activation analysis is no longer available.");
+            }
+
             var analysis = new MigrationActivationAnalysis();
             var sourceManifests = Directory.Exists(sourceRoot)
                 ? Directory.EnumerateFiles(sourceRoot, "*.appxmanifest", SearchOption.TopDirectoryOnly)
@@ -139,6 +160,14 @@ internal partial class MigrateCommand
                 : [];
             if (sourceManifests.Count == 0)
             {
+                if (hasPriorAnalysis)
+                {
+                    return AnalyzeUnavailablePriorActivation(
+                        targetRoot,
+                        previousAnalysis!,
+                        "source-manifest-missing-after-analysis",
+                        "No source manifest is available, but the previous report contained meaningful activation analysis.");
+                }
                 analysis.Status = "not-available";
                 analysis.Issues.Add(new MigrationActivationIssue
                 {
@@ -150,6 +179,14 @@ internal partial class MigrateCommand
             }
             if (sourceManifests.Count > 1)
             {
+                if (hasPriorAnalysis)
+                {
+                    return AnalyzeUnavailablePriorActivation(
+                        targetRoot,
+                        previousAnalysis!,
+                        "source-manifest-ambiguous-after-analysis",
+                        $"The source manifest can no longer be resolved uniquely: {string.Join(", ", sourceManifests.Select(Path.GetFileName))}.");
+                }
                 analysis.Status = "incomplete";
                 analysis.Issues.Add(new MigrationActivationIssue
                 {
@@ -171,6 +208,14 @@ internal partial class MigrateCommand
             }
             catch (Exception exception) when (exception is XmlException or IOException)
             {
+                if (hasPriorAnalysis)
+                {
+                    return AnalyzeUnavailablePriorActivation(
+                        targetRoot,
+                        previousAnalysis!,
+                        "source-manifest-inspection-failed-after-analysis",
+                        $"The previously analyzed source manifest can no longer be inspected: {exception.Message}");
+                }
                 analysis.Status = "incomplete";
                 analysis.Issues.Add(new MigrationActivationIssue
                 {
@@ -188,6 +233,14 @@ internal partial class MigrateCommand
             var sourceApplications = FindApplications(sourceDocument).ToList();
             if (sourceApplications.Count != 1)
             {
+                if (hasPriorAnalysis)
+                {
+                    return AnalyzeUnavailablePriorActivation(
+                        targetRoot,
+                        previousAnalysis!,
+                        "source-application-ambiguous-after-analysis",
+                        $"The previously analyzed source Application declaration is no longer uniquely available; found {sourceApplications.Count}.");
+                }
                 analysis.Status = "incomplete";
                 analysis.Issues.Add(new MigrationActivationIssue
                 {
@@ -273,6 +326,26 @@ internal partial class MigrateCommand
             }
 
             MarkDuplicateSourceContracts(analysis);
+            if (previousAnalysis?.Contracts.Count > 0)
+            {
+                var currentContractIds = analysis.Contracts
+                    .Select(contract => contract.Id)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var missingContractIds = previousAnalysis.Contracts
+                    .Where(contract =>
+                        !currentContractIds.Contains(contract.Id))
+                    .Select(contract => contract.Id)
+                    .Order(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (missingContractIds.Count > 0)
+                {
+                    return AnalyzeUnavailablePriorActivation(
+                        targetRoot,
+                        previousAnalysis,
+                        "source-activation-contracts-missing-after-analysis",
+                        $"Previously recorded source activation contracts are no longer available: {string.Join(", ", missingContractIds)}.");
+                }
+            }
             if (analysis.Contracts.Count == 0)
             {
                 analysis.Status = analysis.Issues.Any(issue => issue.Severity == "error")
@@ -283,6 +356,17 @@ internal partial class MigrateCommand
                 return new ActivationMigrationResult(analysis, 0);
             }
 
+            return AnalyzeTargetActivationContracts(
+                targetRoot,
+                applyChanges,
+                analysis);
+        }
+
+        private static ActivationMigrationResult AnalyzeTargetActivationContracts(
+            string targetRoot,
+            bool applyChanges,
+            MigrationActivationAnalysis analysis)
+        {
             var targetManifests = Directory.Exists(targetRoot)
                 ? Directory.EnumerateFiles(targetRoot, "*.appxmanifest", SearchOption.TopDirectoryOnly)
                     .Order(StringComparer.OrdinalIgnoreCase)
@@ -384,6 +468,113 @@ internal partial class MigrateCommand
             analysis.Status = GetActivationAnalysisStatus(analysis);
             return new ActivationMigrationResult(analysis, changedFiles);
         }
+
+        private static bool HasMeaningfulPriorActivationAnalysis(
+            MigrationActivationAnalysis? analysis) =>
+            analysis is not null
+            && (analysis.Contracts.Count > 0
+                || analysis.Status is not "not-run" and not "not-available");
+
+        private static ActivationMigrationResult AnalyzeUnavailablePriorActivation(
+            string targetRoot,
+            MigrationActivationAnalysis previousAnalysis,
+            string issueKind,
+            string reason)
+        {
+            var analysis = CloneActivationAnalysis(previousAnalysis);
+            if (!analysis.Issues.Any(issue => issue.Kind == issueKind))
+            {
+                analysis.Issues.Add(new MigrationActivationIssue
+                {
+                    Kind = issueKind,
+                    Severity = "error",
+                    Reason = reason,
+                    Location = analysis.SourceManifest is null
+                        ? null
+                        : new MigrationLocation
+                        {
+                            Path = analysis.SourceManifest
+                        }
+                });
+            }
+
+            if (analysis.Contracts.Count > 0)
+            {
+                analysis = AnalyzeTargetActivationContracts(
+                    targetRoot,
+                    applyChanges: false,
+                    analysis).Analysis;
+            }
+            analysis.Status = "incomplete";
+            return new ActivationMigrationResult(analysis, 0);
+        }
+
+        private static MigrationActivationAnalysis CloneActivationAnalysis(
+            MigrationActivationAnalysis source) =>
+            new()
+            {
+                Status = source.Status,
+                SourceManifest = source.SourceManifest,
+                TargetManifest = source.TargetManifest,
+                Contracts = source.Contracts
+                    .Select(CloneActivationContract)
+                    .ToList(),
+                Issues = source.Issues
+                    .Select(CloneActivationIssue)
+                    .ToList()
+            };
+
+        private static MigrationActivationContract CloneActivationContract(
+            MigrationActivationContract source) =>
+            new()
+            {
+                Id = source.Id,
+                Category = source.Category,
+                SourceLocation = CloneLocation(source.SourceLocation),
+                SourceSchema = source.SourceSchema,
+                ProtocolName = source.ProtocolName,
+                AssociationName = source.AssociationName,
+                SupportedFileTypes = source.SupportedFileTypes
+                    .Select(fileType => new MigrationActivationFileType
+                    {
+                        Extension = fileType.Extension,
+                        ContentType = fileType.ContentType
+                    })
+                    .ToList(),
+                DisplayName = source.DisplayName,
+                Logo = source.Logo,
+                DesiredView = source.DesiredView,
+                ReturnResults = source.ReturnResults,
+                MultiSelectModel = source.MultiSelectModel,
+                MigrationStatus = source.MigrationStatus,
+                TargetSchema = source.TargetSchema,
+                TargetLocation = source.TargetLocation is null
+                    ? null
+                    : CloneLocation(source.TargetLocation),
+                VerificationStatus = source.VerificationStatus,
+                VerificationReason = source.VerificationReason
+            };
+
+        private static MigrationActivationIssue CloneActivationIssue(
+            MigrationActivationIssue source) =>
+            new()
+            {
+                Kind = source.Kind,
+                Reason = source.Reason,
+                Severity = source.Severity,
+                Location = source.Location is null
+                    ? null
+                    : CloneLocation(source.Location),
+                ContractId = source.ContractId
+            };
+
+        private static MigrationLocation CloneLocation(
+            MigrationLocation source) =>
+            new()
+            {
+                Path = source.Path,
+                Line = source.Line
+            };
 
         internal static MigrationActivationVerification CreateActivationVerification(
             MigrationActivationAnalysis analysis) =>

@@ -24,7 +24,7 @@ internal partial class MigrateCommand
             };
 
         private static readonly HashSet<string> MigratedProjectItemKinds =
-            new(StringComparer.Ordinal)
+            new(StringComparer.OrdinalIgnoreCase)
             {
                 "Content",
                 "PRIResource"
@@ -146,6 +146,47 @@ internal partial class MigrateCommand
             var unresolved = new List<MigrationLocation>();
             var missingTargetItems = new List<MigrationLocation>();
             var reviewRequiredItems = new List<MigrationReviewRequiredProjectItem>();
+            var sourceConditionContext = new ProjectConditionContext(
+                Path.GetFileNameWithoutExtension(sourceProject));
+            foreach (var sourceImport in sourceDocument.Descendants().Where(element =>
+                IsProjectElement(element, "Import")
+                && EvaluateElementCondition(
+                    element,
+                    sourceConditionContext) != DeterministicCondition.False))
+            {
+                unresolved.Add(ProjectItemLocation(
+                    sourceRoot,
+                    sourceProject,
+                    sourceImport));
+            }
+            foreach (var sourceProperty in sourceDocument.Descendants().Where(element =>
+                IsProjectElement(element, element.Name.LocalName)
+                && ClosureRelevantProperties.Contains(element.Name.LocalName)
+                && !IsEvaluationProperty(element)
+                && EvaluateElementCondition(
+                    element,
+                    sourceConditionContext) != DeterministicCondition.False))
+            {
+                unresolved.Add(ProjectItemLocation(
+                    sourceRoot,
+                    sourceProject,
+                    sourceProperty));
+            }
+            foreach (var sourceItemOperation in sourceDocument.Descendants().Where(element =>
+                IsProjectElement(element, element.Name.LocalName)
+                && MigratedProjectItemKinds.Contains(element.Name.LocalName)
+                && element.Attribute("Include") is null
+                && HasClosureRelevantItemOperation(element)
+                && !IsEvaluationItem(element)
+                && EvaluateElementCondition(
+                    element,
+                    sourceConditionContext) != DeterministicCondition.False))
+            {
+                unresolved.Add(ProjectItemLocation(
+                    sourceRoot,
+                    sourceProject,
+                    sourceItemOperation));
+            }
             var migratable = new List<(
                 string Kind,
                 string RelativePath,
@@ -155,8 +196,20 @@ internal partial class MigrateCommand
             foreach (var item in sourceItems)
             {
                 var include = item.Attribute("Include")!.Value.Trim();
-                if (item.Attribute("Condition") is not null
-                    || item.Parent?.Attribute("Condition") is not null)
+                if (!IsEvaluationItem(item))
+                {
+                    AddReviewRequiredItem(
+                        sourceRoot,
+                        sourceProject,
+                        item,
+                        stableItemIds[item],
+                        "unmodeled-ancestor",
+                        unresolved,
+                        reviewRequiredItems);
+                    continue;
+                }
+                if (item.AncestorsAndSelf().Any(element =>
+                    element.Attribute("Condition") is not null))
                 {
                     AddReviewRequiredItem(
                         sourceRoot,
@@ -253,7 +306,9 @@ internal partial class MigrateCommand
                 }
 
                 var usesDefaultPriItem =
-                    item.Name.LocalName == "PRIResource"
+                    item.Name.LocalName.Equals(
+                        "PRIResource",
+                        StringComparison.OrdinalIgnoreCase)
                     && relativePath.EndsWith(".resw", StringComparison.OrdinalIgnoreCase);
                 if (usesDefaultPriItem && item.Elements().Any())
                 {
@@ -549,7 +604,9 @@ internal partial class MigrateCommand
         }
 
         private static IEnumerable<string> RemovalKinds(string itemKind) =>
-            itemKind == "Content"
+            itemKind.Equals(
+                "Content",
+                StringComparison.OrdinalIgnoreCase)
                 ? ["None", "Content"]
                 : ["None", "EmbeddedResource", "PRIResource"];
 
