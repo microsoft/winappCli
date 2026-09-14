@@ -2186,6 +2186,128 @@
         }
       },
       "subcommands": {
+        "decide-project-item": {
+          "description": "Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. This command never edits CLI-owned verification fields directly.",
+          "hidden": false,
+          "arguments": {
+            "target": {
+              "description": "Migrated WinUI project directory containing migration-report.json.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.IO.DirectoryInfo",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--evidence-file": {
+              "description": "Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files.",
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--item": {
+              "description": "Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": true,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--rationale": {
+              "description": "Concise explanation of why this deterministic strategy preserves the source item.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": true,
+              "recursive": false
+            },
+            "--strategy": {
+              "description": "Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": true,
+              "recursive": false
+            },
+            "--target-item-type": {
+              "description": "Target MSBuild item type when an explicit item is required: Content or PRIResource.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--target-path": {
+              "description": "Literal target-relative file path that represents the source item.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
         "verify": {
           "description": "Re-run namespace residual and project-item checks against the recorded migration inventory without modifying application source or behavioral validation.",
           "hidden": false,

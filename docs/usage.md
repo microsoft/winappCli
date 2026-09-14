@@ -1173,7 +1173,7 @@ is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `W
 
 ### migrate
 
-Create a new WinUI 3 project from a UWP project and apply only deterministic mechanical transforms. The command inventories source-owned files, preserves the original project, manifest, and startup files under `.uwp-source` for reference, rewrites safe namespace/API and `.resw` resource-key patterns, migrates deterministic local `Content` and `PRIResource` project items, and writes `migration-report.json`.
+Create a new WinUI 3 project from a UWP project and apply only deterministic mechanical transforms. The command inventories source-owned files, preserves the original project, manifest, and startup files under `.uwp-source` for reference, rewrites safe namespace/API and `.resw` resource-key patterns, migrates deterministic local `Content` and `PRIResource` project items, translates compatible protocol and file-association declarations to the packaged desktop manifest schema, and writes schema 1.3 `migration-report.json`.
 
 ```powershell
 winapp migrate <source> --output <target> [--name <project-name>]
@@ -1185,16 +1185,38 @@ After migration, re-run only the deterministic checks at explicit workflow gates
 winapp migrate verify <target>
 ```
 
-`migrate verify` refreshes only `mechanicalVerification` and its deterministic TODOs. It does not scaffold again, modify application source, or overwrite behavioral-validation state.
+`migrate verify` refreshes namespace, project-item decision, and activation-declaration coverage. It detects missing or changed target activation declarations and stale project-item evidence, but does not scaffold again, modify application source, resolve semantic activation behavior, or overwrite behavioral-validation state.
+
+Review-required project items appear under `mechanicalVerification.projectItems.reviewRequiredItems` with stable IDs. Record a supported deterministic decision instead of editing `UWMIG012` or `mechanicalVerification` by hand:
+
+```powershell
+winapp migrate decide-project-item <target> `
+  --item project-item-0123456789abcdef `
+  --strategy sdk-default-item `
+  --target-path Strings\en-us\Resources.resw `
+  --evidence-file Directory.Build.targets `
+  --rationale "The default PRI item covers the file and this target preserves its metadata."
+```
+
+Supported strategies are:
+
+- `sdk-default-item` — a `.resw` `PRIResource` is covered by the target SDK; source metadata, when present, must have a matching target `Include` or `Update`.
+- `explicit-target-item` — an existing target path has a matching explicit `Content` or `PRIResource` item.
+- `copied-linked-content` — linked source `Content` was copied to an explicit target item and the available source/target bytes match.
+- `intentionally-not-migrated` — records the decision but deliberately leaves `UWMIG012` pending.
+
+The command validates current target evidence before writing the decision. A rationale cannot override missing files, project items, metadata, or content equality. Later `migrate verify` rechecks every decision and reopens `UWMIG012` if its evidence becomes stale.
 
 The target must be new or contain only `.git`/`.github` metadata. Source and target cannot overlap. The official WinUI template pack must be available; run `winapp new --list` to install or repair it.
 
-`winapp migrate` deliberately does not choose startup navigation, merge application resources, copy guessed sibling/shared directories, or replace behavior it cannot preserve. These semantic decisions are reported as TODOs. Before returning, the command verifies that every eligible source file was classified, no inspectable target text retains an unexplained `Windows.UI.Xaml` reference, and local source `Content`/`PRIResource` items were accounted for. Exit code `0` means these mechanical invariants passed; it does not mean the result builds, runs, or has behavioral parity.
+`winapp migrate` deliberately does not choose startup navigation, generate AppLifecycle routing, merge application resources, copy guessed sibling/shared directories, or replace behavior it cannot preserve. These semantic decisions are reported as TODOs. Safely translated activation declarations therefore do not resolve `UWMIG002`; the app must still implement and runtime-test the activation behavior. Exit code `0` means the mechanical invariants passed; it does not mean the result builds, runs, or has behavioral parity.
 
 Key report fields:
 
 - `transforms` records deterministic operations that ran.
-- `mechanicalVerification` records file coverage, legacy namespace residuals, uninspected binary files, and source/target project-item coverage.
+- `activationAnalysis` records source protocol/file-association facts, source locations, target schema coverage, verification status, and deterministic inspection issues.
+- `projectItemDecisions` records target-owned review-item decisions and their recomputed verification evidence.
+- `mechanicalVerification` records file coverage, legacy namespace residuals, activation declaration coverage, and source/target project-item coverage.
 - `todos` records required semantic migration work and source locations.
 - `validation` declares the state plan and source/target evidence roots; parity starts as `unverified`.
 
@@ -2034,7 +2056,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
 

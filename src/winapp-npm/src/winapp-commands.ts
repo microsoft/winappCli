@@ -740,6 +740,45 @@ export async function migrate(options: MigrateOptions): Promise<WinappResult> {
 }
 
 // ---------------------------------------------------------------------------
+// migrate decide-project-item
+// ---------------------------------------------------------------------------
+
+export interface MigrateDecideProjectItemOptions extends CommonOptions {
+  /** Migrated WinUI project directory containing migration-report.json. */
+  target: string;
+  /** Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files. */
+  evidenceFile?: string | string[];
+  /** Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted. */
+  item?: string;
+  /** Concise explanation of why this deterministic strategy preserves the source item. */
+  rationale?: string;
+  /** Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated. */
+  strategy?: string;
+  /** Target MSBuild item type when an explicit item is required: Content or PRIResource. */
+  targetItemType?: string;
+  /** Literal target-relative file path that represents the source item. */
+  targetPath?: string;
+}
+
+/**
+ * Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. This command never edits CLI-owned verification fields directly.
+ */
+export async function migrateDecideProjectItem(options: MigrateDecideProjectItemOptions): Promise<WinappResult> {
+  const args: string[] = ['migrate', 'decide-project-item'];
+  args.push(options.target);
+  if (options.evidenceFile) {
+    const evidenceFileArr = Array.isArray(options.evidenceFile) ? options.evidenceFile : [options.evidenceFile];
+    for (const v of evidenceFileArr) args.push('--evidence-file', v);
+  }
+  if (options.item) args.push('--item', options.item);
+  if (options.rationale) args.push('--rationale', options.rationale);
+  if (options.strategy) args.push('--strategy', options.strategy);
+  if (options.targetItemType) args.push('--target-item-type', options.targetItemType);
+  if (options.targetPath) args.push('--target-path', options.targetPath);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // migrate verify
 // ---------------------------------------------------------------------------
 
