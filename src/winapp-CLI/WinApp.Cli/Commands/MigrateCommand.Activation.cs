@@ -119,9 +119,8 @@ internal partial class MigrateCommand
             };
 
         private sealed record SourceActivationSchema(
-            XName Protocol,
-            XName FileTypeAssociation,
-            string ReportName);
+            HashSet<XName> Protocols,
+            HashSet<XName> FileTypeAssociations);
 
         internal sealed record ActivationMigrationResult(
             MigrationActivationAnalysis Analysis,
@@ -417,21 +416,25 @@ internal partial class MigrateCommand
         {
             var location = ManifestLocation(sourceRoot, sourceManifest, extension);
             var protocolElements = extension.Elements()
-                .Where(element => element.Name == sourceSchema.Protocol)
+                .Where(element => sourceSchema.Protocols.Contains(element.Name))
                 .ToList();
             if (protocolElements.Count != 1)
             {
                 var namespaceLookalikes = extension.Elements()
-                    .Where(element => element.Name.LocalName == "Protocol")
+                    .Where(element =>
+                        element.Name.LocalName == "Protocol"
+                        && !sourceSchema.Protocols.Contains(element.Name))
                     .Select(element => element.Name.ToString())
                     .ToList();
                 issues.Add(new MigrationActivationIssue
                 {
-                    Kind = namespaceLookalikes.Count > 0
+                    Kind = protocolElements.Count == 0
+                        && namespaceLookalikes.Count > 0
                         ? "protocol-namespace-unsupported"
                         : "ambiguous-protocol-declaration",
-                    Reason = namespaceLookalikes.Count > 0
-                        ? $"Protocol child namespace must be '{sourceSchema.Protocol.NamespaceName}'; found {string.Join(", ", namespaceLookalikes)}."
+                    Reason = protocolElements.Count == 0
+                        && namespaceLookalikes.Count > 0
+                        ? $"Protocol child must use a supported UAP declaration namespace; found {string.Join(", ", namespaceLookalikes)}."
                         : $"Expected one Protocol child; found {protocolElements.Count}.",
                     Location = location
                 });
@@ -456,7 +459,9 @@ internal partial class MigrateCommand
                 Id = ActivationContractId("windows.protocol", name),
                 Category = "windows.protocol",
                 SourceLocation = location,
-                SourceSchema = sourceSchema.ReportName,
+                SourceSchema = SourceActivationSchemaName(
+                    extension,
+                    protocol),
                 ProtocolName = name,
                 DisplayName = ReadSingleChildValue(protocol, UapDisplayName),
                 Logo = ReadSingleChildValue(protocol, UapLogo),
@@ -504,21 +509,27 @@ internal partial class MigrateCommand
         {
             var location = ManifestLocation(sourceRoot, sourceManifest, extension);
             var associationElements = extension.Elements()
-                .Where(element => element.Name == sourceSchema.FileTypeAssociation)
+                .Where(element =>
+                    sourceSchema.FileTypeAssociations.Contains(element.Name))
                 .ToList();
             if (associationElements.Count != 1)
             {
                 var namespaceLookalikes = extension.Elements()
-                    .Where(element => element.Name.LocalName == "FileTypeAssociation")
+                    .Where(element =>
+                        element.Name.LocalName == "FileTypeAssociation"
+                        && !sourceSchema.FileTypeAssociations.Contains(
+                            element.Name))
                     .Select(element => element.Name.ToString())
                     .ToList();
                 issues.Add(new MigrationActivationIssue
                 {
-                    Kind = namespaceLookalikes.Count > 0
+                    Kind = associationElements.Count == 0
+                        && namespaceLookalikes.Count > 0
                         ? "file-association-namespace-unsupported"
                         : "ambiguous-file-association-declaration",
-                    Reason = namespaceLookalikes.Count > 0
-                        ? $"FileTypeAssociation child namespace must be '{sourceSchema.FileTypeAssociation.NamespaceName}'; found {string.Join(", ", namespaceLookalikes)}."
+                    Reason = associationElements.Count == 0
+                        && namespaceLookalikes.Count > 0
+                        ? $"FileTypeAssociation child must use a supported UAP declaration namespace; found {string.Join(", ", namespaceLookalikes)}."
                         : $"Expected one FileTypeAssociation child; found {associationElements.Count}.",
                     Location = location
                 });
@@ -543,7 +554,9 @@ internal partial class MigrateCommand
                 Id = ActivationContractId("windows.fileTypeAssociation", name),
                 Category = "windows.fileTypeAssociation",
                 SourceLocation = location,
-                SourceSchema = sourceSchema.ReportName,
+                SourceSchema = SourceActivationSchemaName(
+                    extension,
+                    association),
                 AssociationName = name,
                 DisplayName = ReadSingleChildValue(association, UapDisplayName),
                 Logo = ReadSingleChildValue(association, UapLogo),
@@ -1365,22 +1378,36 @@ internal partial class MigrateCommand
             if (extension.Name == UapExtension)
             {
                 schema = new SourceActivationSchema(
-                    UapProtocol,
-                    UapFileTypeAssociation,
-                    "uap");
+                    [UapProtocol, Uap3Protocol],
+                    [UapFileTypeAssociation, Uap3FileTypeAssociation]);
                 return true;
             }
             if (extension.Name == Uap3Extension)
             {
                 schema = new SourceActivationSchema(
-                    Uap3Protocol,
-                    Uap3FileTypeAssociation,
-                    "uap3");
+                    [Uap3Protocol],
+                    [Uap3FileTypeAssociation]);
                 return true;
             }
 
             schema = null!;
             return false;
+        }
+
+        private static string SourceActivationSchemaName(
+            XElement extension,
+            XElement declaration)
+        {
+            var extensionSchema = extension.Name == UapExtension
+                ? "uap"
+                : "uap3";
+            var declarationSchema =
+                declaration.Name.Namespace == UapManifest
+                    ? "uap"
+                    : "uap3";
+            return extensionSchema == declarationSchema
+                ? declarationSchema
+                : $"{extensionSchema}-extension/{declarationSchema}-declaration";
         }
 
         private static void RecordMismatchedSourceExtensionContainers(

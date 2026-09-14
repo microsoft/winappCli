@@ -448,6 +448,98 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Migrate_UapExtensionAcceptsUap3ProtocolDeclaration()
+    {
+        var source = await CreateSourceAsync(
+            "MixedProtocolSchemaApp",
+            """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <uap:Extension Category="windows.protocol">
+                      <uap3:Protocol Name="mixed-protocol">
+                        <uap:DisplayName>Mixed Protocol</uap:DisplayName>
+                      </uap3:Protocol>
+                    </uap:Extension>
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """);
+        var target = NewTarget("mixed-protocol-schema-output");
+        ArrangeTemplateCreation(target, "MixedProtocolSchemaAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var contract = report.RootElement
+            .GetProperty("activationAnalysis")
+            .GetProperty("contracts")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual(
+            "uap-extension/uap3-declaration",
+            contract.GetProperty("sourceSchema").GetString());
+        Assert.AreEqual(
+            "verified",
+            contract.GetProperty("verificationStatus").GetString());
+    }
+
+    [TestMethod]
+    public async Task Migrate_UapExtensionAcceptsUap3FileAssociationDeclaration()
+    {
+        var source = await CreateSourceAsync(
+            "MixedFileSchemaApp",
+            """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <uap:Extension Category="windows.fileTypeAssociation">
+                      <uap3:FileTypeAssociation Name="mixed-files">
+                        <uap:DisplayName>Mixed File</uap:DisplayName>
+                        <uap:SupportedFileTypes>
+                          <uap:FileType>.mixed</uap:FileType>
+                        </uap:SupportedFileTypes>
+                      </uap3:FileTypeAssociation>
+                    </uap:Extension>
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """);
+        var target = NewTarget("mixed-file-schema-output");
+        ArrangeTemplateCreation(target, "MixedFileSchemaAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var contract = report.RootElement
+            .GetProperty("activationAnalysis")
+            .GetProperty("contracts")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual(
+            "uap-extension/uap3-declaration",
+            contract.GetProperty("sourceSchema").GetString());
+        Assert.AreEqual(
+            "verified",
+            contract.GetProperty("verificationStatus").GetString());
+        Assert.AreEqual(
+            ".mixed",
+            contract.GetProperty("supportedFileTypes")[0]
+                .GetProperty("extension")
+                .GetString());
+    }
+
+    [TestMethod]
     public async Task Verify_WrongNamespaceTargetFactsAreNeverVerified()
     {
         var source = await CreateSourceAsync(

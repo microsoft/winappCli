@@ -33,15 +33,22 @@ internal partial class MigrateCommand
 
         private sealed class ProjectEvidenceGraph
         {
+            internal required string TargetRoot { get; init; }
+
             internal required string TargetProject { get; init; }
 
             internal Dictionary<string, XDocument> Documents { get; } =
+                new(StringComparer.OrdinalIgnoreCase);
+
+            internal Dictionary<string, string> FullPaths { get; } =
                 new(StringComparer.OrdinalIgnoreCase);
 
             internal Dictionary<string, string> RejectedDocuments { get; } =
                 new(StringComparer.OrdinalIgnoreCase);
 
             internal List<string> IncompleteReasons { get; } = [];
+
+            internal string? DirectoryBuildProps { get; set; }
         }
 
         private sealed record ProjectItemEvidenceResult(
@@ -68,6 +75,7 @@ internal partial class MigrateCommand
 
             graph = new ProjectEvidenceGraph
             {
+                TargetRoot = targetRoot,
                 TargetProject = targetProjectRelative
             };
             var context = new ProjectConditionContext(
@@ -212,6 +220,7 @@ internal partial class MigrateCommand
             }
 
             graph.Documents.Add(relativePath, document);
+            graph.FullPaths.Add(relativePath, projectFile);
             foreach (var import in document.Descendants().Where(element =>
                 IsEvaluationImport(element)
                 && IsProjectElement(element, "Import")))
@@ -340,6 +349,13 @@ internal partial class MigrateCommand
                 context,
                 required: false,
                 out _);
+            if (fileName.Equals(
+                    "Directory.Build.props",
+                    StringComparison.OrdinalIgnoreCase)
+                && graph.Documents.ContainsKey(automaticRelative))
+            {
+                graph.DirectoryBuildProps = automaticRelative;
+            }
         }
 
         private static DirectoryBuildImportStatus GetAutomaticDirectoryBuildImportStatus(
@@ -596,26 +612,14 @@ internal partial class MigrateCommand
 
             var context = new ProjectConditionContext(
                 Path.GetFileNameWithoutExtension(graph.TargetProject));
-            var useWinUi = FindActivePropertyValues(
-                [targetDocument],
-                "UseWinUI",
-                context,
-                out var hasUnknownUseWinUi);
-            var allUseWinUi = FindActivePropertyValues(
-                graph,
-                "UseWinUI",
-                context,
-                out var hasUnknownUseWinUiOverride);
-            if (hasUnknownUseWinUi
-                || hasUnknownUseWinUiOverride
-                || useWinUi.Count == 0
-                || useWinUi.Any(value =>
-                    !bool.TryParse(value, out var enabled) || !enabled)
-                || allUseWinUi.Any(value =>
-                    !bool.TryParse(value, out var enabled) || !enabled))
+            if (!TryEvaluateEffectiveUseWinUi(
+                    graph,
+                    context,
+                    out var useWinUiEnabled,
+                    out var useWinUiReason)
+                || !useWinUiEnabled)
             {
-                reason =
-                    "The active target build does not deterministically enable UseWinUI, so default .resw PRIResource inclusion cannot be proven.";
+                reason = useWinUiReason;
                 return false;
             }
 
@@ -644,7 +648,7 @@ internal partial class MigrateCommand
             foreach (var propertyName in new[]
             {
                 "DefaultItemExcludes",
-                "DefaultItemExcludesInProjectFolder"
+                "DefaultExcludesInProjectFolder"
             })
             {
                 var values = FindActivePropertyValues(
@@ -690,6 +694,172 @@ internal partial class MigrateCommand
                 return false;
             }
             return true;
+        }
+
+        private static bool TryEvaluateEffectiveUseWinUi(
+            ProjectEvidenceGraph graph,
+            ProjectConditionContext context,
+            out bool enabled,
+            out string reason)
+        {
+            bool? effectiveValue = null;
+            var evaluated = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+            if (graph.DirectoryBuildProps is not null
+                && !TryEvaluateUseWinUiDocument(
+                    graph,
+                    graph.DirectoryBuildProps,
+                    context,
+                    evaluated,
+                    ref effectiveValue,
+                    out reason))
+            {
+                enabled = false;
+                return false;
+            }
+            if (!TryEvaluateUseWinUiDocument(
+                    graph,
+                    graph.TargetProject,
+                    context,
+                    evaluated,
+                    ref effectiveValue,
+                    out reason))
+            {
+                enabled = false;
+                return false;
+            }
+
+            enabled = effectiveValue == true;
+            reason = enabled
+                ? string.Empty
+                : "The active props-to-project evaluation does not enable UseWinUI before SDK default PRIResource items are established.";
+            return true;
+        }
+
+        private static bool TryEvaluateUseWinUiDocument(
+            ProjectEvidenceGraph graph,
+            string relativeProjectFile,
+            ProjectConditionContext context,
+            HashSet<string> evaluated,
+            ref bool? effectiveValue,
+            out string reason)
+        {
+            reason = string.Empty;
+            if (!evaluated.Add(relativeProjectFile))
+            {
+                return true;
+            }
+
+            var document = graph.Documents[relativeProjectFile];
+            foreach (var child in document.Root!.Elements())
+            {
+                if (IsProjectElement(child, "PropertyGroup"))
+                {
+                    foreach (var property in child.Elements().Where(element =>
+                        IsProjectElement(element, "UseWinUI")))
+                    {
+                        var condition = EvaluateElementCondition(
+                            property,
+                            context);
+                        if (condition == DeterministicCondition.False)
+                        {
+                            continue;
+                        }
+                        if (condition == DeterministicCondition.Unknown
+                            || !bool.TryParse(
+                                property.Value.Trim(),
+                                out var parsedValue))
+                        {
+                            reason =
+                                $"UseWinUI in '{relativeProjectFile}' is conditioned or property-expanded and cannot be evaluated deterministically.";
+                            return false;
+                        }
+                        effectiveValue = parsedValue;
+                    }
+                    continue;
+                }
+
+                if (IsProjectElement(child, "Import"))
+                {
+                    if (!TryEvaluateUseWinUiImport(
+                        graph,
+                        relativeProjectFile,
+                        child,
+                        context,
+                        evaluated,
+                        ref effectiveValue,
+                        out reason))
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+
+                if (IsProjectElement(child, "ImportGroup"))
+                {
+                    foreach (var import in child.Elements().Where(element =>
+                        IsProjectElement(element, "Import")))
+                    {
+                        if (!TryEvaluateUseWinUiImport(
+                            graph,
+                            relativeProjectFile,
+                            import,
+                            context,
+                            evaluated,
+                            ref effectiveValue,
+                            out reason))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        private static bool TryEvaluateUseWinUiImport(
+            ProjectEvidenceGraph graph,
+            string importingRelativePath,
+            XElement import,
+            ProjectConditionContext context,
+            HashSet<string> evaluated,
+            ref bool? effectiveValue,
+            out string reason)
+        {
+            reason = string.Empty;
+            var condition = EvaluateElementCondition(import, context);
+            if (condition == DeterministicCondition.False)
+            {
+                return true;
+            }
+            if (condition == DeterministicCondition.Unknown)
+            {
+                reason =
+                    $"Import in '{importingRelativePath}' is conditioned and UseWinUI evaluation cannot be proven.";
+                return false;
+            }
+
+            var importValue = import.Attribute("Project")?.Value;
+            if (string.IsNullOrWhiteSpace(importValue)
+                || !TryResolveLiteralImport(
+                    graph.TargetRoot,
+                    graph.FullPaths[importingRelativePath],
+                    importValue,
+                    out _,
+                    out var importedRelative)
+                || !graph.Documents.ContainsKey(importedRelative))
+            {
+                reason =
+                    $"Import in '{importingRelativePath}' cannot be resolved while evaluating UseWinUI.";
+                return false;
+            }
+            return TryEvaluateUseWinUiDocument(
+                graph,
+                importedRelative,
+                context,
+                evaluated,
+                ref effectiveValue,
+                out reason);
         }
 
         private static List<string> FindActivePropertyValues(

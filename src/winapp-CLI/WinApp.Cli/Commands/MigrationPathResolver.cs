@@ -77,13 +77,13 @@ internal static class MigrationPathResolver
             Path.DirectorySeparatorChar,
             StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(segment =>
+            segment == ".."
+            || (segment != "."
+                && (segment.EndsWith(' ')
+                    || segment.EndsWith('.')))))
         {
-            var canonicalSegment = segment.TrimEnd(' ', '.');
-            return canonicalSegment.Length == 0
-                || canonicalSegment == "..";
-        }))
-        {
-            error = "The path cannot contain parent-directory traversal.";
+            error =
+                "The path cannot contain parent traversal or Windows trailing-dot/space aliases.";
             return false;
         }
 

@@ -602,6 +602,164 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Verify_DefaultExcludesInProjectFolderReopensUwmig012()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "DefaultFolderExcludesApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        var items = await ReadReviewItemsAsync(target);
+        await RecordAllDeterministicDecisionsAsync(target, items);
+        using (var closed = await ReadReportAsync(target))
+        {
+            Assert.IsFalse(closed.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+                todo.GetProperty("id").GetString() == "UWMIG012"));
+        }
+
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <PropertyGroup>
+                <DefaultExcludesInProjectFolder>
+                  $(DefaultExcludesInProjectFolder);
+                  Resources\en-us\Resources.resw
+                </DefaultExcludesInProjectFolder>
+              </PropertyGroup>
+            """);
+        var (exit, output) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(0, exit, output);
+        using var reopened = await ReadReportAsync(target);
+        Assert.IsTrue(reopened.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+            todo.GetProperty("id").GetString() == "UWMIG012"));
+        var sdkDecision = reopened.RootElement
+            .GetProperty("projectItemDecisions")
+            .EnumerateArray()
+            .Single(decision =>
+                decision.GetProperty("strategy").GetString() == "sdk-default-item");
+        Assert.AreEqual(
+            "invalid",
+            sdkDecision.GetProperty("verification").GetProperty("status").GetString());
+        StringAssert.Contains(
+            sdkDecision.GetProperty("verification").GetProperty("reason").GetString(),
+            "DefaultExcludesInProjectFolder");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_DirectoryBuildPropsCanEnableUseWinUI()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "PropsUseWinUiApp",
+            includeConditionalItem: false);
+        await RemoveUseWinUiFromTargetProjectAsync(target);
+        await WriteAsync(
+            target,
+            "Directory.Build.props",
+            """
+            <Project>
+              <PropertyGroup>
+                <UseWinUI>true</UseWinUI>
+              </PropertyGroup>
+            </Project>
+            """);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Update="Resources\en-us\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Directory.Build.props enables WinUI before project evaluation.");
+
+        Assert.AreEqual(0, result.ExitCode, result.Output);
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_ProjectUseWinUIOverridesEarlierFalse()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "ProjectOverridesPropsUseWinUiApp",
+            includeConditionalItem: false);
+        await WriteAsync(
+            target,
+            "Directory.Build.props",
+            """
+            <Project>
+              <PropertyGroup>
+                <UseWinUI>false</UseWinUI>
+              </PropertyGroup>
+            </Project>
+            """);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Update="Resources\en-us\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "The later project assignment overrides the earlier props value.");
+
+        Assert.AreEqual(0, result.ExitCode, result.Output);
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_NormalizesDotSegmentsInPaths()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "DotSegmentEvidenceApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @".\Resources\en-us\Resources.resw",
+            "--evidence-file", @".\Directory.Build.targets",
+            "--rationale", "Normal current-directory segments are canonicalized.");
+
+        Assert.AreEqual(0, result.ExitCode, result.Output);
+        using var report = await ReadReportAsync(target);
+        var decision = report.RootElement
+            .GetProperty("projectItemDecisions")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual(
+            "Resources/en-us/Resources.resw",
+            decision.GetProperty("targetPath").GetString());
+        Assert.AreEqual(
+            "Directory.Build.targets",
+            decision.GetProperty("evidenceFiles")[0].GetString());
+    }
+
+    [TestMethod]
     public async Task DecideProjectItem_RejectsConflictingMetadataUpdate()
     {
         var (_, target) = await CreateDecisionMigrationAsync(
@@ -725,7 +883,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             "--rationale", "A late targets property cannot prove SDK default inclusion.");
 
         Assert.AreEqual(1, result.ExitCode, result.Output);
-        StringAssert.Contains(result.Output, "does not deterministically enable UseWinUI");
+        StringAssert.Contains(result.Output, "does not enable UseWinUI");
     }
 
     [TestMethod]
@@ -1214,6 +1372,60 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         var targetNotice = Path.Combine(target.FullName, "Strings", "NOTICE.json");
         Directory.CreateDirectory(Path.GetDirectoryName(targetNotice)!);
         File.Copy(sourceNotice, targetNotice, overwrite: true);
+    }
+
+    private async Task RecordAllDeterministicDecisionsAsync(
+        DirectoryInfo target,
+        JsonArray items)
+    {
+        var sdk = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Default PRIResource coverage with preserved metadata.");
+        var explicitItem = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Explicit PRIResource coverage with preserved metadata.");
+        var copied = await InvokeDecisionAsync(
+            target,
+            "--item", ItemIdByLink(items, @"Strings\NOTICE.json"),
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Strings\NOTICE.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Linked Content is copied with matching bytes.");
+
+        Assert.AreEqual(0, sdk.ExitCode, sdk.Output);
+        Assert.AreEqual(0, explicitItem.ExitCode, explicitItem.Output);
+        Assert.AreEqual(0, copied.ExitCode, copied.Output);
+    }
+
+    private async Task RemoveUseWinUiFromTargetProjectAsync(
+        DirectoryInfo target)
+    {
+        var project = Directory.EnumerateFiles(
+            target.FullName,
+            "*.csproj",
+            SearchOption.TopDirectoryOnly)
+            .Single();
+        var content = await File.ReadAllTextAsync(
+            project,
+            TestContext.CancellationToken);
+        content = content.Replace(
+            "<UseWinUI>true</UseWinUI>",
+            string.Empty,
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(
+            project,
+            content,
+            TestContext.CancellationToken);
     }
 
     private async Task<(
