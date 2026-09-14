@@ -36,6 +36,18 @@ internal sealed record PerformanceBundleManifest
     public required ResponseProbeManifest ResponseProbe { get; init; }
     public required ResourceCaptureManifest Resources { get; init; }
     public required WprCollectorResult Wpr { get; init; }
+    public required ManagedCollectorsResult Managed { get; init; }
+    public required IReadOnlyList<PerformanceArtifact> Artifacts { get; init; }
+}
+
+internal sealed record PerformanceArtifact
+{
+    public required string Path { get; init; }
+    public required string Kind { get; init; }
+    public required string Collector { get; init; }
+    public required long SizeBytes { get; init; }
+    public string? RecommendedViewer { get; init; }
+    public string? LossStatus { get; init; }
 }
 
 internal sealed record ResponseProbeManifest
@@ -108,6 +120,8 @@ internal sealed record PerformanceRecordResult
     public required ResponseProbeManifest ResponseProbe { get; init; }
     public required ResourceCaptureManifest Resources { get; init; }
     public required WprCollectorResult Wpr { get; init; }
+    public required ManagedCollectorsResult Managed { get; init; }
+    public required IReadOnlyList<PerformanceArtifact> Artifacts { get; init; }
 }
 
 internal sealed class PerformanceBundleWriter : IDisposable
@@ -177,6 +191,14 @@ internal sealed class PerformanceBundleWriter : IDisposable
             Path.Join(tracesDirectory, ".wpr-temp"));
     }
 
+    public (string TracePath, string CountersPath) CreateManagedPaths()
+    {
+        var tracesDirectory = Path.Join(_stagingDirectory, "traces");
+        return (
+            Path.Join(tracesDirectory, "managed.nettrace"),
+            Path.Join(tracesDirectory, "managed-counters.json"));
+    }
+
     public void Write(IEnumerable<StartupEvent> events)
     {
         foreach (var startupEvent in events)
@@ -240,7 +262,8 @@ internal sealed class PerformanceBundleWriter : IDisposable
         StartupLaunchDisposition disposition,
         int activationProcessId,
         ResponseProbeManifest responseProbe,
-        WprCollectorResult wpr)
+        WprCollectorResult wpr,
+        ManagedCollectorsResult managed)
     {
         if (_published)
         {
@@ -251,9 +274,10 @@ internal sealed class PerformanceBundleWriter : IDisposable
         var timelineOrigin = _timelineOrigin
             ?? throw new InvalidOperationException("A performance bundle cannot be published without timeline events.");
         var resources = CreateResourceManifest();
+        var artifacts = CreateArtifacts(wpr, managed);
         var manifest = new PerformanceBundleManifest
         {
-            SchemaVersion = "0.1",
+            SchemaVersion = "0.2",
             Status = status,
             StopReason = stopReason,
             StartedUtc = _calibration.Utc + timelineOrigin.ElapsedSince(
@@ -271,6 +295,8 @@ internal sealed class PerformanceBundleWriter : IDisposable
             ResponseProbe = responseProbe,
             Resources = resources,
             Wpr = wpr,
+            Managed = managed,
+            Artifacts = artifacts,
         };
         File.WriteAllText(
             Path.Join(_stagingDirectory, "manifest.json"),
@@ -295,7 +321,55 @@ internal sealed class PerformanceBundleWriter : IDisposable
             ResponseProbe = responseProbe,
             Resources = resources,
             Wpr = wpr,
+            Managed = managed,
+            Artifacts = artifacts,
         };
+    }
+
+    private static List<PerformanceArtifact> CreateArtifacts(
+        WprCollectorResult wpr,
+        ManagedCollectorsResult managed)
+    {
+        var artifacts = new List<PerformanceArtifact>();
+        Add(wpr.Artifact, "etl", "wpr", wpr.FileSize, wpr.RecommendedViewer, wpr.LossStatus);
+        Add(
+            managed.DotNetTrace.Artifact,
+            "nettrace",
+            managed.DotNetTrace.Tool,
+            managed.DotNetTrace.FileSize,
+            managed.DotNetTrace.RecommendedViewer,
+            managed.DotNetTrace.LossStatus);
+        Add(
+            managed.DotNetCounters.Artifact,
+            "json",
+            managed.DotNetCounters.Tool,
+            managed.DotNetCounters.FileSize,
+            managed.DotNetCounters.RecommendedViewer,
+            managed.DotNetCounters.LossStatus);
+        return artifacts;
+
+        void Add(
+            string? path,
+            string kind,
+            string collector,
+            long? size,
+            string? recommendedViewer,
+            string? lossStatus)
+        {
+            if (path is null || size is null)
+            {
+                return;
+            }
+            artifacts.Add(new()
+            {
+                Path = path,
+                Kind = kind,
+                Collector = collector,
+                SizeBytes = size.Value,
+                RecommendedViewer = recommendedViewer,
+                LossStatus = lossStatus,
+            });
+        }
     }
 
     private void CaptureStartupMilestone(PerformanceTimelineEntry entry)

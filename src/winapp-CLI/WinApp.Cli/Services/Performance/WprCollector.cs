@@ -16,11 +16,15 @@ internal sealed record WprCollectorResult
     public string? Artifact { get; init; }
     public long? FileSize { get; init; }
     public long? TotalArtifactBytes { get; init; }
+    public long? QuotaBytes { get; init; }
+    public string? QuotaStatus { get; init; }
     public DateTimeOffset? StartedUtc { get; init; }
     public DateTimeOffset? StopStartedUtc { get; init; }
     public DateTimeOffset? StopCompletedUtc { get; init; }
     public bool? TemporaryFilesRetained { get; init; }
     public required string Coverage { get; init; }
+    public string? LossStatus { get; init; }
+    public string? RecommendedViewer { get; init; }
     public string? Error { get; init; }
 }
 
@@ -85,6 +89,10 @@ internal sealed class WprCollectorFactory(IProcessRunner processRunner) : IWprCo
             Status = "pending",
             Profile = Profile,
             Coverage = "not-started",
+            QuotaBytes = PerformanceRecordingSafety.ArtifactQuotaBytes,
+            QuotaStatus = "not-produced",
+            LossStatus = "not-inspected",
+            RecommendedViewer = "WPA",
         };
 
         public async Task StartAsync(CancellationToken cancellationToken)
@@ -130,6 +138,7 @@ internal sealed class WprCollectorFactory(IProcessRunner processRunner) : IWprCo
                 {
                     Status = "start-failed",
                     Coverage = "unavailable",
+                    LossStatus = "not-produced",
                     TemporaryFilesRetained = temporaryFilesRetained ? true : null,
                     Error = ex.Message,
                 };
@@ -146,6 +155,7 @@ internal sealed class WprCollectorFactory(IProcessRunner processRunner) : IWprCo
                 {
                     Status = "start-failed",
                     Coverage = "unavailable",
+                    LossStatus = "not-produced",
                     Error = GetError(result),
                 };
                 return;
@@ -231,15 +241,22 @@ internal sealed class WprCollectorFactory(IProcessRunner processRunner) : IWprCo
                     stopTemporaryFilesRetained = true;
                 }
             }
+            var fileSize = new FileInfo(etlPath).Length;
+            var totalArtifactBytes = Directory
+                .EnumerateFiles(Path.GetDirectoryName(etlPath)!, "*", SearchOption.AllDirectories)
+                .Sum(path => new FileInfo(path).Length);
             Result = Result with
             {
-                Status = "recorded",
+                Status = totalArtifactBytes <= PerformanceRecordingSafety.ArtifactQuotaBytes
+                    ? "recorded"
+                    : "quota-exceeded",
                 Coverage = "raw-etl-event-loss-not-inspected",
                 Artifact = "traces/system.etl",
-                FileSize = new FileInfo(etlPath).Length,
-                TotalArtifactBytes = Directory
-                    .EnumerateFiles(Path.GetDirectoryName(etlPath)!, "*", SearchOption.AllDirectories)
-                    .Sum(path => new FileInfo(path).Length),
+                FileSize = fileSize,
+                TotalArtifactBytes = totalArtifactBytes,
+                QuotaStatus = totalArtifactBytes <= PerformanceRecordingSafety.ArtifactQuotaBytes
+                    ? "within-limit"
+                    : "exceeded",
                 StopStartedUtc = stopStartedUtc,
                 StopCompletedUtc = DateTimeOffset.UtcNow,
                 TemporaryFilesRetained = stopTemporaryFilesRetained ? true : null,

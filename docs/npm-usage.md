@@ -405,9 +405,29 @@ function packageApp(options: PackageOptions): Promise<WinappResult>
 
 ---
 
+### `perfOpen()`
+
+Safely open an original artifact from a .winappperf bundle.
+
+```typescript
+function perfOpen(options: PerfOpenOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `bundle` | `string` | Yes | Performance evidence bundle directory. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `with` | `string \| undefined` | No | Viewer to launch: wpa or default (default: auto-select WPA for ETL, otherwise the OS file association). |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
 ### `perfRecord()`
 
-Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.
+Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain original WPR and .NET diagnostic artifacts.
 
 ```typescript
 function perfRecord(options?: PerfRecordOptions): Promise<WinappResult>
@@ -431,6 +451,8 @@ function perfRecord(options?: PerfRecordOptions): Promise<WinappResult>
 | `project` | `string \| undefined` | No | Select a project when the target is a solution or ambiguous directory. |
 | `property` | `string \| string[] \| undefined` | No | MSBuild property as Name=Value. Repeatable. |
 | `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier. |
+| `withDotnetCounters` | `boolean \| undefined` | No | Attach dotnet-counters after a newly launched managed process is evidenced and retain traces/managed-counters.json. |
+| `withDotnetTrace` | `boolean \| undefined` | No | Attach dotnet-trace after a newly launched managed process is evidenced and retain traces/managed.nettrace. |
 | `withWpr` | `boolean \| undefined` | No | Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA. |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -1657,6 +1679,19 @@ type ManifestTemplates = "packaged" | "sparse"
 | `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
 | `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
+### `PerfOpenOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `bundle` | `string` | Yes | Performance evidence bundle directory. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `with` | `string \| undefined` | No | Viewer to launch: wpa or default (default: auto-select WPA for ETL, otherwise the OS file association). |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
 ### `PerfRecordOptions`
 
 | Property | Type | Required | Description |
@@ -1675,6 +1710,8 @@ type ManifestTemplates = "packaged" | "sparse"
 | `project` | `string \| undefined` | No | Select a project when the target is a solution or ambiguous directory. |
 | `property` | `string \| string[] \| undefined` | No | MSBuild property as Name=Value. Repeatable. |
 | `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier. |
+| `withDotnetCounters` | `boolean \| undefined` | No | Attach dotnet-counters after a newly launched managed process is evidenced and retain traces/managed-counters.json. |
+| `withDotnetTrace` | `boolean \| undefined` | No | Attach dotnet-trace after a newly launched managed process is evidenced and retain traces/managed.nettrace. |
 | `withWpr` | `boolean \| undefined` | No | Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |

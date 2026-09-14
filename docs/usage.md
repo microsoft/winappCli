@@ -1173,7 +1173,8 @@ before activation, and writes a `.winappperf` directory containing:
   top-level windows, first visibility, first successful response, response failures/recovery, and
   raw process exits, plus resource samples every 500 ms.
 - `manifest.json` — completion status, stop reason, monotonic-clock calibration, startup
-  disposition, activation PID, and resource coverage and summary.
+  disposition, activation PID, resource summary, collector lifecycle/status, retained artifacts,
+  sizes, quotas, loss-inspection status, and recommended viewers.
 
 ```powershell
 # Record the current project until Enter, Ctrl+C, redirected input completion, or target exit
@@ -1187,6 +1188,13 @@ winapp perf record . --output .\startup.winappperf --duration-sec 10
 
 # From an elevated terminal, retain module/loader and storage evidence for WPA
 winapp perf record . --with-wpr --duration-sec 10
+
+# Attach .NET diagnostics after winapp observes a newly launched managed process
+winapp perf record . --with-dotnet-trace --with-dotnet-counters --duration-sec 10
+
+# Open the retained ETL in WPA, or use the registered viewer for a managed trace
+winapp perf open .\startup.winappperf --with wpa
+winapp perf open .\startup.winappperf --with default
 ```
 
 A `completed` result means an owned visible top-level window was observed. `attached-late` means
@@ -1228,9 +1236,28 @@ WPR stop merges the trace and may generate an `system.etl.NGENPDB` sidecar direc
 requested recording duration ends. The manifest records the collection and merge timestamps, ETL
 size, total trace-artifact size, and that event loss has not yet been independently inspected.
 
-The current recording slice covers startup ownership, window milestones, and optional original WPR
-evidence. Resource sampling, response probes, UI interactions, `perf analyze`, and `perf open` are
-not included yet.
+`--with-dotnet-trace` and `--with-dotnet-counters` never install tools. winapp resolves
+`dotnet-trace.exe` and `dotnet-counters.exe` from absolute directories on `PATH` or
+`%USERPROFILE%\.dotnet\tools`, records each tool version, and attaches only after it observes a new,
+generation-checked process that has loaded the .NET runtime. It does not attach to a process that
+predated activation, including an `attached-late` single-instance app. Successful collection retains
+the original `traces/managed.nettrace` and `traces/managed-counters.json`; winapp does not parse them
+or claim that they contain no lost events.
+
+Any deep collector requires `--duration-sec 1-300` and at least 1 GiB free on the output volume.
+Missing tools, a non-managed target, attach/start/stop failure, or an artifact exceeding its recorded
+1 GiB quota makes the overall result `partial` while preserving the baseline startup/resource bundle
+and any artifact that was produced. Install the requested .NET diagnostic tool yourself and retry if
+its status is `unavailable`.
+
+`perf open` reads `manifest.json`, rejects artifact paths that leave the bundle, and launches a viewer
+without changing the evidence. `--with wpa` requires `traces/system.etl` and an installed Windows
+Performance Analyzer. `--with default` asks Windows to open the managed trace, ETL, or JSON artifact
+with its registered application. If no viewer is available, winapp prints the original artifact path
+and the next action instead of downloading software.
+
+The current recording slice does not include automatic analysis, pre-activation diagnostic ports,
+live multi-process managed tracing, or UI interaction capture.
 
 ---
 
@@ -1941,4 +1968,3 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-

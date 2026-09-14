@@ -37,6 +37,9 @@ public sealed class PerformanceBundleWriterTests
             1_000,
             TimeSpan.FromMilliseconds(0.25));
         using var writer = new PerformanceBundleWriter(output, calibration);
+        var managedPaths = writer.CreateManagedPaths();
+        Directory.CreateDirectory(Path.GetDirectoryName(managedPaths.TracePath)!);
+        File.WriteAllBytes(managedPaths.TracePath, [1, 2, 3, 4]);
         writer.Write(
         [
             new(StartupEventType.ActivationRequested, new PerformanceTimestamp(1_100), TimeSpan.Zero),
@@ -86,7 +89,9 @@ public sealed class PerformanceBundleWriterTests
                 Status = "not-requested",
                 Profile = "FileIO.Verbose",
                 Coverage = "not-requested",
-            });
+                LossStatus = "not-applicable",
+            },
+            RecordedManagedTrace());
 
         Assert.AreEqual(output, result.Bundle);
         Assert.IsTrue(File.Exists(Path.Join(output, "manifest.json")));
@@ -123,6 +128,19 @@ public sealed class PerformanceBundleWriterTests
         Assert.AreEqual(
             "not-requested",
             manifest.RootElement.GetProperty("wpr").GetProperty("status").GetString());
+        Assert.AreEqual("0.2", manifest.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.AreEqual(
+            "recorded",
+            manifest.RootElement
+                .GetProperty("managed")
+                .GetProperty("dotNetTrace")
+                .GetProperty("status")
+                .GetString());
+        var artifacts = manifest.RootElement.GetProperty("artifacts");
+        Assert.AreEqual(1, artifacts.GetArrayLength());
+        Assert.AreEqual(
+            "traces/managed.nettrace",
+            artifacts[0].GetProperty("path").GetString());
         var resources = manifest.RootElement.GetProperty("resources");
         Assert.AreEqual(3, resources.GetProperty("sampleCount").GetInt32());
         Assert.AreEqual(500, resources.GetProperty("averageIntervalMs").GetDouble());
@@ -135,6 +153,29 @@ public sealed class PerformanceBundleWriterTests
         Assert.AreEqual(800UL, summary.GetProperty("readBytesDuringRecording").GetUInt64());
         Assert.AreEqual(1_500UL, summary.GetProperty("writeBytesDuringRecording").GetUInt64());
     }
+
+    private static ManagedCollectorsResult RecordedManagedTrace() => new()
+    {
+        DotNetTrace = new()
+        {
+            Requested = true,
+            Tool = "dotnet-trace",
+            Status = "recorded",
+            Coverage = "attached-after-activation",
+            Artifact = "traces/managed.nettrace",
+            FileSize = 4,
+            RecommendedViewer = "PerfView or Visual Studio",
+            LossStatus = "not-inspected",
+        },
+        DotNetCounters = new()
+        {
+            Requested = false,
+            Tool = "dotnet-counters",
+            Status = "not-requested",
+            Coverage = "not-requested",
+            LossStatus = "not-applicable",
+        },
+    };
 
     [TestMethod]
     public void Constructor_DoesNotOverwriteExistingBundle()

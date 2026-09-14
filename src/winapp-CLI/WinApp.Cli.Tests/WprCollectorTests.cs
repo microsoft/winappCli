@@ -32,9 +32,9 @@ public sealed class WprCollectorTests
     [DataRow(301)]
     public void Safety_RejectsUnboundedOrExcessiveDuration(int durationSeconds)
     {
-        var error = WprRecordingSafety.Validate(
+        var error = PerformanceRecordingSafety.Validate(
             durationSeconds,
-            WprRecordingSafety.MinimumFreeBytes);
+            PerformanceRecordingSafety.MinimumFreeBytes);
 
         StringAssert.Contains(error, "--duration-sec between 1 and 300");
     }
@@ -42,9 +42,9 @@ public sealed class WprCollectorTests
     [TestMethod]
     public void Safety_RejectsOutputVolumeWithLessThanOneGiBFree()
     {
-        var error = WprRecordingSafety.Validate(
+        var error = PerformanceRecordingSafety.Validate(
             durationSeconds: 10,
-            WprRecordingSafety.MinimumFreeBytes - 1);
+            PerformanceRecordingSafety.MinimumFreeBytes - 1);
 
         StringAssert.Contains(error, "at least 1 GiB free");
     }
@@ -52,9 +52,9 @@ public sealed class WprCollectorTests
     [TestMethod]
     public void Safety_AcceptsBoundedDurationAndFreeSpace()
     {
-        Assert.IsNull(WprRecordingSafety.Validate(
+        Assert.IsNull(PerformanceRecordingSafety.Validate(
             durationSeconds: 10,
-            WprRecordingSafety.MinimumFreeBytes));
+            PerformanceRecordingSafety.MinimumFreeBytes));
     }
 
     [TestMethod]
@@ -79,6 +79,9 @@ public sealed class WprCollectorTests
         StringAssert.StartsWith(runner.Requests[0].Arguments[^1], "winapp-perf-");
         Assert.AreEqual("recorded", collector.Result.Status);
         Assert.AreEqual("raw-etl-event-loss-not-inspected", collector.Result.Coverage);
+        Assert.AreEqual("not-inspected", collector.Result.LossStatus);
+        Assert.AreEqual("WPA", collector.Result.RecommendedViewer);
+        Assert.AreEqual("within-limit", collector.Result.QuotaStatus);
         Assert.AreEqual("traces/system.etl", collector.Result.Artifact);
         Assert.IsTrue(collector.Result.FileSize > 0);
         Assert.IsNotNull(collector.Result.StartedUtc);

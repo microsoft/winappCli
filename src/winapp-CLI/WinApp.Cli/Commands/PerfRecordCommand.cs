@@ -90,10 +90,20 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         Description = "Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA.",
     };
 
-    public string ShortDescription => "Record app startup, resources, and optional WPR evidence";
+    internal static readonly Option<bool> WithDotNetTraceOption = new("--with-dotnet-trace")
+    {
+        Description = "Attach dotnet-trace after a newly launched managed process is evidenced and retain traces/managed.nettrace.",
+    };
+
+    internal static readonly Option<bool> WithDotNetCountersOption = new("--with-dotnet-counters")
+    {
+        Description = "Attach dotnet-counters after a newly launched managed process is evidenced and retain traces/managed-counters.json.",
+    };
+
+    public string ShortDescription => "Record app startup, resources, and optional system or managed traces";
 
     public PerfRecordCommand()
-        : base("record", "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.")
+        : base("record", "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain original WPR and .NET diagnostic artifacts.")
     {
         Arguments.Add(TargetArgument);
         Arguments.Add(PassthroughArgument);
@@ -109,6 +119,8 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         Options.Add(PropertyOption);
         Options.Add(ArgsOption);
         Options.Add(WithWprOption);
+        Options.Add(WithDotNetTraceOption);
+        Options.Add(WithDotNetCountersOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -122,6 +134,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         IProcessIdentityProbe processProbe,
         ISystemUiQuery systemUiQuery,
         IWprCollectorFactory wprCollectorFactory,
+        IManagedDiagnosticsSessionFactory managedDiagnosticsFactory,
         IStorageSpaceProbe storageSpaceProbe,
         ICurrentDirectoryProvider currentDirectory,
         ILogger<PerfRecordCommand> logger) : AsynchronousCommandLineAction
@@ -145,8 +158,11 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     $"performance-{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.winappperf")
                 : Path.GetFullPath(output, currentDirectory.GetCurrentDirectory());
             var withWpr = parseResult.GetValue(WithWprOption);
-            if (withWpr
-                && WprRecordingSafety.Validate(
+            var withDotNetTrace = parseResult.GetValue(WithDotNetTraceOption);
+            var withDotNetCounters = parseResult.GetValue(WithDotNetCountersOption);
+            var withDeepDiagnostics = withWpr || withDotNetTrace || withDotNetCounters;
+            if (withDeepDiagnostics
+                && PerformanceRecordingSafety.Validate(
                     durationSec,
                     storageSpaceProbe.GetAvailableBytes(output)) is { } safetyError)
             {
@@ -156,12 +172,21 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
 
             var calibration = clock.Calibrate();
             using var writer = new PerformanceBundleWriter(output, calibration);
+            var managedPaths = writer.CreateManagedPaths();
+            await using var managedDiagnostics = await managedDiagnosticsFactory.CreateAsync(
+                withDotNetTrace,
+                withDotNetCounters,
+                managedPaths.TracePath,
+                managedPaths.CountersPath,
+                durationSec,
+                cancellationToken);
             var wprResult = new WprCollectorResult
             {
                 Requested = false,
                 Status = "not-requested",
                 Profile = "FileIO.Verbose",
                 Coverage = "not-requested",
+                LossStatus = "not-applicable",
             };
             IWprCollector? wprCollector = null;
             if (withWpr)
@@ -181,6 +206,10 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                         Status = "unavailable",
                         Profile = "FileIO.Verbose",
                         Coverage = "unavailable",
+                        QuotaBytes = PerformanceRecordingSafety.ArtifactQuotaBytes,
+                        QuotaStatus = "not-produced",
+                        LossStatus = "not-produced",
+                        RecommendedViewer = "WPA",
                         Error = availability.Error,
                     };
                 }
@@ -231,13 +260,15 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     await wprCollector.StopAsync();
                     wprResult = wprCollector.Result;
                 }
+                await managedDiagnostics.StopAsync(observer.Session.Disposition);
                 var failedResult = writer.Complete(
                     "failed",
                     "launch-failed",
                     observer.Session.Disposition,
                     observer.ActivationProcessId,
                     CreateResponseProbeManifest(responseProbe),
-                    wprResult);
+                    wprResult,
+                    managedDiagnostics.Result);
                 WriteResult(parseResult, failedResult);
                 return launchResult;
             }
@@ -250,6 +281,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     observer,
                     writer,
                     resourceSampler,
+                    managedDiagnostics,
                     durationSec,
                     cancellationToken);
                 status = observer.Session.Disposition == StartupLaunchDisposition.Pending
@@ -270,9 +302,15 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 await wprCollector.StopAsync();
                 wprResult = wprCollector.Result;
             }
+            await managedDiagnostics.StopAsync(observer.Session.Disposition);
             if ((status is "completed" or "attached-late")
                 && wprResult.Requested
                 && wprResult.Status != "recorded")
+            {
+                status = "partial";
+            }
+            if ((status is "completed" or "attached-late")
+                && RequestedManagedCollectorFailed(managedDiagnostics.Result))
             {
                 status = "partial";
             }
@@ -283,7 +321,8 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 observer.Session.Disposition,
                 observer.ActivationProcessId,
                 CreateResponseProbeManifest(responseProbe),
-                wprResult);
+                wprResult,
+                managedDiagnostics.Result);
             WriteResult(parseResult, result);
 
             return status == "cancelled" ? 130 : 0;
@@ -336,9 +375,36 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                             $"WPR detail: {result.Wpr.Error}");
                     }
                 }
+                WriteManagedCollector(parseResult, result.Managed.DotNetTrace);
+                WriteManagedCollector(parseResult, result.Managed.DotNetCounters);
                 parseResult.InvocationConfiguration.Output.WriteLine($"Evidence: {result.Bundle}");
             }
         }
+
+        private static void WriteManagedCollector(
+            ParseResult parseResult,
+            ManagedCollectorResult collector)
+        {
+            if (!collector.Requested)
+            {
+                return;
+            }
+
+            var artifact = collector.Artifact is null
+                ? string.Empty
+                : $"; {collector.Artifact} ({collector.FileSize} bytes)";
+            parseResult.InvocationConfiguration.Output.WriteLine(
+                $"{collector.Tool}: {collector.Status}{artifact}");
+            if (collector.Error is not null)
+            {
+                parseResult.InvocationConfiguration.Output.WriteLine(
+                    $"{collector.Tool} detail: {collector.Error}");
+            }
+        }
+
+        private static bool RequestedManagedCollectorFailed(ManagedCollectorsResult result) =>
+            (result.DotNetTrace.Requested && result.DotNetTrace.Status != "recorded")
+            || (result.DotNetCounters.Requested && result.DotNetCounters.Status != "recorded");
 
         private static string FormatMilliseconds(double? value) =>
             value is null ? "not observed" : $"{value.Value:0.0} ms";
@@ -359,6 +425,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
             StartupLaunchObserver observer,
             PerformanceBundleWriter writer,
             ResourceSampler resourceSampler,
+            IManagedDiagnosticsSession managedDiagnostics,
             int durationSec,
             CancellationToken cancellationToken)
         {
@@ -374,6 +441,10 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 cancellationToken.ThrowIfCancellationRequested();
                 var update = observer.Observe();
                 writer.Write(update.Events);
+                await managedDiagnostics.ObserveAsync(
+                    update.Events,
+                    update.Disposition,
+                    cancellationToken);
                 writer.Write(resourceSampler.TrySample(
                     observer.Session!.CaptureResourceCounters()));
 

@@ -3,20 +3,21 @@
 
 namespace WinApp.Cli.Services.Performance;
 
-internal static class WprRecordingSafety
+internal static class PerformanceRecordingSafety
 {
     internal const int MaximumDurationSeconds = 300;
     internal const long MinimumFreeBytes = 1024L * 1024 * 1024;
+    internal const long ArtifactQuotaBytes = 1024L * 1024 * 1024;
 
     public static string? Validate(int durationSeconds, long availableBytes)
     {
         if (durationSeconds < 1 || durationSeconds > MaximumDurationSeconds)
         {
-            return $"--with-wpr requires --duration-sec between 1 and {MaximumDurationSeconds} to bound file-mode trace growth.";
+            return $"Deep collectors require --duration-sec between 1 and {MaximumDurationSeconds} to bound trace growth.";
         }
 
         return availableBytes < MinimumFreeBytes
-            ? "--with-wpr requires at least 1 GiB free on the output volume."
+            ? "Deep collectors require at least 1 GiB free on the output volume."
             : null;
     }
 }

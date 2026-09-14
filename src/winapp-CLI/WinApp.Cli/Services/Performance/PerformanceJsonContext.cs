@@ -12,6 +12,12 @@ namespace WinApp.Cli.Services.Performance;
 [JsonSerializable(typeof(ResourceCaptureManifest))]
 [JsonSerializable(typeof(ResourceSummary))]
 [JsonSerializable(typeof(WprCollectorResult))]
+[JsonSerializable(typeof(ManagedCollectorResult))]
+[JsonSerializable(typeof(ManagedCollectorsResult))]
+[JsonSerializable(typeof(PerformanceArtifact))]
+[JsonSerializable(typeof(IReadOnlyList<PerformanceArtifact>))]
+[JsonSerializable(typeof(PerformanceOpenManifest))]
+[JsonSerializable(typeof(PerformanceOpenResult))]
 [JsonSerializable(typeof(ResponseProbeManifest))]
 [JsonSerializable(typeof(StartupTimingManifest))]
 [JsonSourceGenerationOptions(

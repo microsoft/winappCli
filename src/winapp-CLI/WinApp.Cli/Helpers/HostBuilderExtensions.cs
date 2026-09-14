@@ -87,7 +87,14 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<ITopLevelWindowProbe, TopLevelWindowProbe>()
             .AddSingleton<IProcessIdentityProbe, ProcessIdentityProbe>()
             .AddSingleton<IStorageSpaceProbe, StorageSpaceProbe>()
-            .AddSingleton<IWprCollectorFactory, WprCollectorFactory>();
+            .AddSingleton<IWprCollectorFactory, WprCollectorFactory>()
+            .AddSingleton<IDiagnosticToolResolver, DiagnosticToolResolver>()
+            .AddSingleton<IManagedProcessProbe, ManagedProcessProbe>()
+            .AddSingleton<IOwnedToolProcessFactory, OwnedToolProcessFactory>()
+            .AddSingleton<IManagedDiagnosticsSessionFactory, ManagedDiagnosticsSessionFactory>()
+            .AddSingleton<IPerformanceViewerResolver, PerformanceViewerResolver>()
+            .AddSingleton<IPerformanceViewerLauncher, PerformanceViewerLauncher>()
+            .AddSingleton<IPerformanceBundleOpener, PerformanceBundleOpener>();
     }
 
     public static IServiceCollection ConfigureCommands(this IServiceCollection serviceCollection)
@@ -108,6 +115,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<RunCommand, RunCommand.Handler>()
                 .ConfigureCommand<PerfCommand>()
                 .UseCommandHandler<PerfRecordCommand, PerfRecordCommand.Handler>()
+                .UseCommandHandler<PerfOpenCommand, PerfOpenCommand.Handler>()
                 .UseCommandHandler<UnregisterCommand, UnregisterCommand.Handler>()
                 .UseCommandHandler<GetWinappPathCommand, GetWinappPathCommand.Handler>()
                 .UseCommandHandler<FindUiCommand, FindUiCommand.Handler>()

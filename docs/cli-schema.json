@@ -1801,11 +1801,88 @@
       }
     },
     "perf": {
-      "description": "Record target-scoped performance evidence for Windows apps",
+      "description": "Record and open target-scoped performance evidence for Windows apps",
       "hidden": false,
       "subcommands": {
+        "open": {
+          "description": "Safely open an original artifact from a .winappperf bundle.",
+          "hidden": false,
+          "arguments": {
+            "bundle": {
+              "description": "Performance evidence bundle directory.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.IO.DirectoryInfo",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--with": {
+              "description": "Viewer to launch: wpa or default (default: auto-select WPA for ETL, otherwise the OS file association).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": true,
+              "defaultValue": "auto",
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
         "record": {
-          "description": "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.",
+          "description": "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain original WPR and .NET diagnostic artifacts.",
           "hidden": false,
           "arguments": {
             "target": {
@@ -2012,6 +2089,32 @@
               "aliases": [
                 "-v"
               ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--with-dotnet-counters": {
+              "description": "Attach dotnet-counters after a newly launched managed process is evidenced and retain traces/managed-counters.json.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--with-dotnet-trace": {
+              "description": "Attach dotnet-trace after a newly launched managed process is evidenced and retain traces/managed.nettrace.",
+              "hidden": false,
               "valueType": "System.Boolean",
               "hasDefaultValue": true,
               "defaultValue": false,

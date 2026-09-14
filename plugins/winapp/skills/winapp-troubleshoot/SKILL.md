@@ -21,6 +21,8 @@ Use this skill when:
 | "Certificate not trusted" | Dev cert not installed on machine | `winapp cert install ./devcert.pfx` (admin) |
 | "Build tools not found" | First run, tools not yet downloaded | Run `winapp update` to download tools; ensure internet access |
 | `perf record --with-wpr` reports WPR unavailable | Terminal is not elevated, `wpr.exe` is unavailable, duration is unbounded, or output storage is low | Run from an Administrator terminal with `--duration-sec 1-300` and at least 1 GiB free; the ordinary startup bundle is still retained as partial evidence when only WPR availability fails |
+| `perf record --with-dotnet-trace` or `--with-dotnet-counters` is partial | The tool is missing, the new target is not managed, activation attached to a pre-existing process, collection failed, or its artifact exceeded 1 GiB | Install the requested tool into `%USERPROFILE%\.dotnet\tools` or an absolute `PATH` directory, use `--duration-sec 1-300`, then inspect the collector status in `manifest.json`; baseline evidence and any produced artifact are retained |
+| `perf open` reports a viewer unavailable | WPA is not installed, no Windows file association exists, or the bundle lacks the requested artifact | Install the Windows Performance Toolkit for ETL, or open the reported original `.nettrace`/JSON artifact in your chosen viewer |
 | "Failed to add package identity" | Stale debug identity or untrusted cert | `Get-AppxPackage *yourapp* \| Remove-AppxPackage` to clean up, then `winapp cert install` and retry |
 | "Certificate file already exists" | `devcert.pfx` already present | Use `winapp cert generate --if-exists overwrite` or `--if-exists skip` |
 | "Manifest already exists" | `Package.appxmanifest` already present | Use `winapp manifest generate --if-exists overwrite` or edit manifest directly |
@@ -85,6 +87,8 @@ Is the app a single .cs file (.NET file-based app)?
 | Launch and detach (CI) | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
 | Record startup and resource evidence | `winapp perf record . --duration-sec 10` | Records activation, process/window ownership, visibility and response, raw exits, and 500 ms CPU, memory, I/O, thread, handle, and GUI-resource samples |
 | Record DLL/loader order for WPA | `winapp perf record . --with-wpr --duration-sec 10` | Requires elevation; adds the original `traces/system.etl` without claiming a fabricated per-DLL duration |
+| Record managed runtime events and counters | `winapp perf record . --with-dotnet-trace --with-dotnet-counters --duration-sec 10` | Uses already-installed .NET tools and attaches only to a newly observed managed process |
+| Open retained evidence | `winapp perf open .\capture.winappperf --with wpa` | Validates the manifest path and opens the original ETL without changing it; use `--with default` for a registered managed-trace viewer |
 | Clean up stale registration | `winapp unregister` | Removes dev-mode packages for the current project (pass a `.cs` for a file-based app: `winapp unregister counter.cs`) |
 | Start menu entry does nothing when clicked | `winapp unregister --prune` | The package is registered but its files were deleted, so activation silently fails. Prune removes every dev registration whose files are gone |
 
@@ -105,7 +109,8 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
 | `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.sln`; **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
-| `perf record` | The same project or build-output target accepted by `run`; elevation when `--with-wpr` is requested | Launches the app and writes startup and resource evidence, plus optional `traces/system.etl`, to a `.winappperf` directory |
+| `perf record` | The same project or build-output target accepted by `run`; elevation for WPR; installed .NET tools for managed collectors | Launches the app and writes startup/resource evidence plus requested original ETL, nettrace, and counter artifacts to a `.winappperf` directory |
+| `perf open` | A `.winappperf` directory and an installed/registered viewer | Opens one manifest-declared artifact without modifying the bundle |
 | `unregister` | A `.cs` file-based app, **or** `Package.appxmanifest` (auto-detect or `--manifest`) | Removes dev-mode package registrations |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |
