@@ -14,19 +14,26 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
 
     public static Argument<DirectoryInfo> TargetArgument { get; } = new("target")
     {
-        Description = "Migrated WinUI project directory containing migration-report.json."
+        Description = "Migrated WinUI project directory containing migration-report.json.",
+        Arity = ArgumentArity.ExactlyOne
     };
 
-    public static Option<string> ItemOption { get; } = new("--item")
+    public static Argument<string> ItemArgument { get; } = new("item")
     {
         Description = "Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted.",
-        Required = true
+        Arity = ArgumentArity.ExactlyOne
     };
 
-    public static Option<string> StrategyOption { get; } = new("--strategy")
+    public static Argument<string> StrategyArgument { get; } = new("strategy")
     {
         Description = "Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated.",
-        Required = true
+        Arity = ArgumentArity.ExactlyOne
+    };
+
+    public static Argument<string> RationaleArgument { get; } = new("rationale")
+    {
+        Description = "Concise explanation of why this deterministic strategy preserves the source item.",
+        Arity = ArgumentArity.ExactlyOne
     };
 
     public static Option<string?> TargetPathOption { get; } = new("--target-path")
@@ -41,30 +48,24 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
 
     public static Option<string[]> EvidenceFileOption { get; } = new("--evidence-file")
     {
-        Description = "Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files.",
+        Description = "Target-relative project/props/targets file that participates in the target build and contains matching item evidence. Repeat for multiple files.",
         Arity = ArgumentArity.ZeroOrMore,
         AllowMultipleArgumentsPerToken = false
-    };
-
-    public static Option<string> RationaleOption { get; } = new("--rationale")
-    {
-        Description = "Concise explanation of why this deterministic strategy preserves the source item.",
-        Required = true
     };
 
     public MigrateProjectItemDecisionCommand()
         : base(
             "decide-project-item",
-            "Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. This command never edits CLI-owned verification fields directly.")
+            "Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. Target, item, strategy, and rationale are required positional arguments; the command never edits CLI-owned verification fields directly.")
     {
         TargetArgument.AcceptExistingOnly();
         Arguments.Add(TargetArgument);
-        Options.Add(ItemOption);
-        Options.Add(StrategyOption);
+        Arguments.Add(ItemArgument);
+        Arguments.Add(StrategyArgument);
+        Arguments.Add(RationaleArgument);
         Options.Add(TargetPathOption);
         Options.Add(TargetItemTypeOption);
         Options.Add(EvidenceFileOption);
-        Options.Add(RationaleOption);
     }
 
     internal sealed class Handler : AsynchronousCommandLineAction
@@ -154,7 +155,7 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 targetRoot,
                 targetProject,
                 applyChanges: false);
-            var selector = parseResult.GetValue(ItemOption)?.Trim();
+            var selector = parseResult.GetValue(ItemArgument)?.Trim();
             var exactMatches = string.IsNullOrWhiteSpace(selector)
                 ? []
                 : projectItems.ReviewRequiredItems
@@ -185,7 +186,7 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 return 1;
             }
 
-            var strategy = parseResult.GetValue(StrategyOption)?
+            var strategy = parseResult.GetValue(StrategyArgument)?
                 .Trim()
                 .ToLowerInvariant();
             if (strategy is null
@@ -198,12 +199,12 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 return 1;
             }
 
-            var rationale = parseResult.GetValue(RationaleOption)?.Trim();
+            var rationale = parseResult.GetValue(RationaleArgument)?.Trim();
             if (string.IsNullOrWhiteSpace(rationale)
                 || rationale.Length > 500)
             {
                 Console.Out.WriteLine(
-                    "[ERROR] --rationale must contain 1 to 500 non-whitespace characters.");
+                    "[ERROR] The rationale argument must contain 1 to 500 non-whitespace characters.");
                 return 1;
             }
 

@@ -277,4 +277,36 @@ public class CliSchemaTests : BaseCommandTests
         Assert.IsFalse(subcommands.TryGetProperty("complete", out _),
             "Hidden 'complete' command should not appear in CLI schema");
     }
+
+    [TestMethod]
+    public async Task CliSchema_MigrateDecisionContractUsesRequiredArguments()
+    {
+        var rootCommand = GetRequiredService<WinAppRootCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            rootCommand,
+            ["--cli-schema"]);
+
+        Assert.AreEqual(0, exitCode);
+        using var jsonDoc = JsonDocument.Parse(TestAnsiConsole.Output);
+        var decision = jsonDoc.RootElement
+            .GetProperty("subcommands")
+            .GetProperty("migrate")
+            .GetProperty("subcommands")
+            .GetProperty("decide-project-item");
+        var arguments = decision.GetProperty("arguments");
+        foreach (var name in new[] { "target", "item", "strategy", "rationale" })
+        {
+            Assert.IsTrue(arguments.TryGetProperty(name, out var argument));
+            Assert.AreEqual(
+                1,
+                argument.GetProperty("arity").GetProperty("minimum").GetInt32(),
+                $"{name} must be required in the public CLI schema.");
+        }
+
+        var options = decision.GetProperty("options");
+        Assert.IsFalse(options.TryGetProperty("--item", out _));
+        Assert.IsFalse(options.TryGetProperty("--strategy", out _));
+        Assert.IsFalse(options.TryGetProperty("--rationale", out _));
+    }
 }

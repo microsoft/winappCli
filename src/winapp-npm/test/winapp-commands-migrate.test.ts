@@ -10,7 +10,18 @@ import {
   migrate,
   migrateDecideProjectItem,
   migrateVerify,
+  type MigrateDecideProjectItemOptions,
 } from '../src/winapp-commands';
+
+type IsRequired<T, K extends keyof T> = {} extends Pick<T, K> ? false : true;
+
+const requiredDecisionContract: [
+  IsRequired<MigrateDecideProjectItemOptions, 'target'>,
+  IsRequired<MigrateDecideProjectItemOptions, 'item'>,
+  IsRequired<MigrateDecideProjectItemOptions, 'strategy'>,
+  IsRequired<MigrateDecideProjectItemOptions, 'rationale'>,
+] = [true, true, true, true];
+void requiredDecisionContract;
 
 function captureSpawnArgs(): { calls: string[][] } {
   const state = { calls: [] as string[][] };
@@ -48,7 +59,7 @@ test('migrate parent and verify wrappers retain their distinct command paths', a
   );
 });
 
-test('migrate decide-project-item emits repeatable evidence files and structured decision options', async () => {
+test('migrate decide-project-item emits required positionals before repeatable evidence options', async () => {
   const state = captureSpawnArgs();
 
   await migrateDecideProjectItem({
@@ -65,16 +76,13 @@ test('migrate decide-project-item emits repeatable evidence files and structured
     'migrate',
     'decide-project-item',
     'C:\\target',
+    'project-item-0123456789abcdef',
+    'copied-linked-content',
+    'Copied and relinked with matching bytes.',
     '--evidence-file',
     'App.csproj',
     '--evidence-file',
     'Directory.Build.targets',
-    '--item',
-    'project-item-0123456789abcdef',
-    '--rationale',
-    'Copied and relinked with matching bytes.',
-    '--strategy',
-    'copied-linked-content',
     '--target-item-type',
     'Content',
     '--target-path',

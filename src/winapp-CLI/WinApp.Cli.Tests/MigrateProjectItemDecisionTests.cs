@@ -193,6 +193,24 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task DecideProjectItem_RequiresAllFourPositionalArguments()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "RequiredDecisionArgumentsApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        var item = ItemId(items, @"Resources\en-us\Resources.resw");
+
+        var (exit, _) = await InvokeCapturingConsoleAsync(
+            GetRequiredService<MigrateProjectItemDecisionCommand>(),
+            target.FullName,
+            item,
+            "sdk-default-item");
+
+        Assert.AreNotEqual(0, exit);
+    }
+
+    [TestMethod]
     public async Task DecideProjectItem_RejectsMissingEvidenceAndRationaleCannotBypassIt()
     {
         var (_, target) = await CreateDecisionMigrationAsync(
@@ -901,11 +919,32 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         DirectoryInfo target,
         params string[] arguments)
     {
-        var commandArguments = new List<string> { target.FullName };
-        commandArguments.AddRange(arguments);
+        var remaining = arguments.ToList();
+        var item = ExtractRequiredTestArgument(remaining, "--item");
+        var strategy = ExtractRequiredTestArgument(remaining, "--strategy");
+        var rationale = ExtractRequiredTestArgument(remaining, "--rationale");
+        var commandArguments = new List<string>
+        {
+            target.FullName,
+            item,
+            strategy,
+            rationale
+        };
+        commandArguments.AddRange(remaining);
         return InvokeCapturingConsoleAsync(
             GetRequiredService<MigrateProjectItemDecisionCommand>(),
             [.. commandArguments]);
+    }
+
+    private static string ExtractRequiredTestArgument(
+        List<string> arguments,
+        string name)
+    {
+        var index = arguments.IndexOf(name);
+        Assert.IsTrue(index >= 0 && index + 1 < arguments.Count);
+        var value = arguments[index + 1];
+        arguments.RemoveRange(index, 2);
+        return value;
     }
 
     private async Task<JsonDocument> ReadReportAsync(DirectoryInfo target) =>

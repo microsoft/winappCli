@@ -1191,21 +1191,21 @@ Review-required project items appear under `mechanicalVerification.projectItems.
 
 ```powershell
 winapp migrate decide-project-item <target> `
-  --item project-item-0123456789abcdef `
-  --strategy sdk-default-item `
+  project-item-0123456789abcdef `
+  sdk-default-item `
+  "The default PRI item covers the file and this target preserves its metadata." `
   --target-path Strings\en-us\Resources.resw `
-  --evidence-file Directory.Build.targets `
-  --rationale "The default PRI item covers the file and this target preserves its metadata."
+  --evidence-file Directory.Build.targets
 ```
 
 Supported strategies are:
 
-- `sdk-default-item` — a `.resw` `PRIResource` is covered by the target SDK; source metadata, when present, must have a matching target `Include` or `Update`.
-- `explicit-target-item` — an existing target path has a matching explicit `Content` or `PRIResource` item.
-- `copied-linked-content` — linked source `Content` was copied to an explicit target item and the available source/target bytes match.
+- `sdk-default-item` — a `.resw` `PRIResource` is provably included by an active SDK-style WinUI default item; source metadata, when present, must have a matching active target `Include` or `Update`.
+- `explicit-target-item` — an existing target path has an active matching `Content` or `PRIResource` `Include`; `Update` alone never counts as inclusion.
+- `copied-linked-content` — available linked or external source `Content`/`PRIResource` was copied to an active explicit target `Include` and the source/target bytes match.
 - `intentionally-not-migrated` — records the decision but deliberately leaves `UWMIG012` pending.
 
-The command validates current target evidence before writing the decision. A rationale cannot override missing files, project items, metadata, or content equality. Later `migrate verify` rechecks every decision and reopens `UWMIG012` if its evidence becomes stale.
+Evidence files must participate in the contained target build: the target project, an active automatically imported `Directory.Build.props`/`Directory.Build.targets`, or a file reached through active literal imports. Conditioned evidence is accepted only when the CLI can prove the condition from stable project facts. A rationale cannot override missing files, inactive imports/items, project-item metadata, or content equality. Later `migrate verify` rechecks every decision and reopens `UWMIG012` if its evidence becomes stale.
 
 The target must be new or contain only `.git`/`.github` metadata. Source and target cannot overlap. The official WinUI template pack must be available; run `winapp new --list` to install or repair it.
 
@@ -2056,7 +2056,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
 

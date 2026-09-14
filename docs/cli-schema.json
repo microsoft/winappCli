@@ -2187,7 +2187,7 @@
       },
       "subcommands": {
         "decide-project-item": {
-          "description": "Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. This command never edits CLI-owned verification fields directly.",
+          "description": "Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. Target, item, strategy, and rationale are required positional arguments; the command never edits CLI-owned verification fields directly.",
           "hidden": false,
           "arguments": {
             "target": {
@@ -2200,11 +2200,44 @@
                 "minimum": 1,
                 "maximum": 1
               }
+            },
+            "item": {
+              "description": "Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "strategy": {
+              "description": "Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated.",
+              "order": 2,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "rationale": {
+              "description": "Concise explanation of why this deterministic strategy preserves the source item.",
+              "order": 3,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
             }
           },
           "options": {
             "--evidence-file": {
-              "description": "Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files.",
+              "description": "Target-relative project/props/targets file that participates in the target build and contains matching item evidence. Repeat for multiple files.",
               "hidden": false,
               "valueType": "System.String[]",
               "hasDefaultValue": false,
@@ -2212,18 +2245,6 @@
                 "minimum": 0
               },
               "required": false,
-              "recursive": false
-            },
-            "--item": {
-              "description": "Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted.",
-              "hidden": false,
-              "valueType": "System.String",
-              "hasDefaultValue": false,
-              "arity": {
-                "minimum": 1,
-                "maximum": 1
-              },
-              "required": true,
               "recursive": false
             },
             "--quiet": {
@@ -2240,30 +2261,6 @@
                 "maximum": 1
               },
               "required": false,
-              "recursive": false
-            },
-            "--rationale": {
-              "description": "Concise explanation of why this deterministic strategy preserves the source item.",
-              "hidden": false,
-              "valueType": "System.String",
-              "hasDefaultValue": false,
-              "arity": {
-                "minimum": 1,
-                "maximum": 1
-              },
-              "required": true,
-              "recursive": false
-            },
-            "--strategy": {
-              "description": "Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated.",
-              "hidden": false,
-              "valueType": "System.String",
-              "hasDefaultValue": false,
-              "arity": {
-                "minimum": 1,
-                "maximum": 1
-              },
-              "required": true,
               "recursive": false
             },
             "--target-item-type": {

@@ -523,7 +523,7 @@ function migrate(options: MigrateOptions): Promise<WinappResult>
 
 ### `migrateDecideProjectItem()`
 
-Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. This command never edits CLI-owned verification fields directly.
+Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. Target, item, strategy, and rationale are required positional arguments; the command never edits CLI-owned verification fields directly.
 
 ```typescript
 function migrateDecideProjectItem(options: MigrateDecideProjectItemOptions): Promise<WinappResult>
@@ -534,10 +534,10 @@ function migrateDecideProjectItem(options: MigrateDecideProjectItemOptions): Pro
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `target` | `string` | Yes | Migrated WinUI project directory containing migration-report.json. |
-| `evidenceFile` | `string \| string[] \| undefined` | No | Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files. |
-| `item` | `string \| undefined` | No | Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted. |
-| `rationale` | `string \| undefined` | No | Concise explanation of why this deterministic strategy preserves the source item. |
-| `strategy` | `string \| undefined` | No | Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated. |
+| `item` | `string` | Yes | Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted. |
+| `strategy` | `string` | Yes | Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated. |
+| `rationale` | `string` | Yes | Concise explanation of why this deterministic strategy preserves the source item. |
+| `evidenceFile` | `string \| string[] \| undefined` | No | Target-relative project/props/targets file that participates in the target build and contains matching item evidence. Repeat for multiple files. |
 | `targetItemType` | `string \| undefined` | No | Target MSBuild item type when an explicit item is required: Content or PRIResource. |
 | `targetPath` | `string \| undefined` | No | Literal target-relative file path that represents the source item. |
 
@@ -1916,10 +1916,10 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `target` | `string` | Yes | Migrated WinUI project directory containing migration-report.json. |
-| `evidenceFile` | `string \| string[] \| undefined` | No | Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files. |
-| `item` | `string \| undefined` | No | Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted. |
-| `rationale` | `string \| undefined` | No | Concise explanation of why this deterministic strategy preserves the source item. |
-| `strategy` | `string \| undefined` | No | Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated. |
+| `item` | `string` | Yes | Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted. |
+| `strategy` | `string` | Yes | Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated. |
+| `rationale` | `string` | Yes | Concise explanation of why this deterministic strategy preserves the source item. |
+| `evidenceFile` | `string \| string[] \| undefined` | No | Target-relative project/props/targets file that participates in the target build and contains matching item evidence. Repeat for multiple files. |
 | `targetItemType` | `string \| undefined` | No | Target MSBuild item type when an explicit item is required: Content or PRIResource. |
 | `targetPath` | `string \| undefined` | No | Literal target-relative file path that represents the source item. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
