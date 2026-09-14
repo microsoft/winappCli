@@ -31,6 +31,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
     internal static Func<UiAutomationService, UiTarget, UiSelector, UiElement?> s_findElementOnOtherWindows = (service, uiTarget, selector) => service.FindElementOnOtherWindowsCore(uiTarget, selector);
     internal static Func<IUIAutomationElement, IUIAutomationCondition, IUIAutomationElementArray?> s_findAllDescendants =
         (root, condition) => root.FindAll(TreeScope.TreeScope_Descendants, condition);
+    internal static Func<UiAutomationService, IUIAutomationTreeWalker> s_getControlViewWalker =
+        service => service._automation.get_ControlViewWalker();
     internal static Func<UiAutomationService, IUIAutomationElement, string, int, List<IUIAutomationElement>> s_manualTreeSearch = (service, root, query, maxResults) => service.ManualTreeSearchCore(root, query, maxResults);
     internal static Func<UiAutomationService, IUIAutomationElement, IUIAutomationElement, IUIAutomationElement?> s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getFocusedElement = service => service._automation.GetFocusedElement();
@@ -46,6 +48,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_getAllAppWindows = (service, uiTarget) => service.GetAllAppWindowsCore(uiTarget);
         s_findElementOnOtherWindows = (service, uiTarget, selector) => service.FindElementOnOtherWindowsCore(uiTarget, selector);
         s_findAllDescendants = (root, condition) => root.FindAll(TreeScope.TreeScope_Descendants, condition);
+        s_getControlViewWalker = service => service._automation.get_ControlViewWalker();
         s_manualTreeSearch = (service, root, query, maxResults) => service.ManualTreeSearchCore(root, query, maxResults);
         s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
         s_getFocusedElement = service => service._automation.GetFocusedElement();
@@ -1652,7 +1655,7 @@ return Task.FromResult<UiElement?>(null);
 
     private List<IUIAutomationElement> ManualTreeSearchCore(IUIAutomationElement root, string query, int maxResults)
     {
-        var walker = _automation.get_ControlViewWalker();
+        var walker = s_getControlViewWalker(this);
         var results = new List<IUIAutomationElement>();
         if (maxResults <= 0)
         {
@@ -1660,39 +1663,23 @@ return Task.FromResult<UiElement?>(null);
         }
 
         var pending = new Stack<IUIAutomationElement>();
-        try
-        {
-            var firstChild = walker.GetFirstChildElement(root);
-            if (firstChild is not null)
-            {
-                pending.Push(firstChild);
-            }
-        }
-        catch { }
+        TryPushTraversalElement(
+            () => walker.GetFirstChildElement(root),
+            pending,
+            "first child of the search root");
 
         while (pending.Count > 0 && results.Count < maxResults)
         {
             var element = pending.Pop();
 
-            try
-            {
-                var sibling = walker.GetNextSiblingElement(element);
-                if (sibling is not null)
-                {
-                    pending.Push(sibling);
-                }
-            }
-            catch { }
-
-            try
-            {
-                var child = walker.GetFirstChildElement(element);
-                if (child is not null)
-                {
-                    pending.Push(child);
-                }
-            }
-            catch { }
+            TryPushTraversalElement(
+                () => walker.GetNextSiblingElement(element),
+                pending,
+                "next sibling");
+            TryPushTraversalElement(
+                () => walker.GetFirstChildElement(element),
+                pending,
+                "first child");
 
             var name = SafeGetBstr(() => element.get_CurrentName());
             var aid = SafeGetBstr(() => element.get_CurrentAutomationId());
@@ -1704,6 +1691,25 @@ return Task.FromResult<UiElement?>(null);
         }
 
         return results;
+    }
+
+    private void TryPushTraversalElement(
+        Func<IUIAutomationElement?> getElement,
+        Stack<IUIAutomationElement> pending,
+        string relationship)
+    {
+        try
+        {
+            var element = getElement();
+            if (element is not null)
+            {
+                pending.Push(element);
+            }
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException)
+        {
+            _logger.LogDebug("UIA Control View traversal could not read {Relationship}: {Message}", relationship, ex.Message);
+        }
     }
 
     /// <summary>

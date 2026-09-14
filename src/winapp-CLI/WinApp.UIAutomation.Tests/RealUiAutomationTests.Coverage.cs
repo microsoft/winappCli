@@ -185,6 +185,47 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task SearchAsync_ManualTraversalFindsMatchDeeperThanFormerDepthLimit()
+    {
+        const int deepestIndex = 30;
+        var svc = NewService();
+        var uiTarget = new UiTarget
+        {
+            ProcessId = Environment.ProcessId,
+            ProcessName = "deep-tree",
+            WindowHandle = 123,
+            IsExplicitWindow = true,
+        };
+        var nodes = Enumerable.Range(0, deepestIndex + 1)
+            .Select(index => AutomationElement(
+                index == deepestIndex ? "deep-target" : $"node-{index}",
+                index == deepestIndex ? "Deep Target" : $"Node {index}"))
+            .ToArray();
+        var children = Enumerable.Range(0, deepestIndex)
+            .ToDictionary(index => nodes[index], index => nodes[index + 1]);
+        var walker = ComProxy<IUIAutomationTreeWalker>((method, args) => method.Name switch
+        {
+            "GetFirstChildElement" => children.GetValueOrDefault((IUIAutomationElement)args![0]!),
+            "GetNextSiblingElement" => null,
+            _ => ThrowCom(),
+        });
+
+        UiAutomationService.s_getRootElement = (_, _) => nodes[0];
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+        UiAutomationService.s_getControlViewWalker = _ => walker;
+        UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "deep-target" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("deep-target", results[0].AutomationId);
+    }
+
+    [TestMethod]
     public async Task OtherWindowSubstringDisambiguation_PrefersOnlyInvokableMatch()
     {
         using var fx = new UiaTestFixture();
@@ -1075,6 +1116,22 @@ public partial class RealUiAutomationTests
         {
             "get_Length" => elements.Length,
             "GetElement" => elements[(int)args![0]!],
+            _ => ThrowCom(),
+        });
+
+    private static IUIAutomationElement AutomationElement(string automationId, string name)
+        => ComProxy<IUIAutomationElement>((method, _) => method.Name switch
+        {
+            "FindAll" => ElementArray(),
+            "get_CurrentAutomationId" => StringBstr(automationId),
+            "get_CurrentName" => StringBstr(name),
+            "get_CurrentClassName" => EmptyBstr(),
+            "get_CurrentControlType" => UIA_CONTROLTYPE_ID.UIA_TextControlTypeId,
+            "get_CurrentBoundingRectangle" => new RECT { left = 1, top = 2, right = 11, bottom = 12 },
+            "get_CurrentIsEnabled" => new BOOL(true),
+            "get_CurrentIsOffscreen" => new BOOL(false),
+            "GetCurrentPattern" => null,
+            "GetRuntimeId" => ThrowCom(),
             _ => ThrowCom(),
         });
 
