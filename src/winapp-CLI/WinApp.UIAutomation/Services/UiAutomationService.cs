@@ -21,6 +21,8 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// </remarks>
 internal sealed partial class UiAutomationService : IUiAutomation
 {
+    private const int UiaElementNotAvailable = unchecked((int)0x80040201);
+
     private readonly ILogger<UiAutomationService> _logger;
     private readonly IUIAutomation _automation;
     private readonly IUiSelectorParser _selectorParser;
@@ -1370,9 +1372,9 @@ return Task.FromResult<UiElement?>(null);
         {
             try
             {
-                _ = context.AutomationElement.get_CurrentProcessId();
+                _ = s_getElementProcessId(context.AutomationElement);
             }
-            catch (System.Runtime.InteropServices.COMException ex)
+            catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == UiaElementNotAvailable)
             {
                 throw new InvalidOperationException(
                     $"Element {element.Id} is stale. Re-run 'inspect' or 'search'.",

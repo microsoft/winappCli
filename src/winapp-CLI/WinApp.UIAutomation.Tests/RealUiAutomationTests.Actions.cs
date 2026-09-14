@@ -161,6 +161,24 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task RetainedElement_NonStaleProviderError_PropagatesUnchanged()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var element = await ResolveAsync(svc, uiTarget, "txtValue");
+        var providerError = new System.Runtime.InteropServices.COMException(
+            "Provider access denied.",
+            unchecked((int)0x80070005));
+        UiAutomationService.s_getElementProcessId = _ => throw providerError;
+
+        var actual = await Assert.ThrowsExactlyAsync<System.Runtime.InteropServices.COMException>(
+            () => svc.GetTextAsync(uiTarget, element, CancellationToken.None));
+
+        Assert.AreSame(providerError, actual);
+    }
+
+    [TestMethod]
     public async Task InvokeAsync_StaleElement_ThrowsAfterWindowClosed()
     {
         var svc = NewService();
