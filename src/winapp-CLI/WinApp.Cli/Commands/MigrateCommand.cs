@@ -126,13 +126,16 @@ internal partial class MigrateCommand : Command, IShortDescription
         };
     }
 
-    public MigrateCommand(MigrateVerifyCommand verifyCommand)
+    public MigrateCommand(
+        MigrateVerifyCommand verifyCommand,
+        MigrateProjectItemDecisionCommand projectItemDecisionCommand)
         : base("migrate", "Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.")
     {
         Arguments.Add(SourceArgument);
         Options.Add(OutputOption);
         Options.Add(NameOption);
         Subcommands.Add(verifyCommand);
+        Subcommands.Add(projectItemDecisionCommand);
     }
 
     public partial class Handler(IDotNetService dotNetService, ILogger<MigrateCommand> logger) : AsynchronousCommandLineAction

@@ -151,6 +151,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiYieldCommand, UiYieldCommand.Handler>()
                 // Migration commands
                 .UseCommandHandler<MigrateVerifyCommand, MigrateVerifyCommand.Handler>()
+                .UseCommandHandler<MigrateProjectItemDecisionCommand, MigrateProjectItemDecisionCommand.Handler>()
                 .UseCommandHandler<MigrateCommand, MigrateCommand.Handler>()
                 .ConfigureCommand<CompleteCommand>();
     }

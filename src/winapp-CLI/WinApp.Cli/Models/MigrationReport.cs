@@ -36,6 +36,9 @@ internal sealed class MigrationReport
     [JsonPropertyName("activationAnalysis")]
     public MigrationActivationAnalysis ActivationAnalysis { get; set; } = new();
 
+    [JsonPropertyName("projectItemDecisions")]
+    public List<MigrationProjectItemDecision> ProjectItemDecisions { get; set; } = [];
+
     [JsonPropertyName("mechanicalVerification")]
     public MigrationMechanicalVerification MechanicalVerification { get; set; } = new();
 
@@ -347,6 +350,12 @@ internal sealed class MigrationProjectItemVerification
 
     [JsonPropertyName("missingTargetItems")]
     public List<MigrationLocation> MissingTargetItems { get; set; } = [];
+
+    [JsonPropertyName("reviewRequiredItems")]
+    public List<MigrationReviewRequiredProjectItem> ReviewRequiredItems { get; set; } = [];
+
+    [JsonPropertyName("verifiedDecisionItems")]
+    public int VerifiedDecisionItems { get; set; }
 }
 
 internal sealed class MigrationProjectItem
@@ -359,6 +368,102 @@ internal sealed class MigrationProjectItem
 
     [JsonPropertyName("requiresProjectEntry")]
     public bool RequiresProjectEntry { get; set; }
+}
+
+internal sealed class MigrationReviewRequiredProjectItem
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("sourceProject")]
+    public required string SourceProject { get; set; }
+
+    [JsonPropertyName("sourceLocation")]
+    public required MigrationLocation SourceLocation { get; set; }
+
+    [JsonPropertyName("itemType")]
+    public required string ItemType { get; set; }
+
+    [JsonPropertyName("include")]
+    public required string Include { get; set; }
+
+    [JsonPropertyName("link")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Link { get; set; }
+
+    [JsonPropertyName("condition")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Condition { get; set; }
+
+    [JsonPropertyName("parentCondition")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ParentCondition { get; set; }
+
+    [JsonPropertyName("metadata")]
+    public List<MigrationProjectItemMetadata> Metadata { get; set; } = [];
+
+    [JsonPropertyName("reviewReason")]
+    public required string ReviewReason { get; set; }
+}
+
+internal sealed class MigrationProjectItemMetadata
+{
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    [JsonPropertyName("value")]
+    public required string Value { get; set; }
+}
+
+internal sealed class MigrationProjectItemDecision
+{
+    [JsonPropertyName("itemId")]
+    public required string ItemId { get; set; }
+
+    [JsonPropertyName("strategy")]
+    public required string Strategy { get; set; }
+
+    [JsonPropertyName("targetPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetPath { get; set; }
+
+    [JsonPropertyName("targetItemType")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetItemType { get; set; }
+
+    [JsonPropertyName("evidenceFiles")]
+    public List<string> EvidenceFiles { get; set; } = [];
+
+    [JsonPropertyName("rationale")]
+    public required string Rationale { get; set; }
+
+    [JsonPropertyName("verification")]
+    public MigrationProjectItemDecisionVerification Verification { get; set; } = new();
+}
+
+internal sealed class MigrationProjectItemDecisionVerification
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "not-run";
+
+    [JsonPropertyName("reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Reason { get; set; }
+
+    [JsonPropertyName("projectEvidence")]
+    public List<MigrationLocation> ProjectEvidence { get; set; } = [];
+
+    [JsonPropertyName("sourceSha256")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceSha256 { get; set; }
+
+    [JsonPropertyName("targetSha256")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetSha256 { get; set; }
+
+    [JsonPropertyName("contentMatches")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? ContentMatches { get; set; }
 }
 
 internal sealed class MigrationValidation

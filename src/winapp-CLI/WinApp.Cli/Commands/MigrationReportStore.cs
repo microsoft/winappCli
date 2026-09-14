@@ -89,10 +89,18 @@ internal static class MigrationReportStore
         report.Todos ??= [];
         report.DependencyAnalysis ??= new MigrationDependencyAnalysis();
         report.ActivationAnalysis ??= new MigrationActivationAnalysis();
+        report.ProjectItemDecisions ??= [];
         report.MechanicalVerification ??= new MigrationMechanicalVerification();
         report.MechanicalVerification.Inventory ??= new MigrationFileInventory();
         report.MechanicalVerification.ProjectItems ??= new MigrationProjectItemVerification();
         report.MechanicalVerification.ActivationContracts ??= new MigrationActivationVerification();
+        report.MechanicalVerification.ProjectItems.ReviewRequiredItems ??= [];
+        foreach (var decision in report.ProjectItemDecisions)
+        {
+            decision.EvidenceFiles ??= [];
+            decision.Verification ??= new MigrationProjectItemDecisionVerification();
+            decision.Verification.ProjectEvidence ??= [];
+        }
         report.Validation ??= new MigrationValidation();
         report.Validation.SourceBaseline ??= new MigrationValidationPhase
         {
