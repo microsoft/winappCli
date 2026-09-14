@@ -23,6 +23,7 @@ internal partial class PackageCommand : Command, IShortDescription
     public static Option<FileInfo> CertOption { get; }
     public static Option<string> CertPasswordOption { get; }
     public static Option<bool> GenerateCertOption { get; }
+    public static Option<bool> NoSignOption { get; }
     public static Option<bool> InstallCertOption { get; }
     public static Option<string?> PublisherOption { get; }
     public static Option<FileInfo> ManifestOption { get; }
@@ -32,7 +33,6 @@ internal partial class PackageCommand : Command, IShortDescription
     // Project-mode options (mirrors winapp run; inert unless the input is a .csproj).
     public static Option<string> ConfigurationOption { get; }
     public static Option<string?> ArchOption { get; }
-    public static Option<string?> RuntimeOption { get; }
     public static Option<string?> FrameworkOption { get; }
     public static Option<bool> NoBuildOption { get; }
     public static Option<bool> NoRestoreOption { get; }
@@ -72,6 +72,10 @@ internal partial class PackageCommand : Command, IShortDescription
         {
             Description = "Generate a new development certificate"
         };
+        NoSignOption = new Option<bool>("--no-sign")
+        {
+            Description = "Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert."
+        };
         InstallCertOption = new Option<bool>("--install-cert")
         {
             Description = "Install certificate to machine"
@@ -106,12 +110,6 @@ internal partial class PackageCommand : Command, IShortDescription
         {
             Description = "Project mode: target architecture (x64, arm64, or x86). Ignored for folder/bundle/manifest inputs. Default: the current process architecture."
         };
-
-        RuntimeOption = new Option<string?>("--runtime")
-        {
-            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Uses only the RID's architecture, rejects non-Windows RIDs, and overrides --arch. Ignored for folder/bundle/manifest inputs."
-        };
-        RuntimeOption.Aliases.Add("-r");
 
         FrameworkOption = new Option<string?>("--framework")
         {
@@ -149,6 +147,7 @@ internal partial class PackageCommand : Command, IShortDescription
         Options.Add(CertOption);
         Options.Add(CertPasswordOption);
         Options.Add(GenerateCertOption);
+        Options.Add(NoSignOption);
         Options.Add(InstallCertOption);
         Options.Add(PublisherOption);
         Options.Add(ManifestOption);
@@ -156,7 +155,6 @@ internal partial class PackageCommand : Command, IShortDescription
         Options.Add(ExecutableOption);
         Options.Add(ConfigurationOption);
         Options.Add(ArchOption);
-        Options.Add(RuntimeOption);
         Options.Add(FrameworkOption);
         Options.Add(NoBuildOption);
         Options.Add(NoRestoreOption);

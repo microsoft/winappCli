@@ -785,14 +785,14 @@ export interface PackageOptions extends CommonOptions {
   noBuild?: boolean;
   /** Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs. */
   noRestore?: boolean;
+  /** Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. */
+  noSign?: boolean;
   /** Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. */
   output?: string;
   /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Set configuration, RID, and framework with -c, -r, and -f (a -p Configuration/RuntimeIdentifier/TargetFramework is dropped so build and evaluation stay in sync). Ignored for folder/bundle/manifest inputs. */
   property?: string | string[];
   /** Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
-  /** Project mode: target .NET runtime identifier (RID), e.g. win-x64. Uses only the RID's architecture, rejects non-Windows RIDs, and overrides --arch. Ignored for folder/bundle/manifest inputs. */
-  runtime?: string;
   /** Bundle Windows App SDK runtime for self-contained deployment */
   selfContained?: boolean;
   /** Skip PRI file generation */
@@ -818,13 +818,13 @@ export async function packageApp(options: PackageOptions): Promise<WinappResult>
   if (options.name) args.push('--name', options.name);
   if (options.noBuild) args.push('--no-build');
   if (options.noRestore) args.push('--no-restore');
+  if (options.noSign) args.push('--no-sign');
   if (options.output) args.push('--output', options.output);
   if (options.property) {
     const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
     for (const v of propertyArr) args.push('--property', v);
   }
   if (options.publisher) args.push('--publisher', options.publisher);
-  if (options.runtime) args.push('--runtime', options.runtime);
   if (options.selfContained) args.push('--self-contained');
   if (options.skipPri) args.push('--skip-pri');
   return execCommand(args, options);

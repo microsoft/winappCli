@@ -52,22 +52,44 @@ internal partial class MsixService
                 finalMsixPath.Directory.Create();
             }
 
-            // The SDK package is already a complete artifact, so delivery is a copy (overwrite per the
-            // existing pack policy), never a repackage.
-            File.Copy(producedMsix.FullName, finalMsixPath.FullName, overwrite: true);
-            taskContext.AddDebugMessage($"{UiSymbols.Package} Delivered native package to {finalMsixPath.FullName}");
-
-            var signed = false;
-            if (autoSign)
+            // Stage → sign → atomic replace: build the artifact at a sibling temp path (same directory, so
+            // the final move is atomic) and move it over the destination only after signing succeeds. A
+            // sign/validation failure therefore never clobbers an existing artifact (spec §5/§11). The SDK
+            // package is already complete, so staging is a copy, never a repackage.
+            var stagingMsix = new FileInfo($"{finalMsixPath.FullName}.winapp-{Guid.NewGuid():N}.tmp");
+            File.Copy(producedMsix.FullName, stagingMsix.FullName, overwrite: true);
+            try
             {
-                await SignMsixPackageAsync(
-                    finalMsixPath.Directory!, certPassword, generateDevCert, installDevCert,
-                    Path.GetFileNameWithoutExtension(finalMsixPath.Name), extractedPublisher,
-                    finalMsixPath, certPath, manifestTemp, taskContext, cancellationToken);
-                signed = true;
-            }
+                var signed = false;
+                if (autoSign)
+                {
+                    await SignMsixPackageAsync(
+                        finalMsixPath.Directory!, certPassword, generateDevCert, installDevCert,
+                        Path.GetFileNameWithoutExtension(finalMsixPath.Name), extractedPublisher,
+                        stagingMsix, certPath, manifestTemp, taskContext, cancellationToken);
+                    signed = true;
+                }
 
-            return new CreateMsixPackageResult(finalMsixPath, signed);
+                File.Move(stagingMsix.FullName, finalMsixPath.FullName, overwrite: true);
+                taskContext.AddDebugMessage($"{UiSymbols.Package} Delivered native package to {finalMsixPath.FullName}");
+                return new CreateMsixPackageResult(finalMsixPath, signed);
+            }
+            catch
+            {
+                try
+                {
+                    stagingMsix.Refresh();
+                    if (stagingMsix.Exists)
+                    {
+                        stagingMsix.Delete();
+                    }
+                }
+                catch
+                {
+                    // Best-effort cleanup of the staged (unpublished) artifact.
+                }
+                throw;
+            }
         }
         finally
         {

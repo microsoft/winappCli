@@ -184,7 +184,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `--skip-pri` — skip PRI resource file generation
 **Project mode (a single `.csproj` input):** builds the project, then packages its output.
   `winapp package ./MyApp.csproj -c Release --cert ./devcert.pfx`
-  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged.
+  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged.
 **Bundle usage:** Pass multiple folders to create a bundle:
   `winapp pack ./publish/x64 ./publish/arm64`
   Each folder's architecture is auto-detected from the executable PE header.

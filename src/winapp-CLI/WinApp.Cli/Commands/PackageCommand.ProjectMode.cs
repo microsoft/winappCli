@@ -50,7 +50,6 @@ internal partial class PackageCommand
             // Project-mode build inputs.
             var configuration = parseResult.GetValue(ConfigurationOption) ?? "Release";
             var archOption = parseResult.GetValue(ArchOption);
-            var runtimeOption = parseResult.GetValue(RuntimeOption);
             var noBuild = parseResult.GetValue(NoBuildOption);
             var noRestore = parseResult.GetValue(NoRestoreOption);
             var properties = parseResult.GetValue(PropertyOption) ?? [];
@@ -62,6 +61,13 @@ internal partial class PackageCommand
             var certPath = parseResult.GetValue(CertOption);
             var certPassword = parseResult.GetRequiredValue(CertPasswordOption);
             var generateCert = parseResult.GetValue(GenerateCertOption);
+            var noSign = parseResult.GetValue(NoSignOption);
+            // Signing is resolved to one policy: --no-sign explicitly requests an unsigned artifact and is
+            // mutually exclusive with an explicit signing request (spec §6), not last-one-wins.
+            if (noSign && (certPath != null || generateCert))
+            {
+                return Fail("--no-sign cannot be combined with --cert or --generate-cert.");
+            }
             var installCert = parseResult.GetValue(InstallCertOption);
             var publisher = parseResult.GetValue(PublisherOption);
             var manifestPath = parseResult.GetValue(ManifestOption);
@@ -97,8 +103,22 @@ internal partial class PackageCommand
                 return Fail(propertyError);
             }
 
-            // Resolve the target architecture: --runtime's arch beats --arch; else the process arch.
-            if (!RunArchHelper.TryResolveArchitecture(archOption, runtimeOption, out var architecture, out var archError))
+            // AppxPackageDir is winapp's internal package-staging location; the public destination selector
+            // is --output. Reject a competing -p AppxPackageDir rather than silently overriding it.
+            if (properties.Any(p => p.StartsWith("AppxPackageDir=", StringComparison.OrdinalIgnoreCase)))
+            {
+                return Fail("-p AppxPackageDir is not supported. Use --output to choose the package destination.");
+            }
+
+            // --arch is the dedicated target selector. A simultaneous explicit -p RuntimeIdentifier is a
+            // conflicting target selection (a -p RuntimeIdentifier alone remains an advanced exact-RID override).
+            if (archOption != null && properties.Any(p => p.StartsWith("RuntimeIdentifier=", StringComparison.OrdinalIgnoreCase)))
+            {
+                return Fail("--arch conflicts with an explicit -p RuntimeIdentifier. Use --arch alone to select the architecture, or pass -p RuntimeIdentifier alone for an exact-RID override.");
+            }
+
+            // Resolve the target architecture from --arch; else the current process architecture.
+            if (!RunArchHelper.TryResolveArchitecture(archOption, runtimeOption: null, out var architecture, out var archError))
             {
                 return Fail(archError!);
             }
@@ -162,10 +182,17 @@ internal partial class PackageCommand
                 packageStagingDir.Create();
                 try
                 {
+                    // --self-contained sets WindowsAppSDKSelfContained=true BEFORE publish so the SDK bundles
+                    // the Windows App SDK runtime into the package (spec §4/§7). Unlike the generic path, there
+                    // is no post-publish runtime injection — the SDK owns it. Absence leaves the project setting.
+                    var nativeOptions = selfContainedFlag
+                        ? buildOptions with { Properties = [.. properties, "WindowsAppSDKSelfContained=true"] }
+                        : buildOptions;
+
                     NativeMsixPublishOutcome nativeOutcome;
                     try
                     {
-                        nativeOutcome = await projectRunService.PublishNativeMsixAsync(csproj, buildOptions, packageStagingDir, cancellationToken);
+                        nativeOutcome = await projectRunService.PublishNativeMsixAsync(csproj, nativeOptions, packageStagingDir, cancellationToken);
                     }
                     catch (ProjectRunException ex)
                     {
@@ -178,7 +205,7 @@ internal partial class PackageCommand
                         return nativeOutcome.ExitCode == 0 ? 1 : nativeOutcome.ExitCode;
                     }
 
-                    var nativeAutoSign = certPath != null || generateCert;
+                    var nativeAutoSign = (certPath != null || generateCert) && !noSign;
                     return await statusService.ExecuteWithStatusAsync("Delivering MSIX package...", async (taskContext, ct) =>
                     {
                         try
@@ -300,7 +327,7 @@ internal partial class PackageCommand
             {
                 try
                 {
-                    var autoSign = certPath != null || generateCert;
+                    var autoSign = (certPath != null || generateCert) && !noSign;
 
                     var result = await msixService.CreateMsixPackageAsync(
                         targetDir, output, taskContext, name, skipPri, autoSign, certPath, certPassword,

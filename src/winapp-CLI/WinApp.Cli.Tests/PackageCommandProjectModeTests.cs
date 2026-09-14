@@ -211,6 +211,64 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_RejectsAppxPackageDirProperty()
+    {
+        // AppxPackageDir is winapp's internal staging location; the public selector is --output.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "AppxPackageDir=C:\\out"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "-p AppxPackageDir must be rejected before packaging");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_ArchWithRuntimeIdentifierProperty_Conflicts()
+    {
+        // --arch is the dedicated selector; a simultaneous explicit -p RuntimeIdentifier is a conflict.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "arm64", "-p", "RuntimeIdentifier=win-x64"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A conflicting target selection must be rejected before packaging");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_NoSignWithCert_Conflicts()
+    {
+        var csproj = CreateCsproj();
+        var cert = new FileInfo(Path.Join(_tempDirectory.FullName, "dev.pfx"));
+        File.WriteAllText(cert.FullName, "x");
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--no-sign", "--cert", cert.FullName]);
+
+        Assert.AreEqual(1, exitCode, "--no-sign and --cert are mutually exclusive");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_NativeSelfContained_InjectsWindowsAppSdkSelfContained()
+    {
+        var csproj = CreateCsproj();
+        var produced = new FileInfo(Path.Join(_tempDirectory.FullName, "App_1.0.0.0_arm64.msix"));
+        File.WriteAllText(produced.FullName, "msix");
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.NativeMsixOutcome = new NativeMsixPublishOutcome(produced, 0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--self-contained"]);
+
+        Assert.AreEqual(0, exitCode);
+        // The native publish options must carry the self-contained property so the SDK bundles the runtime.
+        var options = _fakeProjectRunService.BuildOptions[^1];
+        CollectionAssert.Contains(options.Properties.ToList(), "WindowsAppSDKSelfContained=true");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_DefaultsToReleaseConfiguration()
     {
         var csproj = CreateCsproj();

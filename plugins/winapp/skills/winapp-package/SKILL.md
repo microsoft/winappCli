@@ -33,8 +33,8 @@ winapp package ./MyApp.csproj --no-build
 ```
 
 Project mode is triggered only by an explicit `.csproj`. It publishes the project — so trimmed or
-self-contained apps package what actually ships — with the same options as `winapp run`
-(`-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`,
+self-contained apps package what actually ships — with the build options
+(`-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`,
 repeatable `-p`), defaults to the **Release** configuration, resolves the published output, and
 packages it. If the project publishes as an unpackaged app (`WindowsPackageType=None`) there is no
 manifest to package and the command errors. Folder, bundle, and sparse-manifest inputs are unchanged.

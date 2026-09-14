@@ -2434,6 +2434,19 @@
           "required": false,
           "recursive": false
         },
+        "--no-sign": {
+          "description": "Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert.",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
         "--output": {
           "description": "Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles.",
           "hidden": false,
@@ -2483,21 +2496,6 @@
           "defaultValue": false,
           "arity": {
             "minimum": 0,
-            "maximum": 1
-          },
-          "required": false,
-          "recursive": false
-        },
-        "--runtime": {
-          "description": "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Uses only the RID's architecture, rejects non-Windows RIDs, and overrides --arch. Ignored for folder/bundle/manifest inputs.",
-          "hidden": false,
-          "aliases": [
-            "-r"
-          ],
-          "valueType": "System.String",
-          "hasDefaultValue": false,
-          "arity": {
-            "minimum": 1,
             "maximum": 1
           },
           "required": false,
