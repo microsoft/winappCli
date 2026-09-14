@@ -74,3 +74,17 @@ function Get-MsLearnTopic {
     if ($Content -match '<!--\s*ms\.topic:\s*(.+?)\s*-->') { return $Matches[1].Trim() }
     return $Default
 }
+
+# Matches one Markdown inline code span. A span opens with a run of N backticks
+# and closes with the next run of exactly N, so a span that must contain a
+# literal backtick is written with a longer run: `` IAsyncOperation`1 ``.
+# Matching only single-backtick spans pairs that opening run's two backticks
+# with unrelated backticks further on, and every backtick after it then pairs
+# one position out — which silently swallows whole paragraphs, and any links
+# inside them, into a "code span" the link rewriter never sees.
+$script:MsLearnInlineCodePattern = '(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)'
+
+function Get-MsLearnInlineCodePattern {
+    # The inline-code span pattern, exposed so the generator and its tests share one rule.
+    return $script:MsLearnInlineCodePattern
+}

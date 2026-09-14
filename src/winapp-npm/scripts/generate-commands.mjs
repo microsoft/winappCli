@@ -187,6 +187,12 @@ function flattenCommands(node, parentPath = []) {
     const cmdPath = [...parentPath, name];
 
     if (cmd.subcommands && Object.keys(cmd.subcommands).length > 0) {
+      // A branch node that is itself invokable (declares positional arguments,
+      // e.g. `find-api <query>`) must be emitted as its own command in addition
+      // to its subcommands, or the bare form gets no wrapper.
+      if (cmd.arguments && Object.keys(cmd.arguments).length > 0) {
+        results.push({ path: cmdPath, cmd });
+      }
       results.push(...flattenCommands(cmd, cmdPath));
     } else {
       results.push({ path: cmdPath, cmd });

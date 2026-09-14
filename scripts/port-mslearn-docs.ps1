@@ -345,9 +345,12 @@ foreach ($entry in $FileMapping.GetEnumerator()) {
         return "%%CODEBLOCK_${idx}%%"
     })
 
-    # Protect inline code spans from placeholder escaping and URL rewriting
+    # Protect inline code spans from placeholder escaping and URL rewriting.
+    # The span rule lives in mslearn-doc-lib.ps1 so this generator and its tests
+    # cannot drift on it; see the comment there for why a naive single-backtick
+    # pattern silently swallows paragraphs.
     $inlineCode = [System.Collections.Generic.List[string]]::new()
-    $content = [regex]::Replace($content, '(`[^`]+`)', {
+    $content = [regex]::Replace($content, (Get-MsLearnInlineCodePattern), {
         param($match)
         $idx = $inlineCode.Count
         $inlineCode.Add($match.Value)

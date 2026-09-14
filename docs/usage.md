@@ -1535,6 +1535,8 @@ winapp get-winapp-path [options]
 
 ### find-ui
 
+> **Agent-first.** `find-ui` is built primarily for AI coding agents — it lets an agent pull real, compiling WinUI markup from the shipping galleries instead of inventing it, and `--json` makes every result (and every failure) machine-readable. It works just as well typed by hand.
+
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
 
 ```bash
@@ -1578,6 +1580,131 @@ winapp find-ui "color picker" --json
 winapp find-ui --list
 winapp find-ui "navigation view" --refresh
 ```
+
+**Related:** `find-ui` searches WinUI *samples*; use [`find-api`](#find-api) to search the *API surface* (types, members, enums) a project references, and `winapp ui search` to search a *running app's* UI tree.
+
+---
+
+### find-api
+
+> **Agent-first.** `find-api` is built primarily for AI coding agents — it grounds generated code in the API surface a project actually references instead of the model's recollection of it, and `--json` plus non-zero exit codes on missing symbols let an agent gate codegen on the answer. It works just as well typed by hand.
+
+Search and inspect the Windows/WinRT API surface (types, members, enums, namespaces) available to a project, resolved from its referenced `.winmd`/`.dll` metadata. The bare form searches; sub-verbs drill into a specific type, namespace, or the index itself.
+
+```bash
+winapp find-api "<query>" [options]
+winapp find-api [command] [options]
+```
+
+The index is built from the project's restored NuGet/SDK packages (via `project.assets.json`) on first use and refreshed automatically when the project is restored. It lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects. Restore the project first (`winapp restore` or `dotnet restore`).
+
+Each match is listed under its namespace with the package that ships it and a one-line summary of what it does, so a result is usable without a second `members` call:
+
+```text
+[40] Microsoft.UI.Xaml.Media
+    Class Microsoft.UI.Xaml.Media.AcrylicBrush  [Microsoft.WindowsAppSDK.WinUI 1.8.260224000]
+        Paints an area with a semi-transparent material that uses multiple effects including blur and a noise texture.
+```
+
+Add `--verbose` to also print the on-disk cache file backing each namespace, which is useful when diagnosing a stale or unexpected index.
+
+Running `winapp find-api` with no query at all prints a short usage summary and exits `0` — it is a request for help, not a search that found nothing.
+
+**Scopes.** Every answer comes from exactly one scope, reported as `scope` in `--json` and as a note in text output:
+
+- **`project`** - the project in the current directory (or `--project` / `--project-dir`). Covers the Windows SDK, the Windows App SDK, *and* the project's own NuGet packages. The Windows App SDK metadata is the release the project **references**: if the machine has a newer Windows App Runtime installed, `find-api` warns and leaves it out rather than confirming types the project cannot compile against.
+- **`sdk`** - the machine-wide Windows SDK + Windows App SDK metadata, used automatically when the current directory contains **no project and no solution**. This makes `find-api` usable for exploring APIs before any project exists, and needs no network access. It deliberately does **not** include third-party NuGet packages, so a type from (say) the Community Toolkit will not be found in this scope.
+
+A query from a directory with no project and no solution is *always* answered by the `sdk` scope - never by whichever project happens to be indexed in the shared cache - so results never depend on unrelated global state. Pass `--project sdk` to select the SDK scope explicitly from inside a project, and `winapp find-api refresh --project sdk` to rebuild it after installing a new Windows SDK.
+
+**Solution directories.** From a directory holding a `.sln`/`.slnx` with no project file beside it, the projects the solution builds answer instead of the `sdk` scope - they are indexed on demand, so their NuGet packages are included. When the solution builds more than one indexed project, the query lists them and asks for `--project <name>` rather than picking one.
+
+**Commands:**
+- *(bare)* `find-api "<query>" ["<query>"...]` - Search type and member names, falling back to their documented summaries, grouped by namespace
+- `members <type> [<type>...] [--filter <text>]` - List a type's properties, events, and methods (declared members with signatures, inherited members summarized by declaring type)
+- `check-property <type> <property> [<property>...]` - Validate properties exist on a type (exits non-zero if any is missing). A **read-only** property is reported with ⚠️ and "read-only, cannot be assigned" rather than a plain ✅, so a property such as `ActualWidth` is not mistaken for something you can set. Property names are matched **case-sensitively**, because C# and XAML are: `check-property Button background` exits non-zero and offers `Background` as a near match rather than reporting a name you cannot actually write.
+- `enums <type> [<type>...] [--filter <text>]` - List an enum's values (exits non-zero when the type is not an enum)
+- `packages` - List the indexed metadata packages, with per-package type/member counts
+- `stats` - Show aggregate index statistics (packages, namespaces, types, members, `.winmd` files)
+- `refresh [--scan]` - Rebuild the index for a project (`--scan` indexes every project under the directory). With `--project <name>`, a name that matches no single indexed project fails instead of indexing the current directory.
+
+**Batching.** `search`, `members`, `enums`, and `check-property` accept **multiple subjects in one invocation**. For an AI agent this is the single biggest cost lever: the marginal cost of a lookup is dominated by the round trip (each call re-sends the whole conversation), not by the size of the payload, so one call answering ten questions is far cheaper than ten calls.
+
+- A **single** subject returns exactly the payload shape it always has, in both text and `--json`.
+- **Two or more** subjects return an envelope — `{ "count": N, "results": [ ... ] }` in `--json`, with each element being the normal single-subject payload; `check-property` adds `missingCount`. Text output renders each subject in sequence under one scope header.
+- `check-property` batches **properties on one type**: the first argument is the type, every argument after it is a property. In batch mode a property that exists prints a single ✅ line; full near-miss detail is printed only for ones that don't.
+- A batch exits `0` only if **every** subject resolved *and* was found — so a batch is still safe to gate codegen on.
+
+**Search ranking.** A query that exactly matches a type name is ranked ahead of partial matches, and when a short name is shared by several namespaces only the exact-name collisions are listed as ambiguous — a query like `NavigationView` reports the handful of namespaces that define that exact type rather than every namespace containing a similarly-named symbol. The ambiguity list obeys `--max`, and normal results are still printed underneath it.
+
+**Type names.** `members`, `check-property`, and `enums` accept a short name (`NavigationView`) or a fully-qualified one (`Microsoft.UI.Xaml.Controls.NavigationView`). When a short name is shared by a modern `Microsoft.*` type and its legacy `Windows.*` UWP twin, the `Microsoft.*` type answers — that is the projection a Windows App SDK app uses — and the resolved fully-qualified name is always shown. Any other collision exits non-zero and lists the candidates instead of guessing.
+
+**Method signatures.** A signature is printed the way you would write the call: a method you call on the type rather than on an instance is shown with `static`, and a by-reference parameter is shown with the keyword it actually needs — `out`, `in`, or `ref`. So `TryGetValue` reads `Boolean TryGetValue(String key, out String value)`, which compiles as written.
+
+**Options:**
+- `--max <n>` - Maximum number of namespace-grouped search results (default `5`; search only). Also caps the ambiguity list, so a short query that collides across many namespaces stays readable.
+- `--filter <text>` - Narrow a listing on `members` and `enums`: a **case-insensitive substring** match on the member/value name. Best used on types with hundreds of members. Most enums are small enough to dump whole (even `Symbol`, the largest in WinUI at 197 values), so filtering them usually costs more than it saves once you factor in a second guess. Never re-run the same command with different filter text — dump once and read it.
+- `--all` - On `members`, list the complete surface: full signatures for inherited members, plus dependency-property identifier statics and per-member descriptions, all of which an unfiltered listing omits (see **Listing size** below). `--verbose` implies it; use `--all` when you also want `--json`, which cannot be combined with `--verbose`.
+- `--scan` - Recursively discover and index every project under the directory (`refresh` only)
+- `--project <name>` - Project to query (matches the `.csproj`/`.vcxproj` name), or `sdk` to query the machine-wide Windows SDK scope
+- `--project-dir <path>` - Project directory to query (defaults to the current directory). A path that does not exist is an error — it is never silently answered from the `sdk` scope.
+- `--json` - Emit a machine-readable payload on stdout (supported by every verb). Query payloads identify the index that answered via `scope` (`project` or `sdk`), `projectName`, and `projectDir` (absent for the SDK scope) — project names are not unique across directories, so `projectDir` is the reliable identity. Under `--json` **every** failure — including argument/parser errors such as a non-integer `--max` — is emitted as a flat `{"error": "..."}` object on stdout with a non-zero exit code, so output stays machine-readable.
+
+**Examples:**
+```bash
+# Search
+winapp find-api "acrylic brush"
+winapp find-api NavigationView --max 10
+
+# Inspect and validate
+winapp find-api members Microsoft.UI.Xaml.Controls.NavigationView
+winapp find-api check-property Button Background
+winapp find-api enums Symbol
+
+# Batch — one call instead of one per subject
+winapp find-api check-property InfoBar Severity IsOpen Message Title
+winapp find-api members InfoBar TeachingTip ContentDialog
+winapp find-api enums InfoBarSeverity Visibility
+winapp find-api "acrylic brush" "teaching tip" --max 5
+
+# Narrow a large type instead of dumping it and grepping
+winapp find-api members Button --filter background
+
+# Full member surface: inherited signatures, dependency-property statics, descriptions
+winapp find-api members Button --all
+
+# Manage the index
+winapp find-api refresh
+
+# Explore the Windows SDK with no project at all (e.g. before scaffolding an app)
+winapp find-api "acrylic brush"          # from an empty directory -> scope: sdk
+winapp find-api members Button --project sdk
+```
+
+When `--filter` is applied, the output still reports the unfiltered total (`totalValues`, or `totalProperties`/`totalEvents`/`totalMethods` in `--json`), so a narrow view is never mistaken for a small API. A filter that matches nothing still exits `0` and says so explicitly — that is "nothing matched your filter", not "no such type".
+
+**Listing size.** An unfiltered `members` listing is the one expensive shape — `members Button` covers 288 members, of which 280 are inherited from 6 base types. An unfiltered call is an *orientation* query ("what is this type, roughly what can it do?"), so it answers that and omits the parts nothing is written from:
+
+- **Inherited member signatures** — inherited members are grouped by declaring type and listed **by name only**, so the shape of the inherited surface is still visible without 280 full signatures.
+- **Dependency-property identifier statics** (`BackgroundProperty`) — 28% of a typical WinUI control's properties. They exist to be passed to `GetValue`/`SetValue`, not assigned.
+- **Per-member descriptions** — the XML-doc prose, roughly 16% of the payload.
+- **Fields implied by their surroundings** in `--json`: `kind` (implied by the containing `properties`/`events`/`methods` array), `returnType` (the leading token of `signature`), and `inherited` when false (implied by `declaringType`).
+
+What was omitted is always reported (`hiddenDependencyProperties`, `descriptionsOmitted`, and a `hint` in `--json`; an "Omitted:" line in text), and totals still describe the whole type. Both `--filter` and `--all` see the complete surface with full signatures and descriptions, so `members Button --filter BackgroundProperty` still finds the identifier and `members Button --filter Click` still returns `Click`'s inherited signature. Measured on `samples/winui-app`, this takes `members Button --json` from 91,954 to 10,567 characters (−88.5%) while leaving `--filter` and `--all` byte-identical.
+
+**How a query is matched.** `winapp find-api "language model"` ranks `LanguageModel` above matches whose words are scattered across namespaces and members, including outside a project when the type is indexed. Search is lexical, not semantic: it matches whole identifier words rather than any run of letters, so `llm` finds `IImageLLMAdapterSession` but not `ScrollMode`. When a query matches no name, it is tried against the documented summaries of types and members, which is what lets `"random-access stream"` find `IRandomAccessStream`. Descriptions rank below every name match, and only summaries the packages actually ship are searchable — a package with no XML documentation contributes no description text.
+
+**Projects without an MSBuild project file.** An Electron app (or any other non-.NET app driven by `winapp.yaml`) has no `.csproj` and therefore no `project.assets.json`. `find-api` indexes it from the `.winapp/winmds.lock.json` that `winapp restore` writes, which records the same thing: each resolved package, its version, and the `.winmd` files it contributes. Such a project is named after its directory, and its index goes stale when the lockfile is rewritten. A directory that holds both a `.csproj` and a `winapp.yaml` is indexed from the `.csproj`, which is the more precise description of what the project compiles against.
+
+**Negative answers are qualified when the index is incomplete.** If a package's metadata could not be read, "no such type" and "that package was never indexed" look identical — and acting on the first when it is really the second generates code against an API you were told does not exist. So every negative answer, including a `search` that returns zero results, carries a note that the index is partial and points at `winapp find-api refresh`. Positive answers are unaffected.
+
+**Generic type names.** Metadata stores generic types with an arity suffix (`` IAsyncOperation`1 ``), which is not how anyone writes them. `members`, `enums`, and `check-property` accept every form: `IAsyncOperation`, `IAsyncOperation<StorageFile>`, and `` IAsyncOperation`1 `` all resolve to the same type. A bare name matches any arity; a stated arity (in either notation) must match, so `Holder<A, B>` will not resolve to a single-parameter `Holder<T>`.
+
+**`--json` payloads omit diagnostics.** Cache file paths appear only under `--verbose` (matching text output, where they were already verbose-only), and empty suggestion arrays are omitted rather than serialized as `[]`.
+
+**Exit codes:** `search` with no hits, `check-property` on a missing property, and `enums` on a non-enum type all exit non-zero — gate code generation and CI checks on them. A batched invocation exits non-zero if *any* subject fails. A read-only property is *not* a failure — it exists, so `check-property` exits `0` and flags it in the output (`writable: false` in `--json`). An `init` property reports `writable: false` for the same reason: it can be set in an object initializer, and its signature says `{ get; init; }`, but assigning it afterwards does not compile.
+
+**Related:** `find-api` answers "does this API exist and what are its members?"; use [`find-ui`](#find-ui) to find a working WinUI sample for a control.
 
 ---
 
@@ -1864,7 +1991,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
 
