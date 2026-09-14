@@ -98,9 +98,12 @@ internal partial class MigrateCommand
                 .Concat(verifiedDecisions.Select(decision =>
                 {
                     var sourceItem = reviewById[decision.ItemId][0];
+                    _ = TryCanonicalizeMigratedProjectItemKind(
+                        decision.TargetItemType ?? sourceItem.ItemType,
+                        out var itemKind);
                     return new MigrationProjectItem
                     {
-                        Kind = decision.TargetItemType ?? sourceItem.ItemType,
+                        Kind = itemKind,
                         Path = decision.TargetPath ?? sourceItem.Link ?? sourceItem.Include,
                         RequiresProjectEntry =
                             decision.Strategy != SdkDefaultItemStrategy
@@ -150,6 +153,15 @@ internal partial class MigrateCommand
                     $"Source item reason '{sourceItem.ReviewReason}' cannot be resolved by a single deterministic target path.";
                 return verification;
             }
+            if (!TryCanonicalizeMigratedProjectItemKind(
+                    sourceItem.ItemType,
+                    out var sourceItemType))
+            {
+                verification.Status = "invalid";
+                verification.Reason =
+                    $"Source item type must be Content or PRIResource; found '{sourceItem.ItemType}'.";
+                return verification;
+            }
 
             var sourceContentAvailable = TryResolveSourceItemPath(
                 sourceRoot,
@@ -197,14 +209,17 @@ internal partial class MigrateCommand
                 return verification;
             }
 
-            var targetItemType = string.IsNullOrWhiteSpace(decision.TargetItemType)
+            var requestedTargetItemType =
+                string.IsNullOrWhiteSpace(decision.TargetItemType)
                 ? sourceItem.ItemType
                 : decision.TargetItemType;
-            if (!MigratedProjectItemKinds.Contains(targetItemType))
+            if (!TryCanonicalizeMigratedProjectItemKind(
+                    requestedTargetItemType,
+                    out var targetItemType))
             {
                 verification.Status = "invalid";
                 verification.Reason =
-                    $"Target item type must be Content or PRIResource; found '{targetItemType}'.";
+                    $"Target item type must be Content or PRIResource; found '{requestedTargetItemType}'.";
                 return verification;
             }
             decision.TargetItemType = targetItemType;
@@ -257,7 +272,7 @@ internal partial class MigrateCommand
 
             if (decision.Strategy == SdkDefaultItemStrategy)
             {
-                if (sourceItem.ItemType != "PRIResource"
+                if (sourceItemType != "PRIResource"
                     || targetItemType != "PRIResource"
                     || !normalizedTargetPath.EndsWith(
                         ".resw",
@@ -324,11 +339,7 @@ internal partial class MigrateCommand
 
             if (decision.Strategy == CopiedLinkedContentStrategy)
             {
-                if (!MigratedProjectItemKinds.Contains(sourceItem.ItemType)
-                    || !string.Equals(
-                        targetItemType,
-                        sourceItem.ItemType,
-                        StringComparison.Ordinal))
+                if (targetItemType != sourceItemType)
                 {
                     verification.Status = "invalid";
                     verification.Reason =

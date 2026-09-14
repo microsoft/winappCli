@@ -30,6 +30,28 @@ internal partial class MigrateCommand
                 "PRIResource"
             };
 
+        private static bool TryCanonicalizeMigratedProjectItemKind(
+            string? itemKind,
+            out string canonicalKind)
+        {
+            if (itemKind?.Equals(
+                    "Content",
+                    StringComparison.OrdinalIgnoreCase) == true)
+            {
+                canonicalKind = "Content";
+                return true;
+            }
+            if (itemKind?.Equals(
+                    "PRIResource",
+                    StringComparison.OrdinalIgnoreCase) == true)
+            {
+                canonicalKind = "PRIResource";
+                return true;
+            }
+            canonicalKind = string.Empty;
+            return false;
+        }
+
         internal sealed record ProjectItemMigrationResult(
             int SourceItems,
             int MigratedItems,
@@ -134,10 +156,16 @@ internal partial class MigrateCommand
                     0);
             }
 
+            var sourceConditionContext = new ProjectConditionContext(
+                Path.GetFileNameWithoutExtension(sourceProject));
             var sourceItems = sourceDocument
                 .Descendants()
                 .Where(element => MigratedProjectItemKinds.Contains(element.Name.LocalName))
                 .Where(element => element.Attribute("Include") is not null)
+                .Where(element =>
+                    EvaluateElementCondition(
+                        element,
+                        sourceConditionContext) != DeterministicCondition.False)
                 .ToList();
             var stableItemIds = CreateStableProjectItemIds(
                 sourceRoot,
@@ -146,8 +174,6 @@ internal partial class MigrateCommand
             var unresolved = new List<MigrationLocation>();
             var missingTargetItems = new List<MigrationLocation>();
             var reviewRequiredItems = new List<MigrationReviewRequiredProjectItem>();
-            var sourceConditionContext = new ProjectConditionContext(
-                Path.GetFileNameWithoutExtension(sourceProject));
             foreach (var sourceImport in sourceDocument.Descendants().Where(element =>
                 IsProjectElement(element, "Import")
                 && !IsEvaluationImport(element)
@@ -197,6 +223,12 @@ internal partial class MigrateCommand
             foreach (var item in sourceItems)
             {
                 var include = item.Attribute("Include")!.Value.Trim();
+                if (!TryCanonicalizeMigratedProjectItemKind(
+                        item.Name.LocalName,
+                        out var itemKind))
+                {
+                    continue;
+                }
                 if (!IsEvaluationItem(item))
                 {
                     AddReviewRequiredItem(
@@ -204,6 +236,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "unmodeled-ancestor",
                         unresolved,
                         reviewRequiredItems);
@@ -217,6 +250,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "conditional",
                         unresolved,
                         reviewRequiredItems);
@@ -229,6 +263,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "wildcard",
                         unresolved,
                         reviewRequiredItems);
@@ -242,6 +277,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "msbuild-expression",
                         unresolved,
                         reviewRequiredItems);
@@ -254,6 +290,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "absolute-path",
                         unresolved,
                         reviewRequiredItems);
@@ -275,6 +312,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "invalid-path",
                         unresolved,
                         reviewRequiredItems);
@@ -290,6 +328,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "external-or-missing-source",
                         unresolved,
                         reviewRequiredItems);
@@ -307,9 +346,7 @@ internal partial class MigrateCommand
                 }
 
                 var usesDefaultPriItem =
-                    item.Name.LocalName.Equals(
-                        "PRIResource",
-                        StringComparison.OrdinalIgnoreCase)
+                    itemKind == "PRIResource"
                     && relativePath.EndsWith(".resw", StringComparison.OrdinalIgnoreCase);
                 if (usesDefaultPriItem && item.Elements().Any())
                 {
@@ -318,6 +355,7 @@ internal partial class MigrateCommand
                         sourceProject,
                         item,
                         stableItemIds[item],
+                        itemKind,
                         "default-item-metadata",
                         unresolved,
                         reviewRequiredItems);
@@ -325,7 +363,7 @@ internal partial class MigrateCommand
                 }
 
                 migratable.Add((
-                    item.Name.LocalName,
+                    itemKind,
                     relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar),
                     item,
                     !usesDefaultPriItem));
@@ -550,6 +588,7 @@ internal partial class MigrateCommand
             string sourceProject,
             XElement item,
             string stableId,
+            string itemKind,
             string reviewReason,
             List<MigrationLocation> unresolved,
             List<MigrationReviewRequiredProjectItem> reviewRequiredItems)
@@ -559,6 +598,7 @@ internal partial class MigrateCommand
                 sourceProject,
                 item,
                 stableId,
+                itemKind,
                 reviewReason);
             unresolved.Add(reviewItem.SourceLocation);
             reviewRequiredItems.Add(reviewItem);
@@ -569,6 +609,7 @@ internal partial class MigrateCommand
             string sourceProject,
             XElement item,
             string stableId,
+            string itemKind,
             string reviewReason)
         {
             var sourceProjectPath = NormalizePath(
@@ -594,7 +635,7 @@ internal partial class MigrateCommand
                 Id = stableId,
                 SourceProject = sourceProjectPath,
                 SourceLocation = location,
-                ItemType = item.Name.LocalName,
+                ItemType = itemKind,
                 Include = include,
                 Link = string.IsNullOrWhiteSpace(link) ? null : link,
                 Condition = condition,

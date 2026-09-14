@@ -826,7 +826,10 @@ internal partial class MigrateCommand
             var document = graph.Documents[relativeProjectFile];
             if (document.Descendants().Any(element =>
                 IsProjectElement(element, "UseWinUI")
-                && !IsEvaluationProperty(element)))
+                && !IsEvaluationProperty(element)
+                && EvaluateElementCondition(
+                    element,
+                    context) != DeterministicCondition.False))
             {
                 reason =
                     $"UseWinUI in '{relativeProjectFile}' appears in an unsupported evaluation construct and cannot be ordered deterministically.";
@@ -1228,9 +1231,13 @@ internal partial class MigrateCommand
             var result = DeterministicCondition.True;
             foreach (var current in element.AncestorsAndSelf().Reverse())
             {
-                var evaluation = EvaluateCondition(
-                    current.Attribute("Condition")?.Value,
-                    context);
+                var evaluation =
+                    IsProjectElement(current, "When")
+                    || IsProjectElement(current, "Otherwise")
+                        ? EvaluateChooseBranch(current, context)
+                        : EvaluateCondition(
+                            current.Attribute("Condition")?.Value,
+                            context);
                 if (evaluation == DeterministicCondition.False)
                 {
                     return DeterministicCondition.False;
@@ -1241,6 +1248,73 @@ internal partial class MigrateCommand
                 }
             }
             return result;
+        }
+
+        private static DeterministicCondition EvaluateChooseBranch(
+            XElement branch,
+            ProjectConditionContext context)
+        {
+            var choose = branch.Parent;
+            if (choose is null
+                || !IsProjectElement(choose, "Choose"))
+            {
+                return DeterministicCondition.Unknown;
+            }
+
+            var priorTrue = false;
+            var priorUnknown = false;
+            foreach (var candidate in choose.Elements().Where(element =>
+                IsProjectElement(element, "When")
+                || IsProjectElement(element, "Otherwise")))
+            {
+                if (IsProjectElement(candidate, "When"))
+                {
+                    var condition = EvaluateCondition(
+                        candidate.Attribute("Condition")?.Value,
+                        context);
+                    if (candidate == branch)
+                    {
+                        if (priorTrue
+                            || condition == DeterministicCondition.False)
+                        {
+                            return DeterministicCondition.False;
+                        }
+                        if (priorUnknown)
+                        {
+                            return DeterministicCondition.Unknown;
+                        }
+                        return condition;
+                    }
+                    if (!priorTrue)
+                    {
+                        priorTrue =
+                            condition == DeterministicCondition.True;
+                        priorUnknown |=
+                            condition == DeterministicCondition.Unknown;
+                    }
+                    continue;
+                }
+
+                if (candidate == branch)
+                {
+                    if (priorTrue)
+                    {
+                        return DeterministicCondition.False;
+                    }
+                    return priorUnknown
+                        ? DeterministicCondition.Unknown
+                        : DeterministicCondition.True;
+                }
+                if (!priorTrue && !priorUnknown)
+                {
+                    priorTrue = true;
+                }
+                else if (priorUnknown)
+                {
+                    priorUnknown = true;
+                }
+            }
+            return DeterministicCondition.Unknown;
         }
 
         private static DeterministicCondition EvaluateCondition(

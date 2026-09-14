@@ -515,14 +515,29 @@ internal partial class MigrateCommand
             {
                 Status = source.Status,
                 SourceManifest = source.SourceManifest,
-                TargetManifest = source.TargetManifest,
+                TargetManifest = null,
                 Contracts = source.Contracts
                     .Select(CloneActivationContract)
                     .ToList(),
                 Issues = source.Issues
+                    .Where(issue =>
+                        !IsTargetDerivedActivationIssue(issue))
                     .Select(CloneActivationIssue)
                     .ToList()
             };
+
+        private static bool IsTargetDerivedActivationIssue(
+            MigrationActivationIssue issue) =>
+            issue.Kind.StartsWith(
+                "target-",
+                StringComparison.Ordinal)
+            || issue.Kind is
+                "ambiguous-target-manifest"
+                or "ambiguous-target-application"
+                or "desktop-target-family-missing"
+                or "run-full-trust-capability-missing"
+                or "shell-experience-capability-required"
+                or "duplicate-target-extension-groups";
 
         private static MigrationActivationContract CloneActivationContract(
             MigrationActivationContract source) =>
@@ -548,11 +563,9 @@ internal partial class MigrateCommand
                 MultiSelectModel = source.MultiSelectModel,
                 MigrationStatus = source.MigrationStatus,
                 TargetSchema = source.TargetSchema,
-                TargetLocation = source.TargetLocation is null
-                    ? null
-                    : CloneLocation(source.TargetLocation),
-                VerificationStatus = source.VerificationStatus,
-                VerificationReason = source.VerificationReason
+                TargetLocation = null,
+                VerificationStatus = "not-run",
+                VerificationReason = null
             };
 
         private static MigrationActivationIssue CloneActivationIssue(

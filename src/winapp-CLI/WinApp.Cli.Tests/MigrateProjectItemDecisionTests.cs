@@ -92,6 +92,72 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task DecideProjectItem_NormalizesMixedCaseItemKindsForAllStrategies()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "MixedCaseItemKindsApp",
+            includeConditionalItem: false,
+            mixedCaseKinds: true);
+        await AddTargetEvidenceAsync(
+            source,
+            target,
+            mixedCaseKinds: true);
+        var items = await ReadReviewItemsAsync(target);
+        Assert.IsTrue(items.All(item =>
+            item!["itemType"]!.GetValue<string>() is
+                "Content" or "PRIResource"));
+
+        var sdk = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--target-item-type", "priresource",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Mixed-case PRIResource input is normalized.");
+        var explicitItem = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "pRiReSoUrCe",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Mixed-case explicit PRIResource input is normalized.");
+        var copied = await InvokeDecisionAsync(
+            target,
+            "--item", ItemIdByLink(items, @"Strings\NOTICE.json"),
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Strings\NOTICE.json",
+            "--target-item-type", "cOnTeNt",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Mixed-case copied Content input is normalized.");
+
+        Assert.AreEqual(0, sdk.ExitCode, sdk.Output);
+        Assert.AreEqual(0, explicitItem.ExitCode, explicitItem.Output);
+        Assert.AreEqual(0, copied.ExitCode, copied.Output);
+        using var report = await ReadReportAsync(target);
+        var targetKinds = report.RootElement
+            .GetProperty("projectItemDecisions")
+            .EnumerateArray()
+            .Select(decision =>
+                decision.GetProperty("targetItemType").GetString())
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.HasCount(3, targetKinds);
+        Assert.AreEqual("Content", targetKinds[0]);
+        Assert.AreEqual("PRIResource", targetKinds[1]);
+        Assert.AreEqual("PRIResource", targetKinds[2]);
+        Assert.IsTrue(report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems")
+            .GetProperty("accountedItems")
+            .EnumerateArray()
+            .All(item =>
+                item.GetProperty("kind").GetString() is
+                    "Content" or "PRIResource"));
+    }
+
+    [TestMethod]
     public async Task DecideProjectItem_VerifiedDecisionsResolveAndVerifyReopensUwmig012()
     {
         var (source, target) = await CreateDecisionMigrationAsync(
@@ -959,6 +1025,162 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Migrate_SourceItemInFalseWhenIsIgnored()
+    {
+        var source = _tempDirectory.CreateSubdirectory(
+            "FalseWhenSourceItemApp");
+        await WriteAsync(
+            source,
+            "FalseWhenSourceItemApp.csproj",
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <Choose>
+                <When Condition="false">
+                  <ItemGroup>
+                    <Content Include="Data\Inactive.json" />
+                  </ItemGroup>
+                </When>
+              </Choose>
+            </Project>
+            """);
+        await WriteAsync(source, "Data\\Inactive.json", """{"inactive":true}""");
+        await WriteAsync(source, "Package.appxmanifest", SourceManifest);
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "FalseWhenSourceItemApp-output"));
+        ArrangeTemplateCreation(target, "FalseWhenSourceItemAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var projectItems = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems");
+        Assert.AreEqual(0, projectItems.GetProperty("sourceItems").GetInt32());
+        Assert.AreEqual(
+            0,
+            projectItems.GetProperty("reviewRequiredItems").GetArrayLength());
+        Assert.IsFalse(report.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+            todo.GetProperty("id").GetString() == "UWMIG012"));
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_TrueWhenMakesOtherwiseRemovalInactive()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "InactiveOtherwiseRemovalApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <Choose>
+                <When Condition="true">
+                  <PropertyGroup>
+                    <UnrelatedProperty>selected</UnrelatedProperty>
+                  </PropertyGroup>
+                </When>
+                <Otherwise>
+                  <ItemGroup>
+                    <PRIResource Remove="Resources\en-us\Resources.resw" />
+                  </ItemGroup>
+                </Otherwise>
+              </Choose>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "The first true When makes Otherwise unreachable.");
+
+        Assert.AreEqual(0, result.ExitCode, result.Output);
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_AllFalseWhensSelectOtherwiseRemoval()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "SelectedOtherwiseRemovalApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <Choose>
+                <When Condition="false">
+                  <PropertyGroup>
+                    <UnrelatedProperty>first</UnrelatedProperty>
+                  </PropertyGroup>
+                </When>
+                <When Condition="false">
+                  <PropertyGroup>
+                    <UnrelatedProperty>second</UnrelatedProperty>
+                  </PropertyGroup>
+                </When>
+                <Otherwise>
+                  <ItemGroup>
+                    <PRIResource Remove="Resources\en-us\Resources.resw" />
+                  </ItemGroup>
+                </Otherwise>
+              </Choose>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "All false When branches select the removal in Otherwise.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "unsupported MSBuild ancestor");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_UnknownWhenMakesOtherwiseSelectionUnresolved()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "UnknownOtherwiseSelectionApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <Choose>
+                <When Condition="'$(Configuration)' == 'Debug'">
+                  <PropertyGroup>
+                    <UnrelatedProperty>unknown</UnrelatedProperty>
+                  </PropertyGroup>
+                </When>
+                <Otherwise>
+                  <ItemGroup>
+                    <PRIResource Remove="Resources\en-us\Resources.resw" />
+                  </ItemGroup>
+                </Otherwise>
+              </Choose>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Unknown When selection keeps Otherwise conservatively unresolved.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "unsupported MSBuild ancestor");
+    }
+
+    [TestMethod]
     public async Task DecideProjectItem_ChooseRemovalsBlockEveryResolvingStrategy()
     {
         var (source, target) = await CreateDecisionMigrationAsync(
@@ -969,6 +1191,11 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             target,
             """
               <Choose>
+                <When Condition="'$(Configuration)' == 'Debug'">
+                  <ItemGroup>
+                    <priresource Include="Resources\Unknown.resw" />
+                  </ItemGroup>
+                </When>
                 <When Condition="true">
                   <PropertyGroup>
                     <EnableDefaultItems>false</EnableDefaultItems>
@@ -1072,6 +1299,11 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             """
             <Project Sdk="Microsoft.NET.Sdk">
               <Choose>
+                <When Condition="'$(Configuration)' == 'Debug'">
+                  <ItemGroup>
+                    <priresource Include="Resources\Unknown.resw" />
+                  </ItemGroup>
+                </When>
                 <When Condition="true">
                   <PropertyGroup>
                     <EnableDefaultItems>false</EnableDefaultItems>
@@ -1081,11 +1313,6 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
                     <Content Remove="Data\Imported.json" />
                   </ItemGroup>
                   <Import Project="Source.Items.props" />
-                </When>
-                <When Condition="'$(Configuration)' == 'Debug'">
-                  <ItemGroup>
-                    <priresource Include="Resources\Unknown.resw" />
-                  </ItemGroup>
                 </When>
               </Choose>
             </Project>
@@ -1927,21 +2154,28 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     private async Task<(DirectoryInfo Source, DirectoryInfo Target)> CreateDecisionMigrationAsync(
         string name,
         bool includeConditionalItem,
-        bool includeDuplicateResource = false)
+        bool includeDuplicateResource = false,
+        bool mixedCaseKinds = false)
     {
         var source = _tempDirectory.CreateSubdirectory(name);
         var shared = _tempDirectory.CreateSubdirectory($"{name}-shared");
         await WriteAsync(shared, "NOTICE.json", """{"license":"sample"}""");
+        var priResourceKind = mixedCaseKinds
+            ? "pRiReSoUrCe"
+            : "PRIResource";
+        var contentKind = mixedCaseKinds
+            ? "cOnTeNt"
+            : "Content";
         var conditionalItem = includeConditionalItem
-            ? """
-                <Content Include="Data\**\*.json" Condition="'$(Configuration)' == 'Debug'" />
+            ? $$"""
+                <{{contentKind}} Include="Data\**\*.json" Condition="'$(Configuration)' == 'Debug'" />
               """
             : string.Empty;
         var duplicateResourceItem = includeDuplicateResource
-              ? """
-                  <PRIResource Include="Resources\en-us\Resources.resw">
+              ? $$"""
+                  <{{priResourceKind}} Include="Resources\en-us\Resources.resw">
                     <SubType>Designer</SubType>
-                  </PRIResource>
+                  </{{priResourceKind}}>
                 """
               : string.Empty;
         await WriteAsync(
@@ -1950,16 +2184,16 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             $$"""
             <Project Sdk="Microsoft.NET.Sdk">
               <ItemGroup>
-                <PRIResource Include="Resources\en-us\Resources.resw">
+                <{{priResourceKind}} Include="Resources\en-us\Resources.resw">
                   <SubType>Designer</SubType>
-                </PRIResource>
+                </{{priResourceKind}}>
             {{duplicateResourceItem}}
-                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                <{{priResourceKind}} Include="Resources\fr-fr\Resources.resw">
                   <SubType>Designer</SubType>
-                </PRIResource>
-                <Content Include="..\{{shared.Name}}\NOTICE.json">
+                </{{priResourceKind}}>
+                <{{contentKind}} Include="..\{{shared.Name}}\NOTICE.json">
                   <Link>Strings\NOTICE.json</Link>
-                </Content>
+                </{{contentKind}}>
             {{conditionalItem}}
               </ItemGroup>
             </Project>
@@ -1980,8 +2214,15 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
 
     private async Task AddTargetEvidenceAsync(
         DirectoryInfo source,
-        DirectoryInfo target)
+        DirectoryInfo target,
+        bool mixedCaseKinds = false)
     {
+        var priResourceKind = mixedCaseKinds
+            ? "PrIrEsOuRcE"
+            : "PRIResource";
+        var contentKind = mixedCaseKinds
+            ? "CoNtEnT"
+            : "Content";
         var targetProjectName = Path.GetFileNameWithoutExtension(
             Directory.EnumerateFiles(
                 target.FullName,
@@ -1994,13 +2235,13 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             $$"""
             <Project>
               <ItemGroup Condition="'$(MSBuildProjectName)' == '{{targetProjectName}}'">
-                <PRIResource Update="Resources\en-us\Resources.resw">
+                <{{priResourceKind}} Update="Resources\en-us\Resources.resw">
                   <SubType>Designer</SubType>
-                </PRIResource>
-                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                </{{priResourceKind}}>
+                <{{priResourceKind}} Include="Resources\fr-fr\Resources.resw">
                   <SubType>Designer</SubType>
-                </PRIResource>
-                <Content Include="Strings\NOTICE.json" />
+                </{{priResourceKind}}>
+                <{{contentKind}} Include="Strings\NOTICE.json" />
               </ItemGroup>
             </Project>
             """);

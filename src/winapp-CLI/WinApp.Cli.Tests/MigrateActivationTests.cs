@@ -969,6 +969,108 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Verify_RepairedTargetRebuildsRetainedActivationStatusWithoutDuplicates()
+    {
+        var source = await CreateSourceAsync(
+            "RepairRetainedActivationApp",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.protocol">
+                  <uap:Protocol Name="repair-retained-protocol" />
+                </uap:Extension>
+                """));
+        var target = NewTarget("repair-retained-activation-output");
+        ArrangeTemplateCreation(target, "RepairRetainedActivationAppApp");
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+        var sourceManifestPath = Path.Combine(
+            source.FullName,
+            "Package.appxmanifest");
+        var targetManifestPath = Path.Combine(
+            target.FullName,
+            "Package.appxmanifest");
+        var targetManifest = await File.ReadAllTextAsync(
+            targetManifestPath,
+            TestContext.CancellationToken);
+        File.Delete(sourceManifestPath);
+        File.Delete(targetManifestPath);
+
+        var (missingExit, missingOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, missingExit, missingOutput);
+        using (var missingReport = await ReadReportAsync(target))
+        {
+            var issues = missingReport.RootElement
+                .GetProperty("activationAnalysis")
+                .GetProperty("issues")
+                .EnumerateArray()
+                .Select(issue => issue.GetProperty("kind").GetString())
+                .ToList();
+            Assert.IsTrue(issues.Contains("target-manifest-missing"));
+            Assert.IsTrue(issues.Contains(
+                "source-manifest-missing-after-analysis"));
+        }
+
+        await File.WriteAllTextAsync(
+            targetManifestPath,
+            targetManifest,
+            TestContext.CancellationToken);
+        var duplicateManifestPath = Path.Combine(
+            target.FullName,
+            "Duplicate.appxmanifest");
+        await File.WriteAllTextAsync(
+            duplicateManifestPath,
+            targetManifest,
+            TestContext.CancellationToken);
+        var (ambiguousExit, ambiguousOutput) =
+            await InvokeVerifyAsync(target);
+        Assert.AreEqual(1, ambiguousExit, ambiguousOutput);
+        using (var ambiguousReport = await ReadReportAsync(target))
+        {
+            Assert.AreEqual(
+                1,
+                ambiguousReport.RootElement
+                    .GetProperty("activationAnalysis")
+                    .GetProperty("issues")
+                    .EnumerateArray()
+                    .Count(issue =>
+                        issue.GetProperty("kind").GetString()
+                        == "ambiguous-target-manifest"));
+        }
+        File.Delete(duplicateManifestPath);
+        var (firstRepairExit, firstRepairOutput) =
+            await InvokeVerifyAsync(target);
+        var (secondRepairExit, secondRepairOutput) =
+            await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, firstRepairExit, firstRepairOutput);
+        Assert.AreEqual(1, secondRepairExit, secondRepairOutput);
+        using var repairedReport = await ReadReportAsync(target);
+        var activation =
+            repairedReport.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("incomplete", activation.GetProperty("status").GetString());
+        Assert.AreEqual(
+            "verified",
+            activation.GetProperty("contracts")
+                .EnumerateArray()
+                .Single()
+                .GetProperty("verificationStatus")
+                .GetString());
+        var repairedIssues = activation.GetProperty("issues")
+            .EnumerateArray()
+            .Select(issue => issue.GetProperty("kind").GetString())
+            .ToList();
+        Assert.AreEqual(
+            1,
+            repairedIssues.Count(kind =>
+                kind == "source-manifest-missing-after-analysis"));
+        Assert.IsFalse(repairedIssues.Contains("target-manifest-missing"));
+        Assert.IsFalse(repairedIssues.Contains("ambiguous-target-manifest"));
+        Assert.IsFalse(repairedIssues.Any(kind =>
+            kind?.StartsWith("target-", StringComparison.Ordinal) == true));
+    }
+
+    [TestMethod]
     public async Task MigrateAndVerify_CsprojOnlySourceKeepsActivationUnavailable()
     {
         var source = _tempDirectory.CreateSubdirectory("CsprojOnlyActivationApp");
