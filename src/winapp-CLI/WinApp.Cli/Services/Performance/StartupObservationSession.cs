@@ -89,6 +89,9 @@ internal sealed class StartupObservationSession : IDisposable
 
     public bool HasActiveProcesses => _ownership.Processes.Any(process => !process.HasExited);
 
+    public IReadOnlyList<ProcessResourceCounters> CaptureResourceCounters() =>
+        _ownership.CaptureResourceCounters();
+
     public static PackageActivationBaseline CapturePackageBaseline(
         string packageFamilyName,
         IPackageProcessSnapshot packageProcesses) =>

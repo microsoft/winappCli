@@ -46,6 +46,28 @@ public sealed class PerformanceBundleWriterTests
                 TimeSpan.FromMilliseconds(150),
                 new ProcessIdentity(42, 1234)),
         ]);
+        writer.Write(ResourceSampleAt(
+            counter: 1_250,
+            intervalMs: 0,
+            cpuCores: null,
+            privateBytes: 1_000,
+            readBytes: 100,
+            writeBytes: 200));
+        writer.Write(ResourceSampleAt(
+            counter: 1_750,
+            intervalMs: 500,
+            cpuCores: 0.5,
+            privateBytes: 1_500,
+            readBytes: 600,
+            writeBytes: 1_200));
+        writer.Write(ResourceSampleAt(
+            counter: 1_900,
+            intervalMs: 150,
+            cpuCores: 0.25,
+            privateBytes: null,
+            readBytes: 900,
+            writeBytes: 1_700,
+            isTerminal: true));
 
         var result = writer.Complete(
             "partial",
@@ -69,7 +91,7 @@ public sealed class PerformanceBundleWriterTests
         Assert.AreEqual(output, result.Bundle);
         Assert.IsTrue(File.Exists(Path.Join(output, "manifest.json")));
         var lines = File.ReadAllLines(Path.Join(output, "timeline.ndjson"));
-        Assert.HasCount(2, lines);
+        Assert.HasCount(5, lines);
         foreach (var line in lines)
         {
             using var document = JsonDocument.Parse(line);
@@ -79,9 +101,18 @@ public sealed class PerformanceBundleWriterTests
         {
             Assert.AreEqual(0, firstEvent.RootElement.GetProperty("elapsedMs").GetDouble());
         }
+        using (var resource = JsonDocument.Parse(lines[2]))
+        {
+            Assert.AreEqual("ResourceSample", resource.RootElement.GetProperty("type").GetString());
+            Assert.AreEqual(150, resource.RootElement.GetProperty("elapsedMs").GetDouble());
+            Assert.AreEqual(1_000, resource.RootElement
+                .GetProperty("aggregate")
+                .GetProperty("privateBytes")
+                .GetInt64());
+        }
 
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Join(output, "manifest.json")));
-        Assert.AreEqual(2, manifest.RootElement.GetProperty("eventCount").GetInt32());
+        Assert.AreEqual(5, manifest.RootElement.GetProperty("eventCount").GetInt32());
         Assert.AreEqual("partial", manifest.RootElement.GetProperty("status").GetString());
         Assert.AreEqual(
             150,
@@ -92,6 +123,17 @@ public sealed class PerformanceBundleWriterTests
         Assert.AreEqual(
             "not-requested",
             manifest.RootElement.GetProperty("wpr").GetProperty("status").GetString());
+        var resources = manifest.RootElement.GetProperty("resources");
+        Assert.AreEqual(3, resources.GetProperty("sampleCount").GetInt32());
+        Assert.AreEqual(500, resources.GetProperty("averageIntervalMs").GetDouble());
+        Assert.AreEqual(1, resources.GetProperty("terminalSampleCount").GetInt32());
+        Assert.AreEqual(1, resources.GetProperty("processGenerationCount").GetInt32());
+        var summary = resources.GetProperty("summary");
+        Assert.AreEqual(0.375, summary.GetProperty("averageCpuCoresUsed").GetDouble());
+        Assert.AreEqual(1_500, summary.GetProperty("peakPrivateBytes").GetInt64());
+        Assert.AreEqual(500, summary.GetProperty("privateBytesChange").GetInt64());
+        Assert.AreEqual(800UL, summary.GetProperty("readBytesDuringRecording").GetUInt64());
+        Assert.AreEqual(1_500UL, summary.GetProperty("writeBytesDuringRecording").GetUInt64());
     }
 
     [TestMethod]
@@ -115,5 +157,66 @@ public sealed class PerformanceBundleWriterTests
 
         Assert.IsFalse(Directory.Exists(output));
         Assert.IsEmpty(Directory.EnumerateFileSystemEntries(_root));
+    }
+
+    private static ResourceSample ResourceSampleAt(
+        long counter,
+        double intervalMs,
+        double? cpuCores,
+        long? privateBytes,
+        ulong readBytes,
+        ulong writeBytes,
+        bool isTerminal = false)
+    {
+        var process = new ProcessResourceSample
+        {
+            ProcessId = 42,
+            ProcessStartTimeUtcTicks = 1234,
+            TotalProcessorTimeMs = 10,
+            UserProcessorTimeMs = 8,
+            KernelProcessorTimeMs = 2,
+            CpuCoresUsed = cpuCores,
+            CpuPercentOfMachine = cpuCores * 25,
+            PrivateBytes = privateBytes,
+            WorkingSetBytes = privateBytes + 1_000,
+            ReadOperationCount = 1,
+            WriteOperationCount = 2,
+            OtherOperationCount = 3,
+            ReadBytes = readBytes,
+            WriteBytes = writeBytes,
+            OtherBytes = 0,
+            ReadBytesPerSecond = cpuCores is null ? null : 1_000,
+            WriteBytesPerSecond = cpuCores is null ? null : 2_000,
+            ThreadCount = 4,
+            HandleCount = 5,
+            GdiObjectCount = 6,
+            UserObjectCount = 7,
+            IsTerminal = isTerminal,
+            IsPartial = false,
+        };
+        return new()
+        {
+            Timestamp = new PerformanceTimestamp(counter),
+            IntervalMs = intervalMs,
+            OwnedProcessCount = 1,
+            PartialProcessCount = 0,
+            IsTerminal = isTerminal,
+            Processes = [process],
+            Aggregate = new()
+            {
+                CpuCoresUsed = process.CpuCoresUsed,
+                CpuPercentOfMachine = process.CpuPercentOfMachine,
+                PrivateBytes = process.PrivateBytes,
+                WorkingSetBytes = process.WorkingSetBytes,
+                ReadBytes = process.ReadBytes,
+                WriteBytes = process.WriteBytes,
+                ReadBytesPerSecond = process.ReadBytesPerSecond,
+                WriteBytesPerSecond = process.WriteBytesPerSecond,
+                ThreadCount = process.ThreadCount,
+                HandleCount = process.HandleCount,
+                GdiObjectCount = process.GdiObjectCount,
+                UserObjectCount = process.UserObjectCount,
+            },
+        };
     }
 }

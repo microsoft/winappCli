@@ -597,6 +597,72 @@ export async function packageApp(options: PackageOptions): Promise<WinappResult>
 }
 
 // ---------------------------------------------------------------------------
+// perf record
+// ---------------------------------------------------------------------------
+
+export interface PerfRecordOptions extends CommonOptions {
+  /** App to build, launch, and record: a .cs file-based app, project, solution, project directory, or build-output directory. */
+  target?: string;
+  /**  */
+  appArgs?: string | string[];
+  /** Project and single-file mode: target architecture (x64, arm64, or x86). */
+  arch?: string;
+  /** Arguments to pass to the app. Alternatively, place arguments after --. */
+  args?: string;
+  /** Project and single-file mode: build configuration (default: Release). */
+  configuration?: string;
+  /** Stop after this many seconds. Use 0 to record until Enter, Ctrl+C, redirected-input completion, or target exit (default: 0). */
+  durationSec?: number;
+  /** Project mode: target framework moniker. */
+  framework?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Run existing build output without building. */
+  noBuild?: boolean;
+  /** Skip restore before building. */
+  noRestore?: boolean;
+  /** Evidence bundle directory (default: performance-<timestamp>.winappperf). The path must not already exist. */
+  output?: string;
+  /** Select a project when the target is a solution or ambiguous directory. */
+  project?: string;
+  /** MSBuild property as Name=Value. Repeatable. */
+  property?: string | string[];
+  /** Project mode: target .NET runtime identifier. */
+  runtime?: string;
+  /** Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA. */
+  withWpr?: boolean;
+}
+
+/**
+ * Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.
+ */
+export async function perfRecord(options: PerfRecordOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['perf', 'record'];
+  if (options.target) args.push(options.target);
+  if (options.appArgs) {
+    const appArgsArr = Array.isArray(options.appArgs) ? options.appArgs : [options.appArgs];
+    args.push(...appArgsArr);
+  }
+  if (options.arch) args.push('--arch', options.arch);
+  if (options.args) args.push('--args', options.args);
+  if (options.configuration) args.push('--configuration', options.configuration);
+  if (options.durationSec !== undefined) args.push('--duration-sec', options.durationSec.toString());
+  if (options.framework) args.push('--framework', options.framework);
+  if (options.json) args.push('--json');
+  if (options.noBuild) args.push('--no-build');
+  if (options.noRestore) args.push('--no-restore');
+  if (options.output) args.push('--output', options.output);
+  if (options.project) args.push('--project', options.project);
+  if (options.property) {
+    const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
+    for (const v of propertyArr) args.push('--property', v);
+  }
+  if (options.runtime) args.push('--runtime', options.runtime);
+  if (options.withWpr) args.push('--with-wpr');
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // restore
 // ---------------------------------------------------------------------------
 

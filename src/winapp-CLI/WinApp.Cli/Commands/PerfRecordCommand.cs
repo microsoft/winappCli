@@ -90,10 +90,10 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         Description = "Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA.",
     };
 
-    public string ShortDescription => "Record app startup and optional WPR loader/storage evidence";
+    public string ShortDescription => "Record app startup, resources, and optional WPR evidence";
 
     public PerfRecordCommand()
-        : base("record", "Build and launch an app through winapp run, observe generation-safe process and window startup milestones, and optionally retain an elevated WPR loader/storage trace for WPA.")
+        : base("record", "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.")
     {
         Arguments.Add(TargetArgument);
         Arguments.Add(PassthroughArgument);
@@ -127,6 +127,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         ILogger<PerfRecordCommand> logger) : AsynchronousCommandLineAction
     {
         private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
+        private static readonly TimeSpan ResourceCadence = TimeSpan.FromMilliseconds(500);
 
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -217,6 +218,11 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
             }
 
             writer.Write(observer.Session.Events);
+            var resourceSampler = new ResourceSampler(
+                clock,
+                ResourceCadence,
+                Environment.ProcessorCount);
+            writer.Write(resourceSampler.TrySample(observer.Session.CaptureResourceCounters()));
             if (launchResult != 0)
             {
                 if (wprCollector is not null)
@@ -243,6 +249,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 stopReason = await ObserveUntilStoppedAsync(
                     observer,
                     writer,
+                    resourceSampler,
                     durationSec,
                     cancellationToken);
                 status = observer.Session.Disposition == StartupLaunchDisposition.Pending
@@ -307,6 +314,15 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     $"visible {FormatMilliseconds(result.Startup.FirstVisibleWindowMs)}; " +
                     $"responsive {FormatMilliseconds(result.Startup.FirstResponsiveWindowMs)} " +
                     $"[{result.ResponseProbe.CadenceMs:0} ms cadence, {result.ResponseProbe.TimeoutMs:0} ms timeout]");
+                parseResult.InvocationConfiguration.Output.WriteLine(
+                    $"Resources: CPU avg {FormatCores(result.Resources.Summary.AverageCpuCoresUsed)}, " +
+                    $"peak {FormatCores(result.Resources.Summary.PeakCpuCoresUsed)}; " +
+                    $"private peak {FormatBytes(result.Resources.Summary.PeakPrivateBytes)}; " +
+                    $"{result.Resources.SampleCount} samples");
+                parseResult.InvocationConfiguration.Output.WriteLine(
+                    $"Resource change: private {FormatByteChange(result.Resources.Summary.PrivateBytesChange)}; " +
+                    $"I/O read {FormatBytes(result.Resources.Summary.ReadBytesDuringRecording)}, " +
+                    $"write {FormatBytes(result.Resources.Summary.WriteBytesDuringRecording)}");
                 if (result.Wpr.Requested)
                 {
                     var artifact = result.Wpr.Artifact is null
@@ -327,9 +343,22 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         private static string FormatMilliseconds(double? value) =>
             value is null ? "not observed" : $"{value.Value:0.0} ms";
 
+        private static string FormatCores(double? value) =>
+            value is null ? "not observed" : $"{value.Value:0.00} cores";
+
+        private static string FormatBytes(long? value) =>
+            value is null ? "not observed" : $"{value.Value / (1024d * 1024d):0.0} MiB";
+
+        private static string FormatBytes(ulong? value) =>
+            value is null ? "not observed" : $"{value.Value / (1024d * 1024d):0.0} MiB";
+
+        private static string FormatByteChange(long? value) =>
+            value is null ? "not observed" : $"{value.Value / (1024d * 1024d):+0.0;-0.0;0.0} MiB";
+
         private static async Task<string> ObserveUntilStoppedAsync(
             StartupLaunchObserver observer,
             PerformanceBundleWriter writer,
+            ResourceSampler resourceSampler,
             int durationSec,
             CancellationToken cancellationToken)
         {
@@ -345,9 +374,15 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 cancellationToken.ThrowIfCancellationRequested();
                 var update = observer.Observe();
                 writer.Write(update.Events);
+                writer.Write(resourceSampler.TrySample(
+                    observer.Session!.CaptureResourceCounters()));
 
-                if (observer.Session!.HasObservedProcesses && !observer.Session.HasActiveProcesses)
+                if (observer.Session.HasObservedProcesses && !observer.Session.HasActiveProcesses)
                 {
+                    var finalUpdate = observer.Observe();
+                    writer.Write(finalUpdate.Events);
+                    writer.Write(resourceSampler.TrySample(
+                        observer.Session.CaptureResourceCounters()));
                     return "target-exited";
                 }
                 if (DateTimeOffset.UtcNow >= deadline)

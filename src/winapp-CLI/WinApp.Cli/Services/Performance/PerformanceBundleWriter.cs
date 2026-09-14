@@ -34,6 +34,7 @@ internal sealed record PerformanceBundleManifest
     public required int EventCount { get; init; }
     public required StartupTimingManifest Startup { get; init; }
     public required ResponseProbeManifest ResponseProbe { get; init; }
+    public required ResourceCaptureManifest Resources { get; init; }
     public required WprCollectorResult Wpr { get; init; }
 }
 
@@ -53,6 +54,49 @@ internal sealed record StartupTimingManifest
     public double? FirstResponsiveWindowMs { get; init; }
 }
 
+internal sealed record ResourceTimelineEntry
+{
+    public required string Type { get; init; }
+    public required double ElapsedMs { get; init; }
+    public required double IntervalMs { get; init; }
+    public required int OwnedProcessCount { get; init; }
+    public required int PartialProcessCount { get; init; }
+    public required bool IsTerminal { get; init; }
+    public required IReadOnlyList<ProcessResourceSample> Processes { get; init; }
+    public required AggregateResourceSample Aggregate { get; init; }
+}
+
+internal sealed record ResourceCaptureManifest
+{
+    public required double RequestedCadenceMs { get; init; }
+    public required int SampleCount { get; init; }
+    public double? AverageIntervalMs { get; init; }
+    public double? MaximumIntervalMs { get; init; }
+    public required int ProcessGenerationCount { get; init; }
+    public required int PartialSampleCount { get; init; }
+    public required int TerminalSampleCount { get; init; }
+    public required ResourceSummary Summary { get; init; }
+}
+
+internal sealed record ResourceSummary
+{
+    public double? AverageCpuCoresUsed { get; init; }
+    public double? PeakCpuCoresUsed { get; init; }
+    public double? AverageCpuPercentOfMachine { get; init; }
+    public double? PeakCpuPercentOfMachine { get; init; }
+    public long? InitialPrivateBytes { get; init; }
+    public long? FinalPrivateBytes { get; init; }
+    public long? PeakPrivateBytes { get; init; }
+    public long? PrivateBytesChange { get; init; }
+    public long? PeakWorkingSetBytes { get; init; }
+    public ulong? ReadBytesDuringRecording { get; init; }
+    public ulong? WriteBytesDuringRecording { get; init; }
+    public int? PeakThreadCount { get; init; }
+    public int? PeakHandleCount { get; init; }
+    public uint? PeakGdiObjectCount { get; init; }
+    public uint? PeakUserObjectCount { get; init; }
+}
+
 internal sealed record PerformanceRecordResult
 {
     public required string Status { get; init; }
@@ -62,6 +106,7 @@ internal sealed record PerformanceRecordResult
     public required int EventCount { get; init; }
     public required StartupTimingManifest Startup { get; init; }
     public required ResponseProbeManifest ResponseProbe { get; init; }
+    public required ResourceCaptureManifest Resources { get; init; }
     public required WprCollectorResult Wpr { get; init; }
 }
 
@@ -76,6 +121,7 @@ internal sealed class PerformanceBundleWriter : IDisposable
     private double? _firstWindowMs;
     private double? _firstVisibleWindowMs;
     private double? _firstResponsiveWindowMs;
+    private readonly List<ResourceTimelineEntry> _resourceSamples = [];
     private int _eventCount;
     private bool _published;
 
@@ -158,6 +204,36 @@ internal sealed class PerformanceBundleWriter : IDisposable
         }
     }
 
+    public void Write(ResourceSample? sample)
+    {
+        if (sample is null)
+        {
+            return;
+        }
+
+        var timelineOrigin = _timelineOrigin
+            ?? throw new InvalidOperationException("Startup events must establish the timeline before resource samples.");
+        var entry = new ResourceTimelineEntry
+        {
+            Type = nameof(ResourceSample),
+            ElapsedMs = sample.Timestamp.ElapsedSince(
+                timelineOrigin,
+                _calibration.Frequency).TotalMilliseconds,
+            IntervalMs = sample.IntervalMs,
+            OwnedProcessCount = sample.OwnedProcessCount,
+            PartialProcessCount = sample.PartialProcessCount,
+            IsTerminal = sample.IsTerminal,
+            Processes = sample.Processes,
+            Aggregate = sample.Aggregate,
+        };
+        _resourceSamples.Add(entry);
+        _timelineWriter.WriteLine(JsonSerializer.Serialize(
+            entry,
+            PerformanceJsonContext.Default.ResourceTimelineEntry));
+        _timelineWriter.Flush();
+        _eventCount++;
+    }
+
     public PerformanceRecordResult Complete(
         string status,
         string stopReason,
@@ -174,6 +250,7 @@ internal sealed class PerformanceBundleWriter : IDisposable
         _timelineWriter.Dispose();
         var timelineOrigin = _timelineOrigin
             ?? throw new InvalidOperationException("A performance bundle cannot be published without timeline events.");
+        var resources = CreateResourceManifest();
         var manifest = new PerformanceBundleManifest
         {
             SchemaVersion = "0.1",
@@ -192,6 +269,7 @@ internal sealed class PerformanceBundleWriter : IDisposable
             EventCount = _eventCount,
             Startup = CreateStartupTiming(),
             ResponseProbe = responseProbe,
+            Resources = resources,
             Wpr = wpr,
         };
         File.WriteAllText(
@@ -215,6 +293,7 @@ internal sealed class PerformanceBundleWriter : IDisposable
             EventCount = _eventCount,
             Startup = CreateStartupTiming(),
             ResponseProbe = responseProbe,
+            Resources = resources,
             Wpr = wpr,
         };
     }
@@ -246,6 +325,108 @@ internal sealed class PerformanceBundleWriter : IDisposable
         FirstVisibleWindowMs = _firstVisibleWindowMs,
         FirstResponsiveWindowMs = _firstResponsiveWindowMs,
     };
+
+    private ResourceCaptureManifest CreateResourceManifest()
+    {
+        var measuredIntervals = _resourceSamples
+            .Where(sample => !sample.IsTerminal)
+            .Select(sample => sample.IntervalMs)
+            .Where(interval => interval > 0)
+            .ToArray();
+        var processGenerations = _resourceSamples
+            .SelectMany(sample => sample.Processes)
+            .Select(sample => new ProcessIdentity(
+                sample.ProcessId,
+                sample.ProcessStartTimeUtcTicks))
+            .Distinct()
+            .ToArray();
+        return new()
+        {
+            RequestedCadenceMs = 500,
+            SampleCount = _resourceSamples.Count,
+            AverageIntervalMs = measuredIntervals.Length == 0 ? null : measuredIntervals.Average(),
+            MaximumIntervalMs = measuredIntervals.Length == 0 ? null : measuredIntervals.Max(),
+            ProcessGenerationCount = processGenerations.Length,
+            PartialSampleCount = _resourceSamples.Count(sample => sample.PartialProcessCount > 0),
+            TerminalSampleCount = _resourceSamples.Count(sample => sample.IsTerminal),
+            Summary = CreateResourceSummary(processGenerations),
+        };
+    }
+
+    private ResourceSummary CreateResourceSummary(IReadOnlyList<ProcessIdentity> processGenerations)
+    {
+        var aggregates = _resourceSamples.Select(sample => sample.Aggregate).ToArray();
+        var periodicAggregates = _resourceSamples
+            .Where(sample => !sample.IsTerminal)
+            .Select(sample => sample.Aggregate)
+            .ToArray();
+        var firstPrivate = periodicAggregates.FirstOrDefault()?.PrivateBytes;
+        var lastPrivate = periodicAggregates.LastOrDefault()?.PrivateBytes;
+        return new()
+        {
+            AverageCpuCoresUsed = AveragePresent(aggregates.Select(sample => sample.CpuCoresUsed)),
+            PeakCpuCoresUsed = MaxPresent(aggregates.Select(sample => sample.CpuCoresUsed)),
+            AverageCpuPercentOfMachine = AveragePresent(aggregates.Select(sample => sample.CpuPercentOfMachine)),
+            PeakCpuPercentOfMachine = MaxPresent(aggregates.Select(sample => sample.CpuPercentOfMachine)),
+            InitialPrivateBytes = firstPrivate,
+            FinalPrivateBytes = lastPrivate,
+            PeakPrivateBytes = MaxPresent(periodicAggregates.Select(sample => sample.PrivateBytes)),
+            PrivateBytesChange = firstPrivate is { } first && lastPrivate is { } last ? last - first : null,
+            PeakWorkingSetBytes = MaxPresent(periodicAggregates.Select(sample => sample.WorkingSetBytes)),
+            ReadBytesDuringRecording = SumCounterDeltas(processGenerations, sample => sample.ReadBytes),
+            WriteBytesDuringRecording = SumCounterDeltas(processGenerations, sample => sample.WriteBytes),
+            PeakThreadCount = MaxPresent(periodicAggregates.Select(sample => sample.ThreadCount)),
+            PeakHandleCount = MaxPresent(periodicAggregates.Select(sample => sample.HandleCount)),
+            PeakGdiObjectCount = MaxPresent(periodicAggregates.Select(sample => sample.GdiObjectCount)),
+            PeakUserObjectCount = MaxPresent(periodicAggregates.Select(sample => sample.UserObjectCount)),
+        };
+    }
+
+    private ulong? SumCounterDeltas(
+        IReadOnlyList<ProcessIdentity> processGenerations,
+        Func<ProcessResourceSample, ulong?> select)
+    {
+        ulong total = 0;
+        foreach (var generation in processGenerations)
+        {
+            var values = _resourceSamples
+                .SelectMany(sample => sample.Processes)
+                .Where(sample => sample.ProcessId == generation.ProcessId
+                    && sample.ProcessStartTimeUtcTicks == generation.StartTimeUtcTicks)
+                .Select(select)
+                .ToArray();
+            if (values.Length < 2 || values.Any(value => value is null))
+            {
+                return null;
+            }
+
+            var first = values[0]!.Value;
+            var last = values[^1]!.Value;
+            if (last < first)
+            {
+                return null;
+            }
+            var delta = last - first;
+            if (ulong.MaxValue - total < delta)
+            {
+                return null;
+            }
+            total += delta;
+        }
+        return processGenerations.Count == 0 ? null : total;
+    }
+
+    private static double? AveragePresent(IEnumerable<double?> values)
+    {
+        var present = values.Where(value => value is not null).Select(value => value!.Value).ToArray();
+        return present.Length == 0 ? null : present.Average();
+    }
+
+    private static T? MaxPresent<T>(IEnumerable<T?> values) where T : struct, IComparable<T>
+    {
+        var present = values.Where(value => value is not null).Select(value => value!.Value).ToArray();
+        return present.Length == 0 ? null : present.Max();
+    }
 
     public void Dispose()
     {

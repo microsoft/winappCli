@@ -1805,7 +1805,7 @@
       "hidden": false,
       "subcommands": {
         "record": {
-          "description": "Build and launch an app through winapp run, observe generation-safe process and window startup milestones, and optionally retain an elevated WPR loader/storage trace for WPA.",
+          "description": "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.",
           "hidden": false,
           "arguments": {
             "target": {

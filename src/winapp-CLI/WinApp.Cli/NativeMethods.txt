@@ -39,6 +39,9 @@ DEBUG_EVENT
 ReadProcessMemory
 OpenProcess
 GetExitCodeProcess
+GetProcessIoCounters
+GetProcessTimes
+GetGuiResources
 GetPackageFamilyName
 CloseHandle
 FindWindowEx
@@ -68,3 +71,4 @@ SetHandleInformation
 STD_HANDLE
 HANDLE_FLAGS
 SEND_MESSAGE_TIMEOUT_FLAGS
+GET_GUI_RESOURCES_FLAGS

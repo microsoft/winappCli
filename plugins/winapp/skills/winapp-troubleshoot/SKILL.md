@@ -83,7 +83,7 @@ Is the app a single .cs file (.NET file-based app)?
 | Capture OutputDebugString + crash dump | `winapp run .\build\Debug --debug-output` | On crash, writes minidump and shows exception type, message, and faulting methods. **Blocks other debuggers** — use `--no-launch` if you need VS Code/WinDbg |
 | Run and auto-clean | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | Launch and detach (CI) | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| Record startup ownership | `winapp perf record . --duration-sec 10` | Records activation, process/window ownership, visibility, first response, response failures/recovery, and raw exits |
+| Record startup and resource evidence | `winapp perf record . --duration-sec 10` | Records activation, process/window ownership, visibility and response, raw exits, and 500 ms CPU, memory, I/O, thread, handle, and GUI-resource samples |
 | Record DLL/loader order for WPA | `winapp perf record . --with-wpr --duration-sec 10` | Requires elevation; adds the original `traces/system.etl` without claiming a fabricated per-DLL duration |
 | Clean up stale registration | `winapp unregister` | Removes dev-mode packages for the current project (pass a `.cs` for a file-based app: `winapp unregister counter.cs`) |
 | Start menu entry does nothing when clicked | `winapp unregister --prune` | The package is registered but its files were deleted, so activation silently fails. Prune removes every dev registration whose files are gone |
@@ -105,7 +105,7 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
 | `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.sln`; **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
-| `perf record` | The same project or build-output target accepted by `run`; elevation when `--with-wpr` is requested | Launches the app and writes startup process/window evidence, plus optional `traces/system.etl`, to a `.winappperf` directory |
+| `perf record` | The same project or build-output target accepted by `run`; elevation when `--with-wpr` is requested | Launches the app and writes startup and resource evidence, plus optional `traces/system.etl`, to a `.winappperf` directory |
 | `unregister` | A `.cs` file-based app, **or** `Package.appxmanifest` (auto-detect or `--manifest`) | Removes dev-mode package registrations |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |

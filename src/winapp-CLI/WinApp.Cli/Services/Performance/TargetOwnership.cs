@@ -52,6 +52,7 @@ internal sealed class TargetOwnership(
 {
     private readonly Dictionary<int, (IObservedProcess Handle, ProcessOwnershipEvidence Evidence)> _processes = [];
     private readonly Dictionary<long, OwnedWindow> _windows = [];
+    private readonly HashSet<ProcessIdentity> _terminalCountersCaptured = [];
 
     public IReadOnlyCollection<OwnedProcess> Processes =>
         _processes.Values
@@ -67,6 +68,20 @@ internal sealed class TargetOwnership(
             .ToArray();
 
     public IReadOnlyCollection<OwnedWindow> Windows => _windows.Values.ToArray();
+
+    public IReadOnlyList<ProcessResourceCounters> CaptureResourceCounters() =>
+        _processes.Values
+            .Where(value => !_terminalCountersCaptured.Contains(value.Handle.Identity))
+            .Select(value =>
+            {
+                var counters = value.Handle.CaptureResourceCounters();
+                if (counters.IsTerminal)
+                {
+                    _terminalCountersCaptured.Add(value.Handle.Identity);
+                }
+                return counters;
+            })
+            .ToArray();
 
     public ProcessAdmissionStatus AdmitProcess(int processId, ProcessOwnershipEvidence evidence)
         => AdmitProcessCore(processId, expectedIdentity: null, evidence);

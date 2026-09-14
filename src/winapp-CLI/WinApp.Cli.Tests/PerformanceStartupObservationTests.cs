@@ -390,6 +390,10 @@ public class PerformanceStartupObservationTests
             return false;
         }
 
+        public ProcessResourceCounters CaptureResourceCounters() => new(
+            Identity,
+            IsTerminal: state.HasExited);
+
         public void Dispose()
         {
         }

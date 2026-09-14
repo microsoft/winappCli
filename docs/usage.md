@@ -1159,7 +1159,7 @@ is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `W
 
 ### perf record
 
-Launch an app and record generation-safe startup evidence:
+Launch an app and record generation-safe startup and resource evidence:
 
 ```powershell
 winapp perf record .\src\MyApp\MyApp.csproj --duration-sec 10
@@ -1171,9 +1171,9 @@ before activation, and writes a `.winappperf` directory containing:
 
 - `timeline.ndjson` — append-only startup events for activation, observed process generations,
   top-level windows, first visibility, first successful response, response failures/recovery, and
-  raw process exits.
+  raw process exits, plus resource samples every 500 ms.
 - `manifest.json` — completion status, stop reason, monotonic-clock calibration, startup
-  disposition, activation PID, and event count.
+  disposition, activation PID, and resource coverage and summary.
 
 ```powershell
 # Record the current project until Enter, Ctrl+C, redirected input completion, or target exit
@@ -1193,6 +1193,21 @@ A `completed` result means an owned visible top-level window was observed. `atta
 activation reached a process that was already running, as can happen with a single-instance app.
 `partial` means the recording retained valid evidence but did not observe a visible window before it
 stopped. Process exit codes are recorded as raw evidence and are not labeled as crashes.
+
+Resource samples retain cumulative and derived counters for every owned process generation: CPU
+user/kernel/total time, CPU cores used and percentage of the machine, private bytes, working set,
+read/write/other I/O operations and bytes, read/write rates, threads, handles, and GDI/USER object
+counts. A process added during recording starts with its own baseline; winapp never calculates a
+rate from a different process generation or an assumed-zero counter. Aggregate fields are omitted
+when any owned process lacks that counter, and the manifest reports partial sample coverage. The
+summary reports observed averages, peaks, memory change, and I/O deltas; it does not label growth
+as a leak or claim a cause.
+
+When an owned process exits, winapp uses its retained process handle to capture one terminal CPU
+and I/O counter snapshot even if the exit occurs before the next 500 ms sample. Terminal snapshots
+are marked in the timeline and excluded from cadence statistics. Windows does not retain reliable
+post-exit memory, thread, handle, or GUI-resource counts, so those terminal fields remain absent;
+short-lived peaks between periodic samples cannot be reconstructed.
 
 Response probes use a bounded `SendMessageTimeout(WM_NULL)` call against each visible owned
 top-level window. The manifest records the 250 ms requested cadence and 100 ms per-window timeout.
@@ -1926,6 +1941,4 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
-
 

@@ -405,6 +405,38 @@ function packageApp(options: PackageOptions): Promise<WinappResult>
 
 ---
 
+### `perfRecord()`
+
+Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.
+
+```typescript
+function perfRecord(options?: PerfRecordOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `target` | `string \| undefined` | No | App to build, launch, and record: a .cs file-based app, project, solution, project directory, or build-output directory. |
+| `appArgs` | `string \| string[] \| undefined` | No |  |
+| `arch` | `string \| undefined` | No | Project and single-file mode: target architecture (x64, arm64, or x86). |
+| `args` | `string \| undefined` | No | Arguments to pass to the app. Alternatively, place arguments after --. |
+| `configuration` | `string \| undefined` | No | Project and single-file mode: build configuration (default: Release). |
+| `durationSec` | `number \| undefined` | No | Stop after this many seconds. Use 0 to record until Enter, Ctrl+C, redirected-input completion, or target exit (default: 0). |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noBuild` | `boolean \| undefined` | No | Run existing build output without building. |
+| `noRestore` | `boolean \| undefined` | No | Skip restore before building. |
+| `output` | `string \| undefined` | No | Evidence bundle directory (default: performance-<timestamp>.winappperf). The path must not already exist. |
+| `project` | `string \| undefined` | No | Select a project when the target is a solution or ambiguous directory. |
+| `property` | `string \| string[] \| undefined` | No | MSBuild property as Name=Value. Repeatable. |
+| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier. |
+| `withWpr` | `boolean \| undefined` | No | Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
 ### `restore()`
 
 Use after cloning a repo or when .winapp/ folder is missing. Reinstalls SDK packages without changing versions, reading them from winapp.yaml or, for a .NET project initialized by 'init', from the .csproj via 'dotnet restore'. Requires a project already initialized by 'init'. To check for newer SDK versions, use 'update' instead.
@@ -1619,6 +1651,31 @@ type ManifestTemplates = "packaged" | "sparse"
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. |
 | `selfContained` | `boolean \| undefined` | No | Bundle Windows App SDK runtime for self-contained deployment |
 | `skipPri` | `boolean \| undefined` | No | Skip PRI file generation |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `PerfRecordOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `target` | `string \| undefined` | No | App to build, launch, and record: a .cs file-based app, project, solution, project directory, or build-output directory. |
+| `appArgs` | `string \| string[] \| undefined` | No |  |
+| `arch` | `string \| undefined` | No | Project and single-file mode: target architecture (x64, arm64, or x86). |
+| `args` | `string \| undefined` | No | Arguments to pass to the app. Alternatively, place arguments after --. |
+| `configuration` | `string \| undefined` | No | Project and single-file mode: build configuration (default: Release). |
+| `durationSec` | `number \| undefined` | No | Stop after this many seconds. Use 0 to record until Enter, Ctrl+C, redirected-input completion, or target exit (default: 0). |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noBuild` | `boolean \| undefined` | No | Run existing build output without building. |
+| `noRestore` | `boolean \| undefined` | No | Skip restore before building. |
+| `output` | `string \| undefined` | No | Evidence bundle directory (default: performance-<timestamp>.winappperf). The path must not already exist. |
+| `project` | `string \| undefined` | No | Select a project when the target is a solution or ambiguous directory. |
+| `property` | `string \| string[] \| undefined` | No | MSBuild property as Name=Value. Repeatable. |
+| `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier. |
+| `withWpr` | `boolean \| undefined` | No | Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |

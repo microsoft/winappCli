@@ -23,6 +23,12 @@ public class PerformanceTargetOwnershipTests
             new ProcessIdentity(current.Id, current.StartTime.ToUniversalTime().Ticks),
             observation.Process!.Identity);
         Assert.IsFalse(observation.Process.HasExited);
+        var resources = observation.Process.CaptureResourceCounters();
+        Assert.AreEqual(resources.UserProcessorTimeTicks + resources.KernelProcessorTimeTicks, resources.TotalProcessorTimeTicks);
+        Assert.IsTrue(resources.PrivateBytes > 0);
+        Assert.IsTrue(resources.WorkingSetBytes > 0);
+        Assert.IsNotNull(resources.ReadBytes);
+        Assert.IsNotNull(resources.HandleCount);
         observation.Process.Dispose();
     }
 
@@ -55,6 +61,12 @@ public class PerformanceTargetOwnershipTests
         Assert.IsTrue(observed.HasExited);
         Assert.IsTrue(observed.TryGetExitCode(out var exitCode));
         Assert.AreEqual(37, exitCode);
+        var resources = observed.CaptureResourceCounters();
+        Assert.IsTrue(resources.IsTerminal);
+        Assert.IsNotNull(resources.TotalProcessorTimeTicks);
+        Assert.IsNotNull(resources.ReadBytes);
+        Assert.IsNotNull(resources.WriteBytes);
+        Assert.IsNull(resources.PrivateBytes);
     }
 
     [TestMethod]
@@ -69,6 +81,28 @@ public class PerformanceTargetOwnershipTests
 
         Assert.AreEqual(WindowAdmissionStatus.ProcessNotOwned, status);
         Assert.IsEmpty(ownership.Windows);
+    }
+
+    [TestMethod]
+    public void CaptureResourceCounters_EmitsExitedGenerationTerminalCountersOnce()
+    {
+        var probe = new FakeProcessIdentityProbe();
+        var configuredProcess = probe.Set(42, Identity(42, 100));
+        using var ownership = new TargetOwnership(probe, new FakeSystemUiQuery());
+        Assert.AreEqual(
+            ProcessAdmissionStatus.Added,
+            ownership.AdmitProcess(42, ProcessOwnershipEvidence.Launched));
+
+        var active = ownership.CaptureResourceCounters();
+        configuredProcess.HasExitedValue = true;
+        var terminal = ownership.CaptureResourceCounters();
+        var afterTerminal = ownership.CaptureResourceCounters();
+
+        Assert.HasCount(1, active);
+        Assert.IsFalse(active[0].IsTerminal);
+        Assert.HasCount(1, terminal);
+        Assert.IsTrue(terminal[0].IsTerminal);
+        Assert.IsEmpty(afterTerminal);
     }
 
     [TestMethod]
@@ -218,6 +252,10 @@ public class PerformanceTargetOwnershipTests
             exitCode = default;
             return false;
         }
+
+        public ProcessResourceCounters CaptureResourceCounters() => new(
+            Identity,
+            IsTerminal: state.HasExitedValue);
 
         public void Dispose() => Disposed = true;
     }
