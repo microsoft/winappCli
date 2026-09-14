@@ -1050,6 +1050,14 @@ internal sealed partial class ProjectRunService(
                 if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
                     name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
                 {
+                    // A lone -p RuntimeIdentifier with no --arch is HONORED as an exact-RID override
+                    // (ExactRuntimeIdentifier), not overridden — don't claim otherwise.
+                    if (name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase) &&
+                        options.ExactRuntimeIdentifier is { Length: > 0 })
+                    {
+                        continue;
+                    }
+
                     logger.LogDebug(
                         "{UISymbol} -p:{Property} is overridden by the dedicated flag (matches dotnet precedence).",
                         UiSymbols.Note, segment);

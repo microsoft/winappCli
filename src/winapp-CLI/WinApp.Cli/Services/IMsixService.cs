@@ -29,6 +29,7 @@ internal interface IMsixService
         PackageGraphSource? packageGraph = null,
         string? targetArch = null,
         bool runtimeAlreadyBundled = false,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -84,7 +84,25 @@ internal partial class PackageCommand
         }
 
         /// <summary>
-        /// Project mode: build the resolved <c>.csproj</c> using the same infrastructure as
+        /// Returns the value of a lone explicit <c>-p RuntimeIdentifier=&lt;rid&gt;</c>, or <c>null</c> when none
+        /// is present. Property packing that could smuggle a <c>RuntimeIdentifier</c> segment is already
+        /// rejected upstream by <see cref="MsBuildPropertyValidator"/>, so each property carries at most one
+        /// name; a leading/trailing-space padded name is tolerated the same way the forwarding filter does.
+        /// </summary>
+        private static string? TryGetLoneRuntimeIdentifier(IReadOnlyList<string> properties)
+        {
+            foreach (var property in properties)
+            {
+                var separator = property.IndexOf('=');
+                if (separator > 0 &&
+                    property[..separator].Trim().Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
+                {
+                    return property[(separator + 1)..].Trim();
+                }
+            }
+
+            return null;
+        }
         /// <c>winapp run</c>, then package its build output (<c>TargetDir</c>) through the existing
         /// MSIX pipeline. Folder/bundle/sparse inputs never reach here.
         /// </summary>
@@ -126,13 +144,32 @@ internal partial class PackageCommand
             // the requested architectures (each canonicalized to x64/arm64/x86) and reject duplicates before
             // validating the --output extension against the artifact type.
             var resolvedArches = new List<string>();
+
+            // A lone explicit -p RuntimeIdentifier (no --arch) is an exact-RID override: honor it unchanged
+            // and derive the target architecture from it rather than defaulting to the process architecture
+            // (spec §4). With --arch present it is a conflicting target selection, rejected further below.
+            string? exactRid = archInputs.Length == 0 ? TryGetLoneRuntimeIdentifier(properties) : null;
+
             if (archInputs.Length == 0)
             {
-                if (!RunArchHelper.TryResolveArchitecture(null, runtimeOption: null, out var defaultArch, out var defaultErr))
+                if (exactRid is { Length: > 0 })
+                {
+                    if (RunArchHelper.ArchitectureFromRid(exactRid) is not { } ridArch)
+                    {
+                        return Fail($"-p RuntimeIdentifier={exactRid} is not a supported Windows runtime identifier. " +
+                                    "Use a win-x64, win-arm64, or win-x86 RID (a version qualifier such as win10-x64 is " +
+                                    "allowed), or select the architecture with --arch.");
+                    }
+                    resolvedArches.Add(ridArch);
+                }
+                else if (!RunArchHelper.TryResolveArchitecture(null, runtimeOption: null, out var defaultArch, out var defaultErr))
                 {
                     return Fail(defaultErr!);
                 }
-                resolvedArches.Add(defaultArch);
+                else
+                {
+                    resolvedArches.Add(defaultArch);
+                }
             }
             else
             {
@@ -232,7 +269,7 @@ internal partial class PackageCommand
                 return Fail(ex.Message);
             }
 
-            var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, Json: false, Solution: solution);
+            var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, Json: false, Solution: solution, ExactRuntimeIdentifier: exactRid);
 
             // Resolve one signing policy up front (CLI overrides project config; reject unsupported project
             // signing rather than silently ignoring it) and reuse it for the single package or every slice.
@@ -437,6 +474,7 @@ internal partial class PackageCommand
                         packageGraph: packageGraph,
                         targetArch: resolution.Architecture,
                         runtimeAlreadyBundled: runtimeAlreadyBundled,
+                        timestampUrl: signing.TimestampUrl,
                         cancellationToken: ct);
 
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");

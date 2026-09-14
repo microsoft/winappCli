@@ -27,7 +27,7 @@ internal sealed partial class ProjectRunService
         ProjectRunOptions options,
         string? verbosity = null)
     {
-        var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
+        var rid = options.EffectiveRuntimeIdentifier;
         var isSolution = IsSolutionFile(csproj);
         var tokens = new List<string>
         {
@@ -92,7 +92,7 @@ internal sealed partial class ProjectRunService
     /// </summary>
     internal static string BuildBuildPassArguments(FileInfo csproj, ProjectRunOptions options, string verbosity, string? csWinRTMetadataFolder = null, bool nativeTerminal = false, bool publish = false)
     {
-        var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
+        var rid = options.EffectiveRuntimeIdentifier;
 
         var tokens = new List<string>
         {
@@ -189,7 +189,7 @@ internal sealed partial class ProjectRunService
             "-c",
             options.Configuration,
             "-r",
-            RunArchHelper.ToRuntimeIdentifier(options.Architecture),
+            options.EffectiveRuntimeIdentifier,
         };
 
         if (options.NoRestore)
@@ -256,7 +256,7 @@ internal sealed partial class ProjectRunService
             "-c",
             options.Configuration,
             "-r",
-            RunArchHelper.ToRuntimeIdentifier(options.Architecture),
+            options.EffectiveRuntimeIdentifier,
         };
 
         if (options.NoBuild)
@@ -336,7 +336,7 @@ internal sealed partial class ProjectRunService
         bool includePlatform = true,
         bool includePublishProfile = true)
     {
-        var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
+        var rid = options.EffectiveRuntimeIdentifier;
 
         var tokens = new List<string>
         {

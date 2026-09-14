@@ -116,6 +116,7 @@ internal sealed record ProjectRunResolution(
 /// <param name="Platform">The MSBuild <c>Platform</c> winapp injects (<c>-p:Platform=…</c>) into project-targeted passes when the target — and its whole <c>ProjectReference</c> closure — declares a <c>&lt;Platforms&gt;</c> that includes the target arch. Solution-scoped restore omits it because configuration-free <c>.slnx</c> files reject an explicit solution Platform. A RESOLVED input (see <c>ResolvePlatformInjection</c>), never user-supplied; null means arch is conveyed by the RID alone (the safe default). Older WindowsAppSDK targets hard-reject the default <c>Platform=AnyCPU</c> for self-contained / packaged builds, so the explicit Platform is what makes those projects build.</param>
 /// <param name="OmitRuntimeIdentifier">Suppresses the injected <c>-r win-&lt;arch&gt;</c> because an effective <c>Platform</c> already conveys the architecture AND the <c>ProjectReference</c> closure splits on <c>RuntimeIdentifier</c> — a combination that otherwise builds the same project twice and fails a packaged build with APPX1101. A RESOLVED input (see <c>ResolvePlatformInjection</c>).</param>
 /// <param name="PublishProfile">The architecture-matching publish profile used when MSIX tooling requires a trimmed build to be self-contained, the profile preserves the project's trimming, target framework, and architecture, and forcing a global <c>Platform</c> would break an AnyCPU project reference. Inferred profiles are scoped to the selected app through the .NET SDK's <c>ProjectToOverrideProjectExtensionsPath</c> property. A RESOLVED input (see <c>ResolveRequiredPublishProfileAsync</c>), never user-supplied.</param>
+/// <param name="ExactRuntimeIdentifier">An exact Windows RID (e.g. <c>win-x64</c>, <c>win10-x64</c>) that a lone <c>-p RuntimeIdentifier</c> supplied with no <c>--arch</c>. When set, it is forwarded to dotnet unchanged instead of the canonical <c>win-&lt;arch&gt;</c> derived from <see cref="Architecture"/>, so an exact/non-canonical RID is preserved (spec §4). <see cref="Architecture"/> is still derived from this RID for runtime provisioning. Null for every other caller, which conveys arch via the canonical RID.</param>
 internal sealed record ProjectRunOptions(
     string Configuration,
     string Architecture,
@@ -127,7 +128,17 @@ internal sealed record ProjectRunOptions(
     FileInfo? Solution = null,
     string? Platform = null,
     bool OmitRuntimeIdentifier = false,
-    string? PublishProfile = null);
+    string? PublishProfile = null,
+    string? ExactRuntimeIdentifier = null)
+{
+    /// <summary>
+    /// The RID passed to dotnet: an explicit exact-RID override (<see cref="ExactRuntimeIdentifier"/>)
+    /// when a lone <c>-p RuntimeIdentifier</c> requested one, otherwise the canonical
+    /// <c>win-&lt;arch&gt;</c> for <see cref="Architecture"/>.
+    /// </summary>
+    public string EffectiveRuntimeIdentifier =>
+        ExactRuntimeIdentifier is { Length: > 0 } exact ? exact : RunArchHelper.ToRuntimeIdentifier(Architecture);
+}
 
 /// <summary>
 /// The effective build inputs used to classify runnable candidates (multi-<c>.csproj</c> directory or

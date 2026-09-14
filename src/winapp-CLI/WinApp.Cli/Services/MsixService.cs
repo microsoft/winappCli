@@ -323,6 +323,7 @@ internal partial class MsixService(
         PackageGraphSource? packageGraph = null,
         string? targetArch = null,
         bool runtimeAlreadyBundled = false,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default)
     {
         // Validate input folder and manifest
@@ -601,7 +602,7 @@ internal partial class MsixService(
             // Handle certificate generation and signing
             if (autoSign)
             {
-                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, resolvedManifestPath, taskContext, cancellationToken);
+                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl);
             }
         }
         catch (Exception ex)

@@ -359,7 +359,12 @@ winapp pack ./MyApp.csproj -c Release --arch arm64 --cert ./devcert.pfx
 
 # Package an existing build output without rebuilding
 winapp pack ./MyApp.csproj --no-build
+
+# Select the target architecture with an exact RID instead of --arch
+winapp pack ./MyApp.csproj -p RuntimeIdentifier=win-x64
 ```
+
+The target architecture comes from `--arch`, or from a lone `-p RuntimeIdentifier=<rid>` when you don't pass `--arch` (the exact RID is preserved and drives the build). Passing both `--arch` and `-p RuntimeIdentifier` is a conflict and is rejected.
 
 The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
 

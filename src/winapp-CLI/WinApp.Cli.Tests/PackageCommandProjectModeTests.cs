@@ -157,6 +157,40 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_LoneRuntimeIdentifier_HonoredAsExactRidOverride()
+    {
+        // A lone -p RuntimeIdentifier (no --arch) drives the architecture and is forwarded unchanged (spec §4),
+        // independent of the process architecture.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir, arch: "x64");
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "RuntimeIdentifier=win10-x64"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeProjectRunService.BuildOptions.Count);
+        var options = _fakeProjectRunService.BuildOptions[0];
+        Assert.AreEqual("x64", options.Architecture, "architecture must be derived from the RID, not the process default");
+        Assert.AreEqual("win10-x64", options.ExactRuntimeIdentifier);
+        Assert.AreEqual("win10-x64", options.EffectiveRuntimeIdentifier, "the exact RID must be forwarded unchanged");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_LoneNonWindowsRuntimeIdentifier_Rejected()
+    {
+        // A non-Windows RID cannot resolve a Windows architecture; reject before any build.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "RuntimeIdentifier=linux-x64"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
     public async Task ProjectMode_NativeMsixProject_LetsSdkPackageAndDelivers()
     {
         // An MSIX-tooling project takes the native path: the SDK produces the package during publish and
@@ -385,6 +419,26 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var call = _fakeMsixService.DeliverNativeMsixCalls[0];
         Assert.IsTrue(call.AutoSign, "the project's PFX signing configuration must sign the artifact");
         Assert.AreEqual(pfx.FullName, call.CertPath!.FullName);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_ProjectKeyFileSigning_ForwardsTimestampOnGenericPath()
+    {
+        // The generic (recipe/layout) path must also honor the project's signing timestamp, not just native.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir);
+        var pfx = new FileInfo(Path.Join(_tempDirectory.FullName, "proj.pfx"));
+        File.WriteAllText(pfx.FullName, "pfx");
+        _fakeProjectRunService.ProjectSigning = new ProjectSigningProperties(true, pfx.FullName, "secret", null, "http://timestamp.example");
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        var args = _fakeMsixService.LastCreatePackageArgs!;
+        Assert.IsTrue(args.AutoSign, "the project's PFX signing configuration must sign the generic-path artifact");
+        Assert.AreEqual("http://timestamp.example", args.TimestampUrl, "the project's signing timestamp must be forwarded to the generic packaging path");
     }
 
     [TestMethod]
