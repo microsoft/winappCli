@@ -807,6 +807,177 @@ export async function packageApp(options: PackageOptions): Promise<WinappResult>
 }
 
 // ---------------------------------------------------------------------------
+// perf analyze
+// ---------------------------------------------------------------------------
+
+export interface PerfAnalyzeOptions extends CommonOptions {
+  /** Capture directory containing capture.json and its ETL files. */
+  directory: string;
+  /** Expansion depth, 0-4. Defaults: call 2, element 0. Call trees show instrumented operations, not CPU stacks. */
+  depth?: number;
+  /** Trace-local element ID for the events view. */
+  element?: string;
+  /** Exact event name or evidence ID for the events view. */
+  event?: string;
+  /** Exact operation family for --view calls, for example layout, frames, input, or initialization. */
+  family?: string;
+  /** Range start at a recorded marker. */
+  fromMarker?: string;
+  /** Range start relative to capture readiness. */
+  fromMs?: number;
+  /** Trace-local ID for --view element or --view call; optional interval ID for --view gc. */
+  id?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Rows per page, 1-100. */
+  limit?: number;
+  /** Whole JSON response byte budget, 4096-1048576. */
+  maxBytes?: number;
+  /** Minimum complete Frame duration for --view hotspots. Default: 16.67 ms. */
+  minFrameMs?: number;
+  /** Zero-based row offset. */
+  offset?: number;
+  /** Provider GUID for the events view. */
+  provider?: string;
+  /** Ranking: self, inclusive, or count for summary/elements; duration for gc. */
+  sort?: string;
+  /** Restrict to an ETW thread ID. */
+  thread?: number;
+  /** Range end at a recorded marker. */
+  toMarker?: string;
+  /** Range end relative to capture readiness. */
+  toMs?: number;
+  /** Observed type substring for elements/element views. */
+  type?: string;
+  /** summary, elements, element, frames, hotspots, events, calls, call, or gc. */
+  view?: string;
+}
+
+/**
+ * Query a finalized winapp capture directory. ETL stays authoritative; derived NDJSON is cached locally. Partial evidence is returned with nonzero exit status.
+ */
+export async function perfAnalyze(options: PerfAnalyzeOptions): Promise<WinappResult> {
+  const args: string[] = ['perf', 'analyze'];
+  args.push(options.directory);
+  if (options.depth !== undefined) args.push('--depth', options.depth.toString());
+  if (options.element) args.push('--element', options.element);
+  if (options.event) args.push('--event', options.event);
+  if (options.family) args.push('--family', options.family);
+  if (options.fromMarker) args.push('--from-marker', options.fromMarker);
+  if (options.fromMs !== undefined) args.push('--from-ms', options.fromMs.toString());
+  if (options.id) args.push('--id', options.id);
+  if (options.json) args.push('--json');
+  if (options.limit !== undefined) args.push('--limit', options.limit.toString());
+  if (options.maxBytes !== undefined) args.push('--max-bytes', options.maxBytes.toString());
+  if (options.minFrameMs !== undefined) args.push('--min-frame-ms', options.minFrameMs.toString());
+  if (options.offset !== undefined) args.push('--offset', options.offset.toString());
+  if (options.provider) args.push('--provider', options.provider);
+  if (options.sort) args.push('--sort', options.sort);
+  if (options.thread !== undefined) args.push('--thread', options.thread.toString());
+  if (options.toMarker) args.push('--to-marker', options.toMarker);
+  if (options.toMs !== undefined) args.push('--to-ms', options.toMs.toString());
+  if (options.type) args.push('--type', options.type);
+  if (options.view) args.push('--view', options.view);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// perf mark
+// ---------------------------------------------------------------------------
+
+export interface PerfMarkOptions extends CommonOptions {
+  /** ID returned by perf start. */
+  captureId: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Unique marker name (1-128 characters). */
+  name: string;
+}
+
+/**
+ * Record a uniquely named marker using the worker's QPC clock.
+ */
+export async function perfMark(options: PerfMarkOptions): Promise<WinappResult> {
+  const args: string[] = ['perf', 'mark'];
+  args.push(options.captureId);
+  if (options.json) args.push('--json');
+  if (options.name) args.push('--name', options.name);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// perf start
+// ---------------------------------------------------------------------------
+
+export interface PerfStartOptions extends CommonOptions {
+  /** Target WinUI 3 app (process name, window title, or PID). */
+  app: string;
+  /** Capture duration: 1-300 seconds. */
+  durationSec?: number;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum raw ETL size: 1-1024 MiB. */
+  maxSizeMib?: number;
+  /** Empty capture directory to create. */
+  output: string;
+}
+
+/**
+ * Start a bounded private ETW worker and return after provider/control readiness.
+ */
+export async function perfStart(options: PerfStartOptions): Promise<WinappResult> {
+  const args: string[] = ['perf', 'start'];
+  if (options.app) args.push('--app', options.app);
+  if (options.durationSec !== undefined) args.push('--duration-sec', options.durationSec.toString());
+  if (options.json) args.push('--json');
+  if (options.maxSizeMib !== undefined) args.push('--max-size-mib', options.maxSizeMib.toString());
+  if (options.output) args.push('--output', options.output);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// perf status
+// ---------------------------------------------------------------------------
+
+export interface PerfStatusOptions extends CommonOptions {
+  /** ID returned by perf start. */
+  captureId: string;
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Read current or final capture status. Readiness is not proof of decoded coverage.
+ */
+export async function perfStatus(options: PerfStatusOptions): Promise<WinappResult> {
+  const args: string[] = ['perf', 'status'];
+  args.push(options.captureId);
+  if (options.json) args.push('--json');
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// perf stop
+// ---------------------------------------------------------------------------
+
+export interface PerfStopOptions extends CommonOptions {
+  /** ID returned by perf start. */
+  captureId: string;
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Finalize an owned capture without closing the app; repeated stops are safe.
+ */
+export async function perfStop(options: PerfStopOptions): Promise<WinappResult> {
+  const args: string[] = ['perf', 'stop'];
+  args.push(options.captureId);
+  if (options.json) args.push('--json');
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // restore
 // ---------------------------------------------------------------------------
 
@@ -864,6 +1035,12 @@ export interface RunOptions extends CommonOptions {
   noRestore?: boolean;
   /** Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. */
   outputAppxDirectory?: string;
+  /** Record WinUI 3 performance ETW to an empty directory. Attaches after the real PID is available; early startup events may be missed. */
+  profile?: string;
+  /** With --profile: trace for 1-300 seconds; stopping the trace does not stop the app. */
+  profileDurationSec?: number;
+  /** With --profile: maximum raw ETL size, 1-1024 MiB. */
+  profileMaxSizeMib?: number;
   /** Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. */
   project?: string;
   /** Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. */
@@ -903,6 +1080,9 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   if (options.noLaunch) args.push('--no-launch');
   if (options.noRestore) args.push('--no-restore');
   if (options.outputAppxDirectory) args.push('--output-appx-directory', options.outputAppxDirectory);
+  if (options.profile) args.push('--profile', options.profile);
+  if (options.profileDurationSec !== undefined) args.push('--profile-duration-sec', options.profileDurationSec.toString());
+  if (options.profileMaxSizeMib !== undefined) args.push('--profile-max-size-mib', options.profileMaxSizeMib.toString());
   if (options.project) args.push('--project', options.project);
   if (options.property) {
     const propertyArr = Array.isArray(options.property) ? options.property : [options.property];

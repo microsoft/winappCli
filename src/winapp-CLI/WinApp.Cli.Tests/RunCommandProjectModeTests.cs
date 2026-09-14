@@ -52,7 +52,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
     {
         _fakeMsixService = new FakeMsixService();
-        _fakeAppLauncherService = new FakeAppLauncherService();
+        _fakeAppLauncherService = new FakeAppLauncherService { FakeProcessId = uint.MaxValue };
         _fakeDebugOutputService = new FakeDebugOutputService();
         _fakeProjectRunService = new FakeProjectRunService();
         return services
@@ -501,6 +501,31 @@ public class RunCommandProjectModeTests : BaseCommandTests
             $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
         StringAssert.Contains(output, "not print to this terminal",
             "The user has to be told why the console output is missing");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_InferredAliasFallback_PreparesProfileBeforeLaunching()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                null, false, null, "Exe", null), 0);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => null;
+        var output = _tempDirectory.CreateSubdirectory("capture");
+        var sentinel = Path.Join(output.FullName, "keep.txt");
+        File.WriteAllText(sentinel, "keep");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [csproj.FullName, "--profile", output.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(1, _fakeMsixService.AddLooseLayoutEnsureAliasCalls.Count);
+        Assert.IsTrue(_fakeMsixService.AddLooseLayoutEnsureAliasCalls[0]);
+        Assert.IsEmpty(_fakeAppLauncherService.LaunchCalls);
+        Assert.IsEmpty(_fakeAppLauncherService.LaunchExecutableCalls);
+        Assert.AreEqual("keep", File.ReadAllText(sentinel));
     }
 
     [TestMethod]
