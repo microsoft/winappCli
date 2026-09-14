@@ -501,6 +501,68 @@ function manifestUpdateAssets(options: ManifestUpdateAssetsOptions): Promise<Win
 
 ---
 
+### `migrate()`
+
+Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms, including safely translatable activation declarations. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.
+
+```typescript
+function migrate(options: MigrateOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `source` | `string` | Yes | UWP project source folder (contains the .csproj and Package.appxmanifest). |
+| `name` | `string \| undefined` | No | Target project name. Defaults to the UWP project name with an 'App' suffix. |
+| `output` | `string \| undefined` | No | New directory where the mechanically migrated WinUI 3 project will be created. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
+### `migrateDecideProjectItem()`
+
+Record a structured, deterministically verified decision for one review-required source Content or PRIResource item. This command never edits CLI-owned verification fields directly.
+
+```typescript
+function migrateDecideProjectItem(options: MigrateDecideProjectItemOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `target` | `string` | Yes | Migrated WinUI project directory containing migration-report.json. |
+| `evidenceFile` | `string \| string[] \| undefined` | No | Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files. |
+| `item` | `string \| undefined` | No | Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted. |
+| `rationale` | `string \| undefined` | No | Concise explanation of why this deterministic strategy preserves the source item. |
+| `strategy` | `string \| undefined` | No | Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated. |
+| `targetItemType` | `string \| undefined` | No | Target MSBuild item type when an explicit item is required: Content or PRIResource. |
+| `targetPath` | `string \| undefined` | No | Literal target-relative file path that represents the source item. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
+### `migrateVerify()`
+
+Re-run namespace residual, activation declaration, and project-item decision checks against the recorded migration inventory without modifying application source or behavioral validation.
+
+```typescript
+function migrateVerify(options: MigrateVerifyOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `target` | `string` | Yes | Migrated WinUI project directory containing migration-report.json. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
 ### `newCommand()`
 
 Create a new WinUI app from an official Windows App SDK template. Templates cover both markup-based XAML apps (blank, NavigationView, TabView, MVVM) and the experimental Reactor apps (C#-only, MVU) — pick one interactively, then a name (the output directory defaults to ./<name>). Automatically uses defaults in non-interactive environments (use --use-defaults to skip prompts explicitly). Requires the .NET SDK; installs the WinUI template pack on demand (grabbing the latest, or offering to update a stale one) and delegates scaffolding to 'dotnet new'. Use --list to see the available templates. Scaffolds against the installed SDK's target framework and prints a template-specific next step when done (e.g. 'dotnet run' for app templates).
@@ -576,7 +638,7 @@ function restore(options?: RestoreOptions): Promise<WinappResult>
 
 ### `run()`
 
-Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
+Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. Project mode uses dotnet build for modern projects or Visual Studio MSBuild for classic UWP, then launches the app; single-file mode builds the .cs and launches it, generating a manifest from its #:property directives when packaged; folder mode creates a debug-signed layout, registers the package, and launches it.
 
 ```typescript
 function run(options?: RunOptions): Promise<WinappResult>
@@ -1830,6 +1892,47 @@ type ManifestTemplates = "packaged" | "sparse"
 | `imagePath` | `string` | Yes | Path to source image file (SVG, PNG, ICO, JPG, BMP, GIF) |
 | `lightImage` | `string \| undefined` | No | Path to source image for light theme variants (SVG, PNG, ICO, JPG, BMP, GIF) |
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file (default: search current directory) |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `MigrateOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `source` | `string` | Yes | UWP project source folder (contains the .csproj and Package.appxmanifest). |
+| `name` | `string \| undefined` | No | Target project name. Defaults to the UWP project name with an 'App' suffix. |
+| `output` | `string \| undefined` | No | New directory where the mechanically migrated WinUI 3 project will be created. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `MigrateDecideProjectItemOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `target` | `string` | Yes | Migrated WinUI project directory containing migration-report.json. |
+| `evidenceFile` | `string \| string[] \| undefined` | No | Target-relative project/props/targets file containing the matching Include or Update item. Repeat for multiple files. |
+| `item` | `string \| undefined` | No | Stable project-item ID from mechanicalVerification.projectItems.reviewRequiredItems. A unique ID prefix is accepted. |
+| `rationale` | `string \| undefined` | No | Concise explanation of why this deterministic strategy preserves the source item. |
+| `strategy` | `string \| undefined` | No | Decision strategy: sdk-default-item, explicit-target-item, copied-linked-content, or intentionally-not-migrated. |
+| `targetItemType` | `string \| undefined` | No | Target MSBuild item type when an explicit item is required: Content or PRIResource. |
+| `targetPath` | `string \| undefined` | No | Literal target-relative file path that represents the source item. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `MigrateVerifyOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `target` | `string` | Yes | Migrated WinUI project directory containing migration-report.json. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |

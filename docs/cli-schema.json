@@ -2106,7 +2106,7 @@
       }
     },
     "migrate": {
-      "description": "Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.",
+      "description": "Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms, including safely translatable activation declarations. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.",
       "hidden": false,
       "arguments": {
         "source": {
@@ -2309,7 +2309,7 @@
           }
         },
         "verify": {
-          "description": "Re-run namespace residual and project-item checks against the recorded migration inventory without modifying application source or behavioral validation.",
+          "description": "Re-run namespace residual, activation declaration, and project-item decision checks against the recorded migration inventory without modifying application source or behavioral validation.",
           "hidden": false,
           "arguments": {
             "target": {

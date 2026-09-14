@@ -17,7 +17,7 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
     };
 
     public MigrateVerifyCommand()
-        : base("verify", "Re-run namespace residual and project-item checks against the recorded migration inventory without modifying application source or behavioral validation.")
+        : base("verify", "Re-run namespace residual, activation declaration, and project-item decision checks against the recorded migration inventory without modifying application source or behavioral validation.")
     {
         TargetArgument.AcceptExistingOnly();
         Arguments.Add(TargetArgument);

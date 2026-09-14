@@ -729,7 +729,7 @@ export interface MigrateOptions extends CommonOptions {
 }
 
 /**
- * Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.
+ * Create a new WinUI 3 project from UWP source and apply deterministic mechanical transforms, including safely translatable activation declarations. Writes migration-report.json with known residual work. Success means the mechanical pass completed; it does not guarantee that the result builds or runs.
  */
 export async function migrate(options: MigrateOptions): Promise<WinappResult> {
   const args: string[] = ['migrate'];
@@ -788,7 +788,7 @@ export interface MigrateVerifyOptions extends CommonOptions {
 }
 
 /**
- * Re-run namespace residual and project-item checks against the recorded migration inventory without modifying application source or behavioral validation.
+ * Re-run namespace residual, activation declaration, and project-item decision checks against the recorded migration inventory without modifying application source or behavioral validation.
  */
 export async function migrateVerify(options: MigrateVerifyOptions): Promise<WinappResult> {
   const args: string[] = ['migrate', 'verify'];
