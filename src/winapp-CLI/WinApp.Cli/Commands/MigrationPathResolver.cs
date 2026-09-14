@@ -25,12 +25,22 @@ internal static class MigrationPathResolver
         {
             fullPath = Path.TrimEndingDirectorySeparator(
                 Path.GetFullPath(value));
+            if ((File.Exists(fullPath) || Directory.Exists(fullPath))
+                && File.GetAttributes(fullPath).HasFlag(
+                    FileAttributes.ReparsePoint))
+            {
+                fullPath = string.Empty;
+                error =
+                    "The migration root cannot be a reparse point.";
+                return false;
+            }
             return true;
         }
         catch (Exception exception) when (
             exception is ArgumentException
             or NotSupportedException
-            or PathTooLongException)
+            or IOException
+            or UnauthorizedAccessException)
         {
             error = exception.Message;
             return false;
@@ -79,11 +89,12 @@ internal static class MigrationPathResolver
             return false;
         }
 
-        string canonicalRoot;
+        if (!TryCanonicalizeRoot(root, out var canonicalRoot, out error))
+        {
+            return false;
+        }
         try
         {
-            canonicalRoot = Path.TrimEndingDirectorySeparator(
-                Path.GetFullPath(root));
             fullPath = Path.GetFullPath(
                 Path.Combine(canonicalRoot, normalizedInput));
         }

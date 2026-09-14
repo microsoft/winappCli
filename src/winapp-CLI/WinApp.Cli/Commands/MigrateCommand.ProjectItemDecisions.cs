@@ -155,14 +155,14 @@ internal partial class MigrateCommand
             var sourceContentExternal = sourceContentAvailable
                 && !IsPathContainedByRoot(sourceRoot, availableSourcePath);
             if ((sourceItem.ReviewReason == "absolute-path"
-                    || sourceItem.ReviewReason == "external-or-missing-source")
+                    || (sourceItem.ReviewReason == "external-or-missing-source"
+                        && sourceContentExternal))
                 && sourceContentAvailable
-                && sourceContentExternal
                 && decision.Strategy != CopiedLinkedContentStrategy)
             {
                 verification.Status = "invalid";
                 verification.Reason =
-                    "Available source content outside the source root must use copied-linked-content so source and target bytes can be verified.";
+                    "Available absolute or external source content must use copied-linked-content so source and target bytes can be verified.";
                 return verification;
             }
             if (sourceItem.ReviewReason is "absolute-path" or "external-or-missing-source"
@@ -338,8 +338,28 @@ internal partial class MigrateCommand
                     return verification;
                 }
 
-                verification.SourceSha256 = ComputeSha256(availableSourcePath);
-                verification.TargetSha256 = ComputeSha256(targetPath);
+                if (!TryComputeSha256(
+                        availableSourcePath,
+                        out var sourceSha256,
+                        out var sourceHashError))
+                {
+                    verification.Status = "invalid";
+                    verification.Reason =
+                        $"Source content could not be hashed: {sourceHashError}";
+                    return verification;
+                }
+                if (!TryComputeSha256(
+                        targetPath,
+                        out var targetSha256,
+                        out var targetHashError))
+                {
+                    verification.Status = "invalid";
+                    verification.Reason =
+                        $"Target content could not be hashed: {targetHashError}";
+                    return verification;
+                }
+                verification.SourceSha256 = sourceSha256;
+                verification.TargetSha256 = targetSha256;
                 verification.ContentMatches = string.Equals(
                     verification.SourceSha256,
                     verification.TargetSha256,
@@ -434,9 +454,37 @@ internal partial class MigrateCommand
                 Path.AltDirectorySeparatorChar,
                 Path.DirectorySeparatorChar));
 
-        private static string ComputeSha256(string path) =>
-            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))
-                .ToLowerInvariant();
+        private static bool TryComputeSha256(
+            string path,
+            out string hash,
+            out string error)
+        {
+            hash = string.Empty;
+            error = string.Empty;
+            try
+            {
+                using var stream = new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    bufferSize: 64 * 1024,
+                    FileOptions.SequentialScan);
+                hash = Convert.ToHexString(SHA256.HashData(stream))
+                    .ToLowerInvariant();
+                return true;
+            }
+            catch (Exception exception) when (
+                exception is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or System.Security.SecurityException
+                or CryptographicException)
+            {
+                error = exception.Message;
+                return false;
+            }
+        }
 
         private sealed class MigrationLocationComparer :
             IEqualityComparer<MigrationLocation>

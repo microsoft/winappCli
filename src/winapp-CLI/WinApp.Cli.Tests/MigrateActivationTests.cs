@@ -507,6 +507,56 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Verify_WrongNamespaceTargetAttributesAreNeverVerified()
+    {
+        var source = await CreateSourceAsync(
+            "WrongTargetAttributeNamespaceApp",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.protocol">
+                  <uap:Protocol Name="attribute-protocol" />
+                </uap:Extension>
+                <uap:Extension Category="windows.fileTypeAssociation">
+                  <uap:FileTypeAssociation Name="attribute-files">
+                    <uap:SupportedFileTypes>
+                      <uap:FileType>.attribute</uap:FileType>
+                    </uap:SupportedFileTypes>
+                  </uap:FileTypeAssociation>
+                </uap:Extension>
+                """));
+        var target = NewTarget("wrong-target-attribute-namespace-output");
+        ArrangeTemplateCreation(target, "WrongTargetAttributeNamespaceAppApp");
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+
+        var manifestPath = Path.Combine(target.FullName, "Package.appxmanifest");
+        var manifest = XDocument.Load(manifestPath);
+        XNamespace vendor = "urn:vendor";
+        var protocolExtension = manifest.Descendants()
+            .Single(element =>
+                element.Name.LocalName == "Extension"
+                && element.Attribute("Category")?.Value == "windows.protocol");
+        protocolExtension.SetAttributeValue(vendor + "Category", "windows.protocol");
+        protocolExtension.Elements().Single()
+            .SetAttributeValue(vendor + "DesiredView", "useMore");
+        manifest.Descendants()
+            .Single(element => element.Name.LocalName == "FileType")
+            .SetAttributeValue(vendor + "ContentType", "application/x-vendor");
+        manifest.Save(manifestPath);
+
+        var (exit, output) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, exit, output);
+        using var report = await ReadReportAsync(target);
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.IsTrue(activation.GetProperty("contracts").EnumerateArray().All(contract =>
+            contract.GetProperty("verificationStatus").GetString() == "drifted"));
+        Assert.IsTrue(activation.GetProperty("issues").EnumerateArray().Any(issue =>
+            issue.GetProperty("kind").GetString() ==
+            "target-activation-attribute-namespace-unsupported"));
+    }
+
+    [TestMethod]
     public async Task Migrate_DuplicateActivationIdentity_RemainsReviewRequired()
     {
         var source = await CreateSourceAsync(

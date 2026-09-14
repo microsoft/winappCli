@@ -22,6 +22,13 @@ internal partial class MigrateCommand
             Unknown
         }
 
+        private enum DirectoryBuildImportStatus
+        {
+            Disabled,
+            Enabled,
+            Unmodeled
+        }
+
         private sealed record ProjectConditionContext(string ProjectName);
 
         private sealed class ProjectEvidenceGraph
@@ -33,6 +40,8 @@ internal partial class MigrateCommand
 
             internal Dictionary<string, string> RejectedDocuments { get; } =
                 new(StringComparer.OrdinalIgnoreCase);
+
+            internal List<string> IncompleteReasons { get; } = [];
         }
 
         private sealed record ProjectItemEvidenceResult(
@@ -75,9 +84,11 @@ internal partial class MigrateCommand
             }
 
             var targetDocument = graph.Documents[targetProjectRelative];
-            if (!IsSdkStyleProject(targetDocument))
+            if (!IsSupportedMigrationTargetProject(targetDocument))
             {
-                return true;
+                error =
+                    "The target project does not use the supported Microsoft.NET.Sdk migration shape, so its import graph cannot be proven.";
+                return false;
             }
 
             AddAutomaticDirectoryBuildFile(
@@ -96,6 +107,12 @@ internal partial class MigrateCommand
                 "DirectoryBuildTargetsPath",
                 graph,
                 context);
+            if (graph.IncompleteReasons.Count > 0)
+            {
+                error =
+                    $"The target MSBuild graph cannot be proven complete: {graph.IncompleteReasons[0]}";
+                return false;
+            }
             return true;
         }
 
@@ -156,6 +173,10 @@ internal partial class MigrateCommand
             {
                 error = $"MSBuild evidence file '{relativePath}' could not be read: {exception.Message}";
                 graph.RejectedDocuments[relativePath] = error;
+                if (!required)
+                {
+                    graph.IncompleteReasons.Add(error);
+                }
                 return !required;
             }
 
@@ -164,6 +185,10 @@ internal partial class MigrateCommand
                 error =
                     $"MSBuild evidence file '{relativePath}' does not have a supported Project root.";
                 graph.RejectedDocuments[relativePath] = error;
+                if (!required)
+                {
+                    graph.IncompleteReasons.Add(error);
+                }
                 return !required;
             }
 
@@ -176,6 +201,11 @@ internal partial class MigrateCommand
                     ? $"MSBuild evidence file '{relativePath}' has an inactive Project condition."
                     : $"MSBuild evidence file '{relativePath}' has a Project condition that cannot be proven active.";
                 graph.RejectedDocuments[relativePath] = error;
+                if (!required
+                    && rootCondition == DeterministicCondition.Unknown)
+                {
+                    graph.IncompleteReasons.Add(error);
+                }
                 return !required;
             }
 
@@ -185,30 +215,55 @@ internal partial class MigrateCommand
                 && IsProjectElement(element, "Import")))
             {
                 var importValue = import.Attribute("Project")?.Value.Trim();
-                if (string.IsNullOrWhiteSpace(importValue)
-                    || !TryResolveLiteralImport(
-                        targetRoot,
-                        projectFile,
-                        importValue,
-                        out var importedProject,
-                        out var importedRelative))
+                if (string.IsNullOrWhiteSpace(importValue))
                 {
                     continue;
                 }
-
                 var condition = EvaluateElementCondition(import, context);
-                if (condition != DeterministicCondition.True)
+                if (condition == DeterministicCondition.False)
                 {
-                    graph.RejectedDocuments[importedRelative] =
-                        condition == DeterministicCondition.False
-                            ? $"Import of '{importedRelative}' is deterministically inactive."
-                            : $"Import of '{importedRelative}' is conditioned and cannot be proven active.";
+                    continue;
+                }
+                if (condition == DeterministicCondition.Unknown)
+                {
+                    graph.IncompleteReasons.Add(
+                        $"Import '{importValue}' in '{relativePath}' is conditioned and cannot be proven inactive.");
+                    continue;
+                }
+                if (!string.IsNullOrWhiteSpace(
+                        import.Attribute("Sdk")?.Value))
+                {
+                    if (TryResolveLiteralImport(
+                        targetRoot,
+                        projectFile,
+                        importValue,
+                        out _,
+                        out var sdkImportedRelative))
+                    {
+                        graph.RejectedDocuments[sdkImportedRelative] =
+                            $"Import of '{sdkImportedRelative}' is SDK-qualified and cannot be resolved as contained literal evidence.";
+                    }
+                    graph.IncompleteReasons.Add(
+                        $"Active SDK-qualified import '{importValue}' in '{relativePath}' cannot be resolved deterministically.");
+                    continue;
+                }
+                if (!TryResolveLiteralImport(
+                    targetRoot,
+                    projectFile,
+                    importValue,
+                    out var importedProject,
+                    out var importedRelative))
+                {
+                    graph.IncompleteReasons.Add(
+                        $"Active import '{importValue}' in '{relativePath}' is not a contained literal import.");
                     continue;
                 }
                 if (!File.Exists(importedProject))
                 {
                     graph.RejectedDocuments[importedRelative] =
                         $"Imported evidence file '{importedRelative}' does not exist.";
+                    graph.IncompleteReasons.Add(
+                        graph.RejectedDocuments[importedRelative]);
                     continue;
                 }
 
@@ -232,24 +287,41 @@ internal partial class MigrateCommand
             ProjectEvidenceGraph graph,
             ProjectConditionContext context)
         {
-            var automaticFile = FindNearestContainedAncestorFile(
-                targetRoot,
+            var importStatus = GetAutomaticDirectoryBuildImportStatus(
+                graph.Documents.Values,
+                importEnabledProperty,
+                overridePathProperty,
+                context,
+                out var reason);
+            if (importStatus == DirectoryBuildImportStatus.Disabled)
+            {
+                return;
+            }
+            if (importStatus == DirectoryBuildImportStatus.Unmodeled)
+            {
+                graph.IncompleteReasons.Add(reason);
+                return;
+            }
+
+            var automaticFile = FindNearestAncestorFile(
                 Path.GetDirectoryName(targetProject)!,
                 fileName);
             if (automaticFile is null)
             {
                 return;
             }
-            var automaticRelative = NormalizePath(
-                Path.GetRelativePath(targetRoot, automaticFile));
-            if (!IsAutomaticDirectoryBuildImportEnabled(
-                    graph.Documents.Values,
-                    importEnabledProperty,
-                    overridePathProperty,
-                    context,
-                    out var reason))
+            var candidateRelative = Path.GetRelativePath(
+                targetRoot,
+                automaticFile);
+            if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                    targetRoot,
+                    candidateRelative,
+                    out automaticFile,
+                    out var automaticRelative,
+                    out _))
             {
-                graph.RejectedDocuments[automaticRelative] = reason;
+                graph.IncompleteReasons.Add(
+                    $"The nearest {fileName} is outside the migration target and may affect the build.");
                 return;
             }
 
@@ -262,7 +334,7 @@ internal partial class MigrateCommand
                 out _);
         }
 
-        private static bool IsAutomaticDirectoryBuildImportEnabled(
+        private static DirectoryBuildImportStatus GetAutomaticDirectoryBuildImportStatus(
             IEnumerable<XDocument> participatingDocuments,
             string importEnabledProperty,
             string overridePathProperty,
@@ -282,7 +354,7 @@ internal partial class MigrateCommand
                 {
                     reason =
                         $"Automatic Directory.Build import control '{property.Name.LocalName}' is conditioned and cannot be proven active.";
-                    return false;
+                    return DirectoryBuildImportStatus.Unmodeled;
                 }
                 if (condition == DeterministicCondition.False)
                 {
@@ -295,55 +367,43 @@ internal partial class MigrateCommand
                 {
                     reason =
                         $"Automatic Directory.Build discovery is overridden by {overridePathProperty}.";
-                    return false;
+                    return DirectoryBuildImportStatus.Unmodeled;
                 }
                 if (property.Name.LocalName.Equals(
                         importEnabledProperty,
-                        StringComparison.OrdinalIgnoreCase)
-                    && bool.TryParse(property.Value.Trim(), out var enabled)
-                    && !enabled)
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    reason =
-                        $"Automatic Directory.Build import is disabled by {importEnabledProperty}.";
-                    return false;
+                    if (!bool.TryParse(
+                            property.Value.Trim(),
+                            out var enabled))
+                    {
+                        reason =
+                            $"Automatic Directory.Build import is not proven enabled by {importEnabledProperty}.";
+                        return DirectoryBuildImportStatus.Unmodeled;
+                    }
+                    if (!enabled)
+                    {
+                        reason =
+                            $"Automatic Directory.Build import is disabled by {importEnabledProperty}.";
+                        return DirectoryBuildImportStatus.Disabled;
+                    }
                 }
             }
-            return true;
+            return DirectoryBuildImportStatus.Enabled;
         }
 
-        private static string? FindNearestContainedAncestorFile(
-            string targetRoot,
+        private static string? FindNearestAncestorFile(
             string startDirectory,
             string fileName)
         {
-            var canonicalRoot = Path.TrimEndingDirectorySeparator(
-                Path.GetFullPath(targetRoot));
             for (var directory = new DirectoryInfo(startDirectory);
                  directory is not null;
                  directory = directory.Parent)
             {
-                var relative = Path.GetRelativePath(
-                    canonicalRoot,
-                    directory.FullName);
-                if (relative == ".."
-                    || relative.StartsWith(
-                        $"..{Path.DirectorySeparatorChar}",
-                        StringComparison.Ordinal))
-                {
-                    break;
-                }
-
                 var candidate = Path.Combine(directory.FullName, fileName);
                 if (File.Exists(candidate))
                 {
                     return candidate;
-                }
-                if (string.Equals(
-                    directory.FullName,
-                    canonicalRoot,
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
                 }
             }
             return null;
@@ -507,7 +567,7 @@ internal partial class MigrateCommand
         {
             reason = string.Empty;
             var targetDocument = graph.Documents[graph.TargetProject];
-            if (!IsSdkStyleProject(targetDocument))
+            if (!IsSupportedMigrationTargetProject(targetDocument))
             {
                 reason =
                     "The target project is not SDK-style, so default PRIResource inclusion cannot be proven.";
@@ -821,18 +881,19 @@ internal partial class MigrateCommand
                     : DeterministicCondition.True;
         }
 
-        private static bool IsSdkStyleProject(XDocument document)
+        private static bool IsSupportedMigrationTargetProject(
+            XDocument document)
         {
             if (!IsProjectRoot(document.Root))
             {
                 return false;
             }
-            return !string.IsNullOrWhiteSpace(
-                    document.Root!.Attribute("Sdk")?.Value)
-                || document.Root.Elements().Any(element =>
-                    IsProjectElement(element, "Sdk")
-                    && !string.IsNullOrWhiteSpace(
-                        element.Attribute("Name")?.Value));
+            return string.Equals(
+                    document.Root!.Attribute("Sdk")?.Value.Trim(),
+                    "Microsoft.NET.Sdk",
+                    StringComparison.OrdinalIgnoreCase)
+                && !document.Root.Elements().Any(element =>
+                    IsProjectElement(element, "Sdk"));
         }
 
         private static bool IsProjectRoot(XElement? element) =>

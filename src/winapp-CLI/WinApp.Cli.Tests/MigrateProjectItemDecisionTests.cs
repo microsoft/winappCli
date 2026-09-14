@@ -352,6 +352,161 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task DecideProjectItem_RejectsUnprovenDirectoryBuildImportControl()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "DirectoryBuildControlApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <PropertyGroup>
+                <ImportDirectoryBuildTargets>$(UndefinedImportControl)</ImportDirectoryBuildTargets>
+              </PropertyGroup>
+            """);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "An unevaluated import control cannot authenticate build evidence.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "not proven enabled");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_RejectsSdkQualifiedLocalImportLookalike()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "SdkQualifiedImportApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        await WriteAsync(
+            target,
+            "Build\\SdkItems.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """<Import Project="Build\SdkItems.targets" Sdk="Vendor.Build.Sdk" />""");
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Build\\SdkItems.targets",
+            "--rationale", "SDK-qualified imports resolve through the SDK, not beside the project.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "SDK-qualified");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_RejectsUnmodeledActiveImport()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "UnmodeledImportApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Include="Resources\fr-fr\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """<Import Project="$(CustomTargetsPath)" />""");
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\fr-fr\Resources.resw"),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Resources\fr-fr\Resources.resw",
+            "--target-item-type", "PRIResource",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "An active property-based import can change effective item coverage.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "not a contained literal import");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_RejectsNearestDirectoryBuildFileOutsideTarget()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "OutsideDirectoryBuildApp",
+            includeConditionalItem: false);
+        var items = await ReadReviewItemsAsync(target);
+        await WriteAsync(
+            _tempDirectory,
+            "Directory.Build.props",
+            """
+            <Project>
+              <PropertyGroup>
+                <EnableDefaultItems>false</EnableDefaultItems>
+              </PropertyGroup>
+            </Project>
+            """);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Update="Resources\en-us\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "An outside Directory.Build.props makes contained default coverage incomplete.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "nearest Directory.Build.props");
+        StringAssert.Contains(result.Output, "outside the migration target");
+    }
+
+    [TestMethod]
     public async Task DecideProjectItem_AcceptsReachableLiteralImport()
     {
         var (_, target) = await CreateDecisionMigrationAsync(
@@ -561,7 +716,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             "--rationale", "The absolute PRIResource source and target have matching bytes.");
 
         Assert.AreEqual(1, explicitContent.ExitCode, explicitContent.Output);
-        StringAssert.Contains(explicitContent.Output, "outside the source root");
+        StringAssert.Contains(explicitContent.Output, "absolute or external");
         Assert.AreEqual(0, copiedContent.ExitCode, copiedContent.Output);
         Assert.AreEqual(0, copiedResource.ExitCode, copiedResource.Output);
         using var report = await ReadReportAsync(target);
@@ -571,6 +726,68 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             .All(decision =>
                 decision.GetProperty("verification").GetProperty("contentMatches").GetBoolean()));
         Assert.IsTrue(Directory.Exists(source.FullName));
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_AbsolutePathInsideSourceStillRequiresHashComparison()
+    {
+        var source = _tempDirectory.CreateSubdirectory("AbsoluteInsideSourceApp");
+        var sourceContent = Path.Combine(
+            source.FullName,
+            "Data",
+            "Inside.json");
+        await WriteAsync(source, "Data\\Inside.json", """{"inside":true}""");
+        await WriteAsync(
+            source,
+            "AbsoluteInsideSourceApp.csproj",
+            $$"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <Content Include="{{sourceContent}}">
+                  <Link>Data\Inside.json</Link>
+                </Content>
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(source, "Package.appxmanifest", SourceManifest);
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "AbsoluteInsideSourceApp-output"));
+        ArrangeTemplateCreation(target, "AbsoluteInsideSourceAppApp");
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <Content Include="Data\Inside.json" />
+              </ItemGroup>
+            </Project>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var explicitItem = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, sourceContent),
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Data\Inside.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "An absolute Include requires content verification even within the source root.");
+        var copiedItem = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, sourceContent),
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Data\Inside.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "The contained absolute source and target bytes match.");
+
+        Assert.AreEqual(1, explicitItem.ExitCode, explicitItem.Output);
+        StringAssert.Contains(explicitItem.Output, "absolute or external");
+        Assert.AreEqual(0, copiedItem.ExitCode, copiedItem.Output);
     }
 
     [TestMethod]
@@ -596,6 +813,40 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
 
         Assert.AreEqual(1, result.ExitCode, result.Output);
         StringAssert.Contains(result.Output, "does not match");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_UnreadableTargetContentReturnsInvalidDecision()
+    {
+        var (_, target, externalContent, externalResource) =
+            await CreateAbsoluteSourceMigrationAsync("UnreadableTargetContentApp");
+        var items = await ReadReviewItemsAsync(target);
+        await AddAbsoluteTargetEvidenceAsync(
+            target,
+            externalContent,
+            externalResource,
+            resourceMatches: true);
+        var targetContent = Path.Combine(
+            target.FullName,
+            "Absolute",
+            "Content.json");
+        await using var locked = new FileStream(
+            targetContent,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, externalContent),
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Absolute\Content.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Unreadable content must produce an invalid decision rather than a crash.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "Target content could not be hashed");
     }
 
     [TestMethod]
@@ -679,6 +930,60 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
 
         Assert.AreEqual(1, result.ExitCode, result.Output);
         StringAssert.Contains(result.Output, "Source project path recorded");
+        Assert.AreEqual(
+            before,
+            await File.ReadAllTextAsync(
+                reportPath,
+                TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task Verify_RejectsReparsePointSourceRootBeforeProjectRead()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "ReparseRootReportApp",
+            includeConditionalItem: false);
+        var physicalRoot = _tempDirectory.CreateSubdirectory(
+            "reparse-physical-source");
+        await WriteAsync(physicalRoot, "Outside.csproj", "<not-msbuild />");
+        var linkPath = Path.Combine(
+            _tempDirectory.FullName,
+            "reparse-source-link");
+        try
+        {
+            Directory.CreateSymbolicLink(
+                linkPath,
+                physicalRoot.FullName);
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException
+            or IOException
+            or PlatformNotSupportedException)
+        {
+            Assert.Inconclusive(
+                $"The host cannot create a directory symbolic link: {exception.Message}");
+            return;
+        }
+
+        var reportPath = Path.Combine(target.FullName, "migration-report.json");
+        var report = JsonNode.Parse(await File.ReadAllTextAsync(
+            reportPath,
+            TestContext.CancellationToken))!;
+        report["source"]!["root"] = linkPath;
+        report["source"]!["projectFile"] = "Outside.csproj";
+        await File.WriteAllTextAsync(
+            reportPath,
+            report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            TestContext.CancellationToken);
+        var before = await File.ReadAllTextAsync(
+            reportPath,
+            TestContext.CancellationToken);
+
+        var (exit, output) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, exit, output);
+        StringAssert.Contains(output, "root");
+        StringAssert.Contains(output, "reparse point");
         Assert.AreEqual(
             before,
             await File.ReadAllTextAsync(

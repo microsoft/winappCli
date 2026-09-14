@@ -111,6 +111,13 @@ internal partial class MigrateCommand
                 UapSupportedFileTypes
             };
 
+        private static readonly HashSet<XName> SafeTargetExtensionAttributes =
+            new()
+            {
+                XName.Get("Category"),
+                Desktop11AppLifecycleBehavior
+            };
+
         private sealed record SourceActivationSchema(
             XName Protocol,
             XName FileTypeAssociation,
@@ -884,6 +891,10 @@ internal partial class MigrateCommand
                         extension);
                     continue;
                 }
+                RecordMismatchedTargetAttributes(
+                    extension,
+                    SafeTargetExtensionAttributes,
+                    analysis);
 
                 var expectedDeclaration = category.Equals(
                     "windows.protocol",
@@ -903,6 +914,15 @@ internal partial class MigrateCommand
 
                 foreach (var declaration in extension.Elements(expectedDeclaration))
                 {
+                    var allowedDeclarationAttributes = category.Equals(
+                        "windows.protocol",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? SafeProtocolAttributes
+                        : SafeFileAssociationAttributes;
+                    RecordMismatchedTargetAttributes(
+                        declaration,
+                        allowedDeclarationAttributes,
+                        analysis);
                     var allowedFacts = category.Equals(
                         "windows.protocol",
                         StringComparison.OrdinalIgnoreCase)
@@ -921,18 +941,44 @@ internal partial class MigrateCommand
                     }
                     foreach (var fileType in declaration
                         .Elements(UapSupportedFileTypes)
-                        .SelectMany(group => group.Elements())
-                        .Where(element =>
-                            element.Name.LocalName == UapFileType.LocalName
-                            && element.Name != UapFileType))
+                        .SelectMany(group => group.Elements()))
                     {
-                        AddTargetNamespaceIssue(
-                            analysis,
-                            "target-file-type-namespace-unsupported",
-                            $"Target FileType '{fileType.Name}' must use the base uap namespace.",
-                            fileType);
+                        if (fileType.Name.LocalName == UapFileType.LocalName
+                            && fileType.Name != UapFileType)
+                        {
+                            AddTargetNamespaceIssue(
+                                analysis,
+                                "target-file-type-namespace-unsupported",
+                                $"Target FileType '{fileType.Name}' must use the base uap namespace.",
+                                fileType);
+                        }
+                        if (fileType.Name == UapFileType)
+                        {
+                            RecordMismatchedTargetAttributes(
+                                fileType,
+                                [XName.Get("ContentType")],
+                                analysis);
+                        }
                     }
                 }
+            }
+        }
+
+        private static void RecordMismatchedTargetAttributes(
+            XElement element,
+            HashSet<XName> allowedAttributes,
+            MigrationActivationAnalysis analysis)
+        {
+            foreach (var attribute in element.Attributes().Where(attribute =>
+                !attribute.IsNamespaceDeclaration
+                && attribute.Name.Namespace != XNamespace.None
+                && !allowedAttributes.Contains(attribute.Name)))
+            {
+                AddTargetNamespaceIssue(
+                    analysis,
+                    "target-activation-attribute-namespace-unsupported",
+                    $"Target activation attribute '{attribute.Name}' is not valid on '{element.Name}'.",
+                    attribute);
             }
         }
 
@@ -1135,7 +1181,10 @@ internal partial class MigrateCommand
             XElement targetExtension,
             MigrationActivationContract contract)
         {
-            if (targetExtension.Name != Uap3Extension)
+            if (targetExtension.Name != Uap3Extension
+                || !HasOnlySafeAttributes(
+                    targetExtension,
+                    SafeTargetExtensionAttributes))
             {
                 return false;
             }
@@ -1150,6 +1199,9 @@ internal partial class MigrateCommand
             if (contract.Category == "windows.protocol")
             {
                 return declaration.Name == Uap3Protocol
+                    && HasOnlySafeAttributes(
+                        declaration,
+                        SafeProtocolAttributes)
                     && declaration.Elements().All(element =>
                         SafeProtocolChildren.Contains(element.Name))
                     && HasNoDuplicateChildren(declaration, SafeProtocolChildren)
@@ -1172,6 +1224,9 @@ internal partial class MigrateCommand
             }
 
             if (declaration.Name != Uap3FileTypeAssociation
+                || !HasOnlySafeAttributes(
+                    declaration,
+                    SafeFileAssociationAttributes)
                 || declaration.Elements().Any(element =>
                     !SafeFileAssociationChildren.Contains(element.Name))
                 || !HasNoDuplicateChildren(
@@ -1245,6 +1300,13 @@ internal partial class MigrateCommand
                 .Where(element => allowedChildren.Contains(element.Name))
                 .GroupBy(element => element.Name)
                 .All(group => group.Count() == 1);
+
+        private static bool HasOnlySafeAttributes(
+            XElement element,
+            HashSet<XName> allowedAttributes) =>
+            element.Attributes().All(attribute =>
+                attribute.IsNamespaceDeclaration
+                || allowedAttributes.Contains(attribute.Name));
 
         private static string GetActivationAnalysisStatus(
             MigrationActivationAnalysis analysis)
