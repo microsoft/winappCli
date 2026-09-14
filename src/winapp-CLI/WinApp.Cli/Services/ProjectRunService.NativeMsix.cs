@@ -66,6 +66,17 @@ internal sealed partial class ProjectRunService
         }
 
         var resolved = Path.GetFullPath(appxPackageOutput, workingDir.FullName);
+
+        // The package must be the one the SDK produced under winapp's own AppxPackageDir staging location.
+        // A project target that redirects AppxPackageOutput elsewhere (including a network path) must not
+        // steer winapp's delivery/signing at an arbitrary or remote file.
+        if (PathSafety.IsNetworkPath(resolved) || !PathSafety.IsUnder(resolved, packageDir.FullName))
+        {
+            throw new ProjectRunException(
+                $"Native MSIX packaging for '{csproj.Name}' reported a package outside winapp's staging " +
+                $"directory: {resolved}. winapp only delivers the package the SDK produced under its own output location.");
+        }
+
         if (!File.Exists(resolved))
         {
             throw new ProjectRunException(

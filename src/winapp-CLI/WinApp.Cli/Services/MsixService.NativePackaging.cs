@@ -57,7 +57,7 @@ internal partial class MsixService
             // the final move is atomic) and move it over the destination only after signing succeeds. A
             // sign/validation failure therefore never clobbers an existing artifact (spec §5/§11). The SDK
             // package is already complete, so staging is a copy, never a repackage.
-            var stagingMsix = new FileInfo($"{finalMsixPath.FullName}.winapp-{Guid.NewGuid():N}.tmp");
+            var stagingMsix = CreateStagingSiblingPath(finalMsixPath);
             File.Copy(producedMsix.FullName, stagingMsix.FullName, overwrite: true);
             try
             {

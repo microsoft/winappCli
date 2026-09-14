@@ -180,11 +180,12 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `--output <path>` — output `.msix` or `.msixbundle` filename
 - `--self-contained` — bundle Windows App SDK runtime (arch-aware for bundles)
 - `--generate-cert` — auto-generate a certificate
+- `--no-sign` — deliver unsigned, overriding a project's signing configuration (for Store submission or external signing); cannot combine with `--cert`/`--generate-cert`
 - `--install-cert` — also install the certificate on the machine
 - `--skip-pri` — skip PRI resource file generation
 **Project mode (a single `.csproj` input):** builds the project, then packages its output.
   `winapp package ./MyApp.csproj -c Release --cert ./devcert.pfx`
-  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged.
+  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. These build options require a `.csproj`; they are rejected for folder/bundle/manifest inputs. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged. If the project configures signing, winapp honors it; use `--no-sign` to force an unsigned artifact.
 **Bundle usage:** Pass multiple folders to create a bundle:
   `winapp pack ./publish/x64 ./publish/arm64`
   Each folder's architecture is auto-detected from the executable PE header.

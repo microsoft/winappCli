@@ -315,6 +315,35 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_ProjectKeyFileOnNetworkPath_Rejected()
+    {
+        // A project-supplied PackageCertificateKeyFile on a UNC path must be rejected before any File.Exists
+        // probe, which could trigger outbound SMB authentication.
+        var csproj = CreateCsproj();
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.ProjectSigning = new ProjectSigningProperties(true, @"\\attacker\share\dev.pfx", null, null, null);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count, "a network keyfile must be rejected before packaging");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_ArchWithPaddedRuntimeIdentifierProperty_Conflicts()
+    {
+        // A whitespace-padded property name must not slip past the --arch vs -p RuntimeIdentifier conflict.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "arm64", "-p", " RuntimeIdentifier=win-x64"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A padded conflicting RID must still be rejected before packaging");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_BareArch_Rejected()
     {
         // A valueless --arch must fail loudly rather than silently defaulting to the host architecture.

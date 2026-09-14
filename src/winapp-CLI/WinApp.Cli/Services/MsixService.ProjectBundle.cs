@@ -110,7 +110,7 @@ internal partial class MsixService
 
             // Stage → sign → atomic replace: bundle to a sibling temp path, sign it, then move over the
             // destination only after success so an existing artifact is never clobbered on failure.
-            var stagingBundle = new FileInfo($"{finalBundlePath.FullName}.winapp-{Guid.NewGuid():N}.tmp");
+            var stagingBundle = CreateStagingSiblingPath(finalBundlePath);
             await bundleService.CreateBundleAsync(sliceMsixFiles, stagingBundle, taskContext, bundleVersion, cancellationToken);
             try
             {

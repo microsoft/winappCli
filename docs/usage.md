@@ -323,6 +323,7 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--cert <path>` - Path to signing certificate (enables auto-signing)
 - `--cert-password <password>` - Certificate password (default: "password")
 - `--generate-cert` - Generate a new development certificate
+- `--no-sign` - Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with `--cert` or `--generate-cert`.
 - `--install-cert` - Install certificate to machine
 - `--publisher <name>` - Publisher for certificate generation. Accepts a full X.500 distinguished name or a bare name (automatically wrapped as `CN=<name>`)
 - `--self-contained` - Bundle Windows App SDK runtime

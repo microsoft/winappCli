@@ -597,12 +597,39 @@ internal partial class MsixService(
                 await EmbedActivationManifestToExeAsync(executablePath, winAppSDKDeploymentDir, windowsAppSDKManifestPath, dotNetPackageList, taskContext, cancellationToken, targetArch);
             }
 
-            await CreateMsixPackageFromFolderAsync(stagingDir, outputMsixPath, taskContext, cancellationToken);
-
-            // Handle certificate generation and signing
+            // When signing, build and sign the package at a sibling staging path, then atomically move it
+            // over the final path only after signing succeeds — a failed sign must never leave an
+            // unsigned/partial artifact at the destination or clobber a previous good one. Without signing,
+            // write the final package directly.
             if (autoSign)
             {
-                await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, outputMsixPath, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl);
+                var stagingMsix = CreateStagingSiblingPath(outputMsixPath);
+                try
+                {
+                    await CreateMsixPackageFromFolderAsync(stagingDir, stagingMsix, taskContext, cancellationToken);
+                    await SignMsixPackageAsync(outputFolder, certificatePassword, generateDevCert, installDevCert, finalPackageName, extractedPublisher, stagingMsix, certificatePath, resolvedManifestPath, taskContext, cancellationToken, timestampUrl);
+                    File.Move(stagingMsix.FullName, outputMsixPath.FullName, overwrite: true);
+                }
+                catch
+                {
+                    try
+                    {
+                        stagingMsix.Refresh();
+                        if (stagingMsix.Exists)
+                        {
+                            stagingMsix.Delete();
+                        }
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup of the staged (unpublished) artifact.
+                    }
+                    throw;
+                }
+            }
+            else
+            {
+                await CreateMsixPackageFromFolderAsync(stagingDir, outputMsixPath, taskContext, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -646,6 +673,20 @@ internal partial class MsixService(
         }
 
         return await dotNetService.GetPackageListAsync(csproj, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds a unique sibling staging path in the same directory as <paramref name="finalPath"/> that keeps
+    /// the final extension (e.g. <c>.msix</c> / <c>.msixbundle</c>). signtool recognizes an MSIX/bundle by
+    /// its extension and refuses to sign a <c>.tmp</c> file, so the staged-then-signed artifact must carry
+    /// the real extension while a same-directory sibling keeps the final move atomic.
+    /// </summary>
+    private static FileInfo CreateStagingSiblingPath(FileInfo finalPath)
+    {
+        var directory = finalPath.Directory!.FullName;
+        var stem = Path.GetFileNameWithoutExtension(finalPath.Name);
+        var extension = finalPath.Extension; // includes the leading dot, or empty when there is none
+        return new FileInfo(Path.Combine(directory, $"{stem}.winapp-{Guid.NewGuid():N}{extension}"));
     }
 
     private async Task SignMsixPackageAsync(DirectoryInfo outputFolder, string certificatePassword, bool generateDevCert, bool installDevCert, string finalPackageName, string? extractedPublisher, FileInfo outputMsixPath, FileInfo? certPath, FileInfo resolvedManifestPath, TaskContext taskContext, CancellationToken cancellationToken, string? timestampUrl = null)

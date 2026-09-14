@@ -234,6 +234,41 @@ public class IncrementalCopyHelperTests
     }
 
     [TestMethod]
+    public async Task SyncDirectory_DestinationChildJunction_DoesNotDeleteThroughIt()
+    {
+        var source = CreateSubDir("src");
+        WriteFile(source, "app.exe", "exe");
+        var dest = CreateSubDir("dst");
+        // An external directory holding a file that must survive the stale-file cleanup.
+        var external = CreateSubDir("external");
+        var keep = WriteFile(external, "keep.txt", "important");
+        // A junction INSIDE dest (a child, not the root) pointing at the external directory.
+        var link = Path.Join(dest.FullName, "linked");
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            ArgumentList = { "/c", "mklink", "/J", link, external.FullName },
+        });
+        Assert.IsNotNull(process);
+        await process.WaitForExitAsync();
+        Assert.AreEqual(0, process.ExitCode, await process.StandardError.ReadToEndAsync());
+        try
+        {
+            // Source has no 'linked/keep.txt'; a naive stale-cleanup would follow the junction and delete
+            // the external file. The reparse-safe walk must skip the junction subtree entirely.
+            IncrementalCopyHelper.SyncDirectory(source, dest);
+            Assert.IsTrue(File.Exists(keep.FullName), "A file behind a destination child junction must not be deleted.");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
     public void SyncDirectory_DestinationEqualsSource_ThrowsWithoutDeletingFiles()
     {
         var directory = CreateSubDir("same");

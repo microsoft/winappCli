@@ -2313,6 +2313,18 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void RidSplit_WithExactRuntimeIdentifier_ThrowsInsteadOfDroppingRid()
+    {
+        // A lone -p RuntimeIdentifier (exact-RID override) on a RID-splitting graph would otherwise be
+        // silently dropped; it must fail explicitly instead of building a different RID than requested.
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+        var options = PlatformOptions("arm64") with { ExactRuntimeIdentifier = "win10-arm64" };
+
+        var ex = Assert.Throws<ProjectRunException>(() => ProjectRunService.ResolvePlatformInjection(app, options));
+        StringAssert.Contains(ex.Message, "RuntimeIdentifier");
+    }
+
+    [TestMethod]
     public void RidSplit_NoStrippingEdge_KeepsRuntimeIdentifier()
     {
         var app = WriteRidSplitGraph(stripRidOnMiddleEdge: false);

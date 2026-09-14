@@ -710,6 +710,25 @@ public class MsixServiceRuntimeTests : BaseCommandTests
             [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
     }
 
+    // ---- CreateStagingSiblingPath -------------------------------------------------
+
+    [TestMethod]
+    public void CreateStagingSiblingPath_PreservesExtensionInSameDirectory()
+    {
+        var method = typeof(MsixService).GetMethod("CreateStagingSiblingPath", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        var final = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_x64.msix"));
+        var staging = (FileInfo)method.Invoke(null, [final])!;
+        // signtool recognizes an MSIX by extension and refuses a .tmp file, so staging must keep .msix.
+        Assert.AreEqual(".msix", staging.Extension, "staging must keep the .msix extension so signtool accepts it");
+        Assert.AreEqual(_tempDirectory.FullName, staging.Directory!.FullName, "staging must be a sibling for an atomic move");
+        Assert.AreNotEqual(final.FullName, staging.FullName, "staging must be a distinct path");
+
+        var bundle = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_x64_arm64.msixbundle"));
+        var bundleStaging = (FileInfo)method.Invoke(null, [bundle])!;
+        Assert.AreEqual(".msixbundle", bundleStaging.Extension, "staging must keep the .msixbundle extension");
+    }
+
     // ---- ResolveNativeDeliveryPath ------------------------------------------------
 
     [TestMethod]

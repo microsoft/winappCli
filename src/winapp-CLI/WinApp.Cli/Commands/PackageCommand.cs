@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -110,7 +111,7 @@ internal partial class PackageCommand : Command, IShortDescription
         {
             Description = "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Ignored for folder/bundle/manifest inputs. Default: the current process architecture.",
             Arity = ArgumentArity.ZeroOrMore,
-            AllowMultipleArgumentsPerToken = true,
+            AllowMultipleArgumentsPerToken = false,
         };
 
         FrameworkOption = new Option<string?>("--framework")
@@ -281,6 +282,31 @@ internal partial class PackageCommand : Command, IShortDescription
                 return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
                 {
                     return Task.FromResult((1, $"{UiSymbols.Error} --no-sign cannot be combined with --cert or --generate-cert."));
+                }, cancellationToken);
+            }
+
+            // The build/project options only apply when packaging a .csproj (project mode, handled above).
+            // For a folder / sparse-manifest / bundle input they cannot take effect, and accepting them
+            // silently mispackages — e.g. --arch on a pre-built folder does not restage the runtime for that
+            // architecture. Reject them explicitly instead.
+            var inapplicableProjectOptions = new (OptionResult? Result, string Name)[]
+            {
+                (parseResult.GetResult(ConfigurationOption), "--configuration"),
+                (parseResult.GetResult(ArchOption), "--arch"),
+                (parseResult.GetResult(FrameworkOption), "--framework"),
+                (parseResult.GetResult(NoBuildOption), "--no-build"),
+                (parseResult.GetResult(NoRestoreOption), "--no-restore"),
+                (parseResult.GetResult(PropertyOption), "--property"),
+            }
+            .Where(o => o.Result is { Implicit: false })
+            .Select(o => o.Name)
+            .ToList();
+            if (inapplicableProjectOptions.Count > 0)
+            {
+                var optionList = string.Join(", ", inapplicableProjectOptions);
+                return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
+                {
+                    return Task.FromResult((1, $"{UiSymbols.Error} These option(s) require a .csproj input (project mode) and do not apply to a folder, bundle, or manifest input: {optionList}. Remove them, or pass a .csproj to build and package."));
                 }, cancellationToken);
             }
 

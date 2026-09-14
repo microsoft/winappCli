@@ -246,8 +246,10 @@ internal partial class PackageCommand
             }
 
             // --arch is the dedicated target selector. A simultaneous explicit -p RuntimeIdentifier is a
-            // conflicting target selection (a -p RuntimeIdentifier alone remains an advanced exact-RID override).
-            if (archInputs.Length > 0 && properties.Any(p => p.StartsWith("RuntimeIdentifier=", StringComparison.OrdinalIgnoreCase)))
+            // conflicting target selection (a -p RuntimeIdentifier alone remains an advanced exact-RID
+            // override). Use the same trimmed property-name parsing as the lone-RID path so a whitespace-
+            // padded name (e.g. -p " RuntimeIdentifier=win-x64") cannot slip past the conflict check.
+            if (archInputs.Length > 0 && TryGetLoneRuntimeIdentifier(properties) is not null)
             {
                 return Fail("--arch conflicts with an explicit -p RuntimeIdentifier. Use --arch alone to select the architecture, or pass -p RuntimeIdentifier alone for an exact-RID override.");
             }
@@ -564,6 +566,13 @@ internal partial class PackageCommand
 
             if (!string.IsNullOrEmpty(props.KeyFilePath))
             {
+                // A project-supplied keyfile path is untrusted input. Probing a UNC / reparse-redirected
+                // path with File.Exists can trigger outbound SMB authentication, so reject a network location
+                // before touching the filesystem.
+                if (PathSafety.IsNetworkPath(props.KeyFilePath) || PathSafety.RedirectsToNetwork(props.KeyFilePath))
+                {
+                    return (null, $"The project's signing certificate (PackageCertificateKeyFile) resolves to a network location, which winapp will not probe or load: {props.KeyFilePath}. Provide a local --cert <pfx>, or use --no-sign.");
+                }
                 if (!File.Exists(props.KeyFilePath))
                 {
                     return (null, $"The project's signing certificate (PackageCertificateKeyFile) was not found: {props.KeyFilePath}. Provide --cert <pfx>, fix the project configuration, or use --no-sign.");

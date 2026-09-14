@@ -72,6 +72,14 @@ winapp package ./bin/Release --generate-cert
 winapp package ./bin/Release --generate-cert --install-cert
 ```
 
+### Unsigned output (Store submission or external signing)
+
+```powershell
+# Force an unsigned package. For a .csproj that configures its own signing, this overrides it.
+# Cannot be combined with --cert or --generate-cert.
+winapp package ./MyApp.csproj --no-sign
+```
+
 ### Self-contained deployment
 
 ```powershell
