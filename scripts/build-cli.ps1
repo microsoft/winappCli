@@ -295,7 +295,7 @@ try
                     $Line = "[BAKE]   {0,-10} {1,5} -> {2,5}  ({3})" -f $Provider, $Old, $New, $Change
 
                     if ($Old -gt 0 -and $New -lt ($Old * (1 - $BakeDropThreshold))) {
-                        $Lost = [math]::Round((1 - ($New / $Old)) * 100)
+                        $Lost = [math]::Round((1 - ($New / $Old)) * 100, 1)
                         Write-Warning "$Line -- lost $Lost% of its scenarios. Check the fetcher for '$Provider' before shipping this corpus."
                     } else {
                         Write-Host $Line -ForegroundColor Gray

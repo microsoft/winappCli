@@ -157,7 +157,7 @@ jobs:
             $line = "- ``$($file.Name)`` — $oldCount → $freshCount scenarios ($(if ($delta -ge 0) { "+$delta" } else { "$delta" }))"
 
             if ($oldCount -gt 0 -and $freshCount -lt ($oldCount * (1 - $regressionThreshold))) {
-              $lost = [math]::Round((1 - ($freshCount / $oldCount)) * 100)
+              $lost = [math]::Round((1 - ($freshCount / $oldCount)) * 100, 1)
               $regressions += "$line — **lost $lost% of its scenarios**"
             } else {
               $routine += $line
