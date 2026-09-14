@@ -73,8 +73,16 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
             ParseResult parseResult,
             CancellationToken cancellationToken = default)
         {
-            var targetRoot = parseResult.GetValue(TargetArgument)!.FullName
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var requestedTargetRoot = parseResult.GetValue(TargetArgument)!.FullName;
+            if (!MigrationPathResolver.TryCanonicalizeRoot(
+                    requestedTargetRoot,
+                    out var targetRoot,
+                    out var targetRootError))
+            {
+                Console.Out.WriteLine(
+                    $"[ERROR] Migration target path is invalid: {targetRootError}");
+                return 1;
+            }
             var reportPath = Path.Combine(targetRoot, "migration-report.json");
             if (!File.Exists(reportPath))
             {
@@ -96,28 +104,44 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 return 1;
             }
 
-            var sourceRoot = Path.GetFullPath(report.Source.Root);
-            var sourceProject = report.Source.ProjectFile is null
-                ? null
-                : Path.Combine(
+            if (!MigrationPathResolver.TryCanonicalizeRoot(
+                    report.Source.Root,
+                    out var sourceRoot,
+                    out var sourceRootError))
+            {
+                Console.Out.WriteLine(
+                    $"[ERROR] Source root recorded by migration-report.json is invalid: {sourceRootError}");
+                return 1;
+            }
+            if (!MigrationPathResolver.TryResolveContainedRelativePath(
                     sourceRoot,
-                    report.Source.ProjectFile.Replace(
-                        '/',
-                        Path.DirectorySeparatorChar));
-            var targetProject = report.Target.ProjectFile is null
-                ? null
-                : Path.Combine(
+                    report.Source.ProjectFile,
+                    out var sourceProject,
+                    out _,
+                    out var sourceProjectError))
+            {
+                Console.Out.WriteLine(
+                    $"[ERROR] Source project path recorded by migration-report.json is invalid: {sourceProjectError}");
+                return 1;
+            }
+            if (!MigrationPathResolver.TryResolveContainedRelativePath(
                     targetRoot,
-                    report.Target.ProjectFile.Replace(
-                        '/',
-                        Path.DirectorySeparatorChar));
-            if (sourceProject is null || !File.Exists(sourceProject))
+                    report.Target.ProjectFile,
+                    out var targetProject,
+                    out _,
+                    out var targetProjectError))
+            {
+                Console.Out.WriteLine(
+                    $"[ERROR] Target project path recorded by migration-report.json is invalid: {targetProjectError}");
+                return 1;
+            }
+            if (!File.Exists(sourceProject))
             {
                 Console.Out.WriteLine(
                     "[ERROR] The source project recorded by migration-report.json was not found.");
                 return 1;
             }
-            if (targetProject is null || !File.Exists(targetProject))
+            if (!File.Exists(targetProject))
             {
                 Console.Out.WriteLine(
                     "[ERROR] The target project recorded by migration-report.json was not found.");

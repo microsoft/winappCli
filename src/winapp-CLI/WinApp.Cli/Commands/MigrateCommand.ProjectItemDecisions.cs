@@ -2,8 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Security.Cryptography;
-using System.Xml;
-using System.Xml.Linq;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Commands;
@@ -148,13 +146,31 @@ internal partial class MigrateCommand
                     $"Source item reason '{sourceItem.ReviewReason}' cannot be resolved by a single deterministic target path.";
                 return verification;
             }
-            if (sourceItem.ReviewReason == "external-or-missing-source"
-                && sourceItem.ItemType == "Content"
+
+            var sourceContentAvailable = TryResolveSourceItemPath(
+                sourceRoot,
+                sourceItem.Include,
+                out var availableSourcePath,
+                out var sourcePathError);
+            var sourceContentExternal = sourceContentAvailable
+                && !IsPathContainedByRoot(sourceRoot, availableSourcePath);
+            if ((sourceItem.ReviewReason == "absolute-path"
+                    || sourceItem.ReviewReason == "external-or-missing-source")
+                && sourceContentAvailable
+                && sourceContentExternal
                 && decision.Strategy != CopiedLinkedContentStrategy)
             {
                 verification.Status = "invalid";
                 verification.Reason =
-                    "External linked Content must use copied-linked-content so source and target bytes can be verified.";
+                    "Available source content outside the source root must use copied-linked-content so source and target bytes can be verified.";
+                return verification;
+            }
+            if (sourceItem.ReviewReason == "external-or-missing-source"
+                && !sourceContentAvailable)
+            {
+                verification.Status = "invalid";
+                verification.Reason =
+                    $"{sourcePathError} Missing external source content cannot be mechanically resolved.";
                 return verification;
             }
             if (!TryResolveTargetPath(
@@ -215,6 +231,25 @@ internal partial class MigrateCommand
                 evidenceFiles.Add(normalizedEvidencePath);
             }
             decision.EvidenceFiles = evidenceFiles;
+            if (!TryBuildProjectEvidenceGraph(
+                    targetRoot,
+                    targetProject,
+                    out var evidenceGraph,
+                    out var evidenceGraphError))
+            {
+                verification.Status = "invalid";
+                verification.Reason = evidenceGraphError;
+                return verification;
+            }
+            if (!TryValidateProjectEvidenceFiles(
+                    evidenceGraph,
+                    evidenceFiles,
+                    out var evidenceParticipationError))
+            {
+                verification.Status = "invalid";
+                verification.Reason = evidenceParticipationError;
+                return verification;
+            }
 
             if (decision.Strategy == SdkDefaultItemStrategy)
             {
@@ -229,6 +264,15 @@ internal partial class MigrateCommand
                         "sdk-default-item is supported only for PRIResource .resw items.";
                     return verification;
                 }
+                if (!TryVerifySdkDefaultPriResourceCoverage(
+                        evidenceGraph,
+                        normalizedTargetPath,
+                        out var defaultCoverageError))
+                {
+                    verification.Status = "invalid";
+                    verification.Reason = defaultCoverageError;
+                    return verification;
+                }
 
                 if (sourceItem.Metadata.Count == 0)
                 {
@@ -237,19 +281,19 @@ internal partial class MigrateCommand
                     return verification;
                 }
 
-                var matches = FindProjectItemEvidence(
-                    targetRoot,
-                    targetProject,
+                var evidence = FindProjectItemEvidence(
+                    evidenceGraph,
                     evidenceFiles,
                     "PRIResource",
                     normalizedTargetPath,
-                    sourceItem.Metadata);
-                verification.ProjectEvidence = matches;
-                if (matches.Count == 0)
+                    sourceItem.Metadata,
+                    allowUpdate: true);
+                verification.ProjectEvidence = evidence.Matches;
+                if (evidence.Matches.Count == 0)
                 {
                     verification.Status = "invalid";
-                    verification.Reason =
-                        "The source PRIResource metadata is not represented by a matching target Include or Update item.";
+                    verification.Reason = evidence.FailureReason
+                        ?? "The source PRIResource metadata is not represented by an active matching target Include or Update item.";
                     return verification;
                 }
 
@@ -258,45 +302,43 @@ internal partial class MigrateCommand
                 return verification;
             }
 
-            var projectMatches = FindProjectItemEvidence(
-                targetRoot,
-                targetProject,
+            var projectEvidence = FindProjectItemEvidence(
+                evidenceGraph,
                 evidenceFiles,
                 targetItemType,
                 normalizedTargetPath,
-                sourceItem.Metadata);
-            verification.ProjectEvidence = projectMatches;
-            if (projectMatches.Count == 0)
+                sourceItem.Metadata,
+                allowUpdate: false);
+            verification.ProjectEvidence = projectEvidence.Matches;
+            if (projectEvidence.Matches.Count == 0)
             {
                 verification.Status = "invalid";
-                verification.Reason =
-                    $"No matching {targetItemType} Include or Update item was found for '{normalizedTargetPath}'.";
+                verification.Reason = projectEvidence.FailureReason
+                    ?? $"No active matching {targetItemType} Include item was found for '{normalizedTargetPath}'.";
                 return verification;
             }
 
             if (decision.Strategy == CopiedLinkedContentStrategy)
             {
-                if (sourceItem.ItemType != "Content"
-                    || targetItemType != "Content"
-                    || string.IsNullOrWhiteSpace(sourceItem.Link))
+                if (!MigratedProjectItemKinds.Contains(sourceItem.ItemType)
+                    || !string.Equals(
+                        targetItemType,
+                        sourceItem.ItemType,
+                        StringComparison.Ordinal))
                 {
                     verification.Status = "invalid";
                     verification.Reason =
-                        "copied-linked-content requires a source Content item with Link metadata.";
+                        "copied-linked-content requires matching source and target Content or PRIResource item types.";
                     return verification;
                 }
-                if (!TryResolveSourceItemPath(
-                        sourceRoot,
-                        sourceItem.Include,
-                        out var sourcePath,
-                        out var sourceError))
+                if (!sourceContentAvailable)
                 {
                     verification.Status = "invalid";
-                    verification.Reason = sourceError;
+                    verification.Reason = sourcePathError;
                     return verification;
                 }
 
-                verification.SourceSha256 = ComputeSha256(sourcePath);
+                verification.SourceSha256 = ComputeSha256(availableSourcePath);
                 verification.TargetSha256 = ComputeSha256(targetPath);
                 verification.ContentMatches = string.Equals(
                     verification.SourceSha256,
@@ -316,81 +358,6 @@ internal partial class MigrateCommand
             return verification;
         }
 
-        private static List<MigrationLocation> FindProjectItemEvidence(
-            string targetRoot,
-            string targetProject,
-            IReadOnlyCollection<string> evidenceFiles,
-            string itemType,
-            string targetPath,
-            IReadOnlyCollection<MigrationProjectItemMetadata> requiredMetadata)
-        {
-            var projectFiles = new[] { NormalizePath(Path.GetRelativePath(targetRoot, targetProject)) }
-                .Concat(evidenceFiles)
-                .Distinct(StringComparer.OrdinalIgnoreCase);
-            var matches = new List<MigrationLocation>();
-            foreach (var relativeProjectFile in projectFiles)
-            {
-                var projectFile = Path.Combine(
-                    targetRoot,
-                    relativeProjectFile.Replace('/', Path.DirectorySeparatorChar));
-                XDocument document;
-                try
-                {
-                    document = XDocument.Load(
-                        projectFile,
-                        LoadOptions.PreserveWhitespace | LoadOptions.SetLineInfo);
-                }
-                catch (Exception exception) when (
-                    exception is XmlException or IOException)
-                {
-                    continue;
-                }
-
-                foreach (var element in document.Descendants().Where(element =>
-                    element.Name.LocalName == itemType
-                    && ItemPathMatches(element, targetPath)
-                    && MetadataMatches(element, requiredMetadata)))
-                {
-                    matches.Add(new MigrationLocation
-                    {
-                        Path = NormalizePath(relativeProjectFile),
-                        Line = (element as IXmlLineInfo)?.HasLineInfo() == true
-                            ? ((IXmlLineInfo)element).LineNumber
-                            : null
-                    });
-                }
-            }
-            return matches;
-        }
-
-        private static bool ItemPathMatches(
-            XElement item,
-            string targetPath)
-        {
-            var value = item.Attribute("Include")?.Value
-                ?? item.Attribute("Update")?.Value;
-            if (value is null)
-            {
-                return false;
-            }
-            return value.Split(
-                    ';',
-                    StringSplitOptions.RemoveEmptyEntries
-                    | StringSplitOptions.TrimEntries)
-                .Select(NormalizeProjectItemPath)
-                .Contains(targetPath, StringComparer.OrdinalIgnoreCase);
-        }
-
-        private static bool MetadataMatches(
-            XElement targetItem,
-            IReadOnlyCollection<MigrationProjectItemMetadata> requiredMetadata) =>
-            requiredMetadata.All(metadata => targetItem.Elements().Any(element =>
-                element.Name.LocalName == metadata.Name
-                && string.Equals(
-                    element.Value.Trim(),
-                    metadata.Value.Trim(),
-                    StringComparison.Ordinal)));
-
         private static bool TryResolveTargetPath(
             string targetRoot,
             string? value,
@@ -406,37 +373,29 @@ internal partial class MigrateCommand
                 error = "--target-path is required for this strategy.";
                 return false;
             }
-            if (Path.IsPathRooted(value)
-                || value.Contains("$(", StringComparison.Ordinal)
-                || value.IndexOfAny(['*', '?']) >= 0)
+            if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                    targetRoot,
+                    value,
+                    out fullPath,
+                    out var relativePath,
+                    out error))
             {
-                error = "Target paths must be literal paths relative to the migration target.";
-                return false;
-            }
-
-            try
-            {
-                fullPath = Path.GetFullPath(Path.Combine(targetRoot, value));
-            }
-            catch (Exception exception) when (
-                exception is ArgumentException
-                or NotSupportedException
-                or PathTooLongException)
-            {
-                error = exception.Message;
-                return false;
-            }
-            var relativePath = Path.GetRelativePath(targetRoot, fullPath);
-            if (relativePath == ".."
-                || relativePath.StartsWith(
-                    $"..{Path.DirectorySeparatorChar}",
-                    StringComparison.Ordinal))
-            {
-                error = "Target paths cannot escape the migration target.";
                 return false;
             }
             normalizedPath = NormalizeProjectItemPath(relativePath);
             return true;
+        }
+
+        private static bool IsPathContainedByRoot(
+            string root,
+            string path)
+        {
+            var canonicalRoot = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(root));
+            var canonicalPath = Path.GetFullPath(path);
+            return canonicalPath.StartsWith(
+                canonicalRoot + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool TryResolveSourceItemPath(
