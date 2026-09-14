@@ -131,7 +131,7 @@ internal partial class PackageCommand : Command, IShortDescription
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Set configuration, RID, and framework with -c, -r, and -f (a -p Configuration/RuntimeIdentifier/TargetFramework is dropped so build and evaluation stay in sync). Ignored for folder/bundle/manifest inputs.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Ignored for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };
@@ -255,6 +255,7 @@ internal partial class PackageCommand : Command, IShortDescription
             var certPath = parseResult.GetValue(CertOption);
             var certPassword = parseResult.GetRequiredValue(CertPasswordOption);
             var generateCert = parseResult.GetValue(GenerateCertOption);
+            var noSign = parseResult.GetValue(NoSignOption);
             var installCert = parseResult.GetValue(InstallCertOption);
             var publisher = parseResult.GetValue(PublisherOption);
             var manifestPath = parseResult.GetValue(ManifestOption);
@@ -270,6 +271,17 @@ internal partial class PackageCommand : Command, IShortDescription
                 && !Directory.Exists(inputFolders[0].FullName))
             {
                 return await RunProjectModeAsync(parseResult, new FileInfo(inputFolders[0].FullName), cancellationToken);
+            }
+
+            // --no-sign forces an unsigned artifact for the remaining folder / sparse / bundle inputs and is
+            // mutually exclusive with an explicit signing request, matching project mode. (Project mode above
+            // performs its own equivalent check before returning.)
+            if (noSign && (certPath != null || generateCert))
+            {
+                return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
+                {
+                    return Task.FromResult((1, $"{UiSymbols.Error} --no-sign cannot be combined with --cert or --generate-cert."));
+                }, cancellationToken);
             }
 
             FileInfo? candidateManifest = null;
@@ -339,7 +351,7 @@ internal partial class PackageCommand : Command, IShortDescription
                     {
                         try
                         {
-                            var autoSign = certPath != null || generateCert;
+                            var autoSign = !noSign && (certPath != null || generateCert);
                             var result = await msixService.CreateSparseIdentityPackageAsync(candidateManifest, output, taskContext, autoSign, certPath, certPassword, generateCert, installCert, publisher, ct);
 
                             taskContext.AddStatusMessage($"{UiSymbols.Package} Identity package: {result.MsixPath}");
@@ -437,7 +449,7 @@ internal partial class PackageCommand : Command, IShortDescription
                 {
                     try
                     {
-                        var autoSign = certPath != null || generateCert;
+                        var autoSign = !noSign && (certPath != null || generateCert);
 
                         var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken: cancellationToken);
 
@@ -463,7 +475,7 @@ internal partial class PackageCommand : Command, IShortDescription
                 {
                     try
                     {
-                        var autoSign = certPath != null || generateCert;
+                        var autoSign = !noSign && (certPath != null || generateCert);
 
                         var result = await msixService.CreateMsixBundleAsync(inputFolders, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken);
 

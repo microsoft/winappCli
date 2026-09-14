@@ -127,9 +127,13 @@ internal partial class MsixService
         string fileName;
         if (name is { Length: > 0 })
         {
+            // Sanitize the requested name to a bare MSIX identity token (no path separators), matching
+            // folder-mode packaging, so --name can only set the filename prefix and never redirect the
+            // artifact outside the selected destination directory.
+            var cleanName = ManifestService.CleanPackageName(name);
             var produced = producedMsix.Name;
             var underscore = produced.IndexOf('_');
-            fileName = underscore > 0 ? name + produced[underscore..] : $"{name}.msix";
+            fileName = underscore > 0 ? cleanName + produced[underscore..] : $"{cleanName}.msix";
         }
         else
         {

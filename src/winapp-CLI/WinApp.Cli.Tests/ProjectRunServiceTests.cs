@@ -407,6 +407,27 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void BuildNativeMsixPublishArguments_OmitRuntimeIdentifier_DropsRid()
+    {
+        // When an effective Platform conveys the arch and the ProjectReference closure splits on RID, the
+        // RID must be suppressed on the native path too, matching the build/restore/evaluate passes; emitting
+        // both -r and -p:Platform harvests duplicate outputs and fails packaging with APPX1101.
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "arm64", null, NoBuild: false, NoRestore: false, Properties: [])
+        {
+            Platform = "ARM64",
+            OmitRuntimeIdentifier = true,
+        };
+        var pkgDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "pkgout"));
+
+        var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
+
+        StringAssert.Contains(args, "-p:Platform=ARM64");
+        Assert.IsFalse(args.Contains("-r win-arm64"), "the RID must be omitted when OmitRuntimeIdentifier is set");
+        Assert.IsFalse(args.Contains(" -r "), "no bare -r token should be emitted");
+    }
+
+    [TestMethod]
     public void BuildBuildPassArguments_Arm64_UsesArmRid_NoForcedPlatform()
     {
         var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));

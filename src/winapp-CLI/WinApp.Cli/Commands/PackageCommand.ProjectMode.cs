@@ -78,6 +78,18 @@ internal partial class PackageCommand
                            "Run the native SDK packaging command directly to split languages/scales into " +
                            "resource packages.";
                 }
+
+                // winapp owns bundle production through --arch (each architecture is published separately and
+                // composed into one .msixbundle). An explicit SDK AppxBundle request other than Never would be
+                // silently overridden by winapp's per-slice AppxBundle=Never, so reject it rather than produce
+                // a different artifact than asked for.
+                if (name.Equals("AppxBundle", StringComparison.OrdinalIgnoreCase) &&
+                    !value.Equals("Never", StringComparison.OrdinalIgnoreCase))
+                {
+                    return $"-p AppxBundle={value} is not supported by project mode. Use repeated --arch to " +
+                           "produce an architecture .msixbundle, or run the native SDK packaging command " +
+                           "directly for the SDK's own bundle behavior.";
+                }
             }
 
             return null;
@@ -116,6 +128,16 @@ internal partial class PackageCommand
             // Project-mode build inputs.
             var configuration = parseResult.GetValue(ConfigurationOption) ?? "Release";
             var archInputs = parseResult.GetValue(ArchOption) ?? [];
+
+            // Reject a valueless --arch. Like --property it uses ZeroOrMore arity, so a bare '--arch' (no
+            // value) parses without raising an arity error; detect it from the raw result (more identifier
+            // tokens than captured values) so it fails loudly instead of silently defaulting to the host arch.
+            if (parseResult.GetResult(ArchOption) is OptionResult archResult &&
+                archResult.IdentifierTokenCount > archResult.Tokens.Count)
+            {
+                return Fail("A --arch option was provided without a value. Expected x64, arm64, or x86 (for example: --arch arm64).");
+            }
+
             var noBuild = parseResult.GetValue(NoBuildOption);
             var noRestore = parseResult.GetValue(NoRestoreOption);
             var properties = parseResult.GetValue(PropertyOption) ?? [];

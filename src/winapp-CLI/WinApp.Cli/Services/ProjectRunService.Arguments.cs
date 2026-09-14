@@ -255,9 +255,16 @@ internal sealed partial class ProjectRunService
             csproj.FullName,
             "-c",
             options.Configuration,
-            "-r",
-            options.EffectiveRuntimeIdentifier,
         };
+
+        // Suppress the injected RID when an effective Platform already conveys the architecture and the
+        // ProjectReference closure splits on RuntimeIdentifier — emitting both harvests duplicate outputs
+        // and fails packaging with APPX1101. Matches the restore/build/evaluate passes.
+        if (!options.OmitRuntimeIdentifier)
+        {
+            tokens.Add("-r");
+            tokens.Add(options.EffectiveRuntimeIdentifier);
+        }
 
         if (options.NoBuild)
         {

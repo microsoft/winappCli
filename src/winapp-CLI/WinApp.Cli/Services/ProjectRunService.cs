@@ -30,6 +30,10 @@ internal sealed partial class ProjectRunService(
         "PublishDir",
         "MSBuildProjectDirectory",
         "FinalAppxManifestName",
+        // The NuGet targets' manifest escape hatch: a project can point WinAppManifestPath at an authored
+        // manifest outside the publish output. Honored here so a project that classifies as packaged through
+        // it (matching `winapp run`) can also be packaged, instead of failing to find a manifest.
+        "WinAppManifestPath",
         "AppxPackageRecipe",
         "AssemblyName",
         "TargetName",
@@ -458,9 +462,12 @@ internal sealed partial class ProjectRunService(
         var packaging = DeterminePackaging(props, targetDir);
 
         // For a packaged app, carry the MSBuild-evaluated manifest and recipe so callers can package the
-        // authoritative layout (aligns with the Native AOT resolver). Only meaningful when packaged.
+        // authoritative layout (aligns with the Native AOT resolver). Prefer the project's explicit
+        // WinAppManifestPath escape hatch (the same one that can activate packaged support) over the
+        // SDK-generated FinalAppxManifestName. Only meaningful when packaged.
         var appxManifestPath = packaging == ProjectPackaging.Packaged
-            ? ResolveEvaluatedFileIfPresent(props, "FinalAppxManifestName", workingDir.FullName)
+            ? ResolveEvaluatedFileIfPresent(props, "WinAppManifestPath", workingDir.FullName)
+                ?? ResolveEvaluatedFileIfPresent(props, "FinalAppxManifestName", workingDir.FullName)
             : null;
         if (packaging != ProjectPackaging.Packaged)
         {

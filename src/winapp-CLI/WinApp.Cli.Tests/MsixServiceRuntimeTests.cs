@@ -710,6 +710,26 @@ public class MsixServiceRuntimeTests : BaseCommandTests
             [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
     }
 
+    // ---- ResolveNativeDeliveryPath ------------------------------------------------
+
+    [TestMethod]
+    public void ResolveNativeDeliveryPath_SanitizesNameToPreventDirectoryEscape()
+    {
+        var method = typeof(MsixService).GetMethod("ResolveNativeDeliveryPath", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var outDir = _tempDirectory.CreateSubdirectory("native-out");
+        // The produced package's name is only read for its filename/underscore suffix; it need not exist.
+        var produced = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_arm64.msix"));
+        // A directory --output (no .msix extension) hosts the file; --name only sets the filename prefix.
+        var outputArg = new FileInfo(outDir.FullName);
+
+        var result = (FileInfo)method.Invoke(_msixService, [produced, outputArg, @"..\..\evil"])!;
+
+        // A traversing --name must not redirect the artifact outside the requested output directory.
+        Assert.AreEqual(outDir.FullName, result.Directory!.FullName, "sanitized --name must stay inside the output directory");
+        StringAssert.EndsWith(result.Name, "_1.0.0.0_arm64.msix", "the SDK version/arch suffix must be preserved");
+        Assert.IsFalse(result.Name.Contains('\\') || result.Name.Contains('/'), "no path separators may survive in the filename");
+    }
+
     // ---- PackSingleFolderToMsixAsync: self-contained end-to-end --------------------
 
     /// <summary>

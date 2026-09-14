@@ -528,7 +528,7 @@ function newCommand(options?: NewOptions): Promise<WinappResult>
 
 ### `packageApp()`
 
-Create MSIX installer from your built app. Run after building your app. A manifest (Package.appxmanifest or appxmanifest.xml) is required for packaging - it must be in current working directory, passed as --manifest or be in the input folder. Use --cert devcert.pfx to sign for testing. Example: winapp package ./dist --manifest Package.appxmanifest --cert ./devcert.pfx
+Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.
 
 ```typescript
 function packageApp(options: PackageOptions): Promise<WinappResult>
@@ -538,15 +538,22 @@ function packageApp(options: PackageOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `inputFolder` | `string \| string[]` | Yes | One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `inputFolder` | `string \| string[]` | Yes | A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `arch` | `string \| string[] \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Ignored for folder/bundle/manifest inputs. Default: the current process architecture. |
 | `cert` | `string \| undefined` | No | Path to signing certificate (will auto-sign if provided) |
 | `certPassword` | `string \| undefined` | No | Certificate password (default: password) |
+| `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Release. |
 | `executable` | `string \| undefined` | No | Path to the executable relative to the input folder. |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored for folder/bundle/manifest inputs. |
 | `generateCert` | `boolean \| undefined` | No | Generate a new development certificate |
 | `installCert` | `boolean \| undefined` | No | Install certificate to machine |
 | `manifest` | `string \| undefined` | No | Path to AppX manifest file (default: auto-detect from input folder or current directory) |
 | `name` | `string \| undefined` | No | Package name (default: from manifest) |
+| `noBuild` | `boolean \| undefined` | No | Project mode: skip building and package the existing build output (still evaluates output properties). Ignored for folder/bundle/manifest inputs. |
+| `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs. |
+| `noSign` | `boolean \| undefined` | No | Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. |
 | `output` | `string \| undefined` | No | Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. |
+| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Ignored for folder/bundle/manifest inputs. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. |
 | `selfContained` | `boolean \| undefined` | No | Bundle Windows App SDK runtime for self-contained deployment |
 | `skipPri` | `boolean \| undefined` | No | Skip PRI file generation |
@@ -1859,15 +1866,22 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `inputFolder` | `string \| string[]` | Yes | One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `inputFolder` | `string \| string[]` | Yes | A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `arch` | `string \| string[] \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Ignored for folder/bundle/manifest inputs. Default: the current process architecture. |
 | `cert` | `string \| undefined` | No | Path to signing certificate (will auto-sign if provided) |
 | `certPassword` | `string \| undefined` | No | Certificate password (default: password) |
+| `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Release. |
 | `executable` | `string \| undefined` | No | Path to the executable relative to the input folder. |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored for folder/bundle/manifest inputs. |
 | `generateCert` | `boolean \| undefined` | No | Generate a new development certificate |
 | `installCert` | `boolean \| undefined` | No | Install certificate to machine |
 | `manifest` | `string \| undefined` | No | Path to AppX manifest file (default: auto-detect from input folder or current directory) |
 | `name` | `string \| undefined` | No | Package name (default: from manifest) |
+| `noBuild` | `boolean \| undefined` | No | Project mode: skip building and package the existing build output (still evaluates output properties). Ignored for folder/bundle/manifest inputs. |
+| `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs. |
+| `noSign` | `boolean \| undefined` | No | Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. |
 | `output` | `string \| undefined` | No | Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. |
+| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Ignored for folder/bundle/manifest inputs. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. |
 | `selfContained` | `boolean \| undefined` | No | Bundle Windows App SDK runtime for self-contained deployment |
 | `skipPri` | `boolean \| undefined` | No | Skip PRI file generation |

@@ -300,6 +300,35 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_RejectsAppxBundleRequest()
+    {
+        // winapp owns bundle production via --arch; an explicit -p AppxBundle=Always would be silently
+        // overridden by the per-slice AppxBundle=Never, so it must be rejected rather than produce a .msix.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "AppxBundle=Always"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "An AppxBundle request must be rejected before packaging");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_BareArch_Rejected()
+    {
+        // A valueless --arch must fail loudly rather than silently defaulting to the host architecture.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A valueless --arch must be rejected before packaging");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
     public async Task ProjectMode_NoSignWithCert_Conflicts()
     {
         var csproj = CreateCsproj();
