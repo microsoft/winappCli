@@ -290,6 +290,204 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Migrate_VendorActivationElementsAreInspectionIssuesAndNeverMigrated()
+    {
+        var source = await CreateSourceAsync(
+            "VendorActivationApp",
+            """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                     xmlns:vendor="urn:vendor">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <vendor:Extension Category="windows.protocol">
+                      <vendor:Protocol Name="vendor-extension" />
+                    </vendor:Extension>
+                    <uap:Extension Category="windows.protocol">
+                      <vendor:Protocol Name="vendor-protocol" />
+                    </uap:Extension>
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """);
+        var target = NewTarget("vendor-activation-output");
+        ArrangeTemplateCreation(target, "VendorActivationAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("review-required", activation.GetProperty("status").GetString());
+        Assert.AreEqual(0, activation.GetProperty("contracts").GetArrayLength());
+        var issueKinds = activation.GetProperty("issues")
+            .EnumerateArray()
+            .Select(issue => issue.GetProperty("kind").GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.IsTrue(issueKinds.Contains(
+            "source-activation-namespace-unsupported"));
+        Assert.IsTrue(issueKinds.Contains(
+            "protocol-namespace-unsupported"));
+        var targetManifest = XDocument.Load(
+            Path.Combine(target.FullName, "Package.appxmanifest"));
+        Assert.IsFalse(targetManifest.Descendants().Any(element =>
+            element.Name.NamespaceName ==
+            "http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+            && element.Name.LocalName == "Extension"));
+    }
+
+    [TestMethod]
+    public async Task Migrate_WrongNamespaceActivationFactsRemainReviewRequired()
+    {
+        var source = await CreateSourceAsync(
+            "WrongNamespaceFactsApp",
+            """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                     xmlns:vendor="urn:vendor">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <uap:Extension Category="windows.protocol">
+                      <uap:Protocol Name="wrong-protocol-facts">
+                        <vendor:Logo>Assets\Wrong.png</vendor:Logo>
+                        <vendor:DisplayName>Wrong Protocol</vendor:DisplayName>
+                      </uap:Protocol>
+                    </uap:Extension>
+                    <uap:Extension Category="windows.fileTypeAssociation">
+                      <uap:FileTypeAssociation Name="wrong-file-facts">
+                        <vendor:DisplayName>Wrong File</vendor:DisplayName>
+                        <vendor:Logo>Assets\WrongFile.png</vendor:Logo>
+                        <uap:SupportedFileTypes>
+                          <vendor:FileType>.wrong</vendor:FileType>
+                        </uap:SupportedFileTypes>
+                      </uap:FileTypeAssociation>
+                    </uap:Extension>
+                    <uap:Extension Category="windows.fileTypeAssociation">
+                      <uap:FileTypeAssociation Name="wrong-file-group">
+                        <vendor:SupportedFileTypes>
+                          <vendor:FileType>.vendor</vendor:FileType>
+                        </vendor:SupportedFileTypes>
+                      </uap:FileTypeAssociation>
+                    </uap:Extension>
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """);
+        var target = NewTarget("wrong-namespace-facts-output");
+        ArrangeTemplateCreation(target, "WrongNamespaceFactsAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("review-required", activation.GetProperty("status").GetString());
+        Assert.IsTrue(activation.GetProperty("contracts").EnumerateArray().All(contract =>
+            contract.GetProperty("migrationStatus").GetString() == "review-required"
+            && contract.GetProperty("verificationStatus").GetString() == "not-applicable"));
+        Assert.IsTrue(activation.GetProperty("issues").GetArrayLength() >= 6);
+        var targetManifest = XDocument.Load(
+            Path.Combine(target.FullName, "Package.appxmanifest"));
+        Assert.IsFalse(targetManifest.Descendants().Any(element =>
+            element.Name.NamespaceName ==
+            "http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+            && element.Name.LocalName == "Extension"));
+    }
+
+    [TestMethod]
+    public async Task Migrate_Uap3SourceDeclarationsUseUapFactChildren()
+    {
+        var source = await CreateSourceAsync(
+            "Uap3SourceApp",
+            """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <uap3:Extension Category="windows.protocol">
+                      <uap3:Protocol Name="uap3-source">
+                        <uap:DisplayName>UAP3 Source</uap:DisplayName>
+                        <uap:Logo>Assets\Uap3.png</uap:Logo>
+                      </uap3:Protocol>
+                    </uap3:Extension>
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """);
+        var target = NewTarget("uap3-source-output");
+        ArrangeTemplateCreation(target, "Uap3SourceAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var contract = report.RootElement
+            .GetProperty("activationAnalysis")
+            .GetProperty("contracts")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual("uap3", contract.GetProperty("sourceSchema").GetString());
+        Assert.AreEqual("verified", contract.GetProperty("verificationStatus").GetString());
+        Assert.AreEqual("UAP3 Source", contract.GetProperty("displayName").GetString());
+    }
+
+    [TestMethod]
+    public async Task Verify_WrongNamespaceTargetFactsAreNeverVerified()
+    {
+        var source = await CreateSourceAsync(
+            "WrongTargetNamespaceApp",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.protocol">
+                  <uap:Protocol Name="target-protocol">
+                    <uap:Logo>Assets\Protocol.png</uap:Logo>
+                  </uap:Protocol>
+                </uap:Extension>
+                <uap:Extension Category="windows.fileTypeAssociation">
+                  <uap:FileTypeAssociation Name="target-files">
+                    <uap:SupportedFileTypes>
+                      <uap:FileType>.target</uap:FileType>
+                    </uap:SupportedFileTypes>
+                  </uap:FileTypeAssociation>
+                </uap:Extension>
+                """));
+        var target = NewTarget("wrong-target-namespace-output");
+        ArrangeTemplateCreation(target, "WrongTargetNamespaceAppApp");
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+
+        var manifestPath = Path.Combine(target.FullName, "Package.appxmanifest");
+        var manifest = XDocument.Load(manifestPath);
+        XNamespace vendor = "urn:vendor";
+        manifest.Descendants()
+            .Single(element => element.Name.LocalName == "Logo")
+            .Name = vendor + "Logo";
+        manifest.Descendants()
+            .Single(element => element.Name.LocalName == "FileType")
+            .Name = vendor + "FileType";
+        manifest.Save(manifestPath);
+
+        var (exit, output) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, exit, output);
+        using var report = await ReadReportAsync(target);
+        var contracts = report.RootElement
+            .GetProperty("activationAnalysis")
+            .GetProperty("contracts")
+            .EnumerateArray()
+            .ToList();
+        Assert.IsTrue(contracts.All(contract =>
+            contract.GetProperty("verificationStatus").GetString() == "drifted"));
+    }
+
+    [TestMethod]
     public async Task Migrate_DuplicateActivationIdentity_RemainsReviewRequired()
     {
         var source = await CreateSourceAsync(
