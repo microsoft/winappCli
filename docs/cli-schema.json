@@ -2276,7 +2276,7 @@
       },
       "options": {
         "--arch": {
-          "description": "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Ignored for folder/bundle/manifest inputs. Default: the current process architecture.",
+          "description": "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture.",
           "hidden": false,
           "valueType": "System.String[]",
           "hasDefaultValue": false,
@@ -2312,7 +2312,7 @@
           "recursive": false
         },
         "--configuration": {
-          "description": "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Release.",
+          "description": "Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release.",
           "hidden": false,
           "aliases": [
             "-c"
@@ -2343,7 +2343,7 @@
           "recursive": false
         },
         "--framework": {
-          "description": "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored for folder/bundle/manifest inputs.",
+          "description": "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
           "hidden": false,
           "aliases": [
             "-f"
@@ -2408,7 +2408,7 @@
           "recursive": false
         },
         "--no-build": {
-          "description": "Project mode: skip building and package the existing build output (still evaluates output properties). Ignored for folder/bundle/manifest inputs.",
+          "description": "Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,
@@ -2421,7 +2421,7 @@
           "recursive": false
         },
         "--no-restore": {
-          "description": "Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs.",
+          "description": "Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,
@@ -2459,7 +2459,7 @@
           "recursive": false
         },
         "--property": {
-          "description": "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Ignored for folder/bundle/manifest inputs.",
+          "description": "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
           "hidden": false,
           "aliases": [
             "-p"

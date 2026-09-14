@@ -58,9 +58,10 @@ internal partial class MsixService
             // sign/validation failure therefore never clobbers an existing artifact (spec §5/§11). The SDK
             // package is already complete, so staging is a copy, never a repackage.
             var stagingMsix = CreateStagingSiblingPath(finalMsixPath);
-            File.Copy(producedMsix.FullName, stagingMsix.FullName, overwrite: true);
             try
             {
+                File.Copy(producedMsix.FullName, stagingMsix.FullName, overwrite: true);
+
                 var signed = false;
                 if (autoSign)
                 {

@@ -102,37 +102,37 @@ internal partial class PackageCommand : Command, IShortDescription
 
         ConfigurationOption = new Option<string>("--configuration")
         {
-            Description = "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Release.",
+            Description = "Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release.",
             DefaultValueFactory = _ => "Release",
         };
         ConfigurationOption.Aliases.Add("-c");
 
         ArchOption = new Option<string[]>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Ignored for folder/bundle/manifest inputs. Default: the current process architecture.",
+            Description = "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };
 
         FrameworkOption = new Option<string?>("--framework")
         {
-            Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored for folder/bundle/manifest inputs."
+            Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs."
         };
         FrameworkOption.Aliases.Add("-f");
 
         NoBuildOption = new Option<bool>("--no-build")
         {
-            Description = "Project mode: skip building and package the existing build output (still evaluates output properties). Ignored for folder/bundle/manifest inputs."
+            Description = "Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs."
         };
 
         NoRestoreOption = new Option<bool>("--no-restore")
         {
-            Description = "Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs."
+            Description = "Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs."
         };
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Ignored for folder/bundle/manifest inputs.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };

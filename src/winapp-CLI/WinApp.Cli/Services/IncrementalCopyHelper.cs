@@ -50,6 +50,8 @@ internal static class IncrementalCopyHelper
         var sourceRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int copied = 0, skipped = 0;
 
+        var verifiedDestDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var file in EnumerateFilesSkippingReparse(sourceDir))
         {
             // Skip files that are inside the dest folder (if dest is nested inside source)
@@ -61,6 +63,22 @@ internal static class IncrementalCopyHelper
             var relativePath = Path.GetRelativePath(sourceDir.FullName, file.FullName);
             sourceRelativePaths.Add(relativePath);
             var destFile = new FileInfo(Path.Combine(destDir.FullName, relativePath));
+
+            // Never read metadata through, or write through, a junction/symlink in the destination path.
+            // The reparse-safe enumeration guards the delete pass, but a copy resolves its OWN destination,
+            // so a destination child junction could otherwise redirect the write outside destDir. Check each
+            // destination subdirectory once (existing components only), and refuse a symlinked leaf file.
+            var destDirectory = destFile.Directory!.FullName;
+            if (verifiedDestDirectories.Add(destDirectory) && PathSafety.HasReparsePointOnExistingPath(destDirectory))
+            {
+                throw new InvalidOperationException(
+                    $"The destination directory '{destDir.FullName}' contains a symbolic link or junction under '{destDirectory}' and cannot be synchronized safely.");
+            }
+            if (destFile.Exists && (destFile.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidOperationException(
+                    $"The destination path '{destFile.FullName}' is a symbolic link and cannot be synchronized safely.");
+            }
 
             // Skip copy if destination exists with same size and timestamp
             if (destFile.Exists && destFile.Length == file.Length && destFile.LastWriteTimeUtc == file.LastWriteTimeUtc)

@@ -566,10 +566,12 @@ internal partial class PackageCommand
 
             if (!string.IsNullOrEmpty(props.KeyFilePath))
             {
-                // A project-supplied keyfile path is untrusted input. Probing a UNC / reparse-redirected
-                // path with File.Exists can trigger outbound SMB authentication, so reject a network location
-                // before touching the filesystem.
-                if (PathSafety.IsNetworkPath(props.KeyFilePath) || PathSafety.RedirectsToNetwork(props.KeyFilePath))
+                // A project-supplied keyfile path is untrusted input. Probing a UNC / mapped-network-drive /
+                // reparse-redirected path with File.Exists can trigger outbound SMB authentication, so reject
+                // a network location before touching the filesystem.
+                if (PathSafety.IsNetworkPath(props.KeyFilePath)
+                    || PathSafety.IsNetworkDriveRoot(props.KeyFilePath)
+                    || PathSafety.RedirectsToNetwork(props.KeyFilePath))
                 {
                     return (null, $"The project's signing certificate (PackageCertificateKeyFile) resolves to a network location, which winapp will not probe or load: {props.KeyFilePath}. Provide a local --cert <pfx>, or use --no-sign.");
                 }

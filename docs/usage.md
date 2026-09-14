@@ -330,7 +330,7 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
 
-**Project-mode options** (a `.csproj` input only; ignored for folder/bundle/manifest inputs):
+**Project-mode options** (require a `.csproj` input; rejected for folder/bundle/manifest inputs):
 
 - `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
 - `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)

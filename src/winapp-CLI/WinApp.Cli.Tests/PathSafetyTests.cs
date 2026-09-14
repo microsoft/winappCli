@@ -32,6 +32,23 @@ public class PathSafetyTests
     // ---------------------------------------------------------------------
 
     [TestMethod]
+    public void IsNetworkDriveRoot_LocalPath_ReturnsFalse()
+    {
+        // A local fixed-drive path (the temp dir) must not be treated as a network drive, so legitimate
+        // local certificate paths are never wrongly rejected.
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(_tempDir.FullName));
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(Path.Combine(_tempDir.FullName, "dev.pfx")));
+    }
+
+    [TestMethod]
+    public void IsNetworkDriveRoot_UncOrEmpty_ReturnsFalse()
+    {
+        // UNC is handled by IsNetworkPath (not a drive letter), and an empty path is not a drive mapping.
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(@"\\server\share\dev.pfx"));
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(string.Empty));
+    }
+
+    [TestMethod]
     public void HasReparsePointOnPath_PathEqualsBoundary_ReturnsFalse()
     {
         // The boundary itself is a valid target — callers pass e.g. the

@@ -269,6 +269,41 @@ public class IncrementalCopyHelperTests
     }
 
     [TestMethod]
+    public async Task SyncDirectory_DestinationChildJunction_WithMatchingSource_DoesNotWriteThrough()
+    {
+        // Source legitimately contains 'linked/keep.txt' as a real subtree, while dest 'linked' is a junction
+        // to an external directory. A naive copy would write through the junction and overwrite the external
+        // file; the copy guard must refuse instead.
+        var source = CreateSubDir("src");
+        var sourceLinked = source.CreateSubdirectory("linked");
+        WriteFile(sourceLinked, "keep.txt", "NEW PAYLOAD");
+        var dest = CreateSubDir("dst");
+        var external = CreateSubDir("external");
+        var externalKeep = WriteFile(external, "keep.txt", "ORIGINAL");
+        var link = Path.Join(dest.FullName, "linked");
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            ArgumentList = { "/c", "mklink", "/J", link, external.FullName },
+        });
+        Assert.IsNotNull(process);
+        await process.WaitForExitAsync();
+        Assert.AreEqual(0, process.ExitCode, await process.StandardError.ReadToEndAsync());
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => IncrementalCopyHelper.SyncDirectory(source, dest));
+            Assert.AreEqual("ORIGINAL", File.ReadAllText(externalKeep.FullName), "A copy must not be written through a destination child junction.");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
     public void SyncDirectory_DestinationEqualsSource_ThrowsWithoutDeletingFiles()
     {
         var directory = CreateSubDir("same");
