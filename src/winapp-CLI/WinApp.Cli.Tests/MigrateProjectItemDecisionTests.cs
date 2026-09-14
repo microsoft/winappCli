@@ -4,6 +4,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Xml.Linq;
+using System.CommandLine;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
 
@@ -157,6 +158,125 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         StringAssert.Contains(
             copiedDecision.GetProperty("verification").GetProperty("reason").GetString(),
             "does not exist");
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_ConcurrentCommandsPreserveBothUpdates()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "ConcurrentDecisionApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        var items = await ReadReviewItemsAsync(target);
+        var copied = await InvokeDecisionAsync(
+            target,
+            "--item", ItemIdByLink(items, @"Strings\NOTICE.json"),
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Strings\NOTICE.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Seed decision retained across both concurrent updates.");
+        Assert.AreEqual(0, copied.ExitCode, copied.Output);
+
+        var reportPath = Path.Combine(
+            target.FullName,
+            "migration-report.json");
+        var heldLock = await MigrationReportStore.AcquireTransactionLockAsync(
+            reportPath,
+            TimeSpan.FromSeconds(1),
+            TestContext.CancellationToken);
+        Task<int> sdkTask = null!;
+        Task<int> explicitTask = null!;
+        try
+        {
+            var command = GetRequiredService<MigrateProjectItemDecisionCommand>();
+            sdkTask = command.Parse(
+                [
+                    target.FullName,
+                    ItemId(items, @"Resources\en-us\Resources.resw"),
+                    "sdk-default-item",
+                    "Concurrent SDK default decision.",
+                    "--target-path", @"Resources\en-us\Resources.resw",
+                    "--evidence-file", "Directory.Build.targets"
+                ])
+                .InvokeAsync(cancellationToken: TestContext.CancellationToken);
+            explicitTask = command.Parse(
+                [
+                    target.FullName,
+                    ItemId(items, @"Resources\fr-fr\Resources.resw"),
+                    "explicit-target-item",
+                    "Concurrent explicit item decision.",
+                    "--target-path", @"Resources\fr-fr\Resources.resw",
+                    "--target-item-type", "PRIResource",
+                    "--evidence-file", "Directory.Build.targets"
+                ])
+                .InvokeAsync(cancellationToken: TestContext.CancellationToken);
+            await Task.Delay(150, TestContext.CancellationToken);
+            Assert.IsFalse(sdkTask.IsCompleted);
+            Assert.IsFalse(explicitTask.IsCompleted);
+        }
+        finally
+        {
+            await heldLock.DisposeAsync();
+        }
+
+        var exits = await Task.WhenAll(sdkTask, explicitTask);
+
+        Assert.AreEqual(0, exits[0]);
+        Assert.AreEqual(0, exits[1]);
+        using var report = await ReadReportAsync(target);
+        var decisions = report.RootElement
+            .GetProperty("projectItemDecisions")
+            .EnumerateArray()
+            .ToList();
+        Assert.HasCount(3, decisions);
+        Assert.IsTrue(decisions.All(decision =>
+            decision.GetProperty("verification").GetProperty("status").GetString()
+            == "verified"));
+        Assert.IsFalse(report.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
+            todo.GetProperty("id").GetString() == "UWMIG012"));
+    }
+
+    [TestMethod]
+    public async Task MigrationReportLock_TimesOutAndCleansUp()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "DecisionLockTimeoutApp",
+            includeConditionalItem: false);
+        var reportPath = Path.Combine(
+            target.FullName,
+            "migration-report.json");
+        var lockPath = MigrationReportStore.GetTransactionLockPath(reportPath);
+        var heldLock = await MigrationReportStore.AcquireTransactionLockAsync(
+            reportPath,
+            TimeSpan.FromSeconds(1),
+            TestContext.CancellationToken);
+        try
+        {
+            var exception = await Assert.ThrowsExactlyAsync<MigrationReportLockException>(
+                async () =>
+                {
+                    await using var unexpected =
+                        await MigrationReportStore.AcquireTransactionLockAsync(
+                            reportPath,
+                            TimeSpan.FromMilliseconds(150),
+                            TestContext.CancellationToken);
+                });
+            StringAssert.Contains(exception.Message, "Timed out");
+            StringAssert.Contains(exception.Message, "another winapp process");
+        }
+        finally
+        {
+            await heldLock.DisposeAsync();
+        }
+
+        Assert.IsFalse(File.Exists(lockPath));
+        var reacquired = await MigrationReportStore.AcquireTransactionLockAsync(
+            reportPath,
+            TimeSpan.FromSeconds(1),
+            TestContext.CancellationToken);
+        await reacquired.DisposeAsync();
+        Assert.IsFalse(File.Exists(lockPath));
     }
 
     [TestMethod]
@@ -1179,6 +1299,128 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Verify_ProjectItemDecisionSurvivesUnrelatedSourceLineShift()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "StableItemIdentityApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        var items = await ReadReviewItemsAsync(target);
+        var originalId = ItemId(
+            items,
+            @"Resources\en-us\Resources.resw");
+        var originalLine = items
+            .Single(item =>
+                item!["id"]!.GetValue<string>() == originalId)!
+            ["sourceLocation"]!["line"]!
+            .GetValue<int>();
+        var decision = await InvokeDecisionAsync(
+            target,
+            "--item", originalId,
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "The decision identity is semantic rather than line-based.");
+        Assert.AreEqual(0, decision.ExitCode, decision.Output);
+
+        var sourceProject = Directory.EnumerateFiles(
+            source.FullName,
+            "*.csproj",
+            SearchOption.TopDirectoryOnly)
+            .Single();
+        var sourceText = await File.ReadAllTextAsync(
+            sourceProject,
+            TestContext.CancellationToken);
+        sourceText = sourceText.Replace(
+            "  <ItemGroup>",
+            """
+              <!-- Unrelated source-project context inserted before the items. -->
+
+              <PropertyGroup>
+                <UnrelatedProperty>unchanged-item</UnrelatedProperty>
+              </PropertyGroup>
+
+              <ItemGroup>
+            """,
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(
+            sourceProject,
+            sourceText,
+            TestContext.CancellationToken);
+
+        var (verifyExit, verifyOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(0, verifyExit, verifyOutput);
+        using var report = await ReadReportAsync(target);
+        var recorded = report.RootElement
+            .GetProperty("projectItemDecisions")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual(originalId, recorded.GetProperty("itemId").GetString());
+        Assert.AreEqual(
+            "verified",
+            recorded.GetProperty("verification").GetProperty("status").GetString());
+        var shiftedItem = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems")
+            .GetProperty("reviewRequiredItems")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == originalId);
+        Assert.IsGreaterThan(
+            originalLine,
+            shiftedItem.GetProperty("sourceLocation").GetProperty("line").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task Verify_ExactDuplicateItemsHaveStableDistinctOrdinals()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "DuplicateItemIdentityApp",
+            includeConditionalItem: false,
+            includeDuplicateResource: true);
+        var beforeItems = await ReadReviewItemsAsync(target);
+        var beforeDuplicates = beforeItems
+            .Where(item =>
+                item!["include"]!.GetValue<string>() ==
+                @"Resources\en-us\Resources.resw")
+            .Select(item => item!["id"]!.GetValue<string>())
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.HasCount(2, beforeDuplicates);
+        Assert.AreNotEqual(beforeDuplicates[0], beforeDuplicates[1]);
+
+        var sourceProject = Directory.EnumerateFiles(
+            source.FullName,
+            "*.csproj",
+            SearchOption.TopDirectoryOnly)
+            .Single();
+        var sourceText = await File.ReadAllTextAsync(
+            sourceProject,
+            TestContext.CancellationToken);
+        sourceText = sourceText.Replace(
+            "  <ItemGroup>",
+            "  <!-- Shift both exact duplicates without changing their order. -->\r\n\r\n  <ItemGroup>",
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(
+            sourceProject,
+            sourceText,
+            TestContext.CancellationToken);
+
+        var (verifyExit, verifyOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(0, verifyExit, verifyOutput);
+        var afterItems = await ReadReviewItemsAsync(target);
+        var afterDuplicates = afterItems
+            .Where(item =>
+                item!["include"]!.GetValue<string>() ==
+                @"Resources\en-us\Resources.resw")
+            .Select(item => item!["id"]!.GetValue<string>())
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        CollectionAssert.AreEqual(beforeDuplicates, afterDuplicates);
+    }
+
+    [TestMethod]
     public async Task Verify_RejectsReparsePointSourceRootBeforeProjectRead()
     {
         var (_, target) = await CreateDecisionMigrationAsync(
@@ -1296,7 +1538,8 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
 
     private async Task<(DirectoryInfo Source, DirectoryInfo Target)> CreateDecisionMigrationAsync(
         string name,
-        bool includeConditionalItem)
+        bool includeConditionalItem,
+        bool includeDuplicateResource = false)
     {
         var source = _tempDirectory.CreateSubdirectory(name);
         var shared = _tempDirectory.CreateSubdirectory($"{name}-shared");
@@ -1306,6 +1549,13 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
                 <Content Include="Data\**\*.json" Condition="'$(Configuration)' == 'Debug'" />
               """
             : string.Empty;
+        var duplicateResourceItem = includeDuplicateResource
+              ? """
+                  <PRIResource Include="Resources\en-us\Resources.resw">
+                    <SubType>Designer</SubType>
+                  </PRIResource>
+                """
+              : string.Empty;
         await WriteAsync(
             source,
             $"{name}.csproj",
@@ -1315,6 +1565,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
                 <PRIResource Include="Resources\en-us\Resources.resw">
                   <SubType>Designer</SubType>
                 </PRIResource>
+            {{duplicateResourceItem}}
                 <PRIResource Include="Resources\fr-fr\Resources.resw">
                   <SubType>Designer</SubType>
                 </PRIResource>

@@ -92,6 +92,21 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 return 1;
             }
 
+            MigrationReportTransactionLock reportLock;
+            try
+            {
+                reportLock = await MigrationReportStore.AcquireTransactionLockAsync(
+                    reportPath,
+                    cancellationToken);
+            }
+            catch (MigrationReportLockException exception)
+            {
+                Console.Out.WriteLine(
+                    $"[ERROR] Could not lock migration-report.json: {exception.Message}");
+                return 1;
+            }
+            await using var transactionScope = reportLock;
+
             MigrationReport report;
             try
             {

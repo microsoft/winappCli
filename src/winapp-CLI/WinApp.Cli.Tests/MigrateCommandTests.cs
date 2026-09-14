@@ -80,6 +80,49 @@ public class MigrateCommandTests : MigrateCommandTestBase
         InvokeCapturingConsoleAsync(GetRequiredService<MigrateVerifyCommand>(), target.FullName);
 
     [TestMethod]
+    public async Task MigrateAndVerify_ManifestOnlySourcePreservesNullProject()
+    {
+        var source = _tempDirectory.CreateSubdirectory("ManifestOnlySource");
+        await WriteAsync(
+            source,
+            "Package.appxmanifest",
+            """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <uap:Extension Category="windows.appService" />
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """);
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "manifest-only-output"));
+        ArrangeTemplateCreation(target, "ManifestOnlySourceApp");
+
+        var (migrateExit, migrateOutput) = await InvokeAsync(source, target);
+        var (verifyExit, verifyOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+        Assert.AreEqual(0, verifyExit, verifyOutput);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        Assert.IsFalse(
+            report.RootElement
+                .GetProperty("source")
+                .TryGetProperty("projectFile", out _));
+        var projectItems = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems");
+        Assert.AreEqual(0, projectItems.GetProperty("sourceItems").GetInt32());
+        Assert.AreEqual(0, projectItems.GetProperty("unresolvedItems").GetArrayLength());
+    }
+
+    [TestMethod]
     public async Task Migrate_CreatesWinuiProjectAndWritesReport()
     {
         var source = await CreateUwpSourceAsync("SensorApp");

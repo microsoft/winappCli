@@ -46,6 +46,21 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 return 1;
             }
 
+            MigrationReportTransactionLock reportLock;
+            try
+            {
+                reportLock = await MigrationReportStore.AcquireTransactionLockAsync(
+                    reportPath,
+                    cancellationToken);
+            }
+            catch (MigrationReportLockException exception)
+            {
+                Console.Out.WriteLine(
+                    $"[ERROR] Could not lock migration-report.json: {exception.Message}");
+                return 1;
+            }
+            await using var transactionScope = reportLock;
+
             MigrationReport report;
             try
             {
@@ -74,16 +89,20 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 return 1;
             }
 
-            if (!MigrationPathResolver.TryResolveContainedRelativePath(
-                    sourceRoot,
-                    report.Source.ProjectFile,
-                    out var sourceProject,
-                    out _,
-                    out var sourceProjectError))
+            string? sourceProject = null;
+            if (report.Source.ProjectFile is not null)
             {
-                Console.Out.WriteLine(
-                    $"[ERROR] Source project path recorded by migration-report.json is invalid: {sourceProjectError}");
-                return 1;
+                if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                        sourceRoot,
+                        report.Source.ProjectFile,
+                        out sourceProject,
+                        out _,
+                        out var sourceProjectError))
+                {
+                    Console.Out.WriteLine(
+                        $"[ERROR] Source project path recorded by migration-report.json is invalid: {sourceProjectError}");
+                    return 1;
+                }
             }
             if (!MigrationPathResolver.TryResolveContainedRelativePath(
                     targetRoot,
@@ -96,7 +115,8 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                     $"[ERROR] Target project path recorded by migration-report.json is invalid: {targetProjectError}");
                 return 1;
             }
-            if (!File.Exists(sourceProject))
+            if (sourceProject is not null
+                && !File.Exists(sourceProject))
             {
                 Console.Out.WriteLine("[ERROR] The source project recorded by migration-report.json was not found.");
                 return 1;

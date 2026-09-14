@@ -139,6 +139,10 @@ internal partial class MigrateCommand
                 .Where(element => MigratedProjectItemKinds.Contains(element.Name.LocalName))
                 .Where(element => element.Attribute("Include") is not null)
                 .ToList();
+            var stableItemIds = CreateStableProjectItemIds(
+                sourceRoot,
+                sourceProject,
+                sourceItems);
             var unresolved = new List<MigrationLocation>();
             var missingTargetItems = new List<MigrationLocation>();
             var reviewRequiredItems = new List<MigrationReviewRequiredProjectItem>();
@@ -158,6 +162,7 @@ internal partial class MigrateCommand
                         sourceRoot,
                         sourceProject,
                         item,
+                        stableItemIds[item],
                         "conditional",
                         unresolved,
                         reviewRequiredItems);
@@ -169,6 +174,7 @@ internal partial class MigrateCommand
                         sourceRoot,
                         sourceProject,
                         item,
+                        stableItemIds[item],
                         "wildcard",
                         unresolved,
                         reviewRequiredItems);
@@ -181,6 +187,7 @@ internal partial class MigrateCommand
                         sourceRoot,
                         sourceProject,
                         item,
+                        stableItemIds[item],
                         "msbuild-expression",
                         unresolved,
                         reviewRequiredItems);
@@ -192,6 +199,7 @@ internal partial class MigrateCommand
                         sourceRoot,
                         sourceProject,
                         item,
+                        stableItemIds[item],
                         "absolute-path",
                         unresolved,
                         reviewRequiredItems);
@@ -212,6 +220,7 @@ internal partial class MigrateCommand
                         sourceRoot,
                         sourceProject,
                         item,
+                        stableItemIds[item],
                         "invalid-path",
                         unresolved,
                         reviewRequiredItems);
@@ -226,6 +235,7 @@ internal partial class MigrateCommand
                         sourceRoot,
                         sourceProject,
                         item,
+                        stableItemIds[item],
                         "external-or-missing-source",
                         unresolved,
                         reviewRequiredItems);
@@ -251,6 +261,7 @@ internal partial class MigrateCommand
                         sourceRoot,
                         sourceProject,
                         item,
+                        stableItemIds[item],
                         "default-item-metadata",
                         unresolved,
                         reviewRequiredItems);
@@ -369,10 +380,120 @@ internal partial class MigrateCommand
                 1);
         }
 
+        private static Dictionary<XElement, string> CreateStableProjectItemIds(
+            string sourceRoot,
+            string sourceProject,
+            IReadOnlyList<XElement> sourceItems)
+        {
+            var sourceProjectPath = NormalizePath(
+                Path.GetRelativePath(sourceRoot, sourceProject))
+                .ToUpperInvariant();
+            var entries = sourceItems
+                .Select((item, order) => new
+                {
+                    Item = item,
+                    Order = order,
+                    SemanticIdentity = CanonicalProjectItemIdentity(
+                        sourceProjectPath,
+                        item)
+                })
+                .ToList();
+            var result = new Dictionary<XElement, string>();
+            foreach (var group in entries.GroupBy(
+                entry => entry.SemanticIdentity,
+                StringComparer.Ordinal))
+            {
+                var duplicateOrdinal = 0;
+                foreach (var entry in group.OrderBy(entry => entry.Order))
+                {
+                    var hashInput =
+                        $"{entry.SemanticIdentity}\nduplicate-ordinal:{duplicateOrdinal}";
+                    var hash = Convert.ToHexString(
+                            SHA256.HashData(
+                                Encoding.UTF8.GetBytes(hashInput)))
+                        .ToLowerInvariant()[..16];
+                    result.Add(entry.Item, $"project-item-{hash}");
+                    duplicateOrdinal++;
+                }
+            }
+            return result;
+        }
+
+        private static string CanonicalProjectItemIdentity(
+            string sourceProjectPath,
+            XElement item)
+        {
+            var include = item.Attribute("Include")?.Value ?? string.Empty;
+            var link = item.Elements()
+                .FirstOrDefault(element =>
+                    element.Name.LocalName == "Link")
+                ?.Value ?? string.Empty;
+            var condition = item.Attribute("Condition")?.Value;
+            var parentCondition = item.Parent?.Attribute("Condition")?.Value;
+            var otherAttributes = item.Attributes()
+                .Where(attribute =>
+                    !attribute.IsNamespaceDeclaration
+                    && attribute.Name.LocalName is not "Include" and not "Condition")
+                .Select(attribute =>
+                    $"{CanonicalXmlName(attribute.Name)}={CanonicalFactValue(attribute.Value)}")
+                .Order(StringComparer.Ordinal);
+            var metadata = item.Elements()
+                .Select(CanonicalProjectItemElement)
+                .Order(StringComparer.Ordinal);
+            return string.Join(
+                "\n",
+                sourceProjectPath,
+                CanonicalXmlName(item.Name),
+                CanonicalItemPath(include),
+                CanonicalItemPath(link),
+                CanonicalCondition(condition),
+                CanonicalCondition(parentCondition),
+                string.Join("\u001f", otherAttributes),
+                string.Join("\u001f", metadata));
+        }
+
+        private static string CanonicalProjectItemElement(
+            XElement element)
+        {
+            var attributes = element.Attributes()
+                .Where(attribute => !attribute.IsNamespaceDeclaration)
+                .Select(attribute =>
+                    $"{CanonicalXmlName(attribute.Name)}={CanonicalFactValue(attribute.Value)}")
+                .Order(StringComparer.Ordinal);
+            var children = element.Elements()
+                .Select(CanonicalProjectItemElement)
+                .Order(StringComparer.Ordinal);
+            var directText = string.Concat(
+                element.Nodes()
+                    .OfType<XText>()
+                    .Select(text => text.Value));
+            return string.Join(
+                "\u001e",
+                CanonicalXmlName(element.Name),
+                string.Join("\u001f", attributes),
+                CanonicalFactValue(directText),
+                string.Join("\u001f", children));
+        }
+
+        private static string CanonicalXmlName(XName name) =>
+            $"{name.NamespaceName}\u001d{name.LocalName.ToUpperInvariant()}";
+
+        private static string CanonicalItemPath(string value) =>
+            NormalizePath(value.Trim()).ToUpperInvariant();
+
+        private static string CanonicalCondition(string? value) =>
+            string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : value.Trim();
+
+        private static string CanonicalFactValue(string value) =>
+            value.Trim();
+
         private static void AddReviewRequiredItem(
             string sourceRoot,
             string sourceProject,
             XElement item,
+            string stableId,
             string reviewReason,
             List<MigrationLocation> unresolved,
             List<MigrationReviewRequiredProjectItem> reviewRequiredItems)
@@ -381,6 +502,7 @@ internal partial class MigrateCommand
                 sourceRoot,
                 sourceProject,
                 item,
+                stableId,
                 reviewReason);
             unresolved.Add(reviewItem.SourceLocation);
             reviewRequiredItems.Add(reviewItem);
@@ -390,6 +512,7 @@ internal partial class MigrateCommand
             string sourceRoot,
             string sourceProject,
             XElement item,
+            string stableId,
             string reviewReason)
         {
             var sourceProjectPath = NormalizePath(
@@ -410,21 +533,9 @@ internal partial class MigrateCommand
                     Value = element.Value
                 })
                 .ToList();
-            var identity = string.Join(
-                "\n",
-                sourceProjectPath,
-                location.Line?.ToString() ?? string.Empty,
-                item.Name.LocalName,
-                include,
-                link ?? string.Empty,
-                condition ?? string.Empty,
-                parentCondition ?? string.Empty);
-            var hash = Convert.ToHexString(
-                    SHA256.HashData(Encoding.UTF8.GetBytes(identity)))
-                .ToLowerInvariant()[..16];
             return new MigrationReviewRequiredProjectItem
             {
-                Id = $"project-item-{hash}",
+                Id = stableId,
                 SourceProject = sourceProjectPath,
                 SourceLocation = location,
                 ItemType = item.Name.LocalName,
