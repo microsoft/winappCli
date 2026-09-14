@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Reflection;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.Accessibility;
@@ -96,6 +97,91 @@ public partial class RealUiAutomationTests
         Assert.IsNotNull(results[0].InvokableAncestor);
         Assert.IsNotNull(single);
         Assert.AreEqual("Window", single!.Type);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_PartialNonzeroBulkResult_MergesOmittedManualMatches()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var beforeBoundary = FindByAutomationId(automation, root, "btnInvoke");
+        var afterBoundary = FindByAutomationId(automation, root, "txtValue");
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(beforeBoundary);
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults) =>
+        {
+            Assert.AreEqual("provider-boundary", query);
+            Assert.AreEqual(10, maxResults);
+            return [beforeBoundary, afterBoundary];
+        };
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "provider-boundary" },
+            10,
+            CancellationToken.None);
+
+        Assert.AreEqual(2, results.Length);
+        Assert.IsTrue(results.Any(result => result.AutomationId == "btnInvoke"));
+        Assert.IsTrue(results.Any(result => result.AutomationId == "txtValue"));
+    }
+
+    [TestMethod]
+    public async Task FindSingleElementAsync_PartialNonzeroBulkResult_UsesCompleteSetForDisambiguation()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var nonInvokableBeforeBoundary = FindByAutomationId(automation, root, "lblShared");
+        var invokableAfterBoundary = FindByAutomationId(automation, root, "btnShared");
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(nonInvokableBeforeBoundary);
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults) =>
+        {
+            Assert.AreEqual("provider-boundary", query);
+            Assert.AreEqual(int.MaxValue, maxResults);
+            return [nonInvokableBeforeBoundary, invokableAfterBoundary];
+        };
+
+        var result = await svc.FindSingleElementAsync(
+            uiTarget,
+            new UiSelector { Query = "provider-boundary" },
+            CancellationToken.None);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("btnShared", result.AutomationId);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_BulkResultFillsCap_SkipsManualTraversal()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var bulkMatch = FindByAutomationId(automation, root, "btnInvoke");
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(bulkMatch);
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _) =>
+            throw new AssertFailedException("A bulk result that fills maxResults must stay on the fast path.");
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "provider-boundary" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("btnInvoke", results[0].AutomationId);
     }
 
     [TestMethod]
@@ -615,6 +701,8 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _) => [];
+        UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
 
         var results = await svc.SearchAsync(uiTarget, new UiSelector { Query = "proxyAid" }, 5, CancellationToken.None);
 
@@ -661,6 +749,8 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _) => [];
+        UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
 
         var results = await svc.SearchAsync(uiTarget, new UiSelector { Query = "promoteAid" }, 5, CancellationToken.None);
 
@@ -967,6 +1057,26 @@ public partial class RealUiAutomationTests
     private static unsafe BSTR EmptyBstr() => new((char*)Marshal.StringToBSTR(string.Empty));
 
     private static unsafe BSTR StringBstr(string value) => new((char*)Marshal.StringToBSTR(value));
+
+    private static IUIAutomationElement FindByAutomationId(
+        IUIAutomation automation,
+        IUIAutomationElement root,
+        string automationId)
+    {
+        var condition = automation.CreatePropertyCondition(
+            UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
+            ComVariant.Create(automationId));
+        return root.FindFirst(TreeScope.TreeScope_Descendants, condition)
+            ?? throw new AssertFailedException($"Fixture element '{automationId}' was not found.");
+    }
+
+    private static IUIAutomationElementArray ElementArray(params IUIAutomationElement[] elements)
+        => ComProxy<IUIAutomationElementArray>((method, args) => method.Name switch
+        {
+            "get_Length" => elements.Length,
+            "GetElement" => elements[(int)args![0]!],
+            _ => ThrowCom(),
+        });
 
     private static T ComProxy<T>(Func<MethodInfo, object?[]?, object?> handler)
         where T : class
