@@ -363,6 +363,8 @@ winapp pack ./MyApp.csproj --no-build
 
 The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
 
+Project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
+
 #### Sparse identity packages
 
 When the input is a **sparse `appxmanifest.xml` file** (one declaring `<uap10:AllowExternalContent>true</uap10:AllowExternalContent>` under `<Properties>`) rather than a folder, `winapp pack` builds an **identity-only** `.msix` — it packages just the manifest, with no application binaries or assets. This is step 2 of the [sparse packaging workflow](guides/sparse.md).

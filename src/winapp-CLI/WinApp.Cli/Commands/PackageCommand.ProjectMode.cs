@@ -36,6 +36,54 @@ internal partial class PackageCommand
                "that contains an AppxManifest.xml.";
 
         /// <summary>
+        /// Returns an actionable scope error when an explicit <c>-p</c> requests a packaging flow project
+        /// mode does not expose — Store-upload archives (<c>.msixupload</c>) or resource-split bundles
+        /// (language/scale resource packages) — or <c>null</c> when the properties are in scope. Project
+        /// mode delivers a single <c>.msix</c> or an architecture-only <c>.msixbundle</c>; failing here
+        /// stops it from producing an architecture-only package that looks like the requested Store or
+        /// resource-split artifact (spec §2, §9.4, §12).
+        /// </summary>
+        private static string? DetectUnsupportedScopeRequest(IReadOnlyList<string> properties)
+        {
+            foreach (var property in properties)
+            {
+                var separator = property.IndexOf('=');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+
+                var name = property[..separator].Trim();
+                var value = property[(separator + 1)..].Trim();
+
+                // UapAppxPackageBuildMode selects the Store-upload output. StoreUpload/CI/StoreAndSideload all
+                // emit a .msixupload archive, which project mode does not produce.
+                if (name.Equals("UapAppxPackageBuildMode", StringComparison.OrdinalIgnoreCase) &&
+                    (value.Equals("StoreUpload", StringComparison.OrdinalIgnoreCase) ||
+                     value.Equals("CI", StringComparison.OrdinalIgnoreCase) ||
+                     value.Equals("StoreAndSideload", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return $"Store-upload packaging (-p UapAppxPackageBuildMode={value}) is not supported by " +
+                           "project mode, which produces a .msix or an architecture-only .msixbundle. Run the " +
+                           "native SDK packaging command directly (for example 'dotnet publish' / 'msbuild' " +
+                           "with the Windows SDK MSIX targets) to produce a .msixupload archive.";
+                }
+
+                // Customizing the auto resource-package qualifiers requests language/scale resource-package
+                // splitting; project-mode bundles are architecture-only.
+                if (name.Equals("AppxBundleAutoResourcePackageQualifiers", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Resource-split bundling (-p AppxBundleAutoResourcePackageQualifiers) is not " +
+                           "supported by project mode, which builds architecture-only .msixbundle artifacts. " +
+                           "Run the native SDK packaging command directly to split languages/scales into " +
+                           "resource packages.";
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Project mode: build the resolved <c>.csproj</c> using the same infrastructure as
         /// <c>winapp run</c>, then package its build output (<c>TargetDir</c>) through the existing
         /// MSIX pipeline. Folder/bundle/sparse inputs never reach here.
@@ -143,6 +191,15 @@ internal partial class PackageCommand
             if (archInputs.Length > 0 && properties.Any(p => p.StartsWith("RuntimeIdentifier=", StringComparison.OrdinalIgnoreCase)))
             {
                 return Fail("--arch conflicts with an explicit -p RuntimeIdentifier. Use --arch alone to select the architecture, or pass -p RuntimeIdentifier alone for an exact-RID override.");
+            }
+
+            // Project mode produces .msix or architecture-only .msixbundle artifacts. It does not expose the
+            // SDK's Store-upload (.msixupload) or resource-split (language/scale resource packages) flows.
+            // Fail an explicit request for one of these rather than quietly producing an architecture-only
+            // package that looks equivalent (spec §2, §9.4, §12).
+            if (DetectUnsupportedScopeRequest(properties) is { } scopeError)
+            {
+                return Fail(scopeError);
             }
 
             // Single-package mode targets one architecture; the bundle path drives each slice's own.

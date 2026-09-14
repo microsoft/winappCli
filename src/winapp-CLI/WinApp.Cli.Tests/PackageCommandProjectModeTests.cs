@@ -238,6 +238,34 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_RejectsStoreUploadRequest()
+    {
+        // Store-upload (.msixupload) is out of project-mode scope; it must fail rather than produce a .msix.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "UapAppxPackageBuildMode=StoreUpload"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A Store-upload request must be rejected before packaging");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_RejectsResourceSplitRequest()
+    {
+        // Resource-split bundling is out of project-mode scope; an architecture-only bundle is not equivalent.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "AppxBundleAutoResourcePackageQualifiers=Language"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "A resource-split request must be rejected before packaging");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
     public async Task ProjectMode_NoSignWithCert_Conflicts()
     {
         var csproj = CreateCsproj();
