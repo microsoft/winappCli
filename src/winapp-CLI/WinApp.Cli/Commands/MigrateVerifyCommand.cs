@@ -3,8 +3,6 @@
 
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using System.Text.Json;
-using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Commands;
@@ -40,22 +38,16 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 return 1;
             }
 
-            MigrationReport? report;
+            MigrationReport report;
             try
             {
-                report = JsonSerializer.Deserialize(
-                    await File.ReadAllTextAsync(reportPath, cancellationToken),
-                    MigrateJsonContext.Default.MigrationReport);
+                report = await MigrationReportStore.LoadAsync(
+                    reportPath,
+                    cancellationToken);
             }
-            catch (JsonException exception)
+            catch (InvalidDataException exception)
             {
-                Console.Out.WriteLine($"[ERROR] migration-report.json is invalid: {exception.Message}");
-                return 1;
-            }
-
-            if (report is null)
-            {
-                Console.Out.WriteLine("[ERROR] migration-report.json did not contain a migration report.");
+                Console.Out.WriteLine($"[ERROR] {exception.Message}");
                 return 1;
             }
 
@@ -78,6 +70,10 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 return 1;
             }
 
+            report.ActivationAnalysis = MigrateCommand.Handler.AnalyzeActivationContracts(
+                sourceRoot,
+                targetRoot,
+                applyChanges: false).Analysis;
             report.MechanicalVerification = MigrateCommand.Handler.VerifyExistingMigration(
                 sourceRoot,
                 sourceProject,
@@ -88,9 +84,9 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 ? "mechanical-migration-complete"
                 : "mechanical-verification-failed";
             report.Summary.TodoCategories = report.Todos.Count;
-            await File.WriteAllTextAsync(
+            await MigrationReportStore.WriteAtomicAsync(
                 reportPath,
-                JsonSerializer.Serialize(report, MigrateJsonContext.Default.MigrationReport),
+                report,
                 cancellationToken);
 
             var verification = report.MechanicalVerification;
@@ -102,6 +98,11 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 $"Legacy namespace residuals: {verification.LegacyNamespaceResiduals.Count}; " +
                 $"project items: {verification.ProjectItems.MigratedItems}/{verification.ProjectItems.SourceItems}; " +
                 $"unclassified source files: {verification.Inventory.UnclassifiedFiles.Count}.");
+            Console.Out.WriteLine(
+                $"Activation contracts: {verification.ActivationContracts.VerifiedContracts}/" +
+                $"{verification.ActivationContracts.MigratedContracts} verified; " +
+                $"{verification.ActivationContracts.ReviewRequiredContracts} review-required; " +
+                $"{verification.ActivationContracts.Issues} issue(s).");
             return verification.Status == "passed" ? 0 : 1;
         }
     }

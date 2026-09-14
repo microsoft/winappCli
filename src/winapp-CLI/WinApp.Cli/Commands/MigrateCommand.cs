@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
@@ -274,6 +273,21 @@ internal partial class MigrateCommand : Command, IShortDescription
                 $"{report.DependencyAnalysis.ProjectReferences.Count} project reference(s) across " +
                 $"{report.DependencyAnalysis.Projects.Count} source project(s); " +
                 $"{report.DependencyAnalysis.Issues.Count} inspection issue(s)");
+            var activationResult = AnalyzeActivationContracts(
+                sourceRoot,
+                targetRoot,
+                applyChanges: true);
+            report.ActivationAnalysis = activationResult.Analysis;
+            report.Transforms.Add(new MigrationTransform
+            {
+                Id = "UWMIG-ACTIVATION-MANIFEST",
+                Summary = "Migrated deterministic protocol and file association declarations",
+                ChangedFiles = activationResult.ChangedFiles
+            });
+            Console.Out.WriteLine(
+                $"    Activation contracts: {report.ActivationAnalysis.Contracts.Count}; " +
+                $"status: {report.ActivationAnalysis.Status}; " +
+                $"issues: {report.ActivationAnalysis.Issues.Count}");
 
             var copied = new List<string>();
             var preservedStartup = new List<string>();
@@ -418,9 +432,9 @@ internal partial class MigrateCommand : Command, IShortDescription
             report.Summary.TransformOperations = report.Transforms.Sum(transform => transform.ChangedFiles);
             report.Summary.TodoCategories = report.Todos.Count;
             var reportPath = Path.Combine(targetRoot, "migration-report.json");
-            await File.WriteAllTextAsync(
+            await MigrationReportStore.WriteAtomicAsync(
                 reportPath,
-                JsonSerializer.Serialize(report, MigrateJsonContext.Default.MigrationReport),
+                report,
                 cancellationToken);
 
             Console.Out.WriteLine();
@@ -499,7 +513,6 @@ internal partial class MigrateCommand : Command, IShortDescription
                 File.Copy(sourcePath, destination, overwrite: true);
             }
 
-            var extensions = new List<string>();
             var manifests = new List<string>();
             foreach (var mf in Directory.EnumerateFiles(sourceRoot, "*.appxmanifest", SearchOption.TopDirectoryOnly))
             {
@@ -508,30 +521,31 @@ internal partial class MigrateCommand : Command, IShortDescription
                 File.Copy(mf, dst, overwrite: true);
                 manifests.Add(dst);
                 Console.Out.WriteLine($"    Preserved {Path.GetFileName(mf)} as .uwp-source/{Path.GetFileName(mf)}.reference (do not overwrite the scaffold manifest)");
-
-                var content = File.ReadAllText(mf);
-                foreach (Match m in ManifestExtension().Matches(content))
-                {
-                    extensions.Add(m.Groups[1].Value);
-                }
             }
-            if (extensions.Count > 0)
+            var activationCategories = report.ActivationAnalysis.Contracts
+                .Select(contract => contract.Category)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (activationCategories.Count > 0)
             {
-                Console.Out.WriteLine($"    WARNING: UWP manifest declares {extensions.Count} Extension(s): {string.Join(", ", extensions)}");
-                Console.Out.WriteLine("      Do NOT copy them verbatim — most UWP manifest extensions have no WinUI 3 desktop equivalent and must be re-implemented or dropped.");
+                Console.Out.WriteLine(
+                    $"    Activation declarations: {string.Join(", ", activationCategories)}; " +
+                    $"mechanical status: {report.ActivationAnalysis.Status}");
             }
             if (manifests.Count > 0)
             {
-                var extensionText = extensions.Count == 0
+                var extensionText = activationCategories.Count == 0
                     ? ""
-                    : $" Detected extension categories: {string.Join(", ", extensions.Distinct(StringComparer.OrdinalIgnoreCase))}.";
+                    : $" Activation categories: {string.Join(", ", activationCategories)}. " +
+                      $"Mechanical declaration status: {report.ActivationAnalysis.Status}.";
                 report.Todos.Add(new MigrationTodo
                 {
                     Id = "UWMIG002",
                     Category = "manifest",
                     Priority = "required",
                     Summary = "Review UWP manifest capabilities and extensions for WinUI 3 desktop",
-                    Reason = "The original manifest was preserved for reference rather than copied over the WinUI package manifest." + extensionText,
+                    Reason = "Safe activation declarations may be migrated mechanically, but application lifecycle routing and runtime activation behavior still require semantic implementation and validation." + extensionText,
                     Locations = manifests.Select(path => new MigrationLocation
                     {
                         Path = NormalizePath(Path.GetRelativePath(targetRoot, path))
@@ -646,9 +660,6 @@ internal partial class MigrateCommand : Command, IShortDescription
     }
 
     // ───────────────────────── source-gen regexes ──────────────────────────────
-    [GeneratedRegex("(?i)<(?:uap\\d?:)?Extension\\s+Category=\"([^\"]+)\"")]
-    private static partial Regex ManifestExtension();
-
     [GeneratedRegex(@"(?m)^(?<indent>\s*)<RuntimeIdentifier\s+Condition=""'\$\(RuntimeIdentifier\)'\s*==\s*''"">win-\$\(\[System\.Runtime\.InteropServices\.RuntimeInformation\][^<]+</RuntimeIdentifier>\s*$")]
     private static partial Regex HostArchRuntimeIdentifier();
 

@@ -356,10 +356,13 @@ internal partial class MigrateCommand
 
             var (residuals, uninspectedFiles) = FindLegacyNamespaceResiduals(targetRoot);
             RefreshMechanicalTodos(report, residuals, projectItems);
+            var activationContracts = CreateActivationVerification(
+                report.ActivationAnalysis);
 
             var failed = residuals.Count > 0
                 || unclassified.Count > 0
-                || projectItems.MissingTargetItems.Count > 0;
+                || projectItems.MissingTargetItems.Count > 0
+                || HasActivationMechanicalFailure(report.ActivationAnalysis);
             return new MigrationMechanicalVerification
             {
                 Status = failed ? "failed" : "passed",
@@ -381,7 +384,8 @@ internal partial class MigrateCommand
                     AccountedItems = projectItems.AccountedItems,
                     UnresolvedItems = projectItems.UnresolvedItems,
                     MissingTargetItems = projectItems.MissingTargetItems
-                }
+                },
+                ActivationContracts = activationContracts
             };
         }
 
@@ -400,10 +404,13 @@ internal partial class MigrateCommand
                 applyChanges: false);
             var (residuals, uninspectedFiles) = FindLegacyNamespaceResiduals(targetRoot);
             RefreshMechanicalTodos(report, residuals, projectItems);
+            var activationContracts = CreateActivationVerification(
+                report.ActivationAnalysis);
 
             var failed = residuals.Count > 0
                 || report.MechanicalVerification.Inventory.UnclassifiedFiles.Count > 0
-                || projectItems.MissingTargetItems.Count > 0;
+                || projectItems.MissingTargetItems.Count > 0
+                || HasActivationMechanicalFailure(report.ActivationAnalysis);
             return new MigrationMechanicalVerification
             {
                 Status = failed ? "failed" : "passed",
@@ -417,7 +424,8 @@ internal partial class MigrateCommand
                     AccountedItems = projectItems.AccountedItems,
                     UnresolvedItems = projectItems.UnresolvedItems,
                     MissingTargetItems = projectItems.MissingTargetItems
-                }
+                },
+                ActivationContracts = activationContracts
             };
         }
 

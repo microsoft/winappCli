@@ -7,8 +7,10 @@ namespace WinApp.Cli.Models;
 
 internal sealed class MigrationReport
 {
+    internal const string CurrentSchemaVersion = "1.3";
+
     [JsonPropertyName("schemaVersion")]
-    public string SchemaVersion { get; set; } = "1.2";
+    public string SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = "mechanical-migration-complete";
@@ -31,11 +33,128 @@ internal sealed class MigrationReport
     [JsonPropertyName("dependencyAnalysis")]
     public MigrationDependencyAnalysis DependencyAnalysis { get; set; } = new();
 
+    [JsonPropertyName("activationAnalysis")]
+    public MigrationActivationAnalysis ActivationAnalysis { get; set; } = new();
+
     [JsonPropertyName("mechanicalVerification")]
     public MigrationMechanicalVerification MechanicalVerification { get; set; } = new();
 
     [JsonPropertyName("validation")]
     public MigrationValidation Validation { get; set; } = new();
+}
+
+internal sealed class MigrationActivationAnalysis
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "not-run";
+
+    [JsonPropertyName("sourceManifest")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceManifest { get; set; }
+
+    [JsonPropertyName("targetManifest")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetManifest { get; set; }
+
+    [JsonPropertyName("contracts")]
+    public List<MigrationActivationContract> Contracts { get; set; } = [];
+
+    [JsonPropertyName("issues")]
+    public List<MigrationActivationIssue> Issues { get; set; } = [];
+}
+
+internal sealed class MigrationActivationContract
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("category")]
+    public required string Category { get; set; }
+
+    [JsonPropertyName("sourceLocation")]
+    public required MigrationLocation SourceLocation { get; set; }
+
+    [JsonPropertyName("sourceSchema")]
+    public required string SourceSchema { get; set; }
+
+    [JsonPropertyName("protocolName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProtocolName { get; set; }
+
+    [JsonPropertyName("associationName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AssociationName { get; set; }
+
+    [JsonPropertyName("supportedFileTypes")]
+    public List<MigrationActivationFileType> SupportedFileTypes { get; set; } = [];
+
+    [JsonPropertyName("displayName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; set; }
+
+    [JsonPropertyName("logo")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Logo { get; set; }
+
+    [JsonPropertyName("desiredView")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DesiredView { get; set; }
+
+    [JsonPropertyName("returnResults")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReturnResults { get; set; }
+
+    [JsonPropertyName("multiSelectModel")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MultiSelectModel { get; set; }
+
+    [JsonPropertyName("migrationStatus")]
+    public string MigrationStatus { get; set; } = "review-required";
+
+    [JsonPropertyName("targetSchema")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetSchema { get; set; }
+
+    [JsonPropertyName("targetLocation")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MigrationLocation? TargetLocation { get; set; }
+
+    [JsonPropertyName("verificationStatus")]
+    public string VerificationStatus { get; set; } = "not-run";
+
+    [JsonPropertyName("verificationReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? VerificationReason { get; set; }
+}
+
+internal sealed class MigrationActivationFileType
+{
+    [JsonPropertyName("extension")]
+    public required string Extension { get; set; }
+
+    [JsonPropertyName("contentType")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContentType { get; set; }
+}
+
+internal sealed class MigrationActivationIssue
+{
+    [JsonPropertyName("kind")]
+    public required string Kind { get; set; }
+
+    [JsonPropertyName("reason")]
+    public required string Reason { get; set; }
+
+    [JsonPropertyName("severity")]
+    public string Severity { get; set; } = "review-required";
+
+    [JsonPropertyName("location")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MigrationLocation? Location { get; set; }
+
+    [JsonPropertyName("contractId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContractId { get; set; }
 }
 
 internal sealed class MigrationDependencyAnalysis
@@ -162,6 +281,33 @@ internal sealed class MigrationMechanicalVerification
 
     [JsonPropertyName("projectItems")]
     public MigrationProjectItemVerification ProjectItems { get; set; } = new();
+
+    [JsonPropertyName("activationContracts")]
+    public MigrationActivationVerification ActivationContracts { get; set; } = new();
+}
+
+internal sealed class MigrationActivationVerification
+{
+    [JsonPropertyName("sourceContracts")]
+    public int SourceContracts { get; set; }
+
+    [JsonPropertyName("migratedContracts")]
+    public int MigratedContracts { get; set; }
+
+    [JsonPropertyName("verifiedContracts")]
+    public int VerifiedContracts { get; set; }
+
+    [JsonPropertyName("reviewRequiredContracts")]
+    public int ReviewRequiredContracts { get; set; }
+
+    [JsonPropertyName("missingContracts")]
+    public int MissingContracts { get; set; }
+
+    [JsonPropertyName("driftedContracts")]
+    public int DriftedContracts { get; set; }
+
+    [JsonPropertyName("issues")]
+    public int Issues { get; set; }
 }
 
 internal sealed class MigrationFileInventory
