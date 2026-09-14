@@ -751,6 +751,14 @@ internal partial class MigrateCommand
             }
 
             var document = graph.Documents[relativeProjectFile];
+            if (document.Descendants().Any(element =>
+                IsProjectElement(element, "UseWinUI")
+                && !IsEvaluationProperty(element)))
+            {
+                reason =
+                    $"UseWinUI in '{relativeProjectFile}' appears in an unsupported evaluation construct and cannot be ordered deterministically.";
+                return false;
+            }
             foreach (var child in document.Root!.Elements())
             {
                 if (IsProjectElement(child, "PropertyGroup"))

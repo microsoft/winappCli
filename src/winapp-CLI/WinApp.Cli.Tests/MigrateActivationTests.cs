@@ -540,6 +540,63 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Migrate_ValidAndVendorSiblingDeclarationsRemainReviewRequired()
+    {
+        var source = await CreateSourceAsync(
+            "SiblingDeclarationNamespaceApp",
+            """
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+                     xmlns:vendor="urn:vendor">
+              <Applications>
+                <Application Id="App">
+                  <Extensions>
+                    <uap:Extension Category="windows.protocol">
+                      <uap3:Protocol Name="valid-protocol" />
+                      <vendor:Protocol Name="vendor-protocol" />
+                    </uap:Extension>
+                    <uap:Extension Category="windows.fileTypeAssociation">
+                      <uap3:FileTypeAssociation Name="valid-files">
+                        <uap:SupportedFileTypes>
+                          <uap:FileType>.valid</uap:FileType>
+                        </uap:SupportedFileTypes>
+                      </uap3:FileTypeAssociation>
+                      <vendor:FileTypeAssociation Name="vendor-files" />
+                    </uap:Extension>
+                  </Extensions>
+                </Application>
+              </Applications>
+            </Package>
+            """);
+        var target = NewTarget("sibling-declaration-namespace-output");
+        ArrangeTemplateCreation(target, "SiblingDeclarationNamespaceAppApp");
+
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = await ReadReportAsync(target);
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.AreEqual("review-required", activation.GetProperty("status").GetString());
+        Assert.IsTrue(activation.GetProperty("contracts").EnumerateArray().All(contract =>
+            contract.GetProperty("migrationStatus").GetString() == "review-required"));
+        var issueKinds = activation.GetProperty("issues")
+            .EnumerateArray()
+            .Select(issue => issue.GetProperty("kind").GetString())
+            .ToList();
+        Assert.IsTrue(issueKinds.Contains(
+            "protocol-extension-child-review-required"));
+        Assert.IsTrue(issueKinds.Contains(
+            "file-association-extension-child-review-required"));
+        var targetManifest = XDocument.Load(
+            Path.Combine(target.FullName, "Package.appxmanifest"));
+        Assert.IsFalse(targetManifest.Descendants().Any(element =>
+            element.Name.NamespaceName ==
+            "http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+            && element.Name.LocalName == "Extension"));
+    }
+
+    [TestMethod]
     public async Task Verify_WrongNamespaceTargetFactsAreNeverVerified()
     {
         var source = await CreateSourceAsync(

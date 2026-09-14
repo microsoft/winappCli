@@ -71,7 +71,7 @@ internal static class MigrationPathResolver
             return false;
         }
 
-        var normalizedInput = value.Trim()
+        var normalizedInput = value
             .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
         var segments = normalizedInput.Split(
             Path.DirectorySeparatorChar,

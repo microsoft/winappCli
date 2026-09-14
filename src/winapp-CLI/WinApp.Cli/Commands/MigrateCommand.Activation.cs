@@ -477,6 +477,13 @@ internal partial class MigrateCommand
                 location,
                 issues,
                 "protocol-extension-attribute-review-required");
+            ValidateSafeChildren(
+                extension,
+                sourceSchema.Protocols,
+                contract,
+                location,
+                issues,
+                "protocol-extension-child-review-required");
             ValidateSafeAttributes(
                 protocol,
                 SafeProtocolAttributes,
@@ -572,6 +579,13 @@ internal partial class MigrateCommand
                 location,
                 issues,
                 "file-association-extension-attribute-review-required");
+            ValidateSafeChildren(
+                extension,
+                sourceSchema.FileTypeAssociations,
+                contract,
+                location,
+                issues,
+                "file-association-extension-child-review-required");
             ValidateSafeAttributes(
                 association,
                 SafeFileAssociationAttributes,

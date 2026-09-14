@@ -849,6 +849,60 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task DecideProjectItem_UseWinUIInChooseFailsClosed()
+    {
+        var (_, target) = await CreateDecisionMigrationAsync(
+            "ChooseUseWinUiApp",
+            includeConditionalItem: false);
+        await RemoveUseWinUiFromTargetProjectAsync(target);
+        await WriteAsync(
+            target,
+            "Directory.Build.props",
+            """
+            <Project>
+              <PropertyGroup>
+                <UseWinUI>true</UseWinUI>
+              </PropertyGroup>
+            </Project>
+            """);
+        await AppendTargetProjectXmlAsync(
+            target,
+            """
+              <Choose>
+                <When Condition="true">
+                  <PropertyGroup>
+                    <UseWinUI>false</UseWinUI>
+                  </PropertyGroup>
+                </When>
+              </Choose>
+            """);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <PRIResource Update="Resources\en-us\Resources.resw">
+                  <SubType>Designer</SubType>
+                </PRIResource>
+              </ItemGroup>
+            </Project>
+            """);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Choose-based assignments are not silently ignored.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "unsupported evaluation construct");
+    }
+
+    [TestMethod]
     public async Task DecideProjectItem_NormalizesDotSegmentsInPaths()
     {
         var (source, target) = await CreateDecisionMigrationAsync(
@@ -877,6 +931,36 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         Assert.AreEqual(
             "Directory.Build.targets",
             decision.GetProperty("evidenceFiles")[0].GetString());
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_RejectsTrailingSpacePathAliases()
+    {
+        var (source, target) = await CreateDecisionMigrationAsync(
+            "TrailingSpaceEvidenceApp",
+            includeConditionalItem: false);
+        await AddTargetEvidenceAsync(source, target);
+        var items = await ReadReviewItemsAsync(target);
+
+        var trailingTarget = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", "Resources\\en-us\\Resources.resw ",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "A trailing-space target path must not be normalized.");
+        var trailingEvidence = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"Resources\en-us\Resources.resw"),
+            "--strategy", "sdk-default-item",
+            "--target-path", @"Resources\en-us\Resources.resw",
+            "--evidence-file", "Directory.Build.targets ",
+            "--rationale", "A trailing-space evidence path must not be normalized.");
+
+        Assert.AreEqual(1, trailingTarget.ExitCode, trailingTarget.Output);
+        StringAssert.Contains(trailingTarget.Output, "trailing-dot/space");
+        Assert.AreEqual(1, trailingEvidence.ExitCode, trailingEvidence.Output);
+        StringAssert.Contains(trailingEvidence.Output, "trailing-dot/space");
     }
 
     [TestMethod]
@@ -1233,6 +1317,7 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
             (Section: "source", Value: @"nested/..\..\Outside.csproj"),
             (Section: "source", Value: @"...\Outside.csproj"),
             (Section: "target", Value: Path.Combine(target.FullName, originalTargetProject)),
+            (Section: "target", Value: $"{originalTargetProject} "),
             (Section: "target", Value: $@"..\{outside.Name}\Outside.csproj")
         })
         {
