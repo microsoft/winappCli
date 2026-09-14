@@ -367,11 +367,71 @@ internal partial class MigrateCommand
             bool applyChanges,
             MigrationActivationAnalysis analysis)
         {
-            var targetManifests = Directory.Exists(targetRoot)
-                ? Directory.EnumerateFiles(targetRoot, "*.appxmanifest", SearchOption.TopDirectoryOnly)
-                    .Order(StringComparer.OrdinalIgnoreCase)
-                    .ToList()
-                : [];
+            List<string> discoveredTargetManifests;
+            try
+            {
+                discoveredTargetManifests = Directory.Exists(targetRoot)
+                    ? Directory.EnumerateFiles(
+                            targetRoot,
+                            "*.appxmanifest",
+                            SearchOption.TopDirectoryOnly)
+                        .ToList()
+                    : [];
+            }
+            catch (Exception exception) when (
+                exception is IOException
+                or UnauthorizedAccessException)
+            {
+                analysis.Status = "failed";
+                analysis.Issues.Add(new MigrationActivationIssue
+                {
+                    Kind = "target-manifest-discovery-failed",
+                    Severity = "error",
+                    Reason =
+                        $"The target manifest directory could not be inspected safely: {exception.Message}"
+                });
+                MarkEligibleContractsMissing(
+                    analysis,
+                    "The target manifest directory could not be inspected safely.");
+                return new ActivationMigrationResult(analysis, 0);
+            }
+
+            var targetManifests = new List<string>();
+            foreach (var discoveredManifest in discoveredTargetManifests)
+            {
+                var discoveredRelativePath = Path.GetRelativePath(
+                    targetRoot,
+                    discoveredManifest);
+                if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                        targetRoot,
+                        discoveredRelativePath,
+                        out var resolvedManifest,
+                        out _,
+                        out var pathError))
+                {
+                    analysis.Status = "failed";
+                    analysis.Issues.Add(new MigrationActivationIssue
+                    {
+                        Kind = "target-manifest-path-unsafe",
+                        Severity = "error",
+                        Reason =
+                            $"Target manifest '{NormalizePath(discoveredRelativePath)}' is not a safe contained file: {pathError}",
+                        Location = new MigrationLocation
+                        {
+                            Path = NormalizePath(discoveredRelativePath)
+                        }
+                    });
+                    MarkEligibleContractsMissing(
+                        analysis,
+                        "The discovered target manifest path is unsafe.");
+                    return new ActivationMigrationResult(analysis, 0);
+                }
+                targetManifests.Add(resolvedManifest);
+            }
+            targetManifests = targetManifests
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             if (targetManifests.Count != 1)
             {
                 analysis.Status = "failed";

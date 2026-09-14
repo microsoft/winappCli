@@ -1071,6 +1071,143 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Verify_TargetManifestFileSymlinkIsNotTrustedOrModified()
+    {
+        var source = await CreateSourceAsync(
+            "SymlinkTargetManifestApp",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.protocol">
+                  <uap:Protocol Name="symlink-target-protocol" />
+                </uap:Extension>
+                """));
+        var target = NewTarget("symlink-target-manifest-output");
+        ArrangeTemplateCreation(target, "SymlinkTargetManifestAppApp");
+        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, migrateExit, migrateOutput);
+
+        var targetManifestPath = Path.Combine(
+            target.FullName,
+            "Package.appxmanifest");
+        var external = _tempDirectory.CreateSubdirectory(
+            "external-target-manifest");
+        var externalManifestPath = Path.Combine(
+            external.FullName,
+            "External.appxmanifest");
+        var externalManifest = TargetManifest;
+        await File.WriteAllTextAsync(
+            externalManifestPath,
+            externalManifest,
+            TestContext.CancellationToken);
+        File.Delete(targetManifestPath);
+        try
+        {
+            File.CreateSymbolicLink(
+                targetManifestPath,
+                externalManifestPath);
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException
+            or IOException
+            or PlatformNotSupportedException)
+        {
+            Assert.Inconclusive(
+                $"The host cannot create a file symbolic link: {exception.Message}");
+            return;
+        }
+
+        var directAnalysis =
+            MigrateCommand.Handler.AnalyzeActivationContracts(
+                source.FullName,
+                target.FullName,
+                applyChanges: true);
+        var (verifyExit, verifyOutput) = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual("failed", directAnalysis.Analysis.Status);
+        Assert.AreEqual(0, directAnalysis.ChangedFiles);
+        Assert.IsTrue(directAnalysis.Analysis.Issues.Any(issue =>
+            issue.Kind == "target-manifest-path-unsafe"));
+        Assert.AreEqual(1, verifyExit, verifyOutput);
+        Assert.AreEqual(
+            externalManifest,
+            await File.ReadAllTextAsync(
+                externalManifestPath,
+                TestContext.CancellationToken));
+        using var report = await ReadReportAsync(target);
+        Assert.AreEqual(
+            "failed",
+            report.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("status")
+                .GetString());
+        var activation = report.RootElement.GetProperty("activationAnalysis");
+        Assert.IsTrue(activation.GetProperty("issues").EnumerateArray().Any(issue =>
+            issue.GetProperty("kind").GetString() ==
+            "target-manifest-path-unsafe"));
+        Assert.IsFalse(activation.GetProperty("contracts").EnumerateArray().Any(contract =>
+            contract.GetProperty("verificationStatus").GetString() == "verified"));
+    }
+
+    [TestMethod]
+    public async Task AnalyzeActivation_TargetJunctionRootIsRejected()
+    {
+        var source = await CreateSourceAsync(
+            "JunctionTargetManifestApp",
+            SourceManifest(
+                """
+                <uap:Extension Category="windows.protocol">
+                  <uap:Protocol Name="junction-target-protocol" />
+                </uap:Extension>
+                """));
+        var physicalTarget = _tempDirectory.CreateSubdirectory(
+            "physical-junction-target");
+        var physicalManifestPath = Path.Combine(
+            physicalTarget.FullName,
+            "Package.appxmanifest");
+        await File.WriteAllTextAsync(
+            physicalManifestPath,
+            TargetManifest,
+            TestContext.CancellationToken);
+        var junctionPath = Path.Combine(
+            _tempDirectory.FullName,
+            "junction-target-manifest");
+        if (!TryCreateJunction(
+                junctionPath,
+                physicalTarget.FullName))
+        {
+            Assert.Inconclusive(
+                "The host cannot create a Windows directory junction.");
+            return;
+        }
+
+        try
+        {
+            var before = await File.ReadAllTextAsync(
+                physicalManifestPath,
+                TestContext.CancellationToken);
+
+            var result = MigrateCommand.Handler.AnalyzeActivationContracts(
+                source.FullName,
+                junctionPath,
+                applyChanges: true);
+
+            Assert.AreEqual("failed", result.Analysis.Status);
+            Assert.AreEqual(0, result.ChangedFiles);
+            Assert.IsTrue(result.Analysis.Issues.Any(issue =>
+                issue.Kind == "target-manifest-path-unsafe"));
+            Assert.AreEqual(
+                before,
+                await File.ReadAllTextAsync(
+                    physicalManifestPath,
+                    TestContext.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(junctionPath);
+        }
+    }
+
+    [TestMethod]
     public async Task MigrateAndVerify_CsprojOnlySourceKeepsActivationUnavailable()
     {
         var source = _tempDirectory.CreateSubdirectory("CsprojOnlyActivationApp");
@@ -1199,6 +1336,37 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
         var outputIndex = tokens.ToList().IndexOf("--output");
         Assert.IsTrue(outputIndex >= 0 && outputIndex + 1 < tokens.Count);
         return new DirectoryInfo(tokens[outputIndex + 1]);
+    }
+
+    private static bool TryCreateJunction(
+        string link,
+        string target)
+    {
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c mklink /J \"{link}\" \"{target}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var process =
+                System.Diagnostics.Process.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
+            process.WaitForExit(5000);
+            return process.ExitCode == 0
+                && Directory.Exists(link);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string SourceManifest(string extensions) =>
