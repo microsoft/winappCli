@@ -9,6 +9,7 @@ using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.Performance;
 
 namespace WinApp.Cli.Commands;
 
@@ -46,6 +47,7 @@ internal partial class RunCommand
             FileInfo singleFile,
             string? appArgs,
             bool isJson,
+            IRunLaunchObserver? launchObserver,
             CancellationToken cancellationToken)
         {
             var configuration = parseResult.GetValue(ConfigurationOption) ?? "Debug";
@@ -155,7 +157,7 @@ internal partial class RunCommand
                     unpackaged, singleFile, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols,
                     executable, manifest, outputAppXDirectory, isJson,
-                    cancellationToken);
+                    launchObserver, cancellationToken);
             }
 
             // Resolve the effective executable ONCE, before the manifest is generated. Generation writes a
@@ -240,7 +242,8 @@ internal partial class RunCommand
                         manifest,
                         outputAppXDirectory,
                         effectiveLayout)),
-                packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier));
+                packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                launchObserver: launchObserver);
         }
 
         /// <summary>
@@ -723,4 +726,3 @@ internal partial class RunCommand
         }
     }
 }
-

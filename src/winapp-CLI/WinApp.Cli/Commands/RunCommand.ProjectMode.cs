@@ -9,6 +9,7 @@ using System.Text;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.Performance;
 
 namespace WinApp.Cli.Commands;
 
@@ -115,6 +116,7 @@ internal partial class RunCommand
             string? selectionReason,
             string? appArgs,
             bool isJson,
+            IRunLaunchObserver? launchObserver,
             CancellationToken cancellationToken)
         {
             // Project-mode build inputs.
@@ -231,11 +233,11 @@ internal partial class RunCommand
                 ? await RunPackagedProjectAsync(
                     resolution, csproj, manifest, outputAppXDirectory, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
-                    cancellationToken)
+                    launchObserver, cancellationToken)
                 : await RunUnpackagedProjectAsync(
                     resolution, csproj, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, manifest, outputAppXDirectory, isJson,
-                    cancellationToken);
+                    launchObserver, cancellationToken);
         }
 
         /// <summary>
@@ -260,6 +262,7 @@ internal partial class RunCommand
             string? executable,
             bool noBuild,
             bool isJson,
+            IRunLaunchObserver? launchObserver,
             CancellationToken cancellationToken)
         {
             var targetDir = new DirectoryInfo(resolution.TargetDir);
@@ -290,7 +293,8 @@ internal partial class RunCommand
                 targetDir, manifest, outputAppXDirectory, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
-                aliasDecision, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier));
+                aliasDecision, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                launchObserver: launchObserver);
         }
 
         /// <summary>
@@ -314,6 +318,7 @@ internal partial class RunCommand
             FileInfo? manifest,
             DirectoryInfo? outputAppXDirectory,
             bool isJson,
+            IRunLaunchObserver? launchObserver,
             CancellationToken cancellationToken)
         {
             // AUTHORITATIVE gate — rejects packaged-only options once packaging is definitively known.
@@ -396,7 +401,12 @@ internal partial class RunCommand
                 // would keep the npm wrapper's captured stdout pipe open (blocking a detached launch) and let
                 // app output corrupt --json stdout. A foreground, non-JSON run streams inline like `dotnet run`.
                 var stdioMode = (detach || isJson) ? LaunchStdioMode.Suppress : LaunchStdioMode.Inherit;
+                if (launchObserver is not null)
+                {
+                    await launchObserver.BeforeLaunchAsync(packageFamilyName: null, cancellationToken);
+                }
                 launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode);
+                launchObserver?.AfterLaunch(launched.ProcessId);
             }
             catch (Exception ex)
             {
@@ -424,7 +434,11 @@ internal partial class RunCommand
                 // --detach: return immediately, surfacing the PID for automation.
                 if (detach)
                 {
-                    if (isJson)
+                    if (launchObserver is not null)
+                    {
+                        // The observing command owns the final result and output contract.
+                    }
+                    else if (isJson)
                     {
                         PrintJson(aumid: null, processId, errorMessage: null);
                     }

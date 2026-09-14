@@ -1157,6 +1157,68 @@ is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `W
 
 ---
 
+### perf record
+
+Launch an app and record generation-safe startup evidence:
+
+```powershell
+winapp perf record .\src\MyApp\MyApp.csproj --duration-sec 10
+```
+
+`perf record` uses the same project, solution, .NET file-based app, and build-output-directory
+resolution as [`winapp run`](#run). It builds in `Release` by default, starts observation immediately
+before activation, and writes a `.winappperf` directory containing:
+
+- `timeline.ndjson` — append-only startup events for activation, observed process generations,
+  top-level windows, first visibility, first successful response, response failures/recovery, and
+  raw process exits.
+- `manifest.json` — completion status, stop reason, monotonic-clock calibration, startup
+  disposition, activation PID, and event count.
+
+```powershell
+# Record the current project until Enter, Ctrl+C, redirected input completion, or target exit
+winapp perf record .
+
+# Record an existing build without rebuilding it
+winapp perf record .\bin\x64\Release --no-build --duration-sec 15
+
+# Choose the evidence directory; it must not already exist
+winapp perf record . --output .\startup.winappperf --duration-sec 10
+
+# From an elevated terminal, retain module/loader and storage evidence for WPA
+winapp perf record . --with-wpr --duration-sec 10
+```
+
+A `completed` result means an owned visible top-level window was observed. `attached-late` means
+activation reached a process that was already running, as can happen with a single-instance app.
+`partial` means the recording retained valid evidence but did not observe a visible window before it
+stopped. Process exit codes are recorded as raw evidence and are not labeled as crashes.
+
+Response probes use a bounded `SendMessageTimeout(WM_NULL)` call against each visible owned
+top-level window. The manifest records the 250 ms requested cadence and 100 ms per-window timeout.
+A failed probe means the window did not service this probe within the timeout; it is not an exact
+Windows "hung" boundary or a source-level diagnosis.
+
+`--with-wpr` requires an elevated terminal, an explicit `--duration-sec` from 1 through 300, and at
+least 1 GiB free on the output volume. It starts a uniquely named
+`FileIO.Verbose` WPR session immediately before activation and soft-stops that same owned session
+when recording ends. A successful collection adds `traces/system.etl`, containing Loader,
+ProcessThread, File I/O, Disk I/O, hard-fault, and related stack evidence for analysis in Windows
+Performance Analyzer (WPA). Use WPA to inspect module first-load timestamps and order; winapp does
+not invent a single "DLL load duration" from evidence whose cost can span image reads, page faults,
+loader work, initialization, and JIT. If WPR is unavailable or fails, the startup evidence is still
+published as `partial`, with the collector status recorded in `manifest.json`.
+
+WPR stop merges the trace and may generate an `system.etl.NGENPDB` sidecar directory after the
+requested recording duration ends. The manifest records the collection and merge timestamps, ETL
+size, total trace-artifact size, and that event loss has not yet been independently inspected.
+
+The current recording slice covers startup ownership, window milestones, and optional original WPR
+evidence. Resource sampling, response probes, UI interactions, `perf analyze`, and `perf open` are
+not included yet.
+
+---
+
 ### unregister
 
 Unregister a sideloaded development package. Only removes packages that were registered in development mode (e.g., via `winapp run` or `create-debug-identity`). Store-installed or MSIX-installed packages are never removed.
@@ -1864,9 +1926,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
-
-
 
 
 

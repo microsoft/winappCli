@@ -10,6 +10,7 @@ using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.Controls;
 using WinApp.Cli.Services.InteractiveDesktop;
+using WinApp.Cli.Services.Performance;
 
 namespace WinApp.Cli.Helpers;
 
@@ -79,7 +80,14 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IUiOwnerResolver, UiOwnerResolver>()
             .AddSingleton<IInteractiveDesktopLock, InteractiveDesktopLock>()
             .AddSingleton<IDesktopForegroundService, DesktopForegroundService>()
-            .AddSingleton<IControlsSearchService, ControlsSearchService>();
+            .AddSingleton<IControlsSearchService, ControlsSearchService>()
+            .AddSingleton<IPerformanceClock, PerformanceClock>()
+            .AddSingleton<IPackageProcessSnapshot, PackageProcessSnapshot>()
+            .AddSingleton<IWindowResponseProbe, WindowResponseProbe>()
+            .AddSingleton<ITopLevelWindowProbe, TopLevelWindowProbe>()
+            .AddSingleton<IProcessIdentityProbe, ProcessIdentityProbe>()
+            .AddSingleton<IStorageSpaceProbe, StorageSpaceProbe>()
+            .AddSingleton<IWprCollectorFactory, WprCollectorFactory>();
     }
 
     public static IServiceCollection ConfigureCommands(this IServiceCollection serviceCollection)
@@ -98,6 +106,8 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<CreateDebugIdentityCommand, CreateDebugIdentityCommand.Handler>()
                 .UseCommandHandler<EmbedIdentityCommand, EmbedIdentityCommand.Handler>()
                 .UseCommandHandler<RunCommand, RunCommand.Handler>()
+                .ConfigureCommand<PerfCommand>()
+                .UseCommandHandler<PerfRecordCommand, PerfRecordCommand.Handler>()
                 .UseCommandHandler<UnregisterCommand, UnregisterCommand.Handler>()
                 .UseCommandHandler<GetWinappPathCommand, GetWinappPathCommand.Handler>()
                 .UseCommandHandler<FindUiCommand, FindUiCommand.Handler>()

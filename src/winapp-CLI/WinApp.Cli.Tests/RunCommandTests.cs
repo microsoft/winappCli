@@ -11,6 +11,7 @@ using System.Text.Json;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.Performance;
 
 namespace WinApp.Cli.Tests;
 
@@ -21,6 +22,22 @@ public class RunCommandTests : BaseCommandTests
     private FakeAppLauncherService _fakeAppLauncherService = null!;
     private FakeDebugOutputService _fakeDebugOutputService = null!;
     private FakePackageRegistrationService _fakePackageRegistrationService = null!;
+
+    private sealed class RecordingLaunchObserver : IRunLaunchObserver
+    {
+        public string[] Calls => [.. _calls];
+
+        private readonly List<string> _calls = [];
+
+        public Task BeforeLaunchAsync(string? packageFamilyName, CancellationToken cancellationToken)
+        {
+            _calls.Add($"before:{packageFamilyName}");
+            return Task.CompletedTask;
+        }
+
+        public void AfterLaunch(uint processId) =>
+            _calls.Add($"after:{processId}");
+    }
 
     private static readonly string[] SupportedArchitectures = ["x64", "arm64", "x86"];
     private static readonly string[] ForcedUnpackagedProperties = ["WindowsPackageType=None", "Foo=Bar"];
@@ -1031,6 +1048,29 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode, "Command should succeed");
         Assert.AreEqual(1, _fakeMsixService.AddLooseLayoutCalls.Count, "Debug identity should be created");
         Assert.AreEqual(1, _fakeAppLauncherService.LaunchCalls.Count, "Application should be launched via AUMID");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_ObservationBoundaryWrapsPackagedActivationAndSuppressesRunResult()
+    {
+        await CreateTestManifestAsync();
+        var command = GetRequiredService<RunCommand>();
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var parseResult = command.Parse([_tempDirectory.FullName, "--detach"]);
+        var observer = new RecordingLaunchObserver();
+
+        var exitCode = await handler.InvokeForObservationAsync(
+            parseResult,
+            observer,
+            TestContext.CancellationToken);
+
+        Assert.AreEqual(0, exitCode);
+        CollectionAssert.AreEqual(
+            new[] { "before:TestPackage_fakefamily", $"after:{_fakeAppLauncherService.FakeProcessId}" },
+            observer.Calls);
+        Assert.IsFalse(
+            TestAnsiConsole.Output.Contains(_fakeAppLauncherService.FakeProcessId.ToString()),
+            "Internal observation must not leak the nested run command's detached PID output.");
     }
 
     [TestMethod]

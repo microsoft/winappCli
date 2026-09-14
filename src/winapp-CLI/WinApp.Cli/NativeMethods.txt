@@ -38,7 +38,13 @@ DebugSetProcessKillOnExit
 DEBUG_EVENT
 ReadProcessMemory
 OpenProcess
+GetExitCodeProcess
+GetPackageFamilyName
 CloseHandle
+FindWindowEx
+IsWindowVisible
+GetWindowThreadProcessId
+SendMessageTimeout
 PROCESS_ACCESS_RIGHTS
 DBG_CONTINUE
 DBG_EXCEPTION_NOT_HANDLED
@@ -61,3 +67,4 @@ GetHandleInformation
 SetHandleInformation
 STD_HANDLE
 HANDLE_FLAGS
+SEND_MESSAGE_TIMEOUT_FLAGS

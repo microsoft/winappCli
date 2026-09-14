@@ -13,6 +13,7 @@ using System.Text.Json.Serialization;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.Performance;
 using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
@@ -258,7 +259,19 @@ internal partial class RunCommand : Command, IShortDescription
             ProjectContextPackaging.Unknown,
             ProjectExecutionMode.SingleFile);
 
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+            => InvokeCoreAsync(parseResult, launchObserver: null, cancellationToken);
+
+        internal Task<int> InvokeForObservationAsync(
+            ParseResult parseResult,
+            IRunLaunchObserver launchObserver,
+            CancellationToken cancellationToken = default)
+            => InvokeCoreAsync(parseResult, launchObserver, cancellationToken);
+
+        private async Task<int> InvokeCoreAsync(
+            ParseResult parseResult,
+            IRunLaunchObserver? launchObserver,
+            CancellationToken cancellationToken)
         {
             // input is optional (ArgumentArity.ZeroOrOne). The final FileSystemInfo is resolved
             // below, AFTER the passthrough split, because a bare `winapp run -- <app-arg>` makes the
@@ -503,12 +516,12 @@ internal partial class RunCommand : Command, IShortDescription
 
             if (inputResolution.Mode == WinAppRunMode.SingleFile)
             {
-                return await RunSingleFileModeAsync(parseResult, inputResolution.SingleFile!, appArgs, isJson, cancellationToken);
+                return await RunSingleFileModeAsync(parseResult, inputResolution.SingleFile!, appArgs, isJson, launchObserver, cancellationToken);
             }
 
             if (inputResolution.Mode == WinAppRunMode.Project)
             {
-                return await RunProjectModeAsync(parseResult, inputResolution.Csproj!, inputResolution.Solution, inputResolution.SelectionReason, appArgs, isJson, cancellationToken);
+                return await RunProjectModeAsync(parseResult, inputResolution.Csproj!, inputResolution.Solution, inputResolution.SelectionReason, appArgs, isJson, launchObserver, cancellationToken);
             }
 
             // Folder mode: the FileSystemInfo converter yields a DirectoryInfo for an existing
@@ -541,7 +554,7 @@ internal partial class RunCommand : Command, IShortDescription
                 inputFolder, manifest, outputAppXDirectory, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: null, projectFile: null, framework: null, noRestore: false, selfContained: false,
-                folderAliasDecision, cancellationToken);
+                folderAliasDecision, cancellationToken, launchObserver: launchObserver);
         }
 
         /// <summary>
@@ -629,7 +642,8 @@ internal partial class RunCommand : Command, IShortDescription
             AliasLaunchDecision aliasDecision,
             CancellationToken cancellationToken,
             Action? onRegistered = null,
-            PackageGraphSource? packageGraph = null)
+            PackageGraphSource? packageGraph = null,
+            IRunLaunchObserver? launchObserver = null)
         {
             uint processId = 0;
             var resolvedUseAlias = aliasDecision.UseAlias;
@@ -782,9 +796,16 @@ internal partial class RunCommand : Command, IShortDescription
 
                     // Step 3: Launch the application using IApplicationActivationManager
                     taskContext.AddDebugMessage($"{UiSymbols.Rocket} Launching application...");
+                    if (launchObserver is not null)
+                    {
+                        await launchObserver.BeforeLaunchAsync(packageFamilyName, cancellationToken);
+                    }
                     processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    launchObserver?.AfterLaunch(processId);
 
-                    return (0, $"{packageFamilyName} launched (PID: {processId})");
+                    return launchObserver is null
+                        ? (0, $"{packageFamilyName} launched (PID: {processId})")
+                        : (0, $"{packageFamilyName} launched");
                 }
                 catch (Exception error)
                 {
@@ -814,7 +835,11 @@ internal partial class RunCommand : Command, IShortDescription
             // --detach: return immediately after launch without waiting for exit
             if (detach)
             {
-                if (isJson)
+                if (launchObserver is not null)
+                {
+                    // The observing command owns the final result and output contract.
+                }
+                else if (isJson)
                 {
                     PrintJson(aumid, processId, errorMessage: null);
                 }
@@ -844,7 +869,12 @@ internal partial class RunCommand : Command, IShortDescription
 
                 if (aumid != null)
                 {
+                    if (launchObserver is not null)
+                    {
+                        await launchObserver.BeforeLaunchAsync(packageFamilyName, cancellationToken);
+                    }
                     processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    launchObserver?.AfterLaunch(processId);
                 }
             }
 

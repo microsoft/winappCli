@@ -20,6 +20,7 @@ Use this skill when:
 | "Package installation failed" | Cert not trusted, or stale package registration | `winapp cert install ./devcert.pfx` (admin), then `Get-AppxPackage <name> \| Remove-AppxPackage` |
 | "Certificate not trusted" | Dev cert not installed on machine | `winapp cert install ./devcert.pfx` (admin) |
 | "Build tools not found" | First run, tools not yet downloaded | Run `winapp update` to download tools; ensure internet access |
+| `perf record --with-wpr` reports WPR unavailable | Terminal is not elevated, `wpr.exe` is unavailable, duration is unbounded, or output storage is low | Run from an Administrator terminal with `--duration-sec 1-300` and at least 1 GiB free; the ordinary startup bundle is still retained as partial evidence when only WPR availability fails |
 | "Failed to add package identity" | Stale debug identity or untrusted cert | `Get-AppxPackage *yourapp* \| Remove-AppxPackage` to clean up, then `winapp cert install` and retry |
 | "Certificate file already exists" | `devcert.pfx` already present | Use `winapp cert generate --if-exists overwrite` or `--if-exists skip` |
 | "Manifest already exists" | `Package.appxmanifest` already present | Use `winapp manifest generate --if-exists overwrite` or edit manifest directly |
@@ -48,6 +49,8 @@ Is the app a single .cs file (.NET file-based app)?
       │  │  └─ winapp run <build-output-dir>
       │  └─ Exe is separate from app code? (Electron, sparse testing)
       │     └─ winapp create-debug-identity <exe>
+      ├─ Need retained app startup process/window timing?
+      │  └─ winapp perf record <project-or-build-output> --duration-sec 10
       ├─ Ready to create MSIX installer?
       │  └─ winapp package <build-output> --cert ./devcert.pfx
       ├─ Need to sign an existing file?
@@ -80,6 +83,8 @@ Is the app a single .cs file (.NET file-based app)?
 | Capture OutputDebugString + crash dump | `winapp run .\build\Debug --debug-output` | On crash, writes minidump and shows exception type, message, and faulting methods. **Blocks other debuggers** — use `--no-launch` if you need VS Code/WinDbg |
 | Run and auto-clean | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | Launch and detach (CI) | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
+| Record startup ownership | `winapp perf record . --duration-sec 10` | Records activation, process/window ownership, visibility, first response, response failures/recovery, and raw exits |
+| Record DLL/loader order for WPA | `winapp perf record . --with-wpr --duration-sec 10` | Requires elevation; adds the original `traces/system.etl` without claiming a fabricated per-DLL duration |
 | Clean up stale registration | `winapp unregister` | Removes dev-mode packages for the current project (pass a `.cs` for a file-based app: `winapp unregister counter.cs`) |
 | Start menu entry does nothing when clicked | `winapp unregister --prune` | The package is registered but its files were deleted, so activation silently fails. Prune removes every dev registration whose files are gone |
 
@@ -100,6 +105,7 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
 | `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.sln`; **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
+| `perf record` | The same project or build-output target accepted by `run`; elevation when `--with-wpr` is requested | Launches the app and writes startup process/window evidence, plus optional `traces/system.etl`, to a `.winappperf` directory |
 | `unregister` | A `.cs` file-based app, **or** `Package.appxmanifest` (auto-detect or `--manifest`) | Removes dev-mode package registrations |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |
