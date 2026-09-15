@@ -10,6 +10,64 @@ namespace WinApp.Cli.Tests;
 public partial class UiCommandTests
 {
     [TestMethod]
+    [DataRow("search", false)]
+    [DataRow("search", true)]
+    [DataRow("wait-for", false)]
+    [DataRow("wait-for", true)]
+    public async Task QueryOptions_RealApp_RootSlugAcrossDuplicateWindows(string command, bool useSecondWindow)
+    {
+        if (!Environment.UserInteractive) { Assert.Inconclusive("Requires an interactive desktop."); }
+        using var first = new UiaTestFixture();
+        using var second = new UiaTestFixture();
+        var selected = useSecondWindow ? second : first;
+        var hwnd = selected.Hwnd.ToString();
+        selected.OnUiThread(() => selected.InvokableChildLabel.AccessibleName = "Inside selected window");
+        var rootResult = await RunQueryProcessAsync(
+            ["ui", "search", "pnlInsideInvoke", "-w", hwnd, "--type", "Pane", "--json"]);
+        Assert.AreEqual(0, rootResult.ExitCode, rootResult.Stderr);
+        var roots = JsonSerializer.Deserialize<JsonElement>(rootResult.Stdout).GetProperty("matches");
+        Assert.AreEqual(1, roots.GetArrayLength(), rootResult.Stdout);
+        var slug = roots[0].GetProperty("selector").GetString()!;
+
+        var scoped = await RunQueryProcessAsync(
+            ["ui", "search", "Inside", "-w", hwnd, "--root", slug, "--type", "Text", "--json"]);
+        Assert.AreEqual(0, scoped.ExitCode, scoped.Stderr);
+        StringAssert.Contains(scoped.Stdout, "Inside selected window");
+
+        var args = new List<string>
+        {
+            "ui", command, "Inside", "-a", selected.ProcessId.ToString(),
+            "--root", slug, "--type", "Text", "--json",
+        };
+        if (command == "wait-for") { args.AddRange(["--gone", "--timeout", "1000"]); }
+        var result = await RunQueryProcessAsync(args.ToArray());
+        Assert.AreEqual(command == "search" ? 0 : 1, result.ExitCode, $"{result.Stdout} {result.Stderr}");
+        var json = JsonSerializer.Deserialize<JsonElement>(result.Stdout);
+        if (command == "search")
+        {
+            Assert.AreEqual(1, json.GetProperty("matchCount").GetInt32());
+            Assert.AreEqual("Inside selected window", json.GetProperty("matches")[0].GetProperty("name").GetString());
+        }
+        else
+        {
+            Assert.IsTrue(json.GetProperty("timedOut").GetBoolean(), result.Stdout);
+            Assert.IsTrue(json.GetProperty("waitedMs").GetInt32() >= 1000, result.Stdout);
+
+            var disappearance = RunQueryProcessAsync(
+                ["ui", "wait-for", "Inside", "-a", selected.ProcessId.ToString(),
+                 "--root", slug, "--type", "Text", "--gone", "--timeout", "10000", "--json"]);
+            await Task.Delay(1500);
+            Assert.IsFalse(disappearance.IsCompleted, "The root and its descendant still exist.");
+            selected.OnUiThread(() => selected.InvokableMiddlePanel.Dispose());
+            var gone = await disappearance;
+            Assert.AreEqual(0, gone.ExitCode, $"{gone.Stdout} {gone.Stderr}");
+            var goneJson = JsonSerializer.Deserialize<JsonElement>(gone.Stdout);
+            Assert.IsFalse(goneJson.GetProperty("found").GetBoolean());
+            Assert.IsFalse(goneJson.GetProperty("timedOut").GetBoolean());
+        }
+    }
+
+    [TestMethod]
     public async Task QueryOptions_RealApp_DelayedRootAndReadCommands()
     {
         if (!Environment.UserInteractive) { Assert.Inconclusive("Requires an interactive desktop."); }

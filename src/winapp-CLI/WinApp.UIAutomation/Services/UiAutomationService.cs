@@ -1250,7 +1250,8 @@ return Task.FromResult<UiElement?>(null);
     /// Returns both the UiElement model and the live COM element.
     /// </summary>
     private (UiElement? Model, IUIAutomationElement? ComElement) FindElementBySlugWithCom(
-        string targetSlug, IUIAutomationElement root, bool includeRoot = true, CancellationToken ct = default)
+        string targetSlug, IUIAutomationElement root, bool includeRoot = true,
+        bool throwOnHashMismatch = true, CancellationToken ct = default)
     {
         var parsed = SlugGenerator.ParseSlug(targetSlug);
         if (parsed is null)
@@ -1338,7 +1339,7 @@ return Task.FromResult<UiElement?>(null);
             return (matchedUi, matchedCom);
         }
 
-        if (hashMismatchFound)
+        if (hashMismatchFound && throwOnHashMismatch)
         {
             throw new InvalidOperationException(
                 $"Element with slug '{targetSlug}' found by name but RuntimeId hash doesn't match — " +

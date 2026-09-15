@@ -171,6 +171,46 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task Query_ReplacedRootSlugDoesNotBindReplacement_ButNamedRootResolvesAgain()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var root = await ResolveAsync(svc, target, "pnlInsideInvoke");
+        var query = new UiSelector
+        {
+            Query = "Inside",
+            Root = new UiSelector { Slug = root.Selector },
+            ControlType = "Text",
+        };
+        Assert.HasCount(1, await svc.SearchAsync(target, query, 50, CancellationToken.None));
+        fx.OnUiThread(() =>
+        {
+            var parent = fx.InvokableMiddlePanel.Parent!;
+            parent.Controls.Remove(fx.InvokableMiddlePanel);
+            var replacement = new System.Windows.Forms.Panel
+            {
+                Name = "pnlInsideInvoke", Width = 200, Height = 50,
+            };
+            replacement.Controls.Add(new System.Windows.Forms.Label
+            {
+                Name = "lblInsideInvoke", Text = "Inside replacement",
+            });
+            parent.Controls.Add(replacement);
+            fx.InvokableMiddlePanel.Dispose();
+        });
+
+        Assert.IsEmpty(await svc.SearchAsync(target, query, 50, CancellationToken.None));
+        Assert.IsNull(await svc.FindSingleElementAsync(target, query, CancellationToken.None));
+        var replaced = await svc.SearchAsync(target,
+            query with { Root = new UiSelector { Query = "pnlInsideInvoke" } }, 50, CancellationToken.None);
+        Assert.HasCount(1, replaced);
+        Assert.AreEqual("Inside replacement", replaced[0].Name);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.FindSingleElementAsync(target,
+            new UiSelector { Slug = root.Selector }, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task Query_DeepDescendantAndSlug_ReadSameDuplicateId()
     {
         using var fx = new UiaTestFixture();
@@ -222,6 +262,107 @@ public partial class RealUiAutomationTests
             Assert.AreEqual("popup", await svc.GetTextAsync(target, matches[0], CancellationToken.None));
         }
         finally { fx.OnUiThread(() => popup.Dispose()); }
+    }
+
+    [TestMethod]
+    [DataRow(1, false)]
+    [DataRow(3, true)]
+    public async Task Query_RootExactIdInLaterWindowWinsOverEarlierSubstringMatches(int mainMatches, bool earlierPopup)
+    {
+        using var fx = new UiaTestFixture();
+        Form popup = null!;
+        Form? firstPopup = null;
+        var windows = new List<(nint Hwnd, int Pid, string Title)>();
+        fx.OnUiThread(() =>
+        {
+            for (var i = 0; i < mainMatches; i++)
+            {
+                fx.Form.Controls.Add(new Panel { Name = $"mainContainer{i}", AccessibleName = "ScopeRoot" });
+            }
+            windows.Add(((nint)fx.Hwnd, fx.ProcessId, fx.Title));
+            if (earlierPopup)
+            {
+                firstPopup = new Form { Name = "earlierPopup", Text = "Earlier Popup" };
+                for (var i = 0; i < 3; i++)
+                {
+                    firstPopup.Controls.Add(new Panel { Name = $"popupContainer{i}", AccessibleName = "ScopeRoot" });
+                }
+                firstPopup.Show();
+                windows.Add((firstPopup.Handle, fx.ProcessId, firstPopup.Text));
+            }
+            popup = new Form { Name = "ScopeRoot", Text = "Exact Root Popup" };
+            popup.Controls.Add(new TextBox { Name = "popupValue", Text = "exact-root-value" });
+            popup.Show();
+            windows.Add((popup.Handle, fx.ProcessId, popup.Text));
+        });
+        try
+        {
+            // Fix window order for the capped case; all elements still use live UIA providers.
+            if (earlierPopup) { UiAutomationService.s_getAllAppWindows = (_, _) => windows; }
+            var svc = NewService();
+            var target = SessionFor(fx, explicitWindow: false);
+            var selector = new UiSelector { Root = new() { Query = "ScopeRoot" }, ControlType = "Edit" };
+            var matches = await svc.SearchAsync(target, selector, 1, CancellationToken.None);
+            Assert.HasCount(1, matches);
+            Assert.AreEqual("popupValue", matches[0].AutomationId);
+            Assert.AreEqual((long)windows[^1].Hwnd, matches[0].WindowHandle);
+            Assert.AreEqual("exact-root-value", await svc.GetTextAsync(target, matches[0], CancellationToken.None));
+            if (mainMatches == 1)
+            {
+                Assert.IsEmpty(await svc.SearchAsync(SessionFor(fx), selector, 1, CancellationToken.None));
+            }
+            else
+            {
+                await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
+                    svc.SearchAsync(SessionFor(fx), selector, 1, CancellationToken.None));
+            }
+        }
+        finally
+        {
+            fx.OnUiThread(() =>
+            {
+                popup.Dispose();
+                firstPopup?.Dispose();
+            });
+        }
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Query_ExactRootsAcrossWindowsRemainAmbiguous(bool mainExact)
+    {
+        using var fx = new UiaTestFixture();
+        Form popup = null!;
+        Form? secondPopup = null;
+        fx.OnUiThread(() =>
+        {
+            fx.Form.Controls.Add(new Panel { Name = mainExact ? "ScopeRoot" : "mainContainer", AccessibleName = "ScopeRoot" });
+            popup = new Form { Name = "ScopeRoot", Text = "Exact Root Popup" };
+            popup.Controls.Add(new TextBox { Name = "popupValue", Text = "popup" });
+            popup.Show();
+            if (!mainExact)
+            {
+                secondPopup = new Form { Name = "ScopeRoot", Text = "Second Exact Root Popup" };
+                secondPopup.Show();
+            }
+        });
+        try
+        {
+            var svc = NewService();
+            await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() => svc.SearchAsync(
+                SessionFor(fx, explicitWindow: false),
+                new UiSelector { Root = new() { Query = "ScopeRoot" }, ControlType = "Edit" },
+                1, CancellationToken.None));
+        }
+        finally
+        {
+            fx.OnUiThread(() =>
+            {
+                popup.Dispose();
+                secondPopup?.Dispose();
+            });
+        }
     }
 
     [TestMethod]

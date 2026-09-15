@@ -84,4 +84,30 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exit);
         AssertJsonErrorCode("ambiguous_selector");
     }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task QueryOptions_Wait_LookupFailureIsNotAbsence(bool comFailure)
+    {
+        _fakeUia.FindSingleThrow = comFailure
+            ? new System.Runtime.InteropServices.COMException("Provider unavailable.")
+            : new InvalidOperationException("Lookup failed.");
+        var exit = await ParseAndInvokeWithCaptureAsync(QueryCommand("wait-for"),
+            ["Welcome", "-a", "TestApp", "--root", "MailRow", "--gone", "--json"]);
+        Assert.AreEqual(1, exit);
+        AssertJsonErrorCode(comFailure ? "stale_element" : "internal_error");
+    }
+
+    [TestMethod]
+    public async Task QueryOptions_Wait_UnavailableElementRetriesButIsNotGone()
+    {
+        _fakeUia.FindSingleThrow = new System.Runtime.InteropServices.COMException(
+            "Element was removed during traversal.", unchecked((int)0x80040201));
+        var exit = await ParseAndInvokeWithCaptureAsync(QueryCommand("wait-for"),
+            ["Welcome", "-a", "TestApp", "--root", "MailRow", "--gone", "--timeout", "150", "--json"]);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
+        Assert.IsTrue(_fakeUia.Queries.Count > 1);
+    }
 }

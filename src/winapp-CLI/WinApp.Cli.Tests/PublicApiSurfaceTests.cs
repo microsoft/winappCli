@@ -58,6 +58,7 @@ public class PublicApiSurfaceTests
         "TouchGesture",
         "UiAmbiguousSelectorException",
         "UiAutomationServiceCollectionExtensions",
+        "UiControlTypes",
         "UiElement",
         "UiElementNotFoundException",
         "UiElementOffscreenException",
