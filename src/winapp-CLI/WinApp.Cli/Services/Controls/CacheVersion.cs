@@ -73,6 +73,18 @@ namespace WinApp.Cli.Services.Controls;
 ///          PersonPicture, EasingFunction) were served with no XAML at all. Rule 3:
 ///          same input, different output — an unbumped cache keeps serving the empty
 ///          scenarios.
+///   "22" — Substitution placeholders are now handled on the index path too:
+///          SampleIndexParser suppresses an xaml or code block that still carries a
+///          $(Name) token rather than serving it as pasteable, and drops a sample left
+///          with neither. ScenarioSanitizer enforces the same rule on the way out.
+///          GalleryFetcher also stopped flattening a value-position token to "...":
+///          156 attributes in the previous bake were typed properties (StrokeThickness,
+///          Height, Width, Orientation, SelectionMode, PaneDisplayMode, IsChecked...)
+///          where "..." is a compile error on paste, so the attribute is now dropped and
+///          the property falls back to its own default. Rule 3 twice over: same input,
+///          different output. Without the bump an existing cache still matches on "21"
+///          and keeps serving both the placeholder-bearing blocks and the broken
+///          attributes that this change exists to remove.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -80,5 +92,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "21";
+    public const string Current = "22";
 }
