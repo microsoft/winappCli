@@ -25,8 +25,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
     private readonly IUIAutomation _automation;
     private readonly IUiSelectorParser _selectorParser;
 
-    internal static Func<UiAutomationService, UiTarget, IUIAutomationElement?> s_getRootElement = (service, uiTarget) => service.GetRootElementCore(uiTarget);
-    internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_getRootElementForHwnd = (service, hwnd) => service.GetRootElementForHwndCore(hwnd);
+    internal static Func<UiAutomationService, UiTarget, bool, IUIAutomationElement?> s_getRootElement = (service, uiTarget, strict) => service.GetRootElementCore(uiTarget, strict);
+    internal static Func<UiAutomationService, nint, bool, IUIAutomationElement?> s_getRootElementForHwnd = (service, hwnd, strict) => service.GetRootElementForHwndCore(hwnd, strict);
     internal static Func<UiAutomationService, UiTarget, List<(nint Hwnd, int Pid, string Title)>> s_getAllAppWindows = (service, uiTarget) => service.GetAllAppWindowsCore(uiTarget);
     internal static Func<UiAutomationService, UiTarget, UiSelector, CancellationToken, UiElement?> s_findElementOnOtherWindows =
         (service, uiTarget, selector, ct) => service.FindElementOnOtherWindowsCore(uiTarget, selector, ct);
@@ -44,11 +44,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getDesktopRootElement = service => service._automation.GetRootElement();
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
     internal static Func<int, nint> s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
+    internal static Func<IUIAutomationElement, UIA_PROPERTY_ID, global::Windows.Win32.Foundation.BSTR> s_getCurrentBstr = GetCurrentBstr;
 
     internal static void ResetNativeSeams()
     {
-        s_getRootElement = (service, uiTarget) => service.GetRootElementCore(uiTarget);
-        s_getRootElementForHwnd = (service, hwnd) => service.GetRootElementForHwndCore(hwnd);
+        s_getRootElement = (service, uiTarget, strict) => service.GetRootElementCore(uiTarget, strict);
+        s_getRootElementForHwnd = (service, hwnd, strict) => service.GetRootElementForHwndCore(hwnd, strict);
         s_getAllAppWindows = (service, uiTarget) => service.GetAllAppWindowsCore(uiTarget);
         s_findElementOnOtherWindows =
             (service, uiTarget, selector, ct) => service.FindElementOnOtherWindowsCore(uiTarget, selector, ct);
@@ -63,6 +64,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_getDesktopRootElement = service => service._automation.GetRootElement();
         s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
         s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
+        s_getCurrentBstr = GetCurrentBstr;
         s_captureFromWindow = CaptureFromWindow;
         s_captureFromScreenScaled = CaptureFromScreenScaled;
         s_foregroundWindowForBlankRetry = ForegroundWindowForBlankRetry;
@@ -1191,7 +1193,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
     /// </summary>
     private (UiElement? Model, IUIAutomationElement? ComElement) FindElementBySlugWithCom(
         string targetSlug, IUIAutomationElement root, bool includeRoot = true,
-        bool throwOnHashMismatch = true, CancellationToken ct = default)
+        bool throwOnHashMismatch = true, bool requireCurrentIdentity = false, CancellationToken ct = default)
     {
         var parsed = SlugGenerator.ParseSlug(targetSlug);
         if (parsed is null)
@@ -1212,8 +1214,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         {
             ct.ThrowIfCancellationRequested();
             var type = GetControlTypeName(element.get_CurrentControlType());
-            var name = SafeGetBstr(() => element.get_CurrentName());
-            var automationId = SafeGetBstr(() => element.get_CurrentAutomationId());
+            var name = SafeGetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_NamePropertyId), requireCurrentIdentity);
+            var automationId = SafeGetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_AutomationIdPropertyId), requireCurrentIdentity);
 
             var prefix = SlugGenerator.GetPrefix(type);
             var nameSlug = SlugGenerator.Normalize(automationId) ?? SlugGenerator.Normalize(name);
@@ -1231,7 +1233,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         if (hash == targetHash)
                         {
                             matchedCom = element;
-                            matchedUi = ToUiElement(element, "", ref nextElementId);
+                            matchedUi = ToUiElement(element, "", ref nextElementId, requireCurrentIdentity);
                             break;
                         }
                         else
@@ -1241,7 +1243,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     }
                 }
                 catch (System.Runtime.InteropServices.COMException) { throw; }
-                catch { }
+                catch when (!requireCurrentIdentity) { }
             }
 
             // Also handle nameless elements: prefix-hash (no name slug)
@@ -1256,13 +1258,13 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         if (hash == targetHash)
                         {
                             matchedCom = element;
-                            matchedUi = ToUiElement(element, "", ref nextElementId);
+                            matchedUi = ToUiElement(element, "", ref nextElementId, requireCurrentIdentity);
                             break;
                         }
                     }
                 }
                 catch (System.Runtime.InteropServices.COMException) { throw; }
-                catch { }
+                catch when (!requireCurrentIdentity) { }
             }
 
         }
@@ -1275,7 +1277,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 var ancestor = FindInvokableAncestor(matchedCom, root);
                 if (ancestor is not null)
                 {
-                    matchedUi.InvokableAncestor = ToUiElement(ancestor, "", ref nextElementId);
+                    matchedUi.InvokableAncestor = ToUiElement(ancestor, "", ref nextElementId, requireCurrentIdentity);
                 }
             }
             return (matchedUi, matchedCom);
@@ -1318,12 +1320,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
         IUIAutomationElement? root;
         if (element.WindowHandle is { } elHwnd && elHwnd != 0 && elHwnd != uiTarget.WindowHandle)
         {
-            root = GetRootElementForHwnd((nint)elHwnd);
+            root = GetRootElementForHwnd((nint)elHwnd, requireCurrentIdentity);
             _logger.LogDebug("Resolving element on source HWND {Hwnd}", elHwnd);
         }
         else
         {
-            root = GetRootElement(uiTarget);
+            root = GetRootElement(uiTarget, requireCurrentIdentity);
         }
 
         if (root is null)
@@ -1336,7 +1338,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         if (element.Selector is not null)
         {
             var (_, comElement) = FindElementBySlugWithCom(element.Selector, root,
-                throwOnHashMismatch: !requireCurrentIdentity);
+                throwOnHashMismatch: !requireCurrentIdentity, requireCurrentIdentity: requireCurrentIdentity);
             if (comElement is not null)
             {
                 return comElement;
@@ -1453,18 +1455,18 @@ internal sealed partial class UiAutomationService : IUiAutomation
         className is not null && InternalWindowClasses.Contains(className);
 
     /// <summary>Get UIA root element for a specific HWND.</summary>
-    private IUIAutomationElement? GetRootElementForHwnd(nint hwnd)
+    private IUIAutomationElement? GetRootElementForHwnd(nint hwnd, bool requireCurrentIdentity = false)
     {
-        return s_getRootElementForHwnd(this, hwnd);
+        return s_getRootElementForHwnd(this, hwnd, requireCurrentIdentity);
     }
 
-    private IUIAutomationElement? GetRootElementForHwndCore(nint hwnd)
+    private IUIAutomationElement? GetRootElementForHwndCore(nint hwnd, bool requireCurrentIdentity = false)
     {
         try
         {
             return s_elementFromHandle(this, hwnd);
         }
-        catch
+        catch when (!requireCurrentIdentity)
         {
             return null;
         }
@@ -1562,12 +1564,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return null;
     }
 
-    private IUIAutomationElement? GetRootElement(UiTarget uiTarget)
+    private IUIAutomationElement? GetRootElement(UiTarget uiTarget, bool requireCurrentIdentity = false)
     {
-        return s_getRootElement(this, uiTarget);
+        return s_getRootElement(this, uiTarget, requireCurrentIdentity);
     }
 
-    private IUIAutomationElement? GetRootElementCore(UiTarget uiTarget)
+    private IUIAutomationElement? GetRootElementCore(UiTarget uiTarget, bool requireCurrentIdentity = false)
     {
         // If we have a specific window handle, use it directly
         if (uiTarget.WindowHandle != 0)
@@ -1582,7 +1584,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     return element;
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!requireCurrentIdentity)
             {
                 _logger.LogDebug("Stored HWND {Hwnd} failed: {Error}", uiTarget.WindowHandle, ex.Message);
             }
@@ -1628,7 +1630,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 for (int i = 0; i < count; i++)
                 {
                     var el = all!.GetElement(i);
-                    var name = SafeGetBstr(() => el.get_CurrentName());
+                    var name = SafeGetBstr(() => s_getCurrentBstr(el, UIA_PROPERTY_ID.UIA_NamePropertyId), requireCurrentIdentity);
                     if (name is not null && name.Contains(titleQuery, StringComparison.OrdinalIgnoreCase))
                     {
                         _logger.LogDebug("Matched window by query \"{Query}\": \"{Name}\"", titleQuery, name);
@@ -1666,7 +1668,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!requireCurrentIdentity)
         {
             _logger.LogDebug("ElementFromHandle failed: {Error}", ex.Message);
         }
@@ -1811,6 +1813,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         int maxResults,
         Func<List<IUIAutomationElement>> manualSearch,
         Func<IUIAutomationElement, bool>? matches = null,
+        bool requireCurrentIdentity = false,
         CancellationToken ct = default,
         bool completeEmptyResults = true)
     {
@@ -1847,7 +1850,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var unidentifiedResults = new List<IUIAutomationElement>();
         foreach (var result in results)
         {
-            var identity = TryGetElementIdentity(result);
+            var identity = TryGetElementIdentity(result, requireCurrentIdentity);
             if (identity is not null)
             {
                 identities.Add(identity);
@@ -1865,7 +1868,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 break;
             }
 
-            var identity = TryGetElementIdentity(candidate);
+            var identity = TryGetElementIdentity(candidate, requireCurrentIdentity);
             if (identity is not null)
             {
                 if (!identities.Add(identity))
@@ -1873,7 +1876,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     continue;
                 }
 
-                if (ContainsElement(unidentifiedResults, candidate))
+                if (ContainsElement(unidentifiedResults, candidate, requireCurrentIdentity))
                 {
                     identities.Remove(identity);
                     continue;
@@ -1881,7 +1884,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
                 results.Add(candidate);
             }
-            else if (!ContainsElement(results, candidate))
+            else if (!ContainsElement(results, candidate, requireCurrentIdentity))
             {
                 results.Add(candidate);
                 unidentifiedResults.Add(candidate);
@@ -1968,7 +1971,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             StringComparison.Ordinal));
     }
 
-    private static unsafe string? TryGetElementIdentity(IUIAutomationElement element)
+    private static unsafe string? TryGetElementIdentity(IUIAutomationElement element, bool requireCurrentIdentity = false)
     {
         global::Windows.Win32.System.Com.SAFEARRAY* runtimeId = null;
         try
@@ -1993,7 +1996,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
             return identity.ToString();
         }
-        catch (Exception ex) when (ex is COMException or InvalidCastException)
+        catch (Exception ex) when (!requireCurrentIdentity && ex is COMException or InvalidCastException)
         {
             return null;
         }
@@ -2009,7 +2012,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
     [LibraryImport("oleaut32.dll")]
     private static unsafe partial int SafeArrayDestroy(global::Windows.Win32.System.Com.SAFEARRAY* safeArray);
 
-    private bool ContainsElement(List<IUIAutomationElement> elements, IUIAutomationElement candidate)
+    private bool ContainsElement(List<IUIAutomationElement> elements, IUIAutomationElement candidate,
+        bool requireCurrentIdentity = false)
     {
         foreach (var element in elements)
         {
@@ -2020,7 +2024,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     return true;
                 }
             }
-            catch (Exception ex) when (ex is COMException or InvalidCastException)
+            catch (Exception ex) when (!requireCurrentIdentity && ex is COMException or InvalidCastException)
             {
                 if (ReferenceEquals(element, candidate))
                 {
@@ -2195,8 +2199,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var id = $"e{nextElementId++}";
         var rect = element.get_CurrentBoundingRectangle();
         var type = GetControlTypeName(element.get_CurrentControlType());
-        var name = SafeGetBstr(() => element.get_CurrentName());
-        var automationId = SafeGetBstr(() => element.get_CurrentAutomationId());
+        var name = SafeGetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_NamePropertyId), requireCurrentIdentity);
+        var automationId = SafeGetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_AutomationIdPropertyId), requireCurrentIdentity);
 
         // Try to get current value for editable elements (TextBox, ComboBox, etc.)
         string? value = null;
@@ -2285,7 +2289,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             Type = type,
             Name = name,
             AutomationId = automationId,
-            ClassName = SafeGetBstr(() => element.get_CurrentClassName()),
+            ClassName = SafeGetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_ClassNamePropertyId), requireCurrentIdentity),
             IsEnabled = element.get_CurrentIsEnabled(),
             IsOffscreen = element.get_CurrentIsOffscreen(),
             X = rect.left,
@@ -2380,12 +2384,31 @@ internal sealed partial class UiAutomationService : IUiAutomation
     }
 
 
-    private static string? SafeGetBstr(Func<global::Windows.Win32.Foundation.BSTR> getter)
+    private static global::Windows.Win32.Foundation.BSTR GetCurrentBstr(IUIAutomationElement element, UIA_PROPERTY_ID property) =>
+        property switch
+        {
+            UIA_PROPERTY_ID.UIA_NamePropertyId => element.get_CurrentName(),
+            UIA_PROPERTY_ID.UIA_AutomationIdPropertyId => element.get_CurrentAutomationId(),
+            UIA_PROPERTY_ID.UIA_ClassNamePropertyId => element.get_CurrentClassName(),
+            _ => throw new ArgumentOutOfRangeException(nameof(property)),
+        };
+
+    private static unsafe string GetBstr(Func<global::Windows.Win32.Foundation.BSTR> getter)
     {
+        // UIA transfers ownership of returned BSTRs. A null BSTR is an empty string,
+        // not a failed property read; getter failures must reach the query's caller.
+        var bstr = getter();
+        try { return bstr.ToString() ?? ""; }
+        finally { Marshal.FreeBSTR((nint)bstr.Value); }
+    }
+
+    private static string? SafeGetBstr(Func<global::Windows.Win32.Foundation.BSTR> getter,
+        bool requireCurrentIdentity = false)
+    {
+        if (requireCurrentIdentity) { return GetBstr(getter); }
         try
         {
-            var bstr = getter();
-            var val = bstr.ToString();
+            var val = GetBstr(getter);
             return string.IsNullOrEmpty(val) ? null : val;
         }
         catch
