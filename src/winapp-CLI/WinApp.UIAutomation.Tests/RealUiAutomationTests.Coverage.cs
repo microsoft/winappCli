@@ -212,9 +212,9 @@ public partial class RealUiAutomationTests
         var findAllCalls = 0;
         var manualCalls = 0;
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_getAllAppWindows = (_, _) => [(9876, fx.ProcessId, "Popup")];
-        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == 9876 ? root : null;
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd, _) => hwnd == 9876 ? root : null;
         UiAutomationService.s_findAllDescendants = (_, _) => ++findAllCalls switch
         {
             1 or 2 or 3 => ElementArray(),
