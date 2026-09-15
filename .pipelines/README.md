@@ -19,6 +19,42 @@ Shared step templates live in [`templates/`](templates):
 
 ---
 
+## Publishing a prerelease of the library packages
+
+The three source-built library packages — `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation`,
+`...UIAutomation.Recording`, and `...WinUIAnalyzer` — can be published to nuget.org as a prerelease
+**without cutting a release**, to validate them before the first official release.
+
+Queue **WinDevCLI - Release** manually with the **`publishPrereleaseNugets`** parameter ticked
+(optionally set `prereleaseNugetVersion`; blank auto-computes `version.json` + `-prerelease.<build>`).
+That adds two stages — `Prerelease_Nugets_Build` and `Prerelease_Nugets_Publish` — which pack just
+those three packages (`package-nuget.ps1 -SkipCliPackage`, so the CLI tools package is never built),
+ESRP-sign them, and push only them via the `NuGet-WinAppCLI` service connection.
+
+Both stages are gated on the parameter, which **defaults false**, so they are pruned at *compile*
+time on every scheduled rehearsal and every real `rel/v*` release — they are absent from the graph
+unless someone explicitly ticks the box. A second positive gate, `not(startsWith(Build.SourceBranch,
+'refs/heads/rel/v'))`, means even a manual queue against a release branch publishes nothing, so this
+can never ride a real release. This is the one deliberate exception to the "mode from branch, not
+parameter" rule below: it is not a discriminator between two automatic behaviours (which parameter
+defaults would betray), but an additive, default-off, manual action.
+
+Notes:
+
+- Signing is required: the stages are also gated on `DoEsrp` (on by default), so they can never
+  publish unsigned packages. Unticking `DoEsrp` prunes the path entirely — nothing publishes.
+- The version must be a SemVer prerelease (e.g. `0.6.3-prerelease.1`); a stable version, including
+  one with build metadata like `0.7.0+build-1`, is rejected. Blank auto-computes the prerelease.
+- Run it from a **non-`rel/v*`, non-`main`** branch to also keep the `main`-gated rehearsal stages
+  (WinGet, MS Learn, credentials) out of the run. The unconditional `Build` stage still runs
+  regardless — that is the cost of folding this into the release pipeline rather than a separate one.
+- The push runs as `NuGet-WinAppCLI`, which owns the `Microsoft.Windows.SDK.BuildTools.*` reserved
+  prefix, so no personal namespace ownership is needed. The run branch must be allowed by the Branch
+  control checks on `NuGet-WinAppCLI` and the signing connection.
+- A successful push is an immutable nuget.org publish — bump the prerelease number per attempt.
+
+---
+
 ## The weekly release rehearsal
 
 ### Why
