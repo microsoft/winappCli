@@ -61,6 +61,7 @@ public class PublicApiSurfaceTests
         "UiElementNotFoundException",
         "UiElementOffscreenException",
         "UiProcessInfo",
+        "UiPropertyNames",
         "UiSelector",
         "UiTarget",
         "UiTargetResolver",

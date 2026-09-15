@@ -208,19 +208,18 @@ public partial class RealUiAutomationTests
     [TestMethod]
     public async Task GetPropertiesAsync_PropertyNameFiltersPresentAndMissingValues()
     {
-        using var fx = new UiaTestFixture();
+        using var fx = new UiaTestFixture(nonActivating: true);
         var svc = NewService();
         var uiTarget = SessionFor(fx);
         var box = await ResolveAsync(svc, uiTarget, "txtValue");
 
         var present = await svc.GetPropertiesAsync(uiTarget, box, "Name", CancellationToken.None);
-        var missing = await svc.GetPropertiesAsync(uiTarget, box, "DefinitelyMissing", CancellationToken.None);
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            svc.GetPropertiesAsync(uiTarget, box, "DefinitelyMissing", CancellationToken.None));
 
         Assert.AreEqual(1, present.Count);
         Assert.IsTrue(present.ContainsKey("Name"));
         Assert.AreEqual("Value", present["Name"]);
-        Assert.IsTrue(missing.ContainsKey("DefinitelyMissing"));
-        Assert.IsNull(missing["DefinitelyMissing"]);
     }
 
     [TestMethod]
@@ -476,6 +475,11 @@ public partial class RealUiAutomationTests
 
         var target = ComProxy<IUIAutomationElement>((method, args) =>
         {
+            if (method.Name == "GetCurrentPropertyValue" &&
+                (UIA_PROPERTY_ID)args![0]! == UIA_PROPERTY_ID.UIA_IsTextPatternAvailablePropertyId)
+            {
+                return System.Runtime.InteropServices.Marshalling.ComVariant.Create(false);
+            }
             if (method.Name == "GetCurrentPattern")
             {
                 var id = (UIA_PATTERN_ID)args![0]!;
@@ -507,6 +511,10 @@ public partial class RealUiAutomationTests
         Assert.AreEqual("ExpandCollapsePattern", invokePattern);
         Assert.AreEqual("999", props["ToggleState"]);
         Assert.AreEqual("999", props["ExpandCollapseState"]);
+        foreach (var (name, _) in UiAutomationService.TextAttributes)
+        {
+            Assert.AreEqual("Unavailable", props[name]);
+        }
         Assert.IsTrue(logger.Has(Microsoft.Extensions.Logging.LogLevel.Warning, "Element position unchanged"));
     }
 

@@ -522,17 +522,15 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    public async Task GetPropertiesAsync_UnknownProperty_ReturnsNull()
+    public async Task GetPropertiesAsync_UnknownProperty_ThrowsArgumentException()
     {
-        using var fx = new UiaTestFixture();
+        using var fx = new UiaTestFixture(nonActivating: true);
         var svc = NewService();
         var uiTarget = SessionFor(fx);
         var btn = await ResolveAsync(svc, uiTarget, "btnInvoke");
 
-        var props = await svc.GetPropertiesAsync(uiTarget, btn, "NoSuchProperty", CancellationToken.None);
-
-        Assert.AreEqual(1, props.Count);
-        Assert.IsNull(props["NoSuchProperty"]);
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            svc.GetPropertiesAsync(uiTarget, btn, "NoSuchProperty", CancellationToken.None));
     }
 
     [TestMethod]

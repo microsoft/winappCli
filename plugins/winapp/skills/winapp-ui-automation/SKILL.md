@@ -281,9 +281,19 @@ winapp ui get-property chk-agreecheckbox-b2c3 -a myapp --property ToggleState
 winapp ui get-property txt-textbox-a4b1 -a myapp --property Value
 winapp ui get-property cmb-modellist-d5e6 -a myapp --property IsSelected
 
+# Read formatting across the whole text document (not the selection)
+winapp ui get-property Document -a myapp --property FontWeight --json
+
 # See what has keyboard focus
 winapp ui get-focused -a myapp
 ```
+
+`get-property` also accepts `FontName`, `FontSize`, `ForegroundColor`, `IsItalic`,
+and `StrikethroughStyle`. Omit `--property` to include all six formatting attributes.
+Treat `Mixed`, `NotSupported`, and `Unavailable` as distinct states, not formatting
+values. Names are case-sensitive; unknown names fail with `invalid_arguments`.
+See the [formatting reference](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#whole-document-text-formatting)
+for units and state meanings, and `references/ui-json-envelope.md` for the JSON shape.
 
 ### Set values
 `set-value` writes programmatically (no keystrokes, no foreground) via a fallback chain: ValuePattern → RangeValuePattern (numeric) → LegacyIAccessible `put_accValue` for TextPattern-only edit controls.
