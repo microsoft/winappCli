@@ -817,7 +817,10 @@ await ui.InvokeAsync(target, save!, default);
 
 For scoped reads, set `UiSelector.Root` to another `UiSelector`, `ControlType` to a
 type name, and `ClassName` to the literal provider class. These use the same
-[query predicates](#scoped-and-typed-queries) as the CLI. `UiControlTypes.GetId(name)`
+[query predicates](#scoped-and-typed-queries) as the CLI. Only one root level is
+supported: `selector.Root.Root` must be `null`. A nested root throws
+`ArgumentException` before looking up the target window. Use a unique root
+AutomationId or slug instead of nesting root selectors. `UiControlTypes.GetId(name)`
 resolves official type names and the two documented aliases, returning `0` for
 an invalid name. `UiControlTypes.GetName(id)` returns the canonical name, or
 `Unknown(id)` for an unrecognized ID.
