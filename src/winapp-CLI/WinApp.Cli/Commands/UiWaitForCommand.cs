@@ -55,6 +55,7 @@ internal class UiWaitForCommand : Command, IShortDescription
         Options.Add(GoneOption);
         Options.Add(ValueOption);
         Options.Add(ContainsOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -93,7 +94,7 @@ internal class UiWaitForCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -112,7 +113,7 @@ internal class UiWaitForCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
                 var sw = Stopwatch.StartNew();
 
                 while (sw.ElapsedMilliseconds < timeout)
@@ -124,7 +125,8 @@ internal class UiWaitForCommand : Command, IShortDescription
                     {
                         element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
                     }
-                    catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
+                    catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex)
+                        && !(selector.HasConstraints && ex is UiAmbiguousSelectorException))
                     {
                         // "Not found yet" is the normal case while polling, so a lookup failure just means
                         // keep waiting. Cancellation is not a lookup failure: swallowing it here would let
@@ -239,6 +241,11 @@ internal class UiWaitForCommand : Command, IShortDescription
                 {
                     logger.LogError("'{Selector}' not found after {Timeout}ms", selectorStr, timeout);
                 }
+                return 1;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)

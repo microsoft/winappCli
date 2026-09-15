@@ -31,6 +31,55 @@ winapp ui invoke Close -a notepad
 winapp ui screenshot -a notepad
 ```
 
+## Scoped and typed queries
+
+```powershell
+winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-name TextBlock
+winapp ui get-value Subject -w 123456 --root MailRow --type TextBox
+winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Value
+winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
+```
+
+`search`, `get-property`, `get-value`, and `wait-for` accept these optional filters.
+The selector and every supplied filter must match the **same element**:
+
+- **`--root <selector>`** searches only descendants of one uniquely matching root,
+  never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
+  A root that matches multiple elements fails with `ambiguous_selector`, even if
+  one match is invokable. A missing root produces no matches. Once the root is
+  found, queries do not search unrelated popup windows, even when no descendant
+  matches. Queries are not limited by `inspect`'s display depth.
+- **`--type <control-type>`** matches a UIA control type, ignoring case. The only
+  aliases are `TextBox` → `Edit` and `TextBlock` → `Text`. Unknown names (including
+  numeric IDs and wildcard expressions) fail with `invalid_arguments`.
+- **`--class-name <literal>`** matches the provider's entire UIA `ClassName`,
+  ignoring case. It is not a substring, wildcard, or regular expression. Use
+  `get-property --property ClassName` to discover the provider's value; the class
+  name need not equal the UIA control type.
+
+Filtered queries use UIA's **Control View**, the same view shown by `inspect`.
+Provider nodes exposed only in Raw View are not returned; use `inspect` to find
+the containing control and its selector.
+
+All 41 official types are supported: `Button`, `Calendar`, `CheckBox`, `ComboBox`,
+`Edit`, `Hyperlink`, `Image`, `ListItem`, `List`, `Menu`, `MenuBar`, `MenuItem`,
+`ProgressBar`, `RadioButton`, `ScrollBar`, `Slider`, `Spinner`, `StatusBar`, `Tab`,
+`TabItem`, `Text`, `ToolBar`, `ToolTip`, `Tree`, `TreeItem`, `Custom`, `Group`,
+`Thumb`, `DataGrid`, `DataItem`, `Document`, `SplitButton`, `Window`, `Pane`,
+`Header`, `HeaderItem`, `Table`, `TitleBar`, `Separator`, `SemanticZoom`, `AppBar`.
+
+`wait-for` resolves the root selector again on **every poll**, so the root may
+appear after the command starts. With `--gone`, an absent root means there is no
+matching descendant; an ambiguous root is an error, not success.
+`-w <HWND>` restricts root discovery to that window's UIA tree. With `-a`, root
+discovery can also find the app's popup windows.
+
+When filters are present, commands that read a single element fail with
+`ambiguous_selector` if more than one element remains; narrow the filters or use
+a unique slug. Exact AutomationId matches retain precedence over substring
+matches, within the filtered scope. Omitting all three options preserves the
+existing query behavior.
+
 ## Coordinating concurrent UI workflows
 
 Windows has only one foreground window, one keyboard focus, one cursor, and one input stream. When
