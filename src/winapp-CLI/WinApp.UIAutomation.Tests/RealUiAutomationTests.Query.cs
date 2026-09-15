@@ -13,6 +13,48 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    [DataRow(false, 0)]
+    [DataRow(false, 1)]
+    [DataRow(true, 0)]
+    [DataRow(true, 1)]
+    public async Task Query_InvalidControlType_ThrowsBeforeTargetResolution(bool root, int maxResults)
+    {
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = 0x7FFFFFFE, WindowHandle = 0, IsExplicitWindow = true };
+        var invalid = new UiSelector { Query = "MailRow", ControlType = "Buton" };
+        var selector = root ? new UiSelector { Root = invalid } : invalid;
+        var targetResolutions = 0;
+        UiAutomationService.s_getRootElement = (_, _, _) => { targetResolutions++; return null; };
+
+        var error = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            svc.SearchAsync(target, selector, maxResults, CancellationToken.None));
+        Assert.AreEqual("selector", error.ParamName);
+        StringAssert.Contains(error.Message, "Buton");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            svc.FindSingleElementAsync(target, selector, CancellationToken.None));
+        Assert.AreEqual(0, targetResolutions);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Query_ValidControlTypes_AcceptOfficialNamesAndAliases(bool root)
+    {
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = 0x7FFFFFFE, WindowHandle = 0, IsExplicitWindow = true };
+        UiAutomationService.s_getRootElement = (_, _, _) => null;
+        var types = Enumerable.Range(50000, 41).Select(UiControlTypes.GetName)
+            .Concat(["TextBox", "TextBlock"]);
+        foreach (var type in types)
+        {
+            var typed = new UiSelector { Query = "MailRow", ControlType = type.ToLowerInvariant() };
+            var selector = root ? new UiSelector { Root = typed } : typed;
+            Assert.IsEmpty(await svc.SearchAsync(target, selector, 1, CancellationToken.None), type);
+            Assert.IsNull(await svc.FindSingleElementAsync(target, selector, CancellationToken.None), type);
+        }
+    }
+
+    [TestMethod]
     [DataRow(false, unchecked((int)0x80040201))]
     [DataRow(true, unchecked((int)0x80040201))]
     [DataRow(true, unchecked((int)0x80004005))]

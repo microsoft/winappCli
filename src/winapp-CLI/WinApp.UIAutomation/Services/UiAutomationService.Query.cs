@@ -10,9 +10,15 @@ internal sealed partial class UiAutomationService
 {
     private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults, CancellationToken ct)
     {
-        if (selector.ControlType is { } type && UiControlTypes.GetId(type) == 0)
+        ValidateControlType(selector.ControlType);
+        ValidateControlType(selector.Root?.ControlType);
+
+        static void ValidateControlType(string? type)
         {
-            throw new ArgumentException($"Unknown UIA control type '{type}'.", nameof(selector));
+            if (type is not null && UiControlTypes.GetId(type) == 0)
+            {
+                throw new ArgumentException($"Unknown UIA control type '{type}'.", nameof(selector));
+            }
         }
         if (maxResults <= 0) { return []; }
         var windowRoot = GetRootElement(target, requireCurrentIdentity: true);
