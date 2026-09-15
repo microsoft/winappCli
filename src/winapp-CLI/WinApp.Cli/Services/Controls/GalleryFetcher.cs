@@ -42,9 +42,6 @@ internal static partial class GalleryFetcher
     [GeneratedRegex(@"^\s*---\s*(header|xaml|c#)\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex SampleSectionRegex();
 
-    [GeneratedRegex(@"\$\([^)]+\)")]
-    private static partial Regex SubstitutionRegex();
-
     [GeneratedRegex(@"ms-appx:///Assets/SampleMedia/[^""'\s]+")]
     private static partial Regex SampleMediaRegex();
 
@@ -327,7 +324,7 @@ internal static partial class GalleryFetcher
         }
 
         string? csharp = null;
-        if (!string.IsNullOrWhiteSpace(rawCsharp) && !rawCsharp.Contains("$("))
+        if (!string.IsNullOrWhiteSpace(rawCsharp) && !SampleSubstitutionPlaceholder.Contains(rawCsharp))
         {
             csharp = CompressCSharp(CleanGalleryContent(rawCsharp.Trim()));
             if (string.IsNullOrWhiteSpace(csharp)) csharp = null;
@@ -490,7 +487,7 @@ internal static partial class GalleryFetcher
         if (!match.Success) return null;
 
         var code = UnescapeXml(match.Groups[1].Value).Trim();
-        if (code.Contains("$("))
+        if (SampleSubstitutionPlaceholder.Contains(code))
         {
             // C# inline templates with $(VarName) substitutions are bound to live UI
             // controls. Replacing with "..." produces literals like `Title = "..."`
@@ -500,7 +497,7 @@ internal static partial class GalleryFetcher
             if (tagName == "CSharp") return null;
             // For XAML, the placeholder substitution is generally cosmetic (color, size)
             // and the surrounding markup is still useful — keep the existing behavior.
-            code = SubstitutionRegex().Replace(code, "...");
+            code = SampleSubstitutionPlaceholder.ReplaceAll(code, "...");
         }
         code = CleanGalleryContent(code);
         return string.IsNullOrWhiteSpace(code) ? null : code;
@@ -553,7 +550,7 @@ internal static partial class GalleryFetcher
         code = NormalizeMarkupSubstitutions(code);
         code = Regex.Replace(code, @"IsOpen=""(\$\(IsOpen\)|\.\.\.?)""", @"IsOpen=""True""");
         code = Regex.Replace(code, @"Severity=""(\$\(Severity\)|\.\.\.?)""", @"Severity=""Informational""");
-        code = SubstitutionRegex().Replace(code, "...");
+        code = SampleSubstitutionPlaceholder.ReplaceAll(code, "...");
 
         code = Regex.Replace(code, @"\n\s*\n\s*\n", "\n\n");
         return code.Trim();
@@ -582,7 +579,7 @@ internal static partial class GalleryFetcher
     /// </summary>
     internal static string NormalizeMarkupSubstitutions(string code)
     {
-        if (code.IndexOf("$(", StringComparison.Ordinal) < 0) return code;
+        if (!SampleSubstitutionPlaceholder.Contains(code)) return code;
 
         var sb = new StringBuilder(code.Length);
         var inTag = false;
@@ -614,25 +611,21 @@ internal static partial class GalleryFetcher
             if (c == '<') { inTag = true; sb.Append(c); continue; }
             if (c == '>') { inTag = false; sb.Append(c); continue; }
 
-            if (c == '$' && i + 1 < code.Length && code[i + 1] == '(')
+            if (SampleSubstitutionPlaceholder.TryMatchAt(code, i, out var tokenLength))
             {
-                var close = code.IndexOf(')', i + 2);
-                if (close > 0)
+                i += tokenLength - 1;
+                if (inTag)
                 {
-                    i = close;
-                    if (inTag)
-                    {
-                        // Drop the whitespace that separated the token from the previous
-                        // attribute too, so the tag doesn't keep a dangling gap before "/>".
-                        while (sb.Length > 0 && char.IsWhiteSpace(sb[^1])) sb.Length--;
-                    }
-                    else
-                    {
-                        sb.Append("<!-- ... -->");
-                    }
-
-                    continue;
+                    // Drop the whitespace that separated the token from the previous
+                    // attribute too, so the tag doesn't keep a dangling gap before "/>".
+                    while (sb.Length > 0 && char.IsWhiteSpace(sb[^1])) sb.Length--;
                 }
+                else
+                {
+                    sb.Append("<!-- ... -->");
+                }
+
+                continue;
             }
 
             sb.Append(c);
@@ -688,4 +681,3 @@ internal static partial class GalleryFetcher
         return code.Trim();
     }
 }
-
