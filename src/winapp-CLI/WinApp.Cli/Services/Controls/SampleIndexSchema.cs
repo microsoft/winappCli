@@ -66,6 +66,7 @@ internal static class SampleIndexSchema
     public const string Xaml = "xaml";
     public const string Code = "code";
     public const string Language = "language";
+    public const string Gallery = "gallery";
 
     /// <summary>Every document-level property the contract defines.</summary>
     public static readonly string[] DocumentProperties =
@@ -82,5 +83,5 @@ internal static class SampleIndexSchema
     /// <see cref="XmlnsImports"/> appear at BOTH levels: they are control-level defaults that
     /// an individual sample may override, because Toolkit samples legitimately carry their own
     /// description and their own XAML namespace imports.</summary>
-    public static readonly string[] SampleProperties = [Header, Xaml, Code, Language, Details, XmlnsImports];
+    public static readonly string[] SampleProperties = [Header, Xaml, Code, Language, Details, XmlnsImports, Gallery];
 }
