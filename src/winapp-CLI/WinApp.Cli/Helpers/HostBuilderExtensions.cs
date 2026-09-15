@@ -82,6 +82,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IUiOwnerResolver, UiOwnerResolver>()
             .AddSingleton<IInteractiveDesktopLock, InteractiveDesktopLock>()
             .AddSingleton<IDesktopForegroundService, DesktopForegroundService>()
+            .AddSingleton<IWindowDpiContextProvider, WindowDpiContextProvider>()
             .AddSingleton<IControlsSearchService, ControlsSearchService>();
     }
 

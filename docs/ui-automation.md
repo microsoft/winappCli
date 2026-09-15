@@ -877,7 +877,37 @@ if ($result.matchCount -ne 1) { throw "Expected 1 Submit button, found $($result
 $tree = winapp ui inspect "Counter Display" -a $pid --json | ConvertFrom-Json
 $counter = $tree.windows[0].elements[0]
 if ($counter.name -ne "Count: 3") { throw "Counter value wrong: $($counter.name)" }
+
+# Read typed element state while preserving the legacy string property map
+$property = winapp ui get-property "Counter Display" -a $pid --json | ConvertFrom-Json
+if ($property.element.type -ne "Text") { throw "Unexpected type: $($property.element.type)" }
+if ($property.element.isOffscreen) { throw "Counter is offscreen" }
 ```
+
+The JSON envelopes are:
+
+- `inspect`: `{ "depth", "interactive", "hideDisabled", "hideOffscreen", "windows": [...] }`
+- `search`: `{ "matchCount", "hasMore", "matches": [...] }`
+- `wait-for`: `{ "found", "waitedMs", "element"?, "timedOut" }`
+- `get-property`: `{ "elementId", "element", "properties": { ... } }`
+
+Typed elements use `type` and numeric `x`, `y`, `width`, and `height`.
+Geometry is in physical screen pixels. `0,0,0,0` is UI Automation's
+empty/no-displayed-UI rectangle in this projection; `isOffscreen` is separate,
+so an offscreen element can still have nonzero bounds.
+
+Each `inspect --json` `windows[]` entry and the `status --json` result include
+`windowDpi`, `scale` (`windowDpi / 96`), `dpiAwareness`, and
+`coordinateSpace: "physical-screen-pixels"`. These describe the target
+window's DPI context, not unconditional monitor DPI: Windows reports 96 for an
+unaware window, system DPI for a system-aware window, and current monitor DPI
+for a per-monitor-aware window. If the HWND or DPI context cannot be read,
+the command fails rather than silently substituting 96. When `status` resolves
+a process before it has a top-level window, `hwnd` is `0` and the DPI fields are
+omitted until a window exists.
+
+See the shipped `winapp-ui-automation` skill's
+`references/ui-json-envelope.md` for complete examples of each envelope.
 
 ### Full smoke test example
 ```powershell

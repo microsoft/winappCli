@@ -46,6 +46,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
     public partial class Handler(
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
+        IWindowDpiContextProvider windowDpiContextProvider,
         IAnsiConsole ansiConsole,
         IInteractiveDesktopLock desktopLock,
         ILogger<UiInspectCommand> logger) : UiCoordinatedAction(desktopLock, logger)
@@ -143,6 +144,14 @@ internal partial class UiInspectCommand : Command, IShortDescription
                     // and surface them as ancestorPath breadcrumbs on the surviving descendants.
                     var jsonElements = interactive ? allElements : elements;
                     var windows = BuildWindows(jsonElements, uiTarget, interactive);
+                    foreach (var windowInfo in windows)
+                    {
+                        var dpiContext = windowDpiContextProvider.GetForWindow(windowInfo.Hwnd);
+                        windowInfo.WindowDpi = dpiContext.WindowDpi;
+                        windowInfo.Scale = dpiContext.Scale;
+                        windowInfo.DpiAwareness = dpiContext.DpiAwareness;
+                        windowInfo.CoordinateSpace = dpiContext.CoordinateSpace;
+                    }
 
                     var result = new UiInspectResult
                     {
