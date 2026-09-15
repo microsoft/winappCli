@@ -28,14 +28,16 @@ internal sealed partial class UiAutomationService : IUiAutomation
     internal static Func<UiAutomationService, UiTarget, IUIAutomationElement?> s_getRootElement = (service, uiTarget) => service.GetRootElementCore(uiTarget);
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_getRootElementForHwnd = (service, hwnd) => service.GetRootElementForHwndCore(hwnd);
     internal static Func<UiAutomationService, UiTarget, List<(nint Hwnd, int Pid, string Title)>> s_getAllAppWindows = (service, uiTarget) => service.GetAllAppWindowsCore(uiTarget);
-    internal static Func<UiAutomationService, UiTarget, UiSelector, UiElement?> s_findElementOnOtherWindows = (service, uiTarget, selector) => service.FindElementOnOtherWindowsCore(uiTarget, selector);
+    internal static Func<UiAutomationService, UiTarget, UiSelector, CancellationToken, UiElement?> s_findElementOnOtherWindows =
+        (service, uiTarget, selector, ct) => service.FindElementOnOtherWindowsCore(uiTarget, selector, ct);
     internal static Func<IUIAutomationElement, IUIAutomationCondition, IUIAutomationElementArray?> s_findAllDescendants =
         (root, condition) => root.FindAll(TreeScope.TreeScope_Descendants, condition);
     internal static Func<UiAutomationService, IUIAutomationTreeWalker> s_getControlViewWalker =
         service => service._automation.get_ControlViewWalker();
     internal static Func<UiAutomationService, IUIAutomationElement, IUIAutomationElement, bool> s_compareElements =
         (service, first, second) => service._automation.CompareElements(first, second);
-    internal static Func<UiAutomationService, IUIAutomationElement, string, int, List<IUIAutomationElement>> s_manualTreeSearch = (service, root, query, maxResults) => service.ManualTreeSearchCore(root, query, maxResults);
+    internal static Func<UiAutomationService, IUIAutomationElement, string, int, CancellationToken, List<IUIAutomationElement>> s_manualTreeSearch =
+        (service, root, query, maxResults, ct) => service.ManualTreeSearchCore(root, query, maxResults, ct);
     internal static Func<UiAutomationService, IUIAutomationElement, IUIAutomationElement, IUIAutomationElement?> s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getFocusedElement = service => service._automation.GetFocusedElement();
     internal static Func<IUIAutomationElement, int> s_getElementProcessId = element => element.get_CurrentProcessId();
@@ -48,11 +50,13 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_getRootElement = (service, uiTarget) => service.GetRootElementCore(uiTarget);
         s_getRootElementForHwnd = (service, hwnd) => service.GetRootElementForHwndCore(hwnd);
         s_getAllAppWindows = (service, uiTarget) => service.GetAllAppWindowsCore(uiTarget);
-        s_findElementOnOtherWindows = (service, uiTarget, selector) => service.FindElementOnOtherWindowsCore(uiTarget, selector);
+        s_findElementOnOtherWindows =
+            (service, uiTarget, selector, ct) => service.FindElementOnOtherWindowsCore(uiTarget, selector, ct);
         s_findAllDescendants = (root, condition) => root.FindAll(TreeScope.TreeScope_Descendants, condition);
         s_getControlViewWalker = service => service._automation.get_ControlViewWalker();
         s_compareElements = (service, first, second) => service._automation.CompareElements(first, second);
-        s_manualTreeSearch = (service, root, query, maxResults) => service.ManualTreeSearchCore(root, query, maxResults);
+        s_manualTreeSearch =
+            (service, root, query, maxResults, ct) => service.ManualTreeSearchCore(root, query, maxResults, ct);
         s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
         s_getFocusedElement = service => service._automation.GetFocusedElement();
         s_getElementProcessId = element => element.get_CurrentProcessId();
@@ -430,10 +434,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         if (selector.Query is not null)
         {
-            var exactMatches = FindExactAutomationIdMatches(root, selector.Query, maxResults);
+            var exactMatches = FindExactAutomationIdMatches(root, selector.Query, maxResults, ct);
             var found = exactMatches.Count > 0
                 ? exactMatches
-                : FindQueryMatches(root, selector, maxResults);
+                : FindQueryMatches(root, selector, maxResults, ct);
             foreach (var el in found)
             {
                 var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -459,6 +463,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var mainHwnd = (nint)uiTarget.WindowHandle;
             foreach (var (hwnd, pid, title) in allWindows)
             {
+                ct.ThrowIfCancellationRequested();
                 if (hwnd == mainHwnd) { continue; }
                 try
                 {
@@ -468,10 +473,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     if (selector.Query is not null)
                     {
                         var remaining = maxResults - mainResults.Count;
-                        var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, remaining);
+                        var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, remaining, ct);
                         var windowFound = exactMatches.Count > 0
                             ? exactMatches
-                            : FindQueryMatches(windowRoot, selector, remaining);
+                            : FindQueryMatches(windowRoot, selector, remaining, ct);
                         foreach (var el in windowFound)
                         {
                             var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -520,7 +525,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             // Not found on main window — search other windows (unless --window scoped us to one)
             if (!uiTarget.IsExplicitWindow)
             {
-                var otherResult = FindElementOnOtherWindows(uiTarget, selector);
+                var otherResult = FindElementOnOtherWindows(uiTarget, selector, ct);
                 if (otherResult is not null)
                 {
                     return Task.FromResult<UiElement?>(otherResult);
@@ -544,7 +549,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 return Task.FromResult<UiElement?>(exactResult);
             }
 
-            var exactMatches = FindExactAutomationIdMatches(root, selector.Query, 1);
+            var exactMatches = FindExactAutomationIdMatches(root, selector.Query, 1, ct);
             if (exactMatches.Count > 0)
             {
                 var nextId = 0;
@@ -564,14 +569,14 @@ return Task.FromResult<UiElement?>(null);
             root,
             condition,
             int.MaxValue,
-            () => ManualTreeSearch(root, selector.Query!, int.MaxValue));
+            () => ManualTreeSearch(root, selector.Query!, int.MaxValue, ct));
         if (matches.Count == 0)
         {
             // Element not found on main window — search popup/owned windows
             // (unless --window scoped us to a single HWND).
             if (!uiTarget.IsExplicitWindow)
             {
-                var otherResult = FindElementOnOtherWindows(uiTarget, selector);
+                var otherResult = FindElementOnOtherWindows(uiTarget, selector, ct);
                 if (otherResult is not null)
                 {
                     return Task.FromResult<UiElement?>(otherResult);
@@ -1456,18 +1461,19 @@ return Task.FromResult<UiElement?>(null);
     /// Search for an element across all popup/owned windows of the app.
     /// Called when FindSingleElementAsync fails to find the element on the main window.
     /// </summary>
-    private UiElement? FindElementOnOtherWindows(UiTarget uiTarget, UiSelector selector)
+    private UiElement? FindElementOnOtherWindows(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
-        return s_findElementOnOtherWindows(this, uiTarget, selector);
+        return s_findElementOnOtherWindows(this, uiTarget, selector, ct);
     }
 
-    private UiElement? FindElementOnOtherWindowsCore(UiTarget uiTarget, UiSelector selector)
+    private UiElement? FindElementOnOtherWindowsCore(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
         var allWindows = GetAllAppWindows(uiTarget);
         var mainHwnd = (nint)uiTarget.WindowHandle;
 
         foreach (var (hwnd, pid, title) in allWindows)
         {
+            ct.ThrowIfCancellationRequested();
             if (hwnd == mainHwnd) { continue; }
 
             try
@@ -1497,7 +1503,7 @@ return Task.FromResult<UiElement?>(null);
                 }
                 else
                 {
-                    var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, 1);
+                    var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, 1, ct);
                     if (exactMatches.Count > 0)
                     {
                         var nextId = 0;
@@ -1505,7 +1511,7 @@ return Task.FromResult<UiElement?>(null);
                     }
                     else
                     {
-                        var matches = FindQueryMatches(windowRoot, selector, int.MaxValue);
+                        var matches = FindQueryMatches(windowRoot, selector, int.MaxValue, ct);
                         if (matches.Count == 1)
                         {
                             var nextId = 0;
@@ -1663,12 +1669,20 @@ return Task.FromResult<UiElement?>(null);
     /// works around UIA FindAll bugs where WebView2 controls stall the tree traversal
     /// and cause sibling elements after the WebView to be skipped.
     /// </summary>
-    private List<IUIAutomationElement> ManualTreeSearch(IUIAutomationElement root, string query, int maxResults)
+    private List<IUIAutomationElement> ManualTreeSearch(
+        IUIAutomationElement root,
+        string query,
+        int maxResults,
+        CancellationToken ct)
     {
-        return s_manualTreeSearch(this, root, query, maxResults);
+        return s_manualTreeSearch(this, root, query, maxResults, ct);
     }
 
-    private List<IUIAutomationElement> ManualTreeSearchCore(IUIAutomationElement root, string query, int maxResults)
+    private List<IUIAutomationElement> ManualTreeSearchCore(
+        IUIAutomationElement root,
+        string query,
+        int maxResults,
+        CancellationToken ct)
     {
         return ManualTreeSearchCore(
             root,
@@ -1679,13 +1693,15 @@ return Task.FromResult<UiElement?>(null);
                 var aid = SafeGetBstr(() => element.get_CurrentAutomationId());
                 return (aid is not null && aid.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
                     (name is not null && name.Contains(query, StringComparison.OrdinalIgnoreCase));
-            });
+            },
+            ct);
     }
 
     private List<IUIAutomationElement> ManualTreeSearchByAutomationId(
         IUIAutomationElement root,
         string automationId,
-        int maxResults)
+        int maxResults,
+        CancellationToken ct)
     {
         return ManualTreeSearchCore(
             root,
@@ -1693,13 +1709,15 @@ return Task.FromResult<UiElement?>(null);
             element => string.Equals(
                 SafeGetBstr(() => element.get_CurrentAutomationId()),
                 automationId,
-                StringComparison.Ordinal));
+                StringComparison.Ordinal),
+            ct);
     }
 
     private List<IUIAutomationElement> ManualTreeSearchCore(
         IUIAutomationElement root,
         int maxResults,
-        Func<IUIAutomationElement, bool> matches)
+        Func<IUIAutomationElement, bool> matches,
+        CancellationToken ct)
     {
         var results = new List<IUIAutomationElement>();
         if (maxResults <= 0)
@@ -1716,6 +1734,7 @@ return Task.FromResult<UiElement?>(null);
 
         while (pending.Count > 0 && results.Count < maxResults)
         {
+            ct.ThrowIfCancellationRequested();
             var element = pending.Pop();
 
             TryPushTraversalElement(
@@ -1847,7 +1866,8 @@ return Task.FromResult<UiElement?>(null);
     private List<IUIAutomationElement> FindExactAutomationIdMatches(
         IUIAutomationElement root,
         string automationId,
-        int maxResults)
+        int maxResults,
+        CancellationToken ct)
     {
         var condition = _automation.CreatePropertyCondition(
             UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
@@ -1856,13 +1876,14 @@ return Task.FromResult<UiElement?>(null);
             root,
             condition,
             maxResults,
-            () => ManualTreeSearchByAutomationId(root, automationId, maxResults));
+            () => ManualTreeSearchByAutomationId(root, automationId, maxResults, ct));
     }
 
     private List<IUIAutomationElement> FindQueryMatches(
         IUIAutomationElement root,
         UiSelector selector,
-        int maxResults)
+        int maxResults,
+        CancellationToken ct)
     {
         var condition = BuildCondition(selector);
         return condition is null || selector.Query is null
@@ -1871,7 +1892,7 @@ return Task.FromResult<UiElement?>(null);
                 root,
                 condition,
                 maxResults,
-                () => ManualTreeSearch(root, selector.Query, maxResults));
+                () => ManualTreeSearch(root, selector.Query, maxResults, ct));
     }
 
     private static unsafe string? TryGetElementIdentity(IUIAutomationElement element)
