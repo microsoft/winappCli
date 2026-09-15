@@ -15,6 +15,117 @@ public partial class RealUiAutomationTests
     [TestMethod]
     [DataRow(false, unchecked((int)0x80040201))]
     [DataRow(true, unchecked((int)0x80040201))]
+    [DataRow(true, unchecked((int)0x80004005))]
+    public async Task Query_ResultIdentityReadFailureIsNotDiscarded(bool constrained, int hresult)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        await ResolveAsync(svc, target, "btnInvoke");
+        var field = typeof(UiAutomationService).GetField("_automation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var automation = (IUIAutomation)field.GetValue(svc)!;
+        var realElement = automation.ElementFromHandle(new(fx.OnUiThread(() => fx.InvokeButton.Handle)));
+        var failure = new COMException("Result identity read interrupted.", hresult);
+        var identityReads = 0;
+        var element = ComProxy<IUIAutomationElement>((method, args) =>
+        {
+            if (method.Name == "GetRuntimeId") { identityReads++; throw failure; }
+            return method.Invoke(realElement, args);
+        });
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ComProxy<IUIAutomationElementArray>((method, _) => method.Name switch
+            {
+                "get_Length" => 1,
+                "GetElement" => element,
+                _ => throw new NotSupportedException(method.Name),
+            });
+        var query = new UiSelector { Query = "btnInvoke", ControlType = constrained ? "Button" : null };
+
+        if (constrained)
+        {
+            var actual = await Assert.ThrowsExactlyAsync<COMException>(() =>
+                svc.SearchAsync(target, query, 1, CancellationToken.None));
+            Assert.AreSame(failure, actual);
+        }
+        else
+        {
+            var matches = await svc.SearchAsync(target, query, 1, CancellationToken.None);
+            Assert.HasCount(1, matches);
+            Assert.AreEqual("btnInvoke", matches[0].AutomationId, "Unconstrained discovery remains best effort.");
+        }
+        Assert.IsTrue(identityReads > 0, "Exercise a failed runtime-ID read during result conversion.");
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task Query_ReadWithoutIdentityCannotFallBack(bool property, bool constrained)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var element = await ResolveAsync(svc, target, "txtValue");
+        element.Selector = null;
+        element.RequiresCurrentIdentity = constrained;
+
+        async Task Read()
+        {
+            if (property) { await svc.GetPropertiesAsync(target, element, "Value", CancellationToken.None); }
+            else { await svc.GetTextAsync(target, element, CancellationToken.None); }
+        }
+        if (constrained)
+        {
+            await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(Read);
+        }
+        else
+        {
+            await Read();
+        }
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(1000)]
+    public async Task Query_BulkAndWalkerUseTheSameControlView(int maxResults)
+    {
+        using var fx = new UiaTestFixture();
+        fx.OnUiThread(() =>
+        {
+            fx.InvokeButton.AccessibleName = "viewMatch";
+            fx.Form.Controls.Add(new Button { Name = "controlButton", Text = "viewMatch" });
+        });
+        var svc = NewService();
+        var target = SessionFor(fx);
+        await ResolveAsync(svc, target, "btnInvoke");
+        await ResolveAsync(svc, target, "controlButton");
+        var field = typeof(UiAutomationService).GetField("_automation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var automation = (IUIAutomation)field.GetValue(svc)!;
+        // Model a provider whose raw tree includes btnInvoke, but whose Control View excludes it.
+        var controlCondition = automation.CreateAndCondition(automation.get_ControlViewCondition(),
+            automation.CreateNotCondition(automation.CreatePropertyCondition(
+                UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
+                System.Runtime.InteropServices.Marshalling.ComVariant.Create("btnInvoke"))));
+        var walker = automation.CreateTreeWalker(controlCondition);
+        field.SetValue(svc, ComProxy<IUIAutomation>((method, args) => method.Name switch
+        {
+            "get_ControlViewCondition" => controlCondition,
+            "get_ControlViewWalker" => walker,
+            _ => method.Invoke(automation, args),
+        }));
+
+        var rawMatches = await svc.SearchAsync(target, new UiSelector { Query = "btnInvoke" }, 1, CancellationToken.None);
+        Assert.HasCount(1, rawMatches, "Unconstrained bulk discovery retains its existing raw-view behavior.");
+        var matches = await svc.SearchAsync(target, new UiSelector { Query = "viewMatch", ControlType = "Button" }, maxResults, CancellationToken.None);
+        Assert.IsFalse(matches.Any(m => m.AutomationId == "btnInvoke"),
+            "A raw-only match must not enter the constrained results, including at the result cap.");
+        Assert.IsTrue(matches.Any(m => m.AutomationId == "controlButton"), "Control View matches must remain discoverable.");
+    }
+
+    [TestMethod]
+    [DataRow(false, unchecked((int)0x80040201))]
+    [DataRow(true, unchecked((int)0x80040201))]
     [DataRow(false, unchecked((int)0x80004005))]
     [DataRow(true, unchecked((int)0x80004005))]
     public async Task Query_InterruptedSlugHashCannotReportAbsence(bool nameless, int hresult)
