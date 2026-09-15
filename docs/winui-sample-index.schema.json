@@ -154,6 +154,15 @@
               "description": "Names of Gallery substitution placeholders that were removed while producing this sample's 'xaml'. This is a diagnostic trail for static cleanup only; the published 'xaml' value itself must already be pasteable and contain no '$(Name)' placeholders.",
               "type": "array",
               "items": { "type": "string" }
+            },
+            "xamlOmittedAsMalformed": {
+              "description": "Present and true when this sample's XAML was withheld because it did not parse as a well-formed fragment — typically a placeholder standing in for an element name (for example '<$(EasingFunction)/>'), which leaves no valid markup once removed. The 'xaml' field is absent whenever this is true, so a sample carrying it is code-only and may be dropped entirely if it has no 'code' either. Producers should omit this field rather than emit false.",
+              "type": "boolean"
+            },
+            "codePlaceholdersPresent": {
+              "description": "Names of Gallery substitution placeholders that are STILL PRESENT in this sample's 'code'. Note the deliberate asymmetry with 'xamlPlaceholdersDropped': that field lists placeholders already removed and guarantees clean output, whereas this one warns that the published 'code' is NOT pasteable as-is. Placeholders survive in C# because, unlike a XAML attribute, there is no construct whose absence yields a default: the token may be an identifier fragment ('BadgeNotificationGlyph.$(SelectedGlyph)'), a fixed-arity argument ('SetBorderAndTitleBar($(HasBorder), $(HasTitleBar))'), or an entire statement, none of which can be deleted without a syntax error or gutting the sample. Consumers that promise pasteable output should suppress or clearly mark such 'code' rather than serving it; consumers that can reason about the tokens may use these names to substitute their own values.",
+              "type": "array",
+              "items": { "type": "string" }
             }
           },
           "additionalProperties": true
