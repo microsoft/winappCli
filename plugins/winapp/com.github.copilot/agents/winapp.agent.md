@@ -291,7 +291,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 
 ### `winapp manifest add-alias`
 **Purpose:** Add a `uap5:AppExecutionAlias` so users can launch a packaged app from a terminal.
-**When to use:** When a packaged app needs a command-line entry point. The alias defaults to the manifest's `Executable`; use `--name`, `--manifest`, or `--app-id` to override the target.
+**When to use:** When a packaged app needs a command-line entry point. The alias defaults to the selected application's `Executable`; use `--name` to override the inferred alias, `--manifest` to select a manifest, or `--app-id` to select an `<Application>` element.
 
 ### `winapp manifest update-assets <image-path> [--light-image <path>]`
 **Purpose:** Regenerate all required icon sizes, scale variants, and app.ico from a single source image (PNG, SVG, ICO, etc.).
