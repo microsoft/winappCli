@@ -34,6 +34,7 @@ public partial class RealRecordingTests
         Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, fps, bitrate)
             => new Mp4SinkWriterEncoder(path, width, height, fps, bitrate, overwriteExisting: false);
         RecordFrameBundleWriter.ResetTestSeams();
+        UiRecordingService.ResetWindowStateSeams();
     }
 
     [TestMethod]
@@ -337,7 +338,7 @@ public partial class RealRecordingTests
             }, CancellationToken.None));
 
         Assert.IsNotNull(exception.FramesDirectory);
-        StringAssert.StartsWith(exception.FramesDirectory, framesDirectory + ".partial-");
+        StringAssert.StartsWith(exception.FramesDirectory, framesDirectory + ".partial-", exception.RecoveryHint);
         var partialDirectory = exception.FramesDirectory;
         var manifest = JsonSerializer.Deserialize<JsonElement>(
             await File.ReadAllTextAsync(Path.Join(partialDirectory, "manifest.json")));
@@ -387,7 +388,7 @@ public partial class RealRecordingTests
         Assert.AreEqual("winning recording", await File.ReadAllTextAsync(output));
         Assert.IsFalse(Directory.Exists(framesDirectory));
         Assert.IsNotNull(exception.FramesDirectory);
-        StringAssert.StartsWith(exception.FramesDirectory, framesDirectory + ".partial-");
+        StringAssert.StartsWith(exception.FramesDirectory, framesDirectory + ".partial-", exception.RecoveryHint);
         Assert.IsTrue(Directory.Exists(exception.FramesDirectory));
     }
 
@@ -411,8 +412,9 @@ public partial class RealRecordingTests
             {
                 WriteFrameException = new IOException("simulated MP4 failure"),
             };
-        RecordFrameBundleWriter.s_create = _ => new FakeFrameSink
+        RecordFrameBundleWriter.s_create = configuration => new FakeFrameSink
         {
+            Configuration = configuration,
             WriteException = new IOException("simulated frame failure"),
         };
 
@@ -458,7 +460,11 @@ public partial class RealRecordingTests
             new FakeFrameGrabber(new byte[64 * 64 * 4], 64, 64);
         Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
             encoder = new FakeVideoEncoder(path, width, height);
-        RecordFrameBundleWriter.s_create = _ => frameSink;
+        RecordFrameBundleWriter.s_create = configuration =>
+        {
+            frameSink.Configuration = configuration;
+            return frameSink;
+        };
 
         var result = await recording.RecordAsync(uiTarget, null, new RecordOptions
         {
@@ -543,8 +549,9 @@ public partial class RealRecordingTests
             new FakeFrameGrabber(new byte[64 * 64 * 4], 64, 64);
         Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
             new FakeVideoEncoder(path, width, height);
-        RecordFrameBundleWriter.s_create = _ => new FakeFrameSink
+        RecordFrameBundleWriter.s_create = configuration => new FakeFrameSink
         {
+            Configuration = configuration,
             WriteException = failOnComplete ? null : frameFailure,
             CompleteException = failOnComplete ? frameFailure : null,
         };
@@ -581,8 +588,9 @@ public partial class RealRecordingTests
             new FakeFrameGrabber(new byte[64 * 64 * 4], 64, 64);
         Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
             new FakeVideoEncoder(path, width, height);
-        RecordFrameBundleWriter.s_create = _ => new FakeFrameSink
+        RecordFrameBundleWriter.s_create = configuration => new FakeFrameSink
         {
+            Configuration = configuration,
             IsTruncated = true,
             ByteLimit = RecordFrameBundleConfiguration.DefaultMaximumBundleBytes,
         };
@@ -664,10 +672,10 @@ public partial class RealRecordingTests
             new FakeFrameGrabber(new byte[64 * 64 * 4], 64, 64);
         Mp4SinkWriterEncoder.s_createNoClobber =
             (path, width, height, _, _) => new FakeVideoEncoder(path, width, height);
-        RecordFrameBundleWriter.s_create = _ =>
+        RecordFrameBundleWriter.s_create = configuration =>
         {
             Thread.Sleep(setupDelay);
-            return new FakeFrameSink();
+            return new FakeFrameSink { Configuration = configuration };
         };
 
         var wallClock = Stopwatch.StartNew();
@@ -794,6 +802,8 @@ public partial class RealRecordingTests
 
     private sealed class FakeFrameSink : IRecordFrameSink
     {
+        public RecordFrameBundleConfiguration? Configuration { get; set; }
+
         public int SampleCount { get; private set; }
 
         public int ImageCount => SampleCount;
@@ -832,11 +842,20 @@ public partial class RealRecordingTests
                 throw CompleteException;
             }
 
+            var configuration = Configuration ?? throw new InvalidOperationException("Frame sink was not configured.");
+            var directory = completion.PublicationDirectory ?? configuration.FinalDirectory;
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Join(directory, "frames.ndjson"), "");
+            File.WriteAllText(Path.Join(directory, "manifest.json"),
+                JsonSerializer.Serialize(new RecordFrameBundleManifest
+                {
+                    Video = new RecordFrameVideoManifest { Path = configuration.VideoPath },
+                }, RecordingJsonContext.Default.RecordFrameBundleManifest));
             return Task.FromResult(new RecordFrameArtifactResult
             {
-                Directory = "frames",
-                Manifest = "frames/manifest.json",
-                Index = "frames/frames.ndjson",
+                Directory = directory,
+                Manifest = Path.Join(directory, "manifest.json"),
+                Index = Path.Join(directory, "frames.ndjson"),
                 Samples = SampleCount,
                 Images = ImageCount,
                 Truncated = IsTruncated,

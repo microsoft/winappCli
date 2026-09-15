@@ -18,6 +18,9 @@ internal sealed class FakeDesktopForegroundService : IDesktopForegroundService
     /// <summary>Window handles passed to <see cref="Restore"/>, in order.</summary>
     public List<long> RestoreRequests { get; } = [];
 
+    /// <summary>Window handles passed to <see cref="ShowWithoutActivation"/>, in order.</summary>
+    public List<long> ShowWithoutActivationRequests { get; } = [];
+
     /// <summary>Handles this fake reports as minimized, so a test can drive the restore path.</summary>
     public HashSet<long> MinimizedWindows { get; } = [];
 
@@ -50,4 +53,6 @@ internal sealed class FakeDesktopForegroundService : IDesktopForegroundService
     public bool IsMinimized(long hwnd) => AllWindowsMinimized || MinimizedWindows.Contains(hwnd);
 
     public void Restore(long hwnd) => RestoreRequests.Add(hwnd);
+
+    public void ShowWithoutActivation(long hwnd) => ShowWithoutActivationRequests.Add(hwnd);
 }
