@@ -117,7 +117,7 @@ public partial class RealUiAutomationTests
         UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
         {
             Assert.AreEqual("provider-boundary", query);
-            Assert.AreEqual(10, maxResults);
+            Assert.AreEqual(int.MaxValue, maxResults);
             return [beforeBoundary, afterBoundary];
         };
 
@@ -185,13 +185,55 @@ public partial class RealUiAutomationTests
         var results = await svc.SearchAsync(
             uiTarget,
             new UiSelector { Query = "btnInvoke" },
-            2,
+            1,
             CancellationToken.None);
 
         Assert.AreEqual(1, results.Length);
         Assert.AreEqual("btnInvoke", results[0].AutomationId);
         Assert.AreEqual(2, findAllCalls, "The exact bulk miss must fall through to the substring bulk query.");
         Assert.AreEqual(1, walkCalls, "Only the completed substring query should walk Control View.");
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_PopupExactBulkMiss_RecoversExactIdPastFilledSubstringCap()
+    {
+        using var fx = new UiaTestFixture();
+        fx.OnUiThread(() => fx.TextLabel.AccessibleName = "btnInvoke");
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var nameMatch = FindByAutomationId(automation, root, "lblText");
+        var exactMatch = FindByAutomationId(automation, root, "btnInvoke");
+        var findAllCalls = 0;
+        var manualCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getAllAppWindows = (_, _) => [(9876, fx.ProcessId, "Popup")];
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == 9876 ? root : null;
+        UiAutomationService.s_findAllDescendants = (_, _) => ++findAllCalls switch
+        {
+            1 or 2 or 3 => ElementArray(),
+            4 => ElementArray(nameMatch),
+            _ => throw new AssertFailedException("Unexpected bulk query."),
+        };
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
+        {
+            Assert.AreEqual("btnInvoke", query);
+            Assert.AreEqual(int.MaxValue, maxResults);
+            return ++manualCalls == 1 ? [] : [nameMatch, exactMatch];
+        };
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "btnInvoke" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("btnInvoke", results[0].AutomationId);
+        Assert.AreEqual(9876, results[0].WindowHandle);
+        Assert.AreEqual(2, manualCalls, "Main and popup substring searches should each complete once.");
     }
 
     [TestMethod]
@@ -258,7 +300,7 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    public async Task SearchAsync_BulkResultFillsCap_SkipsManualTraversal()
+    public async Task SearchAsync_ExactBulkResultFillsCap_SkipsManualTraversal()
     {
         using var fx = new UiaTestFixture();
         var svc = NewService();
@@ -266,17 +308,14 @@ public partial class RealUiAutomationTests
         var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
         var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
         var bulkMatch = FindByAutomationId(automation, root, "btnInvoke");
-        var findAllCalls = 0;
-
         UiAutomationService.s_getRootElement = (_, _) => root;
-        UiAutomationService.s_findAllDescendants = (_, _) =>
-            ++findAllCalls == 1 ? ElementArray() : ElementArray(bulkMatch);
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(bulkMatch);
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) =>
             throw new AssertFailedException("A bulk result that fills maxResults must stay on the fast path.");
 
         var results = await svc.SearchAsync(
             uiTarget,
-            new UiSelector { Query = "provider-boundary" },
+            new UiSelector { Query = "btnInvoke" },
             1,
             CancellationToken.None);
 

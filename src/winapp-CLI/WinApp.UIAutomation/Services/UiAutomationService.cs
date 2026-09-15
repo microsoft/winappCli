@@ -437,9 +437,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var exactMatches = FindExactAutomationIdMatches(root, selector.Query, maxResults, ct);
             var found = exactMatches.Count > 0
                 ? exactMatches
-                : PreferExactAutomationIdMatches(
-                    FindQueryMatches(root, selector, maxResults, ct),
-                    selector.Query);
+                : FindPreferredQueryMatches(root, selector, maxResults, ct);
             foreach (var el in found)
             {
                 var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -478,9 +476,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, remaining, ct);
                         var windowFound = exactMatches.Count > 0
                             ? exactMatches
-                            : PreferExactAutomationIdMatches(
-                                FindQueryMatches(windowRoot, selector, remaining, ct),
-                                selector.Query);
+                            : FindPreferredQueryMatches(windowRoot, selector, remaining, ct);
                         foreach (var el in windowFound)
                         {
                             var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -1901,6 +1897,19 @@ return Task.FromResult<UiElement?>(null);
                 condition,
                 maxResults,
                 () => ManualTreeSearch(root, selector.Query, maxResults, ct));
+    }
+
+    private List<IUIAutomationElement> FindPreferredQueryMatches(
+        IUIAutomationElement root,
+        UiSelector selector,
+        int maxResults,
+        CancellationToken ct)
+    {
+        var matches = FindQueryMatches(root, selector, int.MaxValue, ct);
+        var preferredMatches = PreferExactAutomationIdMatches(matches, selector.Query!);
+        return preferredMatches.Count <= maxResults
+            ? preferredMatches
+            : preferredMatches.GetRange(0, maxResults);
     }
 
     private static List<IUIAutomationElement> PreferExactAutomationIdMatches(
