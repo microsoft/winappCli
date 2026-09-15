@@ -121,11 +121,16 @@ internal class UiInvokeCommand : Command, IShortDescription
 
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
-                    if (element is null)
+                    // Explicit mode commits to the initial identity. Its service overload resolves
+                    // that identity inside the turn, rather than rerunning a possibly broad text query.
+                    if (action is null)
                     {
-                        UiErrors.ElementNotFound(logger, selectorStr, json);
-                        return 1;
+                        element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                        if (element is null)
+                        {
+                            UiErrors.ElementNotFound(logger, selectorStr, json);
+                            return 1;
+                        }
                     }
 
                     if (!DesktopTargetValidation.TryConfirmTargetWindow(

@@ -170,19 +170,40 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public async Task Invoke_ExplicitAction_ReResolvesInsideDesktopTurn()
+    public async Task Invoke_ExplicitAction_PreservesSelectedIdentityAcrossDesktopWait()
     {
-        var oldElement = new UiElement { Id = "item", Selector = "item", WindowHandle = 4242 };
-        var current = new UiElement { Id = "item", Selector = "item", WindowHandle = 4242 };
-        _fakeUia.MovingResults["item"] = new Queue<UiElement?>([oldElement, current]);
+        var selected = new UiElement { Id = "primary", Selector = "primary", Name = "Save", WindowHandle = 4242 };
+        var replacement = new UiElement { Id = "secondary", Selector = "secondary", Name = "Save", WindowHandle = 4242 };
+        _fakeUia.MovingResults["Save"] = new Queue<UiElement?>([selected, replacement]);
         _fakeUia.ExplicitInvokeResult = new UiInvokeActionResult("SelectionItemPattern", "select");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
-            ["item", "-a", "TestApp", "--action", "select", "--json"]);
+            ["Save", "-a", "TestApp", "--action", "select", "--json"]);
 
         Assert.AreEqual(0, exitCode);
-        Assert.AreSame(current, _fakeUia.LastInvokedElement);
+        Assert.AreSame(selected, _fakeUia.LastInvokedElement,
+            "The strict service resolver must receive the selected identity, not a new text-query match.");
+        Assert.HasCount(1, _fakeUia.MovingResults["Save"], "Do not rerun the text query after waiting.");
         Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+    }
+
+    [TestMethod]
+    public async Task Invoke_ExplicitAction_RemovedWhileQueued_DoesNotReselectSibling()
+    {
+        var selected = new UiElement { Id = "primary", Selector = "primary", Name = "Save", WindowHandle = 4242 };
+        var replacement = new UiElement { Id = "secondary", Selector = "secondary", Name = "Save", WindowHandle = 4242 };
+        _fakeUia.MovingResults["Save"] = new Queue<UiElement?>([selected, replacement]);
+        _fakeUia.ExplicitInvokeThrow = new InvalidOperationException("Element primary is stale.");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Save", "-a", "TestApp", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreSame(selected, _fakeUia.LastInvokedElement);
+        Assert.HasCount(1, _fakeUia.MovingResults["Save"]);
+        Assert.AreEqual(1, _fakeUia.ExplicitInvokeCalls);
+        Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
+        AssertJsonErrorCode(UiJsonError.CodeInternalError);
     }
 
     [TestMethod]
