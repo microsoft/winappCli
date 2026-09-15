@@ -430,25 +430,24 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         if (selector.Query is not null)
         {
-            var condition = BuildCondition(selector);
-            if (condition is not null)
+            var exactMatches = FindExactAutomationIdMatches(root, selector.Query, maxResults);
+            var found = exactMatches.Count > 0
+                ? exactMatches
+                : FindQueryMatches(root, selector, maxResults);
+            foreach (var el in found)
             {
-                var found = FindAllDescendantMatches(root, condition, selector.Query, maxResults);
-                foreach (var el in found)
-                {
-                    var uiEl = ToUiElement(el, "", ref nextElementId);
-                    uiEl.WindowHandle = uiTarget.WindowHandle;
+                var uiEl = ToUiElement(el, "", ref nextElementId);
+                uiEl.WindowHandle = uiTarget.WindowHandle;
 
-                    if (!IsInvokable(el))
+                if (!IsInvokable(el))
+                {
+                    var ancestor = FindInvokableAncestor(el, root);
+                    if (ancestor is not null)
                     {
-                        var ancestor = FindInvokableAncestor(el, root);
-                        if (ancestor is not null)
-                        {
-                            uiEl.InvokableAncestor = ToUiElement(ancestor, "", ref nextElementId);
-                        }
+                        uiEl.InvokableAncestor = ToUiElement(ancestor, "", ref nextElementId);
                     }
-                    mainResults.Add(uiEl);
                 }
+                mainResults.Add(uiEl);
             }
         }
 
@@ -468,20 +467,16 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
                     if (selector.Query is not null)
                     {
-                        var condition = BuildCondition(selector);
-                        if (condition is not null)
+                        var remaining = maxResults - mainResults.Count;
+                        var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, remaining);
+                        var windowFound = exactMatches.Count > 0
+                            ? exactMatches
+                            : FindQueryMatches(windowRoot, selector, remaining);
+                        foreach (var el in windowFound)
                         {
-                            var windowFound = FindAllDescendantMatches(
-                                windowRoot,
-                                condition,
-                                selector.Query,
-                                maxResults - mainResults.Count);
-                            foreach (var el in windowFound)
-                            {
-                                var uiEl = ToUiElement(el, "", ref nextElementId);
-                                uiEl.WindowHandle = hwnd;
-                                mainResults.Add(uiEl);
-                            }
+                            var uiEl = ToUiElement(el, "", ref nextElementId);
+                            uiEl.WindowHandle = hwnd;
+                            mainResults.Add(uiEl);
                         }
                     }
                 }
@@ -548,6 +543,15 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 exactResult.WindowHandle = uiTarget.WindowHandle;
                 return Task.FromResult<UiElement?>(exactResult);
             }
+
+            var exactMatches = FindExactAutomationIdMatches(root, selector.Query, 1);
+            if (exactMatches.Count > 0)
+            {
+                var nextId = 0;
+                var exactResult = ToUiElement(exactMatches[0], "", ref nextId);
+                exactResult.WindowHandle = uiTarget.WindowHandle;
+                return Task.FromResult<UiElement?>(exactResult);
+            }
         }
 
         var condition = BuildCondition(selector);
@@ -556,7 +560,11 @@ internal sealed partial class UiAutomationService : IUiAutomation
 return Task.FromResult<UiElement?>(null);
         }
 
-        var matches = FindAllDescendantMatches(root, condition, selector.Query!, int.MaxValue);
+        var matches = FindAllDescendantMatches(
+            root,
+            condition,
+            int.MaxValue,
+            () => ManualTreeSearch(root, selector.Query!, int.MaxValue));
         if (matches.Count == 0)
         {
             // Element not found on main window — search popup/owned windows
@@ -1489,11 +1497,15 @@ return Task.FromResult<UiElement?>(null);
                 }
                 else
                 {
-                    // Substring search
-                    var condition = BuildCondition(selector);
-                    if (condition is not null)
+                    var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, 1);
+                    if (exactMatches.Count > 0)
                     {
-                        var matches = FindAllDescendantMatches(windowRoot, condition, selector.Query, int.MaxValue);
+                        var nextId = 0;
+                        found = ToUiElement(exactMatches[0], "", ref nextId);
+                    }
+                    else
+                    {
+                        var matches = FindQueryMatches(windowRoot, selector, int.MaxValue);
                         if (matches.Count == 1)
                         {
                             var nextId = 0;
@@ -1658,13 +1670,44 @@ return Task.FromResult<UiElement?>(null);
 
     private List<IUIAutomationElement> ManualTreeSearchCore(IUIAutomationElement root, string query, int maxResults)
     {
-        var walker = s_getControlViewWalker(this);
+        return ManualTreeSearchCore(
+            root,
+            maxResults,
+            element =>
+            {
+                var name = SafeGetBstr(() => element.get_CurrentName());
+                var aid = SafeGetBstr(() => element.get_CurrentAutomationId());
+                return (aid is not null && aid.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+                    (name is not null && name.Contains(query, StringComparison.OrdinalIgnoreCase));
+            });
+    }
+
+    private List<IUIAutomationElement> ManualTreeSearchByAutomationId(
+        IUIAutomationElement root,
+        string automationId,
+        int maxResults)
+    {
+        return ManualTreeSearchCore(
+            root,
+            maxResults,
+            element => string.Equals(
+                SafeGetBstr(() => element.get_CurrentAutomationId()),
+                automationId,
+                StringComparison.Ordinal));
+    }
+
+    private List<IUIAutomationElement> ManualTreeSearchCore(
+        IUIAutomationElement root,
+        int maxResults,
+        Func<IUIAutomationElement, bool> matches)
+    {
         var results = new List<IUIAutomationElement>();
         if (maxResults <= 0)
         {
             return results;
         }
 
+        var walker = s_getControlViewWalker(this);
         var pending = new Stack<IUIAutomationElement>();
         TryPushTraversalElement(
             () => walker.GetFirstChildElement(root),
@@ -1684,10 +1727,7 @@ return Task.FromResult<UiElement?>(null);
                 pending,
                 "first child");
 
-            var name = SafeGetBstr(() => element.get_CurrentName());
-            var aid = SafeGetBstr(() => element.get_CurrentAutomationId());
-            if ((aid is not null && aid.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
-                (name is not null && name.Contains(query, StringComparison.OrdinalIgnoreCase)))
+            if (matches(element))
             {
                 results.Add(element);
             }
@@ -1723,8 +1763,8 @@ return Task.FromResult<UiElement?>(null);
     private List<IUIAutomationElement> FindAllDescendantMatches(
         IUIAutomationElement root,
         IUIAutomationCondition condition,
-        string query,
-        int maxResults)
+        int maxResults,
+        Func<List<IUIAutomationElement>> manualSearch)
     {
         var results = new List<IUIAutomationElement>();
         if (maxResults <= 0)
@@ -1763,7 +1803,7 @@ return Task.FromResult<UiElement?>(null);
             }
         }
 
-        foreach (var candidate in ManualTreeSearch(root, query, maxResults))
+        foreach (var candidate in manualSearch())
         {
             if (results.Count >= maxResults)
             {
@@ -1804,12 +1844,43 @@ return Task.FromResult<UiElement?>(null);
         return results;
     }
 
+    private List<IUIAutomationElement> FindExactAutomationIdMatches(
+        IUIAutomationElement root,
+        string automationId,
+        int maxResults)
+    {
+        var condition = _automation.CreatePropertyCondition(
+            UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
+            ComVariant.Create(automationId));
+        return FindAllDescendantMatches(
+            root,
+            condition,
+            maxResults,
+            () => ManualTreeSearchByAutomationId(root, automationId, maxResults));
+    }
+
+    private List<IUIAutomationElement> FindQueryMatches(
+        IUIAutomationElement root,
+        UiSelector selector,
+        int maxResults)
+    {
+        var condition = BuildCondition(selector);
+        return condition is null || selector.Query is null
+            ? []
+            : FindAllDescendantMatches(
+                root,
+                condition,
+                maxResults,
+                () => ManualTreeSearch(root, selector.Query, maxResults));
+    }
+
     private static unsafe string? TryGetElementIdentity(IUIAutomationElement element)
     {
+        global::Windows.Win32.System.Com.SAFEARRAY* runtimeId = null;
         try
         {
-            var runtimeId = element.GetRuntimeId();
-            if (runtimeId is null)
+            runtimeId = element.GetRuntimeId();
+            if (runtimeId == null)
             {
                 return null;
             }
@@ -1832,7 +1903,17 @@ return Task.FromResult<UiElement?>(null);
         {
             return null;
         }
+        finally
+        {
+            if (runtimeId != null)
+            {
+                _ = SafeArrayDestroy(runtimeId);
+            }
+        }
     }
+
+    [LibraryImport("oleaut32.dll")]
+    private static unsafe partial int SafeArrayDestroy(global::Windows.Win32.System.Com.SAFEARRAY* safeArray);
 
     private bool ContainsElement(List<IUIAutomationElement> elements, IUIAutomationElement candidate)
     {
@@ -1845,7 +1926,7 @@ return Task.FromResult<UiElement?>(null);
                     return true;
                 }
             }
-            catch
+            catch (Exception ex) when (ex is COMException or InvalidCastException)
             {
                 if (ReferenceEquals(element, candidate))
                 {

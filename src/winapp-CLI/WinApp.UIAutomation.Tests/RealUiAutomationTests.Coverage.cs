@@ -109,9 +109,11 @@ public partial class RealUiAutomationTests
         var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
         var beforeBoundary = FindByAutomationId(automation, root, "btnInvoke");
         var afterBoundary = FindByAutomationId(automation, root, "txtValue");
+        var findAllCalls = 0;
 
         UiAutomationService.s_getRootElement = (_, _) => root;
-        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(beforeBoundary);
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(beforeBoundary);
         UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults) =>
         {
             Assert.AreEqual("provider-boundary", query);
@@ -140,9 +142,11 @@ public partial class RealUiAutomationTests
         var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
         var first = FindByAutomationId(automation, root, "btnInvoke");
         var second = FindByAutomationId(automation, root, "txtValue");
+        var findAllCalls = 0;
 
         UiAutomationService.s_getRootElement = (_, _) => root;
-        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(first, second);
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(first, second);
         UiAutomationService.s_manualTreeSearch = (_, _, _, _) => [first, second];
         UiAutomationService.s_compareElements = (_, _, _) =>
             throw new AssertFailedException("Elements with runtime IDs must not use pairwise COM comparison.");
@@ -157,6 +161,73 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task SearchAsync_ExactAutomationIdWalkPrecedesCappedSubstringResults()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var findAllCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+        {
+            findAllCalls++;
+            return ElementArray();
+        };
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _) =>
+            throw new AssertFailedException("Substring search must not run after an exact AutomationId walk succeeds.");
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "btnInvoke" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("btnInvoke", results[0].AutomationId);
+        Assert.AreEqual(1, findAllCalls, "Only the failed bulk exact lookup should run.");
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_PopupExactAutomationIdWalkPrecedesSubstringFallback()
+    {
+        using var fx = new UiaTestFixture();
+        var (popupHwnd, popupTitle) = fx.OpenOwnedWindow("Exact Popup");
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var mainRoot = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var popupRoot = automation.ElementFromHandle(new HWND(popupHwnd));
+        var substringWalks = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => mainRoot;
+        UiAutomationService.s_getAllAppWindows = (_, _) => [(popupHwnd, fx.ProcessId, popupTitle)];
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == popupHwnd ? popupRoot : null;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _) =>
+        {
+            substringWalks++;
+            if (substringWalks > 1)
+            {
+                throw new AssertFailedException(
+                    "Popup substring search must not run after an exact AutomationId walk succeeds.");
+            }
+            return [];
+        };
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "btnOwned" },
+            1,
+            CancellationToken.None);
+
+        Assert.IsTrue(results.Any(result => result.AutomationId == "btnOwned"));
+        Assert.AreEqual(1, substringWalks, "Only the main-window substring fallback should run.");
+    }
+
+    [TestMethod]
     public async Task FindSingleElementAsync_PartialNonzeroBulkResult_UsesCompleteSetForDisambiguation()
     {
         using var fx = new UiaTestFixture();
@@ -166,9 +237,11 @@ public partial class RealUiAutomationTests
         var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
         var nonInvokableBeforeBoundary = FindByAutomationId(automation, root, "lblShared");
         var invokableAfterBoundary = FindByAutomationId(automation, root, "btnShared");
+        var findAllCalls = 0;
 
         UiAutomationService.s_getRootElement = (_, _) => root;
-        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(nonInvokableBeforeBoundary);
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(nonInvokableBeforeBoundary);
         UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults) =>
         {
             Assert.AreEqual("provider-boundary", query);
@@ -194,9 +267,11 @@ public partial class RealUiAutomationTests
         var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
         var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
         var bulkMatch = FindByAutomationId(automation, root, "btnInvoke");
+        var findAllCalls = 0;
 
         UiAutomationService.s_getRootElement = (_, _) => root;
-        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(bulkMatch);
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(bulkMatch);
         UiAutomationService.s_manualTreeSearch = (_, _, _, _) =>
             throw new AssertFailedException("A bulk result that fills maxResults must stay on the fast path.");
 
@@ -693,7 +768,11 @@ public partial class RealUiAutomationTests
             "FindAll" => matches,
             _ => ThrowCom(),
         });
+        var findAllCalls = 0;
         UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : matches;
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _) => [];
 
         var ex = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(uiTarget, new UiSelector { Query = "Ambiguous" }, CancellationToken.None));
