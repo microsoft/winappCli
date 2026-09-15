@@ -207,6 +207,11 @@ internal sealed partial class UiAutomationService : IUiAutomation
             if (target is not null)
             {
                 startElement = target;
+                var scopedHwnd = GetTopLevelWindowHandle(startElement);
+                if (scopedHwnd != 0)
+                {
+                    mainHwnd = scopedHwnd;
+                }
             }
         }
 

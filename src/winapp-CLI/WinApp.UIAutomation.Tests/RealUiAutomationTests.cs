@@ -192,6 +192,23 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task InspectAsync_ScopedOwnedElementUsesOwnedWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (ownedHwnd, _) = fx.OpenOwnedWindow(
+            "ScopedOwned_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+
+        var tree = await svc.InspectAsync(uiTarget, "btnOwned", 0, CancellationToken.None);
+
+        var ownedButton = tree.Single(element => element.AutomationId == "btnOwned");
+        Assert.AreEqual(ownedHwnd, ownedButton.WindowHandle,
+            "a scoped element must carry its own top-level HWND for DPI context");
+    }
+
+    [TestMethod]
     public async Task InspectAncestorsAsync_ReturnsRootToTargetChain()
     {
         using var fx = new UiaTestFixture();
