@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "winappcli",
-  "description": "Windows app development, packaging, and distribution. Helps with creating Windows installers (MSIX), code signing, certificates, Windows SDK and Windows App SDK setup, package identity for Windows APIs (push notifications, background tasks, share target), appxmanifest authoring, and Microsoft Store distribution. Supports Electron, .NET, C++, Rust, Flutter, and Tauri apps.",
+  "description": "Agent plugin for developing Windows apps with the winapp CLI. Scaffold WinUI/XAML apps, find WinUI controls and Windows APIs, inspect and automate desktop app UIs, configure Windows SDK and Windows App SDK access, and package, sign, and distribute apps with MSIX. Supports WinUI, Electron, .NET (WPF, WinForms, and MAUI), C++, Rust, Flutter, and Tauri.",
   "version": "0.6.3",
   "author": {
     "name": "Microsoft",
@@ -12,6 +12,14 @@
   "license": "MIT",
   "keywords": [
     "windows",
+    "winui",
+    "winui 3",
+    "xaml",
+    "app scaffolding",
+    "ui automation",
+    "ui testing",
+    "winui gallery",
+    "windows community toolkit",
     "msix",
     "packaging",
     "installer",
