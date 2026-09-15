@@ -15,7 +15,7 @@ internal sealed partial class UiAutomationService
             throw new ArgumentException($"Unknown UIA control type '{type}'.", nameof(selector));
         }
         if (maxResults <= 0) { return []; }
-        var windowRoot = GetRootElement(target);
+        var windowRoot = GetRootElement(target, requireCurrentIdentity: true);
         if (windowRoot is null) { return []; }
 
         IUIAutomationElement queryRoot = windowRoot;
@@ -32,7 +32,7 @@ internal sealed partial class UiAutomationService
                 {
                     ct.ThrowIfCancellationRequested();
                     if (window.Hwnd == (nint)target.WindowHandle) { continue; }
-                    var otherRoot = GetRootElementForHwnd(window.Hwnd);
+                    var otherRoot = GetRootElementForHwnd(window.Hwnd, requireCurrentIdentity: true);
                     if (otherRoot is null) { continue; }
                     var windowRoots = QueryWindow(otherRoot, rootSelector, 2, ct, out var hasExactWindowRoot, includeRoot: true);
                     // Exact IDs take precedence across the entire app, not just within an HWND.
@@ -74,7 +74,7 @@ internal sealed partial class UiAutomationService
             {
                 ct.ThrowIfCancellationRequested();
                 if (window.Hwnd == (nint)target.WindowHandle) { continue; }
-                var otherRoot = GetRootElementForHwnd(window.Hwnd);
+                var otherRoot = GetRootElementForHwnd(window.Hwnd, requireCurrentIdentity: true);
                 if (otherRoot is null) { continue; }
                 AddMatches(QueryWindow(otherRoot, selector, maxResults - results.Count, ct, out _),
                     otherRoot, (long)window.Hwnd);
@@ -115,7 +115,7 @@ internal sealed partial class UiAutomationService
             // A same-name element with a different runtime ID is not this identity.
             // In particular, another app window may contain the actual slug.
             var (_, element) = FindElementBySlugWithCom(selector.Slug!, root, includeRoot,
-                throwOnHashMismatch: false, ct: ct);
+                throwOnHashMismatch: false, ct: ct, requireCurrentIdentity: true);
             return element is not null && MatchesQueryPredicates(element, selector) ? [element] : [];
         }
 
@@ -125,7 +125,7 @@ internal sealed partial class UiAutomationService
         {
             var exact = Search(_automation.CreatePropertyCondition(
                 UIA_PROPERTY_ID.UIA_AutomationIdPropertyId, ComVariant.Create(query)),
-                element => string.Equals(SafeGetBstr(() => element.get_CurrentAutomationId()),
+                element => string.Equals(GetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_AutomationIdPropertyId)),
                     query, StringComparison.Ordinal));
             if (exact.Count > 0)
             {
@@ -133,8 +133,8 @@ internal sealed partial class UiAutomationService
                 return exact;
             }
             return Search(BuildCondition(selector)!, element =>
-                SafeGetBstr(() => element.get_CurrentAutomationId())?.Contains(query, StringComparison.OrdinalIgnoreCase) == true
-                || SafeGetBstr(() => element.get_CurrentName())?.Contains(query, StringComparison.OrdinalIgnoreCase) == true);
+                GetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_AutomationIdPropertyId)).Contains(query, StringComparison.OrdinalIgnoreCase)
+                || GetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_NamePropertyId)).Contains(query, StringComparison.OrdinalIgnoreCase));
         }
         return Search(_automation.CreateTrueCondition(), _ => true);
 
@@ -158,7 +158,7 @@ internal sealed partial class UiAutomationService
             var remaining = maxResults - (rootMatches ? 1 : 0);
             var results = FindAllDescendantMatches(root, condition, remaining,
                 () => ManualTreeSearchCore(root, remaining, Matches, ct, throwOnTraversalFailure: true),
-                Matches, ct);
+                Matches, requireCurrentIdentity: true, ct: ct);
             if (rootMatches) { results.Insert(0, root); }
             return results;
         }
@@ -167,5 +167,5 @@ internal sealed partial class UiAutomationService
     private static bool MatchesQueryPredicates(IUIAutomationElement element, UiSelector selector) =>
         (selector.ControlType is null || (int)element.get_CurrentControlType() == UiControlTypes.GetId(selector.ControlType))
         && (selector.ClassName is null || string.Equals(
-            SafeGetBstr(() => element.get_CurrentClassName()), selector.ClassName, StringComparison.OrdinalIgnoreCase));
+            GetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_ClassNamePropertyId)), selector.ClassName, StringComparison.OrdinalIgnoreCase));
 }

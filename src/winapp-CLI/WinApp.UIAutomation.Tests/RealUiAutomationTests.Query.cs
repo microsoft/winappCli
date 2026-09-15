@@ -150,7 +150,7 @@ public partial class RealUiAutomationTests
             method.Invoke(realWalker, args?.Select(arg => ReferenceEquals(arg, root) ? realRoot : arg).ToArray()));
         field.SetValue(svc, ComProxy<IUIAutomation>((method, args) =>
             method.Name == "get_ControlViewWalker" ? walker : method.Invoke(automation, args)));
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         var actual = await Assert.ThrowsExactlyAsync<COMException>(() => svc.FindSingleElementAsync(target,
             new UiSelector { Root = new() { Slug = slug }, ControlType = "Button" }, CancellationToken.None));
@@ -360,7 +360,7 @@ public partial class RealUiAutomationTests
         });
         field.SetValue(svc, ComProxy<IUIAutomation>((method, args) =>
             method.Name == "get_ControlViewWalker" ? walker : method.Invoke(automation, args)));
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         return svc;
     }
 
