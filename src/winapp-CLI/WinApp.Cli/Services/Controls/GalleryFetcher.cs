@@ -42,9 +42,6 @@ internal static partial class GalleryFetcher
     [GeneratedRegex(@"^\s*---\s*(header|xaml|c#)\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex SampleSectionRegex();
 
-    [GeneratedRegex(@"\$\([^)]+\)")]
-    private static partial Regex SubstitutionRegex();
-
     [GeneratedRegex(@"ms-appx:///Assets/SampleMedia/[^""'\s]+")]
     private static partial Regex SampleMediaRegex();
 
@@ -306,10 +303,12 @@ internal static partial class GalleryFetcher
     /// <summary>
     /// Fetch and parse a new-format SampleDefinition .txt bundle. Splits it into the
     /// "--- header" / "--- xaml" / "--- c#" sections and returns cleaned xaml/c# ready for
-    /// truncation. XAML keeps the existing $(...) → "..." flattening (stray placeholders there
-    /// are cosmetic). A c# section containing $(...) live-substitution tokens is dropped, because
-    /// flattening them yields non-compileable code (e.g. `new Vector3(..., ..., ...)`) — the same
-    /// "no misleading C#" rule the inline extractor already applied.
+    /// truncation. A XAML $(...) token is resolved by position in <see cref="CleanGalleryContent"/>
+    /// (value-position attribute dropped so the property falls back to its own default,
+    /// content-position commented), never flattened to "...". A c# section containing $(...)
+    /// live-substitution tokens is dropped, because flattening them yields non-compileable code
+    /// (e.g. `new Vector3(..., ..., ...)`) — the same "no misleading C#" rule the inline
+    /// extractor already applied.
     /// </summary>
     private static async Task<(string header, string? xaml, string? csharp)> FetchSampleDefinition(string sampleDef, CancellationToken cancellationToken)
     {
@@ -327,7 +326,7 @@ internal static partial class GalleryFetcher
         }
 
         string? csharp = null;
-        if (!string.IsNullOrWhiteSpace(rawCsharp) && !rawCsharp.Contains("$("))
+        if (!string.IsNullOrWhiteSpace(rawCsharp) && !SampleSubstitutionPlaceholder.Contains(rawCsharp))
         {
             csharp = CompressCSharp(CleanGalleryContent(rawCsharp.Trim()));
             if (string.IsNullOrWhiteSpace(csharp)) csharp = null;
@@ -490,18 +489,19 @@ internal static partial class GalleryFetcher
         if (!match.Success) return null;
 
         var code = UnescapeXml(match.Groups[1].Value).Trim();
-        if (code.Contains("$("))
+        if (tagName == "CSharp" && SampleSubstitutionPlaceholder.Contains(code))
         {
             // C# inline templates with $(VarName) substitutions are bound to live UI
             // controls. Replacing with "..." produces literals like `Title = "..."`
             // and `Resize(new SizeInt32(..., ...))` that mislead agents into compiling
             // them. The code-behind extractor is the right path for C#; if it failed
             // (no .xaml.cs or no event/x:Bind/x:Name seeds), surface no csharp at all.
-            if (tagName == "CSharp") return null;
-            // For XAML, the placeholder substitution is generally cosmetic (color, size)
-            // and the surrounding markup is still useful — keep the existing behavior.
-            code = SubstitutionRegex().Replace(code, "...");
+            return null;
         }
+        // A XAML token is deliberately NOT flattened here: CleanGalleryContent resolves each
+        // one by the position it occupies (value-position attribute dropped, content-position
+        // commented), which keeps the markup pasteable. Flattening to "..." first would
+        // pre-empt that and bake in a non-compiling `Prop="..."`.
         code = CleanGalleryContent(code);
         return string.IsNullOrWhiteSpace(code) ? null : code;
     }
@@ -546,14 +546,16 @@ internal static partial class GalleryFetcher
         });
         code = string.Join('\n', lines);
 
-        // Clean substitution placeholders: replace known $(...) or "..." with defaults.
-        // Tokens in attribute and element-content position are normalized first — the
-        // generic flattening below produces invalid markup for both, see
-        // NormalizeMarkupSubstitutions.
-        code = NormalizeMarkupSubstitutions(code);
+        // Clean substitution placeholders. The two known-value rewrites run first: they give an
+        // attribute its intended value, and the position-aware pass below would otherwise drop the
+        // attribute outright — an InfoBar that loses IsOpen defaults to collapsed and the sample
+        // renders as nothing. NormalizeMarkupSubstitutions then handles every remaining token by
+        // position; see its summary. The final flattening is a safety net for a token in some
+        // position the pass does not model, and should normally find nothing left to do.
         code = Regex.Replace(code, @"IsOpen=""(\$\(IsOpen\)|\.\.\.?)""", @"IsOpen=""True""");
         code = Regex.Replace(code, @"Severity=""(\$\(Severity\)|\.\.\.?)""", @"Severity=""Informational""");
-        code = SubstitutionRegex().Replace(code, "...");
+        code = NormalizeMarkupSubstitutions(code);
+        code = SampleSubstitutionPlaceholder.ReplaceAll(code, "...");
 
         code = Regex.Replace(code, @"\n\s*\n\s*\n", "\n\n");
         return code.Trim();
@@ -577,12 +579,17 @@ internal static partial class GalleryFetcher
     /// so it becomes a comment. Flattening stays well-formed but assigns the literal string "..."
     /// as a collection's content, which does not compile when pasted.</description></item>
     /// </list>
-    /// A token inside an attribute value (<c>Value="$(DeterminateProgressValue)"</c>) is left for
-    /// the caller's generic flattening: that one is cosmetic and stays valid.
+    /// A token inside an attribute value (<c>Value="$(DeterminateProgressValue)"</c>) removes the
+    /// whole attribute, so the property falls back to its own default. Flattening that one to
+    /// <c>Value="..."</c> keeps the markup well-formed but does not compile: most of the
+    /// properties these tokens sit on are typed, and <c>"..."</c> is not a double, an enum member
+    /// or a bool. A bake of the Gallery corpus carried 156 such attributes — StrokeThickness,
+    /// Height, Width, Orientation, SelectionMode, PaneDisplayMode and friends — every one of them
+    /// a compile error on paste.
     /// </summary>
     internal static string NormalizeMarkupSubstitutions(string code)
     {
-        if (code.IndexOf("$(", StringComparison.Ordinal) < 0) return code;
+        if (!SampleSubstitutionPlaceholder.Contains(code)) return code;
 
         var sb = new StringBuilder(code.Length);
         var inTag = false;
@@ -610,29 +617,41 @@ internal static partial class GalleryFetcher
                 continue;
             }
 
-            if (inTag && (c == '"' || c == '\'')) { quote = c; sb.Append(c); continue; }
+            if (inTag && (c == '"' || c == '\''))
+            {
+                // Value position. Look at the whole value before committing to it: a token
+                // anywhere inside means the attribute cannot be salvaged, so the attribute goes
+                // rather than the token, exactly as in attribute position below.
+                var valueEnd = code.IndexOf(c, i + 1);
+                if (valueEnd > 0 && SampleSubstitutionPlaceholder.Contains(code[(i + 1)..valueEnd]))
+                {
+                    RemoveTrailingAttributeName(sb);
+                    i = valueEnd;
+                    continue;
+                }
+
+                quote = c;
+                sb.Append(c);
+                continue;
+            }
             if (c == '<') { inTag = true; sb.Append(c); continue; }
             if (c == '>') { inTag = false; sb.Append(c); continue; }
 
-            if (c == '$' && i + 1 < code.Length && code[i + 1] == '(')
+            if (SampleSubstitutionPlaceholder.TryMatchAt(code, i, out var tokenLength))
             {
-                var close = code.IndexOf(')', i + 2);
-                if (close > 0)
+                i += tokenLength - 1;
+                if (inTag)
                 {
-                    i = close;
-                    if (inTag)
-                    {
-                        // Drop the whitespace that separated the token from the previous
-                        // attribute too, so the tag doesn't keep a dangling gap before "/>".
-                        while (sb.Length > 0 && char.IsWhiteSpace(sb[^1])) sb.Length--;
-                    }
-                    else
-                    {
-                        sb.Append("<!-- ... -->");
-                    }
-
-                    continue;
+                    // Drop the whitespace that separated the token from the previous
+                    // attribute too, so the tag doesn't keep a dangling gap before "/>".
+                    while (sb.Length > 0 && char.IsWhiteSpace(sb[^1])) sb.Length--;
                 }
+                else
+                {
+                    sb.Append("<!-- ... -->");
+                }
+
+                continue;
             }
 
             sb.Append(c);
@@ -640,6 +659,29 @@ internal static partial class GalleryFetcher
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Rewinds <paramref name="sb"/> over the <c>Name=</c> just written, and the whitespace in
+    /// front of it, so the caller can drop an attribute whose value it has decided not to keep.
+    /// Taking the whitespace from the front is what keeps the tag tidy: an attribute written on
+    /// its own line takes that line with it, and the last attribute in a tag does not strand the
+    /// closing <c>/&gt;</c>.
+    /// </summary>
+    private static void RemoveTrailingAttributeName(StringBuilder sb)
+    {
+        var cut = sb.Length;
+
+        while (cut > 0 && char.IsWhiteSpace(sb[cut - 1])) cut--;
+        if (cut > 0 && sb[cut - 1] == '=') cut--;
+        while (cut > 0 && char.IsWhiteSpace(sb[cut - 1])) cut--;
+        while (cut > 0 && IsAttributeNameChar(sb[cut - 1])) cut--;
+        while (cut > 0 && char.IsWhiteSpace(sb[cut - 1])) cut--;
+
+        sb.Length = cut;
+    }
+
+    private static bool IsAttributeNameChar(char c)
+        => char.IsLetterOrDigit(c) || c == '.' || c == ':' || c == '_' || c == '-';
 
     private static string UnescapeXml(string s)
     {
@@ -688,4 +730,3 @@ internal static partial class GalleryFetcher
         return code.Trim();
     }
 }
-
