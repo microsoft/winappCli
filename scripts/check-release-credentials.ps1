@@ -356,19 +356,26 @@ else {
         Accept        = 'application/json'
     }
 
-    # Capability probe first. Azure DevOps does NOT return 401/403 when the caller cannot see
-    # service endpoints - it returns HTTP 200 with an empty list, which is indistinguishable from
-    # "this connection does not exist". The build service identity has no endpoint read permission
-    # by default, so without this probe every named connection reports a false "Not found" and the
-    # weekly rehearsal fails for a reason that is not real. (Observed on build 20260914.1: four
-    # FAILs against four connections that all exist and are ready.)
+    # What this check can and cannot prove.
     #
-    # If we can enumerate ANY endpoint, visibility works and a missing name is meaningful.
-    $canEnumerate = $false
+    # Azure DevOps does NOT return 401/403 when the caller cannot see a service endpoint - it
+    # returns HTTP 200 with an empty list, which is byte-identical to "this connection does not
+    # exist". Worse, endpoint `Read` is granted PER CONNECTION, so being able to see one endpoint
+    # says nothing about being able to see another. Absence is therefore never provable from here.
+    #
+    # So: a visible connection yields a real verdict (present, and ready or not), and anything
+    # invisible is reported as inconclusive rather than missing. Build 20260914.1 failed the first
+    # weekly rehearsal with four "Not found" verdicts against four connections that all existed and
+    # were ready; that must not happen again, and a partial permission grant must not recreate it.
+    #
+    # One unfiltered call rather than one per name: the same response answers every name, and it
+    # also tells us whether the identity has any endpoint visibility at all.
+    $visible = $null
     $probeFailure = $null
     try {
         $all = Invoke-RestMethod -Uri "$baseUri`?api-version=7.1" -Headers $adoHeaders -Method Get
-        $canEnumerate = ($all.count -gt 0)
+        $visible = @()
+        if ($all.count -gt 0) { $visible = @($all.value) }
     }
     catch {
         $probeStatus = 0
@@ -378,50 +385,36 @@ else {
         $probeFailure = "status $probeStatus"
     }
 
-    if (-not $canEnumerate) {
-        $why = if ($probeFailure) { "the endpoint API returned $probeFailure" } else { 'it returned an empty list' }
-        Add-Result -Status 'WARN' -Check 'Service connections' -Detail "The build identity cannot enumerate service endpoints ($why), so these could not be verified. Grant the build service 'Read' on the service connections to enable this check."
+    if ($null -eq $visible) {
+        Add-Result -Status 'WARN' -Check 'Service connections' -Detail "Could not list service endpoints (the API returned $probeFailure), so none could be verified."
+    }
+    elseif ($visible.Count -eq 0) {
+        Add-Result -Status 'WARN' -Check 'Service connections' -Detail "The build identity cannot see any service endpoint in '$AdoProject', so none could be verified. Grant the build service 'Read' on the service connections to enable this check."
     }
     else {
         foreach ($name in $ServiceConnections) {
             if (-not $name) { continue }
 
-            $uri = "$baseUri`?endpointNames=$([uri]::EscapeDataString($name))&api-version=7.1"
-            try {
-                $response = Invoke-RestMethod -Uri $uri -Headers $adoHeaders -Method Get
-                if ($response.count -gt 0) {
-                    $endpoint = $response.value[0]
-                    $isReady = $true
-                    if ($endpoint.PSObject.Properties.Name -contains 'isReady') {
-                        $isReady = [bool]$endpoint.isReady
-                    }
+            $endpoint = $visible | Where-Object { $_.name -eq $name } | Select-Object -First 1
 
-                    if ($isReady) {
-                        Add-Result -Status 'PASS' -Check "Service connection '$name'" -Detail "Present and ready (type: $($endpoint.type))."
-                    }
-                    else {
-                        Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail 'Present but not ready. It is likely mid-rotation or misconfigured.'
-                    }
-                }
-                else {
-                    # Meaningful now: the probe above proved this identity can see endpoints.
-                    Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail "Not found in project '$AdoProject'. It was renamed or deleted, or this pipeline is not authorized to use it."
-                }
+            if (-not $endpoint) {
+                # Cannot distinguish "deleted" from "Read not granted on this one", because the
+                # grant is per connection. Reporting this as missing is what broke build 20260914.1.
+                Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "Not visible to the build identity. It was renamed or deleted, or 'Read' was not granted on it specifically - this check cannot tell which."
+                continue
             }
-            catch {
-                $status = 0
-                if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
-                    $status = [int]$_.Exception.Response.StatusCode
-                }
 
-                if ($status -eq 401 -or $status -eq 403) {
-                    # The build identity cannot read endpoints. That says nothing about whether the
-                    # connection works, so it must not fail the run.
-                    Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "The build identity is not allowed to read service endpoints (status $status), so this could not be verified."
-                }
-                else {
-                    Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "Query failed (status $status): $($_.Exception.Message)"
-                }
+            $isReady = $true
+            if ($endpoint.PSObject.Properties.Name -contains 'isReady') {
+                $isReady = [bool]$endpoint.isReady
+            }
+
+            if ($isReady) {
+                Add-Result -Status 'PASS' -Check "Service connection '$name'" -Detail "Present and ready (type: $($endpoint.type))."
+            }
+            else {
+                # Visible AND explicitly not ready: the one definitive bad verdict available here.
+                Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail 'Present but not ready. It is likely mid-rotation or misconfigured.'
             }
         }
     }

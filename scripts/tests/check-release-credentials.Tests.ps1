@@ -112,20 +112,47 @@ Describe 'check-release-credentials.ps1' {
             # Regression test for build 20260914.1, where the first real weekly rehearsal failed
             # with four "Not found" FAILs against four connections that all existed and were ready.
             #
-            # Azure DevOps does NOT return 401/403 when the caller lacks endpoint read permission -
-            # it returns HTTP 200 with an empty list, which is indistinguishable from "absent". The
-            # script must therefore probe its own visibility first and report inconclusive, rather
-            # than accusing every named connection of not existing.
+            # The failure mode is specifically an HTTP 200 carrying {"count":0,"value":[]}: Azure
+            # DevOps does NOT 401/403 when the caller lacks endpoint read permission, so an empty
+            # success is indistinguishable from absence. A connection-refused error would exercise
+            # a different branch entirely and would not catch a regression here, so this stands up
+            # a real listener on loopback and serves that exact body.
             #
-            # 127.0.0.1:1 is unroutable and refuses immediately, so this exercises the probe-failure
-            # branch without leaving the machine - scripts/tests must stay offline because
-            # build-cli.ps1 runs them during a real release build.
+            # Loopback only - scripts/tests must stay offline because build-cli.ps1 runs them
+            # during a real release build.
+            $script:listener = [System.Net.HttpListener]::new()
+            $script:port = Get-Random -Minimum 14000 -Maximum 14999
+            $script:listener.Prefixes.Add("http://127.0.0.1:$($script:port)/")
+            $script:listener.Start()
+
+            $script:pump = [powershell]::Create()
+            [void]$script:pump.AddScript({
+                    param($l)
+                    while ($l.IsListening) {
+                        try {
+                            $ctx = $l.GetContext()
+                            $bytes = [Text.Encoding]::UTF8.GetBytes('{"count":0,"value":[]}')
+                            $ctx.Response.StatusCode = 200
+                            $ctx.Response.ContentType = 'application/json'
+                            $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                            $ctx.Response.Close()
+                        }
+                        catch { break }
+                    }
+                }).AddArgument($script:listener)
+            [void]$script:pump.BeginInvoke()
+
             $script:result = Invoke-Checker -ScriptArgs @(
-                '-AdoOrganizationUri', 'http://127.0.0.1:1/',
+                '-AdoOrganizationUri', "http://127.0.0.1:$($script:port)/",
                 '-AdoProject', 'pde-oss',
                 '-AdoAccessToken', 'irrelevant',
                 '-ServiceConnections', 'conn-a', 'conn-b'
             )
+        }
+
+        AfterAll {
+            if ($script:listener) { $script:listener.Stop(); $script:listener.Close() }
+            if ($script:pump) { $script:pump.Dispose() }
         }
 
         It 'reports one inconclusive warning instead of a failure per connection' {
@@ -135,6 +162,103 @@ Describe 'check-release-credentials.ps1' {
 
         It 'tells the operator how to make the check work' {
             $script:result.Output | Should -Match "Grant the build service 'Read'"
+        }
+    }
+
+    Context 'a connection that is not among the visible endpoints' {
+        BeforeAll {
+            # Partial permission grants are the subtler half of the same bug: endpoint `Read` is
+            # granted per connection, so seeing SOME endpoints proves nothing about a specific one.
+            # Serving a non-empty list that omits the requested name must still be inconclusive.
+            $script:listener2 = [System.Net.HttpListener]::new()
+            $script:port2 = Get-Random -Minimum 15000 -Maximum 15999
+            $script:listener2.Prefixes.Add("http://127.0.0.1:$($script:port2)/")
+            $script:listener2.Start()
+
+            $script:pump2 = [powershell]::Create()
+            [void]$script:pump2.AddScript({
+                    param($l)
+                    $body = '{"count":1,"value":[{"name":"some-other-connection","type":"github","isReady":true}]}'
+                    while ($l.IsListening) {
+                        try {
+                            $ctx = $l.GetContext()
+                            $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+                            $ctx.Response.StatusCode = 200
+                            $ctx.Response.ContentType = 'application/json'
+                            $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                            $ctx.Response.Close()
+                        }
+                        catch { break }
+                    }
+                }).AddArgument($script:listener2)
+            [void]$script:pump2.BeginInvoke()
+
+            $script:result2 = Invoke-Checker -ScriptArgs @(
+                '-AdoOrganizationUri', "http://127.0.0.1:$($script:port2)/",
+                '-AdoProject', 'pde-oss',
+                '-AdoAccessToken', 'irrelevant',
+                '-ServiceConnections', 'missing-connection'
+            )
+        }
+
+        AfterAll {
+            if ($script:listener2) { $script:listener2.Stop(); $script:listener2.Close() }
+            if ($script:pump2) { $script:pump2.Dispose() }
+        }
+
+        It 'warns rather than declaring it missing' {
+            # Partial visibility must not recreate build 20260914.1's false failure.
+            $script:result2.Output | Should -Match '\[WARN\] Service connection'
+            $script:result2.Output | Should -Not -Match '\[FAIL\] Service connection'
+        }
+
+        It 'says it cannot tell deleted from not-readable' {
+            $script:result2.Output | Should -Match 'cannot tell which'
+        }
+    }
+
+    Context 'a visible connection that is not ready' {
+        BeforeAll {
+            # The one definitive bad verdict this check can still produce, so it must survive the
+            # move to inconclusive-by-default.
+            $script:listener3 = [System.Net.HttpListener]::new()
+            $script:port3 = Get-Random -Minimum 16000 -Maximum 16999
+            $script:listener3.Prefixes.Add("http://127.0.0.1:$($script:port3)/")
+            $script:listener3.Start()
+
+            $script:pump3 = [powershell]::Create()
+            [void]$script:pump3.AddScript({
+                    param($l)
+                    $body = '{"count":1,"value":[{"name":"half-built","type":"azurerm","isReady":false}]}'
+                    while ($l.IsListening) {
+                        try {
+                            $ctx = $l.GetContext()
+                            $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+                            $ctx.Response.StatusCode = 200
+                            $ctx.Response.ContentType = 'application/json'
+                            $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                            $ctx.Response.Close()
+                        }
+                        catch { break }
+                    }
+                }).AddArgument($script:listener3)
+            [void]$script:pump3.BeginInvoke()
+
+            $script:result3 = Invoke-Checker -ScriptArgs @(
+                '-AdoOrganizationUri', "http://127.0.0.1:$($script:port3)/",
+                '-AdoProject', 'pde-oss',
+                '-AdoAccessToken', 'irrelevant',
+                '-ServiceConnections', 'half-built'
+            )
+        }
+
+        AfterAll {
+            if ($script:listener3) { $script:listener3.Stop(); $script:listener3.Close() }
+            if ($script:pump3) { $script:pump3.Dispose() }
+        }
+
+        It 'still fails definitively' {
+            $script:result3.Output | Should -Match "\[FAIL\] Service connection 'half-built'"
         }
     }
 

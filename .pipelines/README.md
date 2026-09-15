@@ -135,15 +135,23 @@ Three things to check in the ADO UI:
    `refs/heads/rel/v*` and `refs/heads/main`. A `rel/v*`-only filter would block the rehearsal;
    a `main`-only filter would block real releases.
 3. Grant the **build service identity `Read` on each service connection** (connection → Security →
-   add `<project> Build Service` as Reader). Without it the service-connection checks cannot run.
-   They degrade to a single inconclusive `WARN` rather than failing, so this is optional — but the
-   check only has value once it is granted.
+   add `<project> Build Service` as Reader). Grant it on **every** connection the check names —
+   the permission is per connection, so a partial grant leaves the rest unverifiable. Without it
+   the checks report `WARN` rather than failing, so this is optional; the check simply has no
+   value until it is granted.
 
-> **Why that third one is not optional-by-accident.** Azure DevOps does **not** return 403 when a
-> caller lacks endpoint read permission — it returns HTTP 200 with an empty list, which reads
-> identically to "this connection does not exist". The first real rehearsal (build 20260914.1)
-> failed with four "Not found" verdicts against four connections that all existed and were ready.
-> The script now probes its own visibility first and says so, instead of accusing them.
+> **What this check can and cannot prove.** Azure DevOps does **not** return 403 when a caller
+> lacks endpoint read permission — it returns HTTP 200 with an empty list, which reads identically
+> to "this connection does not exist". Because the grant is per connection, seeing one endpoint
+> also says nothing about seeing another. **Absence is therefore never provable here**, and an
+> invisible connection is always reported `WARN`, never `FAIL`.
+>
+> What remains definitive: a visible connection is confirmed present, and a visible connection
+> that reports `isReady: false` is a real `FAIL`.
+>
+> The first real rehearsal (build 20260914.1) failed with four "Not found" verdicts against four
+> connections that all existed and were ready. That is the failure mode this wording exists to
+> prevent recurring.
 
 `always: true` on the schedule is deliberate: without it a quiet week produces no run, and a quiet
 week is exactly when an external policy change slips in unnoticed.
