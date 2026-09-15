@@ -55,6 +55,7 @@ internal class UiWaitForCommand : Command, IShortDescription
         Options.Add(GoneOption);
         Options.Add(ValueOption);
         Options.Add(ContainsOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -93,7 +94,7 @@ internal class UiWaitForCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -112,7 +113,7 @@ internal class UiWaitForCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
                 var sw = Stopwatch.StartNew();
 
                 while (sw.ElapsedMilliseconds < timeout)
@@ -124,11 +125,19 @@ internal class UiWaitForCommand : Command, IShortDescription
                     {
                         element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
                     }
-                    catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
+                    catch (System.Runtime.InteropServices.COMException ex) when (
+                        selector.HasConstraints && ex.HResult == unchecked((int)0x80040201)) // UIA_E_ELEMENTNOTAVAILABLE
                     {
-                        // "Not found yet" is the normal case while polling, so a lookup failure just means
-                        // keep waiting. Cancellation is not a lookup failure: swallowing it here would let
-                        // --gone report the element as gone the moment the user pressed Ctrl+C.
+                        // A root can be replaced during traversal. Retry the selector next poll,
+                        // but do not mistake an interrupted lookup for confirmed absence.
+                        await pollDelay.DelayAsync(100, cancellationToken);
+                        continue;
+                    }
+                    catch (Exception ex) when (!selector.HasConstraints && !UiCoordinatedAction.IsCoordinationFault(ex))
+                    {
+                        // Preserve unscoped polling behavior. Constrained queries return null for
+                        // absence; their errors must not make --gone report a successful disappearance.
+                        // Cancellation is never a lookup failure.
                         element = null;
                     }
 
@@ -156,19 +165,31 @@ internal class UiWaitForCommand : Command, IShortDescription
                         {
                             string? currentValue = null;
 
-                            if (property is not null)
+                            try
                             {
-                                // --property specified: check raw UIA property
-                                var props = await uiAutomation.GetPropertiesAsync(uiTarget, element, property, cancellationToken);
-                                if (props.TryGetValue(property, out var propValue))
+                                if (property is not null)
                                 {
-                                    currentValue = propValue?.ToString();
+                                    // --property specified: check raw UIA property
+                                    var props = await uiAutomation.GetPropertiesAsync(uiTarget, element, property, cancellationToken);
+                                    if (props.TryGetValue(property, out var propValue))
+                                    {
+                                        currentValue = propValue?.ToString();
+                                    }
+                                }
+                                else
+                                {
+                                    // No --property: use smart fallback (TextPattern → ValuePattern → Name)
+                                    currentValue = await uiAutomation.GetTextAsync(uiTarget, element, cancellationToken);
                                 }
                             }
-                            else
+                            catch (Exception ex) when (selector.HasConstraints &&
+                                (ex is UiElementNotFoundException ||
+                                 ex is System.Runtime.InteropServices.COMException { HResult: unchecked((int)0x80040201) }))
                             {
-                                // No --property: use smart fallback (TextPattern → ValuePattern → Name)
-                                currentValue = await uiAutomation.GetTextAsync(uiTarget, element, cancellationToken);
+                                // The matched identity can disappear between lookup and the value read.
+                                // Resolve the full query again, rather than reading a replacement by name.
+                                await pollDelay.DelayAsync(100, cancellationToken);
+                                continue;
                             }
 
                             var valueMatches = contains
@@ -241,15 +262,20 @@ internal class UiWaitForCommand : Command, IShortDescription
                 }
                 return 1;
             }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
             catch (System.Runtime.InteropServices.COMException comEx)
             {
                 logger.LogDebug("COM error: {HResult} {StackTrace}", comEx.HResult, comEx.StackTrace);
-                UiErrors.StaleElement(logger, json);
+                UiErrors.StaleElement(logger, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
             catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
-                UiErrors.GenericError(logger, ex, json);
+                UiErrors.GenericError(logger, ex, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
         }

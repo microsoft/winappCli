@@ -140,8 +140,8 @@ public class UiAutomationServicePureTests
     [TestMethod]
     [DataRow("")]
     [DataRow("NotAControlType")]
-    [DataRow("button")] // case-sensitive: lowercase does not match
-    [DataRow("Custom")]
+    [DataRow("Button*")]
+    [DataRow("50000")]
     public void MapControlType_UnknownTypeName_ReturnsZero(string typeName)
     {
         Assert.AreEqual(0, UiAutomationService.MapControlType(typeName));

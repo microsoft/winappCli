@@ -775,8 +775,11 @@ function uiGetProperty(options?: UiGetPropertyOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -797,7 +800,10 @@ function uiGetValue(options?: UiGetValueOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -1004,8 +1010,11 @@ function uiSearch(options?: UiSearchOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `max` | `number \| undefined` | No | Maximum search results |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -1122,11 +1131,14 @@ function uiWaitFor(options?: UiWaitForOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `contains` | `boolean \| undefined` | No | Use substring matching for --value instead of exact match |
 | `gone` | `boolean \| undefined` | No | Wait for element to disappear instead of appear |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
 | `timeout` | `number \| undefined` | No | Timeout in milliseconds |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `value` | `string \| undefined` | No | Wait for element value to equal this string. Uses smart fallback (TextPattern -> ValuePattern -> Name). Combine with --property to check a specific property instead. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 
@@ -2025,8 +2037,11 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -2040,7 +2055,10 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -2184,8 +2202,11 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `max` | `number \| undefined` | No | Maximum search results |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -2267,11 +2288,14 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
 | `contains` | `boolean \| undefined` | No | Use substring matching for --value instead of exact match |
 | `gone` | `boolean \| undefined` | No | Wait for element to disappear instead of appear |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
+| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
 | `timeout` | `number \| undefined` | No | Timeout in milliseconds |
+| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
 | `value` | `string \| undefined` | No | Wait for element value to equal this string. Uses smart fallback (TextPattern -> ValuePattern -> Name). Combine with --property to check a specific property instead. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |

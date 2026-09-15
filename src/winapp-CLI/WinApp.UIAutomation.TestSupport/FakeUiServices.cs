@@ -12,6 +12,7 @@ public class FakeUiAutomationService : IUiAutomation
     public UiElement[] InspectResult { get; set; } = [];
     public UiElement[] SearchResult { get; set; } = [];
     public UiElement? FindSingleResult { get; set; }
+    public List<UiSelector> Queries { get; } = [];
 
     /// <summary>
     /// Optional per-call results for <see cref="FindSingleElementAsync"/>. When non-empty, the first
@@ -75,6 +76,7 @@ public class FakeUiAutomationService : IUiAutomation
     public Exception? FocusThrow { get; set; }
     public Exception? GetFocusedThrow { get; set; }
     public Exception? GetTextThrow { get; set; }
+    public Queue<Exception> ReadFailures { get; } = new();
     public Exception? ScrollContainerThrow { get; set; }
     public Exception? ScrollIntoViewThrow { get; set; }
     public Exception? SetValueThrow { get; set; }
@@ -138,12 +140,14 @@ public class FakeUiAutomationService : IUiAutomation
 
     public Task<UiElement[]> SearchAsync(UiTarget uiTarget, UiSelector selector, int maxResults, CancellationToken ct)
     {
+        Queries.Add(selector);
         if (SearchThrow is not null) { throw SearchThrow; }
         return Task.FromResult(SearchResult.Take(maxResults).ToArray());
     }
 
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
+        Queries.Add(selector);
         if (FindSingleElementThrowException is not null) { throw FindSingleElementThrowException; }
         if (FindSingleThrow is not null) { throw FindSingleThrow; }
         if (FindSingleThrowCount > 0)
@@ -181,6 +185,7 @@ public class FakeUiAutomationService : IUiAutomation
 
     public Task<Dictionary<string, object?>> GetPropertiesAsync(UiTarget uiTarget, UiElement element, string? propertyName, CancellationToken ct)
     {
+        if (ReadFailures.TryDequeue(out var failure)) { throw failure; }
         if (PropertiesThrow is not null) { throw PropertiesThrow; }
         return Task.FromResult(PropertiesResult);
     }
@@ -267,6 +272,7 @@ public class FakeUiAutomationService : IUiAutomation
 
     public Task<string?> GetTextAsync(UiTarget uiTarget, UiElement element, CancellationToken ct)
     {
+        if (ReadFailures.TryDequeue(out var failure)) { throw failure; }
         if (GetTextThrow is not null) { throw GetTextThrow; }
         if (GetTextResults.Count > 0) { return Task.FromResult(GetTextResults.Dequeue()); }
         return Task.FromResult(GetTextResult);
