@@ -1146,11 +1146,11 @@ export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise
   const args: string[] = ['ui', 'get-property'];
   if (options.selector) args.push(options.selector);
   if (options.app) args.push('--app', options.app);
-  if (options.className) args.push('--class-name', options.className);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
   if (options.property) args.push('--property', options.property);
-  if (options.root) args.push('--root', options.root);
-  if (options.type) args.push('--type', options.type);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   return execCommand(args, options);
 }
@@ -1183,10 +1183,10 @@ export async function uiGetValue(options: UiGetValueOptions = {}): Promise<Winap
   const args: string[] = ['ui', 'get-value'];
   if (options.selector) args.push(options.selector);
   if (options.app) args.push('--app', options.app);
-  if (options.className) args.push('--class-name', options.className);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
-  if (options.root) args.push('--root', options.root);
-  if (options.type) args.push('--type', options.type);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   return execCommand(args, options);
 }
@@ -1521,11 +1521,11 @@ export async function uiSearch(options: UiSearchOptions = {}): Promise<WinappRes
   const args: string[] = ['ui', 'search'];
   if (options.selector) args.push(options.selector);
   if (options.app) args.push('--app', options.app);
-  if (options.className) args.push('--class-name', options.className);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
   if (options.max !== undefined) args.push('--max', options.max.toString());
-  if (options.root) args.push('--root', options.root);
-  if (options.type) args.push('--type', options.type);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   return execCommand(args, options);
 }
@@ -1712,14 +1712,14 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
   const args: string[] = ['ui', 'wait-for'];
   if (options.selector) args.push(options.selector);
   if (options.app) args.push('--app', options.app);
-  if (options.className) args.push('--class-name', options.className);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.contains) args.push('--contains');
   if (options.gone) args.push('--gone');
   if (options.json) args.push('--json');
   if (options.property) args.push('--property', options.property);
-  if (options.root) args.push('--root', options.root);
+  if (options.root !== undefined) args.push('--root', options.root);
   if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
-  if (options.type) args.push('--type', options.type);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.value) args.push('--value', options.value);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   return execCommand(args, options);

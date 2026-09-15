@@ -8,6 +8,9 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// </summary>
 public sealed class UiElement
 {
+    // Scoped query reads must keep their matched identity rather than fall back to a name.
+    internal bool RequiresCurrentIdentity { get; set; }
+
     /// <summary>Synthetic walk-order id (e0, e1, ...). Useful in flat result lists; null on nested inspect output where elements are addressed via tree position + selector.</summary>
     public string? Id { get; set; }
     /// <summary>The element's UIA control type, such as "Button" or "Edit".</summary>

@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.TestSupport;
 using Windows.Win32.UI.Accessibility;
@@ -11,6 +12,120 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 
 public partial class RealUiAutomationTests
 {
+    [TestMethod]
+    [DataRow(false, unchecked((int)0x80040201))]
+    [DataRow(true, unchecked((int)0x80040201))]
+    [DataRow(false, unchecked((int)0x80004005))]
+    [DataRow(true, unchecked((int)0x80004005))]
+    public async Task Query_InterruptedSlugHashCannotReportAbsence(bool nameless, int hresult)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var slug = (await svc.InspectAsync(target, null, 0, CancellationToken.None))[0].Selector!;
+        if (nameless)
+        {
+            var parsed = SlugGenerator.ParseSlug(slug)!.Value;
+            slug = $"{parsed.Prefix}-{parsed.Hash}";
+        }
+        var field = typeof(UiAutomationService).GetField("_automation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var automation = (IUIAutomation)field.GetValue(svc)!;
+        var realRoot = automation.ElementFromHandle(new((nint)fx.Hwnd));
+        var failure = new COMException("Identity read interrupted.", hresult);
+        var root = ComProxy<IUIAutomationElement>((method, args) =>
+            method.Name == "GetRuntimeId" ? throw failure : method.Invoke(realRoot, args));
+        var realWalker = automation.get_ControlViewWalker();
+        var walker = ComProxy<IUIAutomationTreeWalker>((method, args) =>
+            method.Invoke(realWalker, args?.Select(arg => ReferenceEquals(arg, root) ? realRoot : arg).ToArray()));
+        field.SetValue(svc, ComProxy<IUIAutomation>((method, args) =>
+            method.Name == "get_ControlViewWalker" ? walker : method.Invoke(automation, args)));
+        UiAutomationService.s_getRootElement = (_, _) => root;
+
+        var actual = await Assert.ThrowsExactlyAsync<COMException>(() => svc.FindSingleElementAsync(target,
+            new UiSelector { Root = new() { Slug = slug }, ControlType = "Button" }, CancellationToken.None));
+
+        Assert.AreSame(failure, actual);
+    }
+
+    [TestMethod]
+    [DataRow("GetFirstChildElement", false, unchecked((int)0x80040201))]
+    [DataRow("GetNextSiblingElement", false, unchecked((int)0x80040201))]
+    [DataRow("GetFirstChildElement", true, unchecked((int)0x80040201))]
+    [DataRow("GetNextSiblingElement", true, unchecked((int)0x80040201))]
+    [DataRow("GetFirstChildElement", false, unchecked((int)0x80004005))]
+    [DataRow("GetNextSiblingElement", false, unchecked((int)0x80004005))]
+    [DataRow("GetFirstChildElement", true, unchecked((int)0x80004005))]
+    [DataRow("GetNextSiblingElement", true, unchecked((int)0x80004005))]
+    public async Task Query_InterruptedWalkCannotReportAbsence(string operation, bool slug, int hresult)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var field = typeof(UiAutomationService).GetField("_automation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var automation = (IUIAutomation)field.GetValue(svc)!;
+        var realWalker = automation.get_ControlViewWalker();
+        var failure = new COMException("Traversal interrupted.", hresult);
+        var walker = ComProxy<IUIAutomationTreeWalker>((method, args) =>
+            method.Name == operation ? throw failure : method.Invoke(realWalker, args));
+        field.SetValue(svc, ComProxy<IUIAutomation>((method, args) =>
+            method.Name == "get_ControlViewWalker" ? walker : method.Invoke(automation, args)));
+        var query = slug
+            ? new UiSelector { Slug = "btn-missing-a123", ControlType = "Button" }
+            : new UiSelector { Query = "missing", ControlType = "Button" };
+
+        var actual = await Assert.ThrowsExactlyAsync<COMException>(() =>
+            svc.FindSingleElementAsync(SessionFor(fx), query, CancellationToken.None));
+
+        Assert.AreSame(failure, actual);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task Query_ReadReplacedIdentitySignalsRetry(bool property, bool replace)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var root = fx.OnUiThread(() =>
+        {
+            var panel = new Panel { Name = "readRoot", Width = 300, Height = 100 };
+            panel.Controls.Add(new TextBox { Name = "readValue", Text = "old" });
+            fx.Form.Controls.Add(panel);
+            return panel;
+        });
+        var query = new UiSelector { Root = new() { Query = "readRoot" }, Query = "readValue", ControlType = "Edit" };
+        var old = await svc.FindSingleElementAsync(target, query, CancellationToken.None);
+        Assert.IsNotNull(old);
+        fx.OnUiThread(() =>
+        {
+            if (replace)
+            {
+                var panel = new Panel { Name = "readRoot", Width = 300, Height = 100 };
+                panel.Controls.Add(new TextBox { Name = "readValue", Text = "ready" });
+                fx.Form.Controls.Add(panel);
+                _ = panel.Controls[0].Handle;
+            }
+            root.Dispose();
+        });
+
+        var failure = await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(async () =>
+        {
+            if (property) { await svc.GetPropertiesAsync(target, old, "Value", CancellationToken.None); }
+            else { await svc.GetTextAsync(target, old, CancellationToken.None); }
+        });
+        Assert.AreEqual(old.Selector, failure.Selector);
+        var current = await svc.FindSingleElementAsync(target, query, CancellationToken.None);
+        if (replace)
+        {
+            Assert.IsNotNull(current);
+            Assert.AreNotEqual(old.Selector, current.Selector);
+            Assert.AreEqual("ready", await svc.GetTextAsync(target, current, CancellationToken.None));
+        }
+        else { Assert.IsNull(current); }
+    }
+
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]

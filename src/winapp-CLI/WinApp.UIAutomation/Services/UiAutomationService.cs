@@ -698,7 +698,7 @@ return Task.FromResult<UiElement?>(null);
         }
 
         // Query the live COM element for additional properties
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = ResolveComElement(uiTarget, element, requireCurrentIdentity: true);
         if (comElement is not null)
         {
             // General UIA properties (convert COM BOOL to C# bool)
@@ -880,7 +880,7 @@ return Task.FromResult<UiElement?>(null);
 
         _logger.LogDebug("Getting text from element {ElementId}", element.Id);
 
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = ResolveComElement(uiTarget, element, requireCurrentIdentity: true);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -1240,6 +1240,7 @@ return Task.FromResult<UiElement?>(null);
                         }
                     }
                 }
+                catch (System.Runtime.InteropServices.COMException) { throw; }
                 catch { }
             }
 
@@ -1260,6 +1261,7 @@ return Task.FromResult<UiElement?>(null);
                         }
                     }
                 }
+                catch (System.Runtime.InteropServices.COMException) { throw; }
                 catch { }
             }
 
@@ -1304,8 +1306,10 @@ return Task.FromResult<UiElement?>(null);
     /// Uses slug-based resolution first (most precise), then falls back to
     /// AutomationId or Name+Type property matching.
     /// </summary>
-    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element)
+    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element, bool requireCurrentIdentity = false)
     {
+        // Read queries must not substitute a same-name replacement for the identity they matched.
+        requireCurrentIdentity &= element.RequiresCurrentIdentity;
         // Use the element's source HWND if it came from a different window (popup/dialog)
         IUIAutomationElement? root;
         if (element.WindowHandle is { } elHwnd && elHwnd != 0 && elHwnd != uiTarget.WindowHandle)
@@ -1320,17 +1324,20 @@ return Task.FromResult<UiElement?>(null);
 
         if (root is null)
         {
+            if (requireCurrentIdentity) { throw new UiElementNotFoundException(element.Selector!); }
             return null;
         }
 
         // Try slug-based resolution first (most precise — uses RuntimeId hash)
         if (element.Selector is not null)
         {
-            var (_, comElement) = FindElementBySlugWithCom(element.Selector, root);
+            var (_, comElement) = FindElementBySlugWithCom(element.Selector, root,
+                throwOnHashMismatch: !requireCurrentIdentity);
             if (comElement is not null)
             {
                 return comElement;
             }
+            if (requireCurrentIdentity) { throw new UiElementNotFoundException(element.Selector); }
         }
 
         // Fall back to AutomationId (stable but not unique across duplicates)
