@@ -145,9 +145,9 @@ public partial class UiCommandTests : BaseCommandTests
     public async Task Inspect_Json_AddsDpiContextToEveryWindow()
     {
         _fakeWindowDpiContextProvider.ResultsByHwnd[100] =
-            new(96, 1, "system-aware", WindowDpiContextProvider.PhysicalScreenPixels);
-        _fakeWindowDpiContextProvider.ResultsByHwnd[200] =
             new(192, 2, "per-monitor-aware", WindowDpiContextProvider.PhysicalScreenPixels);
+        _fakeWindowDpiContextProvider.ResultsByHwnd[200] =
+            new(120, 1.25, "per-monitor-aware", WindowDpiContextProvider.PhysicalScreenPixels);
         _fakeUia.InspectResult =
         [
             new UiElement { Type = "---", Name = "HWND 100: \"Main\" (window, MainClass)", WindowHandle = 100 },
@@ -164,13 +164,13 @@ public partial class UiCommandTests : BaseCommandTests
         var windows = document.RootElement.GetProperty("windows");
         Assert.AreEqual(2, windows.GetArrayLength());
         var main = windows[0];
-        Assert.AreEqual((uint)96, main.GetProperty("windowDpi").GetUInt32());
-        Assert.AreEqual(1, main.GetProperty("scale").GetDouble());
-        Assert.AreEqual("system-aware", main.GetProperty("dpiAwareness").GetString());
+        Assert.AreEqual((uint)192, main.GetProperty("windowDpi").GetUInt32());
+        Assert.AreEqual(2, main.GetProperty("scale").GetDouble());
+        Assert.AreEqual("per-monitor-aware", main.GetProperty("dpiAwareness").GetString());
         Assert.AreEqual("physical-screen-pixels", main.GetProperty("coordinateSpace").GetString());
         var popup = windows[1];
-        Assert.AreEqual((uint)192, popup.GetProperty("windowDpi").GetUInt32());
-        Assert.AreEqual(2, popup.GetProperty("scale").GetDouble());
+        Assert.AreEqual((uint)120, popup.GetProperty("windowDpi").GetUInt32());
+        Assert.AreEqual(1.25, popup.GetProperty("scale").GetDouble());
         Assert.AreEqual("per-monitor-aware", popup.GetProperty("dpiAwareness").GetString());
         Assert.AreEqual("physical-screen-pixels", popup.GetProperty("coordinateSpace").GetString());
         CollectionAssert.AreEqual(new long[] { 100, 200 }, _fakeWindowDpiContextProvider.RequestedHwnds);
@@ -690,6 +690,27 @@ public partial class UiCommandTests : BaseCommandTests
         StringAssert.Contains(output, "\"children\":");
         // elementCount should reflect all 4 elements when properly nested.
         StringAssert.Contains(output, "\"elementCount\": 4");
+    }
+
+    [TestMethod]
+    public async Task Inspect_Ancestors_Json_UsesResolvedElementWindowForDpi()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 0;
+        _fakeUia.InspectResult =
+        [
+            new UiElement { Type = "Window", WindowHandle = 321 },
+            new UiElement { Type = "Button", WindowHandle = 321 },
+        ];
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            ["btn-target", "-a", "TestApp", "--ancestors", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        CollectionAssert.AreEqual(new long[] { 321 }, _fakeWindowDpiContextProvider.RequestedHwnds);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual(321, document.RootElement.GetProperty("windows")[0].GetProperty("hwnd").GetInt64());
     }
 
     // ---------------------------------------------------------------------

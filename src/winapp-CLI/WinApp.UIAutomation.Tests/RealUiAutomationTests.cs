@@ -207,6 +207,21 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task InspectAncestorsAsync_PidOnlyTargetSetsResolvedWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = PidOnlySession(fx);
+        await ResolveAsync(svc, uiTarget, "btnInvoke");
+
+        var chain = await svc.InspectAncestorsAsync(uiTarget, "btnInvoke", CancellationToken.None);
+
+        Assert.IsTrue(chain.Length >= 2);
+        Assert.IsTrue(chain.All(element => element.WindowHandle == fx.Hwnd),
+            "ancestor JSON must use the target element's real top-level HWND");
+    }
+
+    [TestMethod]
     public async Task InspectAncestorsAsync_NotFound_Throws()
     {
         using var fx = new UiaTestFixture();
