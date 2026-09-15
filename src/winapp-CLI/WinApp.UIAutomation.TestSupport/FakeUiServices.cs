@@ -12,6 +12,7 @@ public class FakeUiAutomationService : IUiAutomation
     public UiElement[] InspectResult { get; set; } = [];
     public UiElement[] SearchResult { get; set; } = [];
     public UiElement? FindSingleResult { get; set; }
+    public List<UiSelector> Queries { get; } = [];
 
     /// <summary>
     /// Optional per-call results for <see cref="FindSingleElementAsync"/>. When non-empty, the first
@@ -138,12 +139,14 @@ public class FakeUiAutomationService : IUiAutomation
 
     public Task<UiElement[]> SearchAsync(UiTarget uiTarget, UiSelector selector, int maxResults, CancellationToken ct)
     {
+        Queries.Add(selector);
         if (SearchThrow is not null) { throw SearchThrow; }
         return Task.FromResult(SearchResult.Take(maxResults).ToArray());
     }
 
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
+        Queries.Add(selector);
         if (FindSingleElementThrowException is not null) { throw FindSingleElementThrowException; }
         if (FindSingleThrow is not null) { throw FindSingleThrow; }
         if (FindSingleThrowCount > 0)

@@ -465,6 +465,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
     public Task<UiElement[]> SearchAsync(UiTarget uiTarget, UiSelector selector, int maxResults, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (selector.HasConstraints)
+        {
+            return Task.FromResult(SearchConstrained(uiTarget, selector, maxResults, ct));
+        }
 
         _logger.LogDebug("Searching in process {Pid}", uiTarget.ProcessId);
         var nextElementId = 0;
@@ -564,6 +568,17 @@ internal sealed partial class UiAutomationService : IUiAutomation
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (selector.HasConstraints)
+        {
+            var matches = SearchConstrained(uiTarget, selector, 2, ct);
+            if (matches.Length > 1)
+            {
+                throw new UiAmbiguousSelectorException(
+                    $"Selector matched multiple elements: {string.Join(", ", matches.Select(m => m.Selector))}. " +
+                    "Use a unique slug or narrow --root, --type, or --class-name.");
+            }
+            return Task.FromResult(matches.FirstOrDefault());
+        }
 
         _logger.LogDebug("Finding single element in process {Pid}", uiTarget.ProcessId);
 
@@ -1234,7 +1249,8 @@ return Task.FromResult<UiElement?>(null);
     /// and matching + validating the RuntimeId hash.
     /// Returns both the UiElement model and the live COM element.
     /// </summary>
-    private (UiElement? Model, IUIAutomationElement? ComElement) FindElementBySlugWithCom(string targetSlug, IUIAutomationElement root)
+    private (UiElement? Model, IUIAutomationElement? ComElement) FindElementBySlugWithCom(
+        string targetSlug, IUIAutomationElement root, bool includeRoot = true, CancellationToken ct = default)
     {
         var parsed = SlugGenerator.ParseSlug(targetSlug);
         if (parsed is null)
@@ -1244,20 +1260,16 @@ return Task.FromResult<UiElement?>(null);
 
         var (targetPrefix, targetNameSlug, targetHash) = parsed.Value;
         var nextElementId = 0;
-        const int maxRecursionDepth = 100;
-
-        // DFS walk to find matching slug
+        // An identity lookup must not inherit an inspection depth limit.
         IUIAutomationElement? matchedCom = null;
         UiElement? matchedUi = null;
         bool hashMismatchFound = false;
 
-        void Walk(IUIAutomationElement element, int depth)
+        var candidates = EnumerateQueryDescendants(root, ct);
+        if (includeRoot) { candidates = candidates.Prepend(root); }
+        foreach (var element in candidates)
         {
-            if (matchedCom is not null || depth > maxRecursionDepth)
-            {
-                return;
-            }
-
+            ct.ThrowIfCancellationRequested();
             var type = GetControlTypeName(element.get_CurrentControlType());
             var name = SafeGetBstr(() => element.get_CurrentName());
             var automationId = SafeGetBstr(() => element.get_CurrentAutomationId());
@@ -1279,7 +1291,7 @@ return Task.FromResult<UiElement?>(null);
                         {
                             matchedCom = element;
                             matchedUi = ToUiElement(element, "", ref nextElementId);
-                            return;
+                            break;
                         }
                         else
                         {
@@ -1303,25 +1315,14 @@ return Task.FromResult<UiElement?>(null);
                         {
                             matchedCom = element;
                             matchedUi = ToUiElement(element, "", ref nextElementId);
-                            return;
+                            break;
                         }
                     }
                 }
                 catch { }
             }
 
-            // Recurse children
-            var walker = _automation.get_ControlViewWalker();
-            var child = walker.GetFirstChildElement(element);
-            while (child is not null && matchedCom is null)
-            {
-                Walk(child, depth + 1);
-                try { child = walker.GetNextSiblingElement(child); }
-                catch { break; }
-            }
         }
-
-        Walk(root, 0);
 
         if (matchedUi is not null)
         {
@@ -2530,80 +2531,7 @@ return Task.FromResult<UiElement?>(null);
         }
     }
 
-    internal static string GetControlTypeName(UIA_CONTROLTYPE_ID controlType) => controlType switch
-    {
-        UIA_CONTROLTYPE_ID.UIA_ButtonControlTypeId => "Button",
-        UIA_CONTROLTYPE_ID.UIA_CalendarControlTypeId => "Calendar",
-        UIA_CONTROLTYPE_ID.UIA_CheckBoxControlTypeId => "CheckBox",
-        UIA_CONTROLTYPE_ID.UIA_ComboBoxControlTypeId => "ComboBox",
-        UIA_CONTROLTYPE_ID.UIA_EditControlTypeId => "Edit",
-        UIA_CONTROLTYPE_ID.UIA_HyperlinkControlTypeId => "Hyperlink",
-        UIA_CONTROLTYPE_ID.UIA_ImageControlTypeId => "Image",
-        UIA_CONTROLTYPE_ID.UIA_ListItemControlTypeId => "ListItem",
-        UIA_CONTROLTYPE_ID.UIA_ListControlTypeId => "List",
-        UIA_CONTROLTYPE_ID.UIA_MenuControlTypeId => "Menu",
-        UIA_CONTROLTYPE_ID.UIA_MenuBarControlTypeId => "MenuBar",
-        UIA_CONTROLTYPE_ID.UIA_MenuItemControlTypeId => "MenuItem",
-        UIA_CONTROLTYPE_ID.UIA_ProgressBarControlTypeId => "ProgressBar",
-        UIA_CONTROLTYPE_ID.UIA_RadioButtonControlTypeId => "RadioButton",
-        UIA_CONTROLTYPE_ID.UIA_ScrollBarControlTypeId => "ScrollBar",
-        UIA_CONTROLTYPE_ID.UIA_SliderControlTypeId => "Slider",
-        UIA_CONTROLTYPE_ID.UIA_SpinnerControlTypeId => "Spinner",
-        UIA_CONTROLTYPE_ID.UIA_StatusBarControlTypeId => "StatusBar",
-        UIA_CONTROLTYPE_ID.UIA_TabControlTypeId => "Tab",
-        UIA_CONTROLTYPE_ID.UIA_TabItemControlTypeId => "TabItem",
-        UIA_CONTROLTYPE_ID.UIA_TextControlTypeId => "Text",
-        UIA_CONTROLTYPE_ID.UIA_ToolBarControlTypeId => "ToolBar",
-        UIA_CONTROLTYPE_ID.UIA_ToolTipControlTypeId => "ToolTip",
-        UIA_CONTROLTYPE_ID.UIA_TreeControlTypeId => "Tree",
-        UIA_CONTROLTYPE_ID.UIA_TreeItemControlTypeId => "TreeItem",
-        UIA_CONTROLTYPE_ID.UIA_GroupControlTypeId => "Group",
-        UIA_CONTROLTYPE_ID.UIA_ThumbControlTypeId => "Thumb",
-        UIA_CONTROLTYPE_ID.UIA_DataGridControlTypeId => "DataGrid",
-        UIA_CONTROLTYPE_ID.UIA_DataItemControlTypeId => "DataItem",
-        UIA_CONTROLTYPE_ID.UIA_DocumentControlTypeId => "Document",
-        UIA_CONTROLTYPE_ID.UIA_SplitButtonControlTypeId => "SplitButton",
-        UIA_CONTROLTYPE_ID.UIA_WindowControlTypeId => "Window",
-        UIA_CONTROLTYPE_ID.UIA_PaneControlTypeId => "Pane",
-        UIA_CONTROLTYPE_ID.UIA_HeaderControlTypeId => "Header",
-        UIA_CONTROLTYPE_ID.UIA_HeaderItemControlTypeId => "HeaderItem",
-        UIA_CONTROLTYPE_ID.UIA_TableControlTypeId => "Table",
-        UIA_CONTROLTYPE_ID.UIA_TitleBarControlTypeId => "TitleBar",
-        UIA_CONTROLTYPE_ID.UIA_SeparatorControlTypeId => "Separator",
-        UIA_CONTROLTYPE_ID.UIA_AppBarControlTypeId => "AppBar",
-        UIA_CONTROLTYPE_ID.UIA_SemanticZoomControlTypeId => "SemanticZoom",
-        _ => $"Unknown({(int)controlType})"
-    };
+    internal static string GetControlTypeName(UIA_CONTROLTYPE_ID controlType) => UiControlTypes.GetName((int)controlType);
 
-    internal static int MapControlType(string typeName) => typeName switch
-    {
-        "Button" => (int)UIA_CONTROLTYPE_ID.UIA_ButtonControlTypeId,
-        "CheckBox" => (int)UIA_CONTROLTYPE_ID.UIA_CheckBoxControlTypeId,
-        "ComboBox" => (int)UIA_CONTROLTYPE_ID.UIA_ComboBoxControlTypeId,
-        "Edit" or "TextBox" => (int)UIA_CONTROLTYPE_ID.UIA_EditControlTypeId,
-        "Hyperlink" => (int)UIA_CONTROLTYPE_ID.UIA_HyperlinkControlTypeId,
-        "Image" => (int)UIA_CONTROLTYPE_ID.UIA_ImageControlTypeId,
-        "ListItem" => (int)UIA_CONTROLTYPE_ID.UIA_ListItemControlTypeId,
-        "List" => (int)UIA_CONTROLTYPE_ID.UIA_ListControlTypeId,
-        "Menu" => (int)UIA_CONTROLTYPE_ID.UIA_MenuControlTypeId,
-        "MenuBar" => (int)UIA_CONTROLTYPE_ID.UIA_MenuBarControlTypeId,
-        "MenuItem" => (int)UIA_CONTROLTYPE_ID.UIA_MenuItemControlTypeId,
-        "ProgressBar" => (int)UIA_CONTROLTYPE_ID.UIA_ProgressBarControlTypeId,
-        "RadioButton" => (int)UIA_CONTROLTYPE_ID.UIA_RadioButtonControlTypeId,
-        "ScrollBar" => (int)UIA_CONTROLTYPE_ID.UIA_ScrollBarControlTypeId,
-        "Slider" => (int)UIA_CONTROLTYPE_ID.UIA_SliderControlTypeId,
-        "Tab" => (int)UIA_CONTROLTYPE_ID.UIA_TabControlTypeId,
-        "TabItem" => (int)UIA_CONTROLTYPE_ID.UIA_TabItemControlTypeId,
-        "Text" or "TextBlock" => (int)UIA_CONTROLTYPE_ID.UIA_TextControlTypeId,
-        "ToolBar" => (int)UIA_CONTROLTYPE_ID.UIA_ToolBarControlTypeId,
-        "Tree" => (int)UIA_CONTROLTYPE_ID.UIA_TreeControlTypeId,
-        "TreeItem" => (int)UIA_CONTROLTYPE_ID.UIA_TreeItemControlTypeId,
-        "Group" => (int)UIA_CONTROLTYPE_ID.UIA_GroupControlTypeId,
-        "DataGrid" => (int)UIA_CONTROLTYPE_ID.UIA_DataGridControlTypeId,
-        "Window" => (int)UIA_CONTROLTYPE_ID.UIA_WindowControlTypeId,
-        "Pane" => (int)UIA_CONTROLTYPE_ID.UIA_PaneControlTypeId,
-        "Table" => (int)UIA_CONTROLTYPE_ID.UIA_TableControlTypeId,
-        "TitleBar" => (int)UIA_CONTROLTYPE_ID.UIA_TitleBarControlTypeId,
-        _ => 0
-    };
+    internal static int MapControlType(string typeName) => UiControlTypes.GetId(typeName);
 }

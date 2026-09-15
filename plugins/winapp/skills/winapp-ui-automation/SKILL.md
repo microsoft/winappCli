@@ -74,6 +74,22 @@ winapp ui yield
 
 ## Common patterns
 
+### Read within a specific container
+
+```powershell
+winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-name TextBlock
+winapp ui get-value Subject -a myapp --root MailRow --type TextBox
+winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --timeout 10000
+```
+
+Use `--root`, `--type`, and `--class-name` together or separately on `search`,
+`get-property`, `get-value`, and `wait-for`. The root must be unique; only its
+descendants match. `wait-for` re-resolves it every poll, including when it is
+initially absent. Type names and literal whole ClassName values ignore case.
+The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
+See [Scoped and typed queries](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#scoped-and-typed-queries)
+for the full type vocabulary, boundaries, and error behavior.
+
 ### Discover and interact
 ```powershell
 # See what's clickable, then screenshot for context
