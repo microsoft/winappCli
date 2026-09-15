@@ -361,6 +361,48 @@ winapp ui get-property btn-submit-7a90 -a myapp              # all properties
 winapp ui get-property chk-checkbox-b2c3 -p ToggleState -a myapp   # checkbox state
 winapp ui get-property txt-textbox-a4b1 -p Value -a myapp          # current text value
 winapp ui get-property cmb-combobox-d5e6 -p ExpandCollapseState -a myapp  # expanded or collapsed
+winapp ui get-property Document -p FontWeight -a myapp --json     # document formatting
+```
+
+Property names are case-sensitive. An unknown name fails with `invalid_arguments`
+under `--json`; omit `--property` to list the properties, including all six text
+formatting attributes below. `wait-for --property` uses the same case-sensitive
+names and rejects unknown names before polling.
+
+#### Whole-document text formatting
+
+Formatting is read across the element's entire TextPattern document, not its
+current selection or caret. Reads do not change focus or selection.
+
+| Property | Uniform value (returned as a string) |
+|---|---|
+| `FontWeight` | Numeric weight, such as `"400"` (normal) or `"700"` (bold) |
+| `FontName` | Font family name, such as `"Courier New"` |
+| `FontSize` | Size in points, such as `"15.5"` |
+| `ForegroundColor` | Decimal Windows COLORREF (`0x00BBGGRR`), such as `"3678732"` for RGB(12, 34, 56) |
+| `IsItalic` | `"True"` or `"False"` |
+| `StrikethroughStyle` | Numeric UIA text-decoration style, such as `"0"` (none) or `"1"` (single) |
+
+Numbers use invariant formatting (a decimal point, regardless of your locale).
+Each attribute can instead return:
+
+| Value | Meaning and next step |
+|---|---|
+| `"Mixed"` | Formatting varies within the document. Do not treat it as a uniform value; this command does not query individual text ranges. |
+| `"NotSupported"` | The document's TextPattern provider does not report this attribute. Check the app's accessibility support. |
+| `"Unavailable"` | The element has no TextPattern. Use `inspect` or `search` to find its text/document element. |
+
+Provider failures remain errors, not `"Unavailable"`. For `stale_element`, inspect
+the app again and retry with a current selector.
+
+JSON retains the `elementId` and string-valued `properties` envelope; existing
+properties, including `BoundingRectangle`, keep their formats. For example:
+
+```json
+{
+  "elementId": "Document",
+  "properties": { "FontWeight": "700" }
+}
 ```
 
 ### screenshot
