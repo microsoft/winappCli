@@ -1820,8 +1820,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         Func<List<IUIAutomationElement>> manualSearch,
         Func<IUIAutomationElement, bool>? matches = null,
         bool requireCurrentIdentity = false,
-        CancellationToken ct = default,
-        bool completeEmptyResults = true)
+        bool completeEmptyResults = true,
+        CancellationToken ct = default)
     {
         var results = new List<IUIAutomationElement>();
         if (maxResults <= 0)

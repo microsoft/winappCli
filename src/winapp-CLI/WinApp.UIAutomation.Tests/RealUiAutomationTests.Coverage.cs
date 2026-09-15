@@ -849,13 +849,17 @@ public partial class RealUiAutomationTests
         var findAllCalls = 0;
         UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) =>
-            ++findAllCalls == 1 ? ElementArray() : matches;
+        {
+            findAllCalls++;
+            return matches;
+        };
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
 
         var ex = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(uiTarget, new UiSelector { Query = "Ambiguous" }, CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "lbl[0]");
+        Assert.AreEqual(1, findAllCalls, "An exact FindFirst miss should flow directly into the completed substring query.");
     }
 
     [TestMethod]
