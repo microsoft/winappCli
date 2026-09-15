@@ -36,6 +36,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getDesktopRootElement = service => service._automation.GetRootElement();
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
     internal static Func<int, nint> s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
+    internal static Func<UiAutomationService, IUIAutomationTreeWalker> s_getExplicitIdentityWalker = service => service._automation.get_ControlViewWalker();
 
     internal static void ResetNativeSeams()
     {
@@ -50,6 +51,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_getDesktopRootElement = service => service._automation.GetRootElement();
         s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
         s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
+        s_getExplicitIdentityWalker = service => service._automation.get_ControlViewWalker();
         s_captureFromWindow = CaptureFromWindow;
         s_captureFromScreenScaled = CaptureFromScreenScaled;
         s_foregroundWindowForBlankRetry = ForegroundWindowForBlankRetry;
@@ -1426,20 +1428,13 @@ return Task.FromResult<UiElement?>(null);
             {
                 throw new InvalidOperationException("Explicit actions require a runtime slug or a nonempty AutomationId. Re-run 'inspect' or 'search'.");
             }
+            if (strictIdentity)
+            {
+                return FindUniqueExplicitAutomationId(root, element.AutomationId);
+            }
             var condition = _automation.CreatePropertyCondition(
                 UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
                 ComVariant.Create(element.AutomationId));
-            if (strictIdentity)
-            {
-                var matches = root.FindAll(TreeScope.TreeScope_Descendants, condition);
-                var count = matches?.get_Length() ?? 0;
-                if (count > 1)
-                {
-                    throw new InvalidOperationException(
-                        $"AutomationId '{element.AutomationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
-                }
-                return count == 1 ? matches!.GetElement(0) : null;
-            }
             var found = root.FindFirst(TreeScope.TreeScope_Descendants, condition);
             if (found is not null)
             {
@@ -1482,6 +1477,45 @@ return Task.FromResult<UiElement?>(null);
         }
 
         return null;
+    }
+
+    private IUIAutomationElement? FindUniqueExplicitAutomationId(IUIAutomationElement root, string automationId)
+    {
+        // FindAll can return a nonempty but incomplete result across provider boundaries.
+        // A bounded/best-effort search cannot prove uniqueness either. Walk the entire ControlView
+        // iteratively, and never return a candidate after a traversal or property-read failure.
+        try
+        {
+            var walker = s_getExplicitIdentityWalker(this);
+            var pending = new Stack<IUIAutomationElement>();
+            pending.Push(root);
+            IUIAutomationElement? match = null;
+            while (pending.TryPop(out var parent))
+            {
+                var child = walker.GetFirstChildElement(parent);
+                while (child is not null)
+                {
+                    // Do not use SafeGetBstr: a failed identity read leaves uniqueness unknown.
+                    if (child.get_CurrentAutomationId().ToString() == automationId)
+                    {
+                        if (match is not null)
+                        {
+                            throw new InvalidOperationException(
+                                $"AutomationId '{automationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
+                        }
+                        match = child;
+                    }
+                    pending.Push(child);
+                    child = walker.GetNextSiblingElement(child);
+                }
+            }
+            return match;
+        }
+        catch (COMException ex) when (ex.HResult != unchecked((int)0x80040201)) // UIA_E_ELEMENTNOTAVAILABLE remains stale.
+        {
+            throw new InvalidOperationException(
+                $"Cannot verify AutomationId '{automationId}' is unique because the ControlView could not be read completely. Re-run 'inspect' or 'search'.", ex);
+        }
     }
 
     /// <summary>
