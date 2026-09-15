@@ -370,10 +370,16 @@ else {
     #
     # One unfiltered call rather than one per name: the same response answers every name, and it
     # also tells us whether the identity has any endpoint visibility at all.
+    #
+    # includeFailed=true is load-bearing. It defaults to FALSE, which omits endpoints with
+    # isReady:false - exactly the ones the readiness verdict below exists to catch. Without it a
+    # broken connection is invisible and gets downgraded to "not visible" (WARN) instead of FAIL.
+    # Verified against pde-oss: the default call returned 19 endpoints, all isReady:true, while
+    # includeFailed=true returned 21 - the two extras both isReady:false.
     $visible = $null
     $probeFailure = $null
     try {
-        $all = Invoke-RestMethod -Uri "$baseUri`?api-version=7.1" -Headers $adoHeaders -Method Get
+        $all = Invoke-RestMethod -Uri "$baseUri`?includeFailed=true&api-version=7.1" -Headers $adoHeaders -Method Get
         $visible = @()
         if ($all.count -gt 0) { $visible = @($all.value) }
     }

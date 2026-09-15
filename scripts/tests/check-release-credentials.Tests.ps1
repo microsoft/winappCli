@@ -221,6 +221,12 @@ Describe 'check-release-credentials.ps1' {
         BeforeAll {
             # The one definitive bad verdict this check can still produce, so it must survive the
             # move to inconclusive-by-default.
+            #
+            # The stub deliberately mirrors the real API: endpoints with isReady:false are omitted
+            # unless the request carries includeFailed=true. Without that mirroring the test would
+            # pass even if the production query dropped the flag, and a broken connection would
+            # silently degrade from FAIL to WARN. Verified against pde-oss - the default call hides
+            # two isReady:false endpoints that includeFailed=true reveals.
             $script:listener3 = [System.Net.HttpListener]::new()
             $script:port3 = Get-Random -Minimum 16000 -Maximum 16999
             $script:listener3.Prefixes.Add("http://127.0.0.1:$($script:port3)/")
@@ -229,10 +235,13 @@ Describe 'check-release-credentials.ps1' {
             $script:pump3 = [powershell]::Create()
             [void]$script:pump3.AddScript({
                     param($l)
-                    $body = '{"count":1,"value":[{"name":"half-built","type":"azurerm","isReady":false}]}'
+                    $withFailed = '{"count":1,"value":[{"name":"half-built","type":"azurerm","isReady":false}]}'
+                    $withoutFailed = '{"count":0,"value":[]}'
                     while ($l.IsListening) {
                         try {
                             $ctx = $l.GetContext()
+                            $q = $ctx.Request.Url.Query
+                            $body = if ($q -match 'includeFailed=true') { $withFailed } else { $withoutFailed }
                             $bytes = [Text.Encoding]::UTF8.GetBytes($body)
                             $ctx.Response.StatusCode = 200
                             $ctx.Response.ContentType = 'application/json'
@@ -258,6 +267,8 @@ Describe 'check-release-credentials.ps1' {
         }
 
         It 'still fails definitively' {
+            # Fails if the production query ever loses includeFailed=true: the stub would then
+            # return an empty list and this becomes a WARN.
             $script:result3.Output | Should -Match "\[FAIL\] Service connection 'half-built'"
         }
     }
