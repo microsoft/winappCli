@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.Runtime.InteropServices;
 using Windows.Win32.UI.Accessibility;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
@@ -92,6 +91,7 @@ internal sealed partial class UiAutomationService
                 ct.ThrowIfCancellationRequested();
                 var model = ToUiElement(element, "", ref nextId);
                 model.WindowHandle = sourceHwnd;
+                model.RequiresCurrentIdentity = true;
                 if (!IsInvokable(element))
                 {
                     var ancestor = FindInvokableAncestor(element, boundary);
@@ -169,17 +169,14 @@ internal sealed partial class UiAutomationService
         while (parents.TryPop(out var parent))
         {
             ct.ThrowIfCancellationRequested();
-            IUIAutomationElement? child;
-            try { child = walker.GetFirstChildElement(parent); }
-            catch (COMException) { continue; }
+            var child = walker.GetFirstChildElement(parent);
             var children = new List<IUIAutomationElement>();
             while (child is not null)
             {
                 ct.ThrowIfCancellationRequested();
                 children.Add(child);
                 yield return child;
-                try { child = walker.GetNextSiblingElement(child); }
-                catch (COMException) { break; }
+                child = walker.GetNextSiblingElement(child);
             }
             for (var i = children.Count - 1; i >= 0; i--) { parents.Push(children[i]); }
         }

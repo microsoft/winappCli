@@ -87,7 +87,8 @@ All 41 official types are supported: `Button`, `Calendar`, `CheckBox`, `ComboBox
 appear after the command starts. With `--gone`, an absent root means there is no
 matching descendant; an ambiguous root is an error, not success.
 An interrupted lookup is not proof of disappearance: if an element is removed
-during lookup, the next poll checks again; other lookup errors fail the command.
+during lookup or replaced before a `--value` read, the next poll checks again;
+other lookup or read errors fail the command.
 `-w <HWND>` restricts root discovery to that window's UIA tree. With `-a`, root
 discovery can also find the app's popup windows. Exact root AutomationId matches
 take precedence over substring matches across all those windows; multiple exact

@@ -165,19 +165,31 @@ internal class UiWaitForCommand : Command, IShortDescription
                         {
                             string? currentValue = null;
 
-                            if (property is not null)
+                            try
                             {
-                                // --property specified: check raw UIA property
-                                var props = await uiAutomation.GetPropertiesAsync(uiTarget, element, property, cancellationToken);
-                                if (props.TryGetValue(property, out var propValue))
+                                if (property is not null)
                                 {
-                                    currentValue = propValue?.ToString();
+                                    // --property specified: check raw UIA property
+                                    var props = await uiAutomation.GetPropertiesAsync(uiTarget, element, property, cancellationToken);
+                                    if (props.TryGetValue(property, out var propValue))
+                                    {
+                                        currentValue = propValue?.ToString();
+                                    }
+                                }
+                                else
+                                {
+                                    // No --property: use smart fallback (TextPattern → ValuePattern → Name)
+                                    currentValue = await uiAutomation.GetTextAsync(uiTarget, element, cancellationToken);
                                 }
                             }
-                            else
+                            catch (Exception ex) when (selector.HasConstraints &&
+                                (ex is UiElementNotFoundException ||
+                                 ex is System.Runtime.InteropServices.COMException { HResult: unchecked((int)0x80040201) }))
                             {
-                                // No --property: use smart fallback (TextPattern → ValuePattern → Name)
-                                currentValue = await uiAutomation.GetTextAsync(uiTarget, element, cancellationToken);
+                                // The matched identity can disappear between lookup and the value read.
+                                // Resolve the full query again, rather than reading a replacement by name.
+                                await pollDelay.DelayAsync(100, cancellationToken);
+                                continue;
                             }
 
                             var valueMatches = contains
