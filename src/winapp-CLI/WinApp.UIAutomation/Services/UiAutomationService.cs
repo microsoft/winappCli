@@ -1208,12 +1208,18 @@ internal sealed partial class UiAutomationService : IUiAutomation
         UiElement? matchedUi = null;
         bool hashMismatchFound = false;
 
-        var candidates = EnumerateSearchDescendants(root, ct, throwOnTraversalFailure: true);
+        var candidates = EnumerateSearchDescendants(root, ct, throwOnTraversalFailure: requireCurrentIdentity);
         if (includeRoot) { candidates = candidates.Prepend(root); }
         foreach (var element in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            var type = GetControlTypeName(element.get_CurrentControlType());
+            string type;
+            try { type = GetControlTypeName(element.get_CurrentControlType()); }
+            catch (Exception ex) when (!requireCurrentIdentity && ex is COMException or InvalidCastException)
+            {
+                _logger.LogDebug("UIA slug traversal could not read candidate control type: {Message}", ex.Message);
+                continue;
+            }
             var name = SafeGetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_NamePropertyId), requireCurrentIdentity);
             var automationId = SafeGetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_AutomationIdPropertyId), requireCurrentIdentity);
 
@@ -1242,7 +1248,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         }
                     }
                 }
-                catch (System.Runtime.InteropServices.COMException) { throw; }
+                catch (System.Runtime.InteropServices.COMException) when (requireCurrentIdentity) { throw; }
                 catch when (!requireCurrentIdentity) { }
             }
 
@@ -1263,7 +1269,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         }
                     }
                 }
-                catch (System.Runtime.InteropServices.COMException) { throw; }
+                catch (System.Runtime.InteropServices.COMException) when (requireCurrentIdentity) { throw; }
                 catch when (!requireCurrentIdentity) { }
             }
 

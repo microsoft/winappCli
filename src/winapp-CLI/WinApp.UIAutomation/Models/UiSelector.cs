@@ -14,7 +14,7 @@ public sealed record UiSelector
     /// <summary>Plain text search query — matches against Name and AutomationId (substring, case-insensitive).</summary>
     public string? Query { get; init; }
 
-    /// <summary>Selector for a unique root. Only its descendants are searched.</summary>
+    /// <summary>Selector for a unique root. Only its descendants are searched. The root selector must not itself have a Root.</summary>
     public UiSelector? Root { get; init; }
 
     /// <summary>UIA control type name (case-insensitive), or TextBox/Edit and TextBlock/Text aliases.</summary>

@@ -10,6 +10,10 @@ internal sealed partial class UiAutomationService
 {
     private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults, CancellationToken ct)
     {
+        if (selector.Root?.Root is not null)
+        {
+            throw new ArgumentException("Only one root level is supported; selector.Root.Root must be null.", nameof(selector));
+        }
         ValidateControlType(selector.ControlType);
         ValidateControlType(selector.Root?.ControlType);
 
