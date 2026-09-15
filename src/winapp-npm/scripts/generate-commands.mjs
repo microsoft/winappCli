@@ -454,7 +454,7 @@ function generate(schema) {
       } else if (tsType(opt.def.valueType) === 'number') {
         L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName}.toString());`);
       } else {
-        L(`  if (options.${opt.propName}) args.push('${opt.cliName}', options.${opt.propName});`);
+        L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName});`);
       }
     }
 

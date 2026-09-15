@@ -60,6 +60,8 @@ public class PublicApiSurfaceTests
         "UiElement",
         "UiElementNotFoundException",
         "UiElementOffscreenException",
+        "UiInvokeAction",
+        "UiInvokeActionResult",
         "UiProcessInfo",
         "UiSelector",
         "UiTarget",

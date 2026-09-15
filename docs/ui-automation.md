@@ -445,14 +445,43 @@ With `--frames`, existing MP4 and frame paths are not replaced. If MP4 finalizat
 **Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or use `ui screenshot --capture-screen`. See [#646](https://github.com/microsoft/winappCli/issues/646).
 
 
-Programmatically activate an element (click button, toggle checkbox, expand combo box).
-```bash
-winapp ui invoke btn-submit-7a90 -a myapp             # by slug from inspect
-winapp ui invoke btn-submit-a1b2 -a myapp  # by slug from inspect/search
-winapp ui invoke cmb-sizecombobox-b4c5 -a myapp # expand combo box
+### invoke
+
+```powershell
+winapp ui invoke SettingsCategory -a myapp --action select
+winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
+winapp ui invoke SizeComboBox -a myapp --action expand
+winapp ui invoke SubmitButton -a myapp
 ```
 
-Tries patterns in order: InvokePattern → TogglePattern → SelectionItemPattern → ExpandCollapsePattern.
+Use `--action` when a test must perform a specific operation on exactly the selected
+element. It never tries another pattern or an invokable ancestor, even if the
+requested action fails. A control supporting both invocation and selection will
+be selected, not invoked, with `--action select`.
+
+| Action | Operation |
+|--------|-----------|
+| `invoke` | InvokePattern.Invoke |
+| `select` | SelectionItemPattern.Select |
+| `toggle` | TogglePattern.Toggle, exactly once |
+| `toggle-on` / `toggle-off` | Read ToggleState; succeed without changing an already-correct state, otherwise toggle and verify |
+| `expand` / `collapse` | ExpandCollapsePattern.Expand / Collapse |
+
+For `toggle-on` and `toggle-off`, a starting `Indeterminate` state allows at most
+two transitions, checking the state after each. Other starting states allow one
+transition. If the requested state is not reached, the command fails rather than
+continuing to toggle. A failed verification can leave the control changed; read
+`ToggleState` before deciding what to do next.
+
+Without `--action`, the existing automatic behavior is unchanged: try
+InvokePattern, TogglePattern, SelectionItemPattern, then ExpandCollapsePattern
+(expand), with an invokable-ancestor retry when needed.
+
+An unsupported action fails with a nonzero exit code and, with `--json`, a
+structured error on stderr. Inspect the selected control and choose an action
+it supports, or explicitly target the intended parent. Success JSON includes
+`requestedAction` and `performedAction`; see the
+[JSON reference](../plugins/winapp/skills/winapp-ui-automation/references/ui-json-envelope.md#ui-invoke---json).
 
 ### click
 Click an element at its screen coordinates using mouse simulation. Use this for controls that don't support `InvokePattern` (e.g., column headers, list items).
@@ -723,6 +752,18 @@ var target = UiTarget.FromWindowHandle(myWindowHandle);
 var save = await ui.FindSingleElementAsync(target, new UiSelector { Query = "Save" }, default);
 await ui.InvokeAsync(target, save!, default);
 ```
+
+For deterministic actions, use the overload taking `UiInvokeAction`:
+
+```csharp
+UiInvokeActionResult result = await ui.InvokeAsync(target, save!, UiInvokeAction.Invoke, default);
+```
+
+It returns `Pattern` and `PerformedAction` with the same meanings as the
+[CLI action result](../plugins/winapp/skills/winapp-ui-automation/references/ui-json-envelope.md#ui-invoke---json).
+Pass an element returned by inspection or selection, with its runtime slug or
+unique AutomationId intact. Explicit actions reject a missing or ambiguous identity
+rather than rebinding by name and control type.
 
 Recording is a separate package so that projects which only inspect and drive UI don't pull in
 SkiaSharp. The automation package targets both `net10.0-windows` and

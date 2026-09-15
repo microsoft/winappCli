@@ -124,6 +124,8 @@ internal sealed class UiInvokeResult
 {
     public string ElementId { get; set; } = "";
     public string Pattern { get; set; } = "";
+    public string RequestedAction { get; set; } = "";
+    public string PerformedAction { get; set; } = "";
     public long Hwnd { get; set; }
 }
 
