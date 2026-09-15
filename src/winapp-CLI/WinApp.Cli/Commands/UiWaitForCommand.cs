@@ -125,12 +125,19 @@ internal class UiWaitForCommand : Command, IShortDescription
                     {
                         element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
                     }
-                    catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex)
-                        && !(selector.HasConstraints && ex is UiAmbiguousSelectorException))
+                    catch (System.Runtime.InteropServices.COMException ex) when (
+                        selector.HasConstraints && ex.HResult == unchecked((int)0x80040201)) // UIA_E_ELEMENTNOTAVAILABLE
                     {
-                        // "Not found yet" is the normal case while polling, so a lookup failure just means
-                        // keep waiting. Cancellation is not a lookup failure: swallowing it here would let
-                        // --gone report the element as gone the moment the user pressed Ctrl+C.
+                        // A root can be replaced during traversal. Retry the selector next poll,
+                        // but do not mistake an interrupted lookup for confirmed absence.
+                        await pollDelay.DelayAsync(100, cancellationToken);
+                        continue;
+                    }
+                    catch (Exception ex) when (!selector.HasConstraints && !UiCoordinatedAction.IsCoordinationFault(ex))
+                    {
+                        // Preserve unscoped polling behavior. Constrained queries return null for
+                        // absence; their errors must not make --gone report a successful disappearance.
+                        // Cancellation is never a lookup failure.
                         element = null;
                     }
 
@@ -251,12 +258,12 @@ internal class UiWaitForCommand : Command, IShortDescription
             catch (System.Runtime.InteropServices.COMException comEx)
             {
                 logger.LogDebug("COM error: {HResult} {StackTrace}", comEx.HResult, comEx.StackTrace);
-                UiErrors.StaleElement(logger, json);
+                UiErrors.StaleElement(logger, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
             catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
-                UiErrors.GenericError(logger, ex, json);
+                UiErrors.GenericError(logger, ex, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
         }

@@ -71,8 +71,16 @@ All 41 official types are supported: `Button`, `Calendar`, `CheckBox`, `ComboBox
 `wait-for` resolves the root selector again on **every poll**, so the root may
 appear after the command starts. With `--gone`, an absent root means there is no
 matching descendant; an ambiguous root is an error, not success.
+An interrupted lookup is not proof of disappearance: if an element is removed
+during lookup, the next poll checks again; other lookup errors fail the command.
 `-w <HWND>` restricts root discovery to that window's UIA tree. With `-a`, root
-discovery can also find the app's popup windows.
+discovery can also find the app's popup windows. Exact root AutomationId matches
+take precedence over substring matches across all those windows; multiple exact
+matches still fail with `ambiguous_selector`.
+
+A root slug selects that element even when another window has the same
+AutomationId. If the selected root is replaced, its old slug no longer matches;
+use an AutomationId or name root when you want polling to follow a replacement.
 
 When filters are present, commands that read a single element fail with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
@@ -294,7 +302,7 @@ Slugs use the format: `prefix-normalizedname-hash` where:
 - **normalizedname** — lowercase alphanumeric from AutomationId (preferred) or Name, max 15 chars
 - **hash** — 4-char hex hash of the element's RuntimeId (validates element identity)
 
-Slugs are shell-safe (no special characters), unique, and can be used directly as arguments. The hash provides staleness detection — if the element has been replaced, you get: "Element may have changed. Re-run inspect."
+Slugs are shell-safe (no special characters), unique, and can be used directly as arguments. Without query filters, the hash provides staleness detection — if the element has been replaced, you get: "Element may have changed. Re-run inspect." For filtered queries, see [Scoped and typed queries](#scoped-and-typed-queries).
 
 Elements with no name or AutomationId show only prefix + hash (e.g., `pn-c8a3`).
 
@@ -772,6 +780,13 @@ var target = UiTarget.FromWindowHandle(myWindowHandle);
 var save = await ui.FindSingleElementAsync(target, new UiSelector { Query = "Save" }, default);
 await ui.InvokeAsync(target, save!, default);
 ```
+
+For scoped reads, set `UiSelector.Root` to another `UiSelector`, `ControlType` to a
+type name, and `ClassName` to the literal provider class. These use the same
+[query predicates](#scoped-and-typed-queries) as the CLI. `UiControlTypes.GetId(name)`
+resolves official type names and the two documented aliases, returning `0` for
+an invalid name. `UiControlTypes.GetName(id)` returns the canonical name, or
+`Unknown(id)` for an unrecognized ID.
 
 Recording is a separate package so that projects which only inspect and drive UI don't pull in
 SkiaSharp. The automation package targets both `net10.0-windows` and

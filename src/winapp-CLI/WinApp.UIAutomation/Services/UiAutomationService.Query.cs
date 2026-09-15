@@ -24,7 +24,7 @@ internal sealed partial class UiAutomationService
         {
             // Resolve afresh on every call (including every wait-for poll). Root selection is
             // independent of the descendant predicates and must never pick an arbitrary match.
-            var roots = QueryWindow(windowRoot, rootSelector, 2, ct, includeRoot: true)
+            var roots = QueryWindow(windowRoot, rootSelector, 2, ct, out var hasExactRoot, includeRoot: true)
                 .Select(el => (Element: el, Hwnd: hwnd)).ToList();
             if (!target.IsExplicitWindow)
             {
@@ -34,15 +34,21 @@ internal sealed partial class UiAutomationService
                     if (window.Hwnd == (nint)target.WindowHandle) { continue; }
                     var otherRoot = GetRootElementForHwnd(window.Hwnd);
                     if (otherRoot is null) { continue; }
-                    foreach (var el in QueryWindow(otherRoot, rootSelector, 2, ct, includeRoot: true))
+                    var windowRoots = QueryWindow(otherRoot, rootSelector, 2, ct, out var hasExactWindowRoot, includeRoot: true);
+                    // Exact IDs take precedence across the entire app, not just within an HWND.
+                    if (hasExactRoot && !hasExactWindowRoot) { continue; }
+                    if (hasExactWindowRoot && !hasExactRoot) { roots.Clear(); }
+                    hasExactRoot |= hasExactWindowRoot;
+                    foreach (var el in windowRoots)
                     {
                         // Some providers expose an owned window inside the main UIA tree too.
-                        if (!roots.Any(r => _automation.CompareElements(r.Element, el)))
+                        if (roots.Count < 2 && !roots.Any(r => _automation.CompareElements(r.Element, el)))
                         {
                             roots.Add((el, (long)window.Hwnd));
                         }
                     }
-                    if (roots.Count > 1) { break; }
+                    // Substring ambiguity is provisional until every window has been checked for an exact ID.
+                    if (roots.Count > 1 && (hasExactRoot || rootSelector.Query is null)) { break; }
                 }
             }
             if (roots.Count > 1)
@@ -55,7 +61,7 @@ internal sealed partial class UiAutomationService
             (queryRoot, hwnd) = roots[0];
         }
 
-        var matches = QueryWindow(queryRoot, selector, maxResults, ct);
+        var matches = QueryWindow(queryRoot, selector, maxResults, ct, out _);
         var nextId = 0;
         var results = new List<UiElement>();
         AddMatches(matches, queryRoot, hwnd);
@@ -70,7 +76,7 @@ internal sealed partial class UiAutomationService
                 if (window.Hwnd == (nint)target.WindowHandle) { continue; }
                 var otherRoot = GetRootElementForHwnd(window.Hwnd);
                 if (otherRoot is null) { continue; }
-                AddMatches(QueryWindow(otherRoot, selector, maxResults - results.Count, ct),
+                AddMatches(QueryWindow(otherRoot, selector, maxResults - results.Count, ct, out _),
                     otherRoot, (long)window.Hwnd);
                 if (results.Count >= maxResults) { break; }
             }
@@ -100,12 +106,16 @@ internal sealed partial class UiAutomationService
     }
 
     private List<IUIAutomationElement> QueryWindow(IUIAutomationElement root, UiSelector selector,
-        int maxResults, CancellationToken ct, bool includeRoot = false)
+        int maxResults, CancellationToken ct, out bool hasExactId, bool includeRoot = false)
     {
+        hasExactId = false;
         if (maxResults <= 0) { return []; }
         if (selector.IsSlug)
         {
-            var (_, element) = FindElementBySlugWithCom(selector.Slug!, root, includeRoot, ct);
+            // A same-name element with a different runtime ID is not this identity.
+            // In particular, another app window may contain the actual slug.
+            var (_, element) = FindElementBySlugWithCom(selector.Slug!, root, includeRoot,
+                throwOnHashMismatch: false, ct: ct);
             return element is not null && MatchesQueryPredicates(element, selector) ? [element] : [];
         }
 
@@ -130,6 +140,7 @@ internal sealed partial class UiAutomationService
             var aid = SafeGetBstr(() => element.get_CurrentAutomationId());
             if (string.Equals(aid, query, StringComparison.Ordinal))
             {
+                hasExactId = true;
                 exactMatches.Add(element);
                 if (exactMatches.Count >= maxResults) { return exactMatches; }
                 continue;
