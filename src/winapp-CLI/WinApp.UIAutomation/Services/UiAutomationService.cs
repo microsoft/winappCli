@@ -33,6 +33,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         (root, condition) => root.FindAll(TreeScope.TreeScope_Descendants, condition);
     internal static Func<UiAutomationService, IUIAutomationTreeWalker> s_getControlViewWalker =
         service => service._automation.get_ControlViewWalker();
+    internal static Func<UiAutomationService, IUIAutomationElement, IUIAutomationElement, bool> s_compareElements =
+        (service, first, second) => service._automation.CompareElements(first, second);
     internal static Func<UiAutomationService, IUIAutomationElement, string, int, List<IUIAutomationElement>> s_manualTreeSearch = (service, root, query, maxResults) => service.ManualTreeSearchCore(root, query, maxResults);
     internal static Func<UiAutomationService, IUIAutomationElement, IUIAutomationElement, IUIAutomationElement?> s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getFocusedElement = service => service._automation.GetFocusedElement();
@@ -49,6 +51,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_findElementOnOtherWindows = (service, uiTarget, selector) => service.FindElementOnOtherWindowsCore(uiTarget, selector);
         s_findAllDescendants = (root, condition) => root.FindAll(TreeScope.TreeScope_Descendants, condition);
         s_getControlViewWalker = service => service._automation.get_ControlViewWalker();
+        s_compareElements = (service, first, second) => service._automation.CompareElements(first, second);
         s_manualTreeSearch = (service, root, query, maxResults) => service.ManualTreeSearchCore(root, query, maxResults);
         s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
         s_getFocusedElement = service => service._automation.GetFocusedElement();
@@ -1745,6 +1748,21 @@ return Task.FromResult<UiElement?>(null);
         }
 
         var bulkResultCount = results.Count;
+        var identities = new HashSet<string>();
+        var unidentifiedResults = new List<IUIAutomationElement>();
+        foreach (var result in results)
+        {
+            var identity = TryGetElementIdentity(result);
+            if (identity is not null)
+            {
+                identities.Add(identity);
+            }
+            else
+            {
+                unidentifiedResults.Add(result);
+            }
+        }
+
         foreach (var candidate in ManualTreeSearch(root, query, maxResults))
         {
             if (results.Count >= maxResults)
@@ -1752,9 +1770,26 @@ return Task.FromResult<UiElement?>(null);
                 break;
             }
 
-            if (!ContainsElement(results, candidate))
+            var identity = TryGetElementIdentity(candidate);
+            if (identity is not null)
+            {
+                if (!identities.Add(identity))
+                {
+                    continue;
+                }
+
+                if (ContainsElement(unidentifiedResults, candidate))
+                {
+                    identities.Remove(identity);
+                    continue;
+                }
+
+                results.Add(candidate);
+            }
+            else if (!ContainsElement(results, candidate))
             {
                 results.Add(candidate);
+                unidentifiedResults.Add(candidate);
             }
         }
 
@@ -1769,13 +1804,43 @@ return Task.FromResult<UiElement?>(null);
         return results;
     }
 
+    private static unsafe string? TryGetElementIdentity(IUIAutomationElement element)
+    {
+        try
+        {
+            var runtimeId = element.GetRuntimeId();
+            if (runtimeId is null)
+            {
+                return null;
+            }
+
+            var count = (int)runtimeId->rgsabound[0].cElements;
+            var data = (int*)runtimeId->pvData;
+            if (count <= 0 || data is null)
+            {
+                return null;
+            }
+
+            var identity = new System.Text.StringBuilder(count * 12);
+            for (var i = 0; i < count; i++)
+            {
+                identity.Append(data[i]).Append(';');
+            }
+            return identity.ToString();
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException)
+        {
+            return null;
+        }
+    }
+
     private bool ContainsElement(List<IUIAutomationElement> elements, IUIAutomationElement candidate)
     {
         foreach (var element in elements)
         {
             try
             {
-                if (_automation.CompareElements(element, candidate))
+                if (s_compareElements(this, element, candidate))
                 {
                     return true;
                 }

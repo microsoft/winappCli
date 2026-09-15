@@ -131,6 +131,32 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task SearchAsync_RuntimeIdsDeduplicateWithoutPairwiseComComparisons()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var first = FindByAutomationId(automation, root, "btnInvoke");
+        var second = FindByAutomationId(automation, root, "txtValue");
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(first, second);
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _) => [first, second];
+        UiAutomationService.s_compareElements = (_, _, _) =>
+            throw new AssertFailedException("Elements with runtime IDs must not use pairwise COM comparison.");
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "provider-boundary" },
+            10,
+            CancellationToken.None);
+
+        Assert.AreEqual(2, results.Length);
+    }
+
+    [TestMethod]
     public async Task FindSingleElementAsync_PartialNonzeroBulkResult_UsesCompleteSetForDisambiguation()
     {
         using var fx = new UiaTestFixture();
