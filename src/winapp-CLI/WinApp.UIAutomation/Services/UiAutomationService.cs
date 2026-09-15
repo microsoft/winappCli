@@ -249,12 +249,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
             : null;
         topLevelWindowHandles?.Add(mainHwnd);
         var promotableWindowHandles = new HashSet<nint> { mainHwnd };
-        foreach (var window in independentWindows)
+        foreach (var window in independentWindows.Where(window => window.IsInSelectedTree))
         {
-            if (window.IsInSelectedTree)
-            {
-                promotableWindowHandles.Add(window.Hwnd);
-            }
+            promotableWindowHandles.Add(window.Hwnd);
         }
         var elements = new List<UiElement>();
         WalkTree(
