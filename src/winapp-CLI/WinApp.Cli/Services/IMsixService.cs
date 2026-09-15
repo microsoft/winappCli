@@ -105,6 +105,7 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

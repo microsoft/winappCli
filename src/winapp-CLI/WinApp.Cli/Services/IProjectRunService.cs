@@ -79,6 +79,14 @@ internal interface IProjectRunService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Publishes a Native AOT project and resolves the generated payload used by <c>winapp run</c>.
+    /// </summary>
+    Task<ProjectBuildOutcome> PublishAotAndResolveAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cheap, side-effect-free probe (no build) that reports whether the project is DEFINITIVELY
     /// unpackaged — i.e. it declares an explicit <c>WindowsPackageType=None</c>. Used by the run
     /// handler to fail fast on identity-only options (e.g. <c>--no-launch</c>) that are meaningless

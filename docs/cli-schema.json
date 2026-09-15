@@ -2513,7 +2513,7 @@
       }
     },
     "run": {
-      "description": "Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.",
+      "description": "Builds or Native AOT-publishes and runs a Windows app from a project, .NET file-based app, or build-output folder.",
       "hidden": false,
       "arguments": {
         "input": {
@@ -2539,6 +2539,19 @@
         }
       },
       "options": {
+        "--aot": {
+          "description": "Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true.",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
         "--arch": {
           "description": "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture.",
           "hidden": false,
@@ -2700,7 +2713,7 @@
           "recursive": false
         },
         "--no-restore": {
-          "description": "Project and single-file mode: skip restoring before building. Ignored in folder mode.",
+          "description": "Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,

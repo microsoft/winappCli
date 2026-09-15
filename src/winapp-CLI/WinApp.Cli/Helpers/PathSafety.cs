@@ -9,6 +9,58 @@ namespace WinApp.Cli.Helpers;
 // Filesystem-safety helpers for workspace writes and lockfiles.
 internal static class PathSafety
 {
+    /// <summary>
+    /// Returns true when any existing segment of <paramref name="path"/> is a reparse point, or when
+    /// the path cannot be safely inspected. Use before recursive copy/delete operations whose selected
+    /// destination may be outside a known workspace boundary.
+    /// </summary>
+    public static bool HasReparsePointOnExistingPath(string path)
+    {
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            return true;
+        }
+        catch (PathTooLongException)
+        {
+            return true;
+        }
+
+        if (IsNetworkPath(fullPath))
+        {
+            return true;
+        }
+
+        var root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return true;
+        }
+
+        var relative = fullPath[root.Length..];
+        var current = root;
+        foreach (var segment in relative.Split(
+                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Join(current, segment);
+            if (IsReparseOrProbeUnknown(current))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     // Rejects paths outside boundary, UNC paths, and reparse points below boundary.
     // Walks downward so symlinks/junctions are detected before they can be followed.
     public static bool HasReparsePointOnPath(string path, string boundary)

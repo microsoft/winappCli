@@ -88,6 +88,17 @@ test('run accepts a single scalar --property value', async () => {
   assert.equal(argv.indexOf('--'), -1, 'no passthrough separator without appArgs');
 });
 
+test('run forwards Native AOT mode', async () => {
+  const state = captureSpawnArgs();
+
+  await run({ input: './App.csproj', aot: true, configuration: 'Release' });
+
+  assert.deepEqual(
+    state.calls[0].slice(0, 5),
+    ['run', './App.csproj', '--aot', '--configuration', 'Release']
+  );
+});
+
 test('run forwards the canonical `input` property as the first positional', async () => {
   const state = captureSpawnArgs();
 
