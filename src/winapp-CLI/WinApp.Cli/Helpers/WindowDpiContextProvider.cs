@@ -16,7 +16,6 @@ internal sealed class WindowDpiContextProvider : IWindowDpiContextProvider
         : this(GetDpiForWindow, GetAwarenessForWindow)
     {
     }
-
     internal WindowDpiContextProvider(
         Func<long, uint> getDpiForWindow,
         Func<long, int> getAwarenessForWindow)
@@ -63,4 +62,3 @@ internal sealed class WindowDpiContextProvider : IWindowDpiContextProvider
         return (int)Windows.Win32.PInvoke.GetAwarenessFromDpiAwarenessContext(context);
     }
 }
-

@@ -23,7 +23,6 @@ public class WindowDpiContextProviderTests
         Assert.AreEqual(expected, result.DpiAwareness);
         Assert.AreEqual("physical-screen-pixels", result.CoordinateSpace);
     }
-
     [TestMethod]
     public void GetForWindow_ZeroHwnd_ThrowsExplicitError()
     {
@@ -59,4 +58,3 @@ public class WindowDpiContextProviderTests
         StringAssert.Contains(exception.Message, "123");
     }
 }
-

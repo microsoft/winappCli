@@ -13,4 +13,3 @@ internal sealed record WindowDpiContext(
     double Scale,
     string DpiAwareness,
     string CoordinateSpace);
-
