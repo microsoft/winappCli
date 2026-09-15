@@ -939,10 +939,16 @@ extends:
     # that someone notices.
     - stage: Verify_Release_Credentials
       displayName: Verify Release Credentials (rehearsal)
-      dependsOn: [Build, Release_GitHub, Release_WinGet, Release_MSLearn]
-      condition: >-
-        and(eq(variables['Build.SourceBranch'], 'refs/heads/main'),
-            in(dependencies.Build.result, 'Succeeded', 'SucceededWithIssues'))
+      # >>> TEMPORARY - DO NOT MERGE <<<
+      # Standalone and branch-open so the credential check can be exercised as the build service
+      # identity without a 30-minute full rehearsal. Revert to the two lines below before merge:
+      #   dependsOn: [Build, Release_GitHub, Release_WinGet, Release_MSLearn]
+      #   condition: >-
+      #     and(eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+      #         in(dependencies.Build.result, 'Succeeded', 'SucceededWithIssues'))
+      dependsOn: []
+      condition: succeeded()
+      # >>> END TEMPORARY <<<
       jobs:
       - job: verify_credentials
         displayName: Credentials and Service Connections
