@@ -356,43 +356,72 @@ else {
         Accept        = 'application/json'
     }
 
-    foreach ($name in $ServiceConnections) {
-        if (-not $name) { continue }
+    # Capability probe first. Azure DevOps does NOT return 401/403 when the caller cannot see
+    # service endpoints - it returns HTTP 200 with an empty list, which is indistinguishable from
+    # "this connection does not exist". The build service identity has no endpoint read permission
+    # by default, so without this probe every named connection reports a false "Not found" and the
+    # weekly rehearsal fails for a reason that is not real. (Observed on build 20260914.1: four
+    # FAILs against four connections that all exist and are ready.)
+    #
+    # If we can enumerate ANY endpoint, visibility works and a missing name is meaningful.
+    $canEnumerate = $false
+    $probeFailure = $null
+    try {
+        $all = Invoke-RestMethod -Uri "$baseUri`?api-version=7.1" -Headers $adoHeaders -Method Get
+        $canEnumerate = ($all.count -gt 0)
+    }
+    catch {
+        $probeStatus = 0
+        if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
+            $probeStatus = [int]$_.Exception.Response.StatusCode
+        }
+        $probeFailure = "status $probeStatus"
+    }
 
-        $uri = "$baseUri`?endpointNames=$([uri]::EscapeDataString($name))&api-version=7.1"
-        try {
-            $response = Invoke-RestMethod -Uri $uri -Headers $adoHeaders -Method Get
-            if ($response.count -gt 0) {
-                $endpoint = $response.value[0]
-                $isReady = $true
-                if ($endpoint.PSObject.Properties.Name -contains 'isReady') {
-                    $isReady = [bool]$endpoint.isReady
-                }
+    if (-not $canEnumerate) {
+        $why = if ($probeFailure) { "the endpoint API returned $probeFailure" } else { 'it returned an empty list' }
+        Add-Result -Status 'WARN' -Check 'Service connections' -Detail "The build identity cannot enumerate service endpoints ($why), so these could not be verified. Grant the build service 'Read' on the service connections to enable this check."
+    }
+    else {
+        foreach ($name in $ServiceConnections) {
+            if (-not $name) { continue }
 
-                if ($isReady) {
-                    Add-Result -Status 'PASS' -Check "Service connection '$name'" -Detail "Present and ready (type: $($endpoint.type))."
+            $uri = "$baseUri`?endpointNames=$([uri]::EscapeDataString($name))&api-version=7.1"
+            try {
+                $response = Invoke-RestMethod -Uri $uri -Headers $adoHeaders -Method Get
+                if ($response.count -gt 0) {
+                    $endpoint = $response.value[0]
+                    $isReady = $true
+                    if ($endpoint.PSObject.Properties.Name -contains 'isReady') {
+                        $isReady = [bool]$endpoint.isReady
+                    }
+
+                    if ($isReady) {
+                        Add-Result -Status 'PASS' -Check "Service connection '$name'" -Detail "Present and ready (type: $($endpoint.type))."
+                    }
+                    else {
+                        Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail 'Present but not ready. It is likely mid-rotation or misconfigured.'
+                    }
                 }
                 else {
-                    Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail 'Present but not ready. It is likely mid-rotation or misconfigured.'
+                    # Meaningful now: the probe above proved this identity can see endpoints.
+                    Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail "Not found in project '$AdoProject'. It was renamed or deleted, or this pipeline is not authorized to use it."
                 }
             }
-            else {
-                Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail "Not found in project '$AdoProject'. It was renamed or deleted, or this pipeline is not authorized to use it."
-            }
-        }
-        catch {
-            $status = 0
-            if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
-                $status = [int]$_.Exception.Response.StatusCode
-            }
+            catch {
+                $status = 0
+                if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
+                    $status = [int]$_.Exception.Response.StatusCode
+                }
 
-            if ($status -eq 401 -or $status -eq 403) {
-                # The build identity cannot read endpoints. That says nothing about whether the
-                # connection works, so it must not fail the run.
-                Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "The build identity is not allowed to read service endpoints (status $status), so this could not be verified."
-            }
-            else {
-                Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "Query failed (status $status): $($_.Exception.Message)"
+                if ($status -eq 401 -or $status -eq 403) {
+                    # The build identity cannot read endpoints. That says nothing about whether the
+                    # connection works, so it must not fail the run.
+                    Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "The build identity is not allowed to read service endpoints (status $status), so this could not be verified."
+                }
+                else {
+                    Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "Query failed (status $status): $($_.Exception.Message)"
+                }
             }
         }
     }

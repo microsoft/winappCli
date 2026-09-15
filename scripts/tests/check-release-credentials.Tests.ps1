@@ -107,6 +107,37 @@ Describe 'check-release-credentials.ps1' {
         }
     }
 
+    Context 'service connections the build identity cannot enumerate' {
+        BeforeAll {
+            # Regression test for build 20260914.1, where the first real weekly rehearsal failed
+            # with four "Not found" FAILs against four connections that all existed and were ready.
+            #
+            # Azure DevOps does NOT return 401/403 when the caller lacks endpoint read permission -
+            # it returns HTTP 200 with an empty list, which is indistinguishable from "absent". The
+            # script must therefore probe its own visibility first and report inconclusive, rather
+            # than accusing every named connection of not existing.
+            #
+            # 127.0.0.1:1 is unroutable and refuses immediately, so this exercises the probe-failure
+            # branch without leaving the machine - scripts/tests must stay offline because
+            # build-cli.ps1 runs them during a real release build.
+            $script:result = Invoke-Checker -ScriptArgs @(
+                '-AdoOrganizationUri', 'http://127.0.0.1:1/',
+                '-AdoProject', 'pde-oss',
+                '-AdoAccessToken', 'irrelevant',
+                '-ServiceConnections', 'conn-a', 'conn-b'
+            )
+        }
+
+        It 'reports one inconclusive warning instead of a failure per connection' {
+            $script:result.Output | Should -Match '\[WARN\] Service connections'
+            $script:result.Output | Should -Not -Match '\[FAIL\] Service connection'
+        }
+
+        It 'tells the operator how to make the check work' {
+            $script:result.Output | Should -Match "Grant the build service 'Read'"
+        }
+    }
+
     Context 'offline safety' {
         It 'completes without any network access when every probe is skippable' {
             # Guards the property this whole file depends on: with no tokens,
