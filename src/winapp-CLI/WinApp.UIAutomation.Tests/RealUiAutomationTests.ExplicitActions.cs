@@ -312,18 +312,13 @@ public partial class RealUiAutomationTests
     [TestMethod]
     public async Task ExplicitAction_StaleElement_ReportsErrorWithoutFallback()
     {
-        var fx = new UiaTestFixture();
         UiElement element;
         UiTarget target;
         var svc = NewService();
-        try
+        using (var fx = new UiaTestFixture())
         {
             target = SessionFor(fx);
             element = await ResolveAsync(svc, target, "btnInvoke");
-        }
-        finally
-        {
-            fx.Dispose();
         }
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
