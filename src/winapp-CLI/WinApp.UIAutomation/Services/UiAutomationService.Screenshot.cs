@@ -424,7 +424,7 @@ internal sealed partial class UiAutomationService
             var slugResult = FindElementBySlug(selector, root);
             if (slugResult is not null)
             {
-                target = ResolveComElement(uiTarget, slugResult);
+                target = GetAutomationElement(uiTarget, slugResult);
             }
         }
         else
