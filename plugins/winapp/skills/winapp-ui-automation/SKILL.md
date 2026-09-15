@@ -104,6 +104,17 @@ winapp ui invoke 'Save changes' -a myapp
 winapp ui invoke itm-samples-3f2c -a myapp; winapp ui wait-for pn-samplespage-b4e7 -a myapp; winapp ui inspect -a myapp --interactive
 ```
 
+### Choose an exact action in tests
+```powershell
+winapp ui invoke SettingsCategory -a myapp --action select
+winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
+```
+
+Use `--action` to avoid automatic pattern and ancestor fallback. Omit it for the
+existing automatic behavior. See the [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
+for supported actions, idempotent toggles, and failure recovery, and the
+[JSON envelope](references/ui-json-envelope.md#ui-invoke---json) for action results.
+
 ### Disambiguate duplicate elements
 ```powershell
 # When text search matches multiple elements, the error shows slugs for each — pick the right one

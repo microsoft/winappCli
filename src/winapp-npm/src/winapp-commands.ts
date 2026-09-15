@@ -1252,6 +1252,8 @@ export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappR
 export interface UiInvokeOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. */
+  action?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1261,11 +1263,12 @@ export interface UiInvokeOptions extends CommonOptions {
 }
 
 /**
- * Activate an element by slug or text search. Tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order.
+ * Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element.
  */
 export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'invoke'];
   if (options.selector) args.push(options.selector);
+  if (options.action) args.push('--action', options.action);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());

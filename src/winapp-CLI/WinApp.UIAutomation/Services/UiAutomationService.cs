@@ -884,6 +884,20 @@ return Task.FromResult<UiElement?>(null);
             $"Element {element.Selector ?? element.Id} ({element.Type}) does not support any invoke pattern. {hint}");
     }
 
+    public Task<UiInvokeActionResult> InvokeAsync(UiTarget uiTarget, UiElement element, UiInvokeAction action, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        _ = ExplicitUiInvoker.Describe(action); // Reject invalid values before resolving/touching UIA.
+
+        var comElement = ResolveComElement(uiTarget, element, strictIdentity: true);
+        if (comElement is null)
+        {
+            throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
+        }
+
+        return Task.FromResult(ExplicitUiInvoker.Apply(new ComExplicitUiInvokePatterns(comElement, element), element, action, ct));
+    }
+
     public Task SetValueAsync(UiTarget uiTarget, UiElement element, string text, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -1360,9 +1374,10 @@ return Task.FromResult<UiElement?>(null);
     /// <summary>
     /// Re-finds a live COM UIA element from our serialized UiElement model.
     /// Uses slug-based resolution first (most precise), then falls back to
-    /// AutomationId or Name+Type property matching.
+    /// AutomationId or Name+Type property matching. Explicit actions use strictIdentity:
+    /// resolve only the supplied slug or unique AutomationId, without rebinding on a miss.
     /// </summary>
-    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element)
+    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element, bool strictIdentity = false)
     {
         // Use the element's source HWND if it came from a different window (popup/dialog)
         IUIAutomationElement? root;
@@ -1381,8 +1396,21 @@ return Task.FromResult<UiElement?>(null);
             return null;
         }
 
+        // Explicit actions commit to one identity. A promoted selector equals AutomationId;
+        // otherwise a selector must be a runtime slug, never a query to reinterpret on a miss.
+        if (strictIdentity && !string.IsNullOrEmpty(element.Selector) &&
+            element.Selector != element.AutomationId)
+        {
+            if (SlugGenerator.ParseSlug(element.Selector) is null)
+            {
+                throw new InvalidOperationException(
+                    $"Element selector '{element.Selector}' is not an exact runtime slug or matching AutomationId. Re-run 'inspect' or 'search'.");
+            }
+            return FindElementBySlugWithCom(element.Selector, root).ComElement;
+        }
+
         // Try slug-based resolution first (most precise — uses RuntimeId hash)
-        if (element.Selector is not null)
+        if (!strictIdentity && element.Selector is not null)
         {
             var (_, comElement) = FindElementBySlugWithCom(element.Selector, root);
             if (comElement is not null)
@@ -1394,14 +1422,35 @@ return Task.FromResult<UiElement?>(null);
         // Fall back to AutomationId (stable but not unique across duplicates)
         if (element.AutomationId is not null)
         {
+            if (strictIdentity && element.AutomationId.Length == 0)
+            {
+                throw new InvalidOperationException("Explicit actions require a runtime slug or a nonempty AutomationId. Re-run 'inspect' or 'search'.");
+            }
             var condition = _automation.CreatePropertyCondition(
                 UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
                 ComVariant.Create(element.AutomationId));
+            if (strictIdentity)
+            {
+                var matches = root.FindAll(TreeScope.TreeScope_Descendants, condition);
+                var count = matches?.get_Length() ?? 0;
+                if (count > 1)
+                {
+                    throw new InvalidOperationException(
+                        $"AutomationId '{element.AutomationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
+                }
+                return count == 1 ? matches!.GetElement(0) : null;
+            }
             var found = root.FindFirst(TreeScope.TreeScope_Descendants, condition);
             if (found is not null)
             {
                 return found;
             }
+        }
+
+        if (strictIdentity)
+        {
+            throw new InvalidOperationException(
+                "Explicit actions require a runtime slug or a nonempty AutomationId; Name and Type cannot identify an exact element. Re-run 'inspect' or 'search'.");
         }
 
         // Fall back to Name + ControlType

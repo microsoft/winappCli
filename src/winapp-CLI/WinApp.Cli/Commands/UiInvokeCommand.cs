@@ -18,13 +18,32 @@ internal class UiInvokeCommand : Command, IShortDescription
 {
     public string ShortDescription => "Activate an element via UIA patterns (Invoke, Toggle, etc.)";
 
+    public static Option<string?> ActionOption { get; } = new("--action")
+    {
+        Description = "Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse."
+    };
+
+    private static UiInvokeAction? ParseAction(string? action) => action switch
+    {
+        "invoke" => UiInvokeAction.Invoke,
+        "select" => UiInvokeAction.Select,
+        "toggle" => UiInvokeAction.Toggle,
+        "toggle-on" => UiInvokeAction.ToggleOn,
+        "toggle-off" => UiInvokeAction.ToggleOff,
+        "expand" => UiInvokeAction.Expand,
+        "collapse" => UiInvokeAction.Collapse,
+        _ => null
+    };
+
     public UiInvokeCommand()
         : base("invoke", "Activate an element by slug or text search. " +
-               "Tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order.")
+               "Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. " +
+               "Use --action for an exact operation on only the selected element.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
         Options.Add(SharedUiOptions.WindowOption);
+        Options.Add(ActionOption);
 
         Options.Add(WinAppRootCommand.JsonOption);
     }
@@ -50,6 +69,15 @@ internal class UiInvokeCommand : Command, IShortDescription
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
 
+            if (parseResult.GetValue(ActionOption) is { } action && ParseAction(action) is null)
+            {
+                const string message = "--action must be invoke, select, toggle, toggle-on, toggle-off, expand, or collapse.";
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message,
+                    errorOut: parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
+
             if (string.IsNullOrWhiteSpace(app) && window is null)
             {
                 UiErrors.MissingApp(logger, json);
@@ -72,6 +100,8 @@ internal class UiInvokeCommand : Command, IShortDescription
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
+            var requestedAction = parseResult.GetValue(ActionOption);
+            var action = ParseAction(requestedAction);
 
             try
             {
@@ -86,6 +116,7 @@ internal class UiInvokeCommand : Command, IShortDescription
                 }
 
                 string pattern;
+                string performedAction;
                 UiElement invokedElement = element;
 
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
@@ -106,10 +137,20 @@ internal class UiInvokeCommand : Command, IShortDescription
 
                     try
                     {
-                        pattern = await uiAutomation.InvokeAsync(uiTarget, element, cancellationToken);
+                        if (action is { } explicitAction)
+                        {
+                            var outcome = await uiAutomation.InvokeAsync(uiTarget, element, explicitAction, cancellationToken);
+                            pattern = outcome.Pattern;
+                            performedAction = outcome.PerformedAction;
+                        }
+                        else
+                        {
+                            pattern = await uiAutomation.InvokeAsync(uiTarget, element, cancellationToken);
+                            performedAction = AutomaticAction(pattern);
+                        }
                         invokedElement = element;
                     }
-                    catch (InvalidOperationException) when (element.InvokableAncestor is { } ancestor)
+                    catch (InvalidOperationException) when (action is null && element.InvokableAncestor is { } ancestor)
                     {
                         // Element isn't invokable but has an invokable ancestor — invoke that instead
                         if (!DesktopTargetValidation.TryConfirmTargetWindow(
@@ -120,19 +161,32 @@ internal class UiInvokeCommand : Command, IShortDescription
                         }
 
                         pattern = await uiAutomation.InvokeAsync(uiTarget, ancestor, cancellationToken);
+                        performedAction = AutomaticAction(pattern);
                         invokedElement = ancestor;
                     }
                 }
 
                 if (json)
                 {
-                    var result = new UiInvokeResult { ElementId = (invokedElement.Selector ?? invokedElement.Id ?? ""), Pattern = pattern, Hwnd = uiTarget.WindowHandle };
+                    var result = new UiInvokeResult
+                    {
+                        ElementId = invokedElement.Selector ?? invokedElement.Id ?? "",
+                        Pattern = pattern,
+                        RequestedAction = requestedAction ?? "auto",
+                        PerformedAction = performedAction,
+                        Hwnd = uiTarget.WindowHandle
+                    };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiInvokeResult));
                 }
                 else
                 {
-                    if (ReferenceEquals(invokedElement, element))
+                    if (action is not null)
+                    {
+                        logger.LogInformation("Requested {RequestedAction} on {ElementId}; performed {PerformedAction} via {Pattern}",
+                            requestedAction, invokedElement.Selector ?? invokedElement.Id ?? "", performedAction, pattern);
+                    }
+                    else if (ReferenceEquals(invokedElement, element))
                     {
                         logger.LogInformation("Invoked {ElementId} via {Pattern}", (element.Selector ?? element.Id ?? ""), pattern);
                     }
@@ -148,14 +202,23 @@ internal class UiInvokeCommand : Command, IShortDescription
             catch (System.Runtime.InteropServices.COMException comEx)
             {
                 logger.LogDebug("COM error: {HResult} {StackTrace}", comEx.HResult, comEx.StackTrace);
-                UiErrors.StaleElement(logger, json);
+                UiErrors.StaleElement(logger, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
             catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
-                UiErrors.GenericError(logger, ex, json);
+                UiErrors.GenericError(logger, ex, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
         }
+
+        private static string AutomaticAction(string pattern) => pattern switch
+        {
+            "InvokePattern" => "invoke",
+            "TogglePattern" => "toggle",
+            "SelectionItemPattern" => "select",
+            "ExpandCollapsePattern" => "expand",
+            _ => throw new InvalidOperationException($"Unknown invoke pattern '{pattern}'.")
+        };
     }
 }
