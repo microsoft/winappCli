@@ -161,70 +161,69 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    public async Task SearchAsync_ExactAutomationIdWalkPrecedesCappedSubstringResults()
+    public async Task SearchAsync_ExactBulkMiss_UsesOneCompletedSubstringWalkAndPreservesExactPrecedence()
     {
         using var fx = new UiaTestFixture();
+        fx.OnUiThread(() => fx.TextLabel.AccessibleName = "btnInvoke");
         var svc = NewService();
         var uiTarget = SessionFor(fx);
         var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
         var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var nameMatch = FindByAutomationId(automation, root, "lblText");
         var findAllCalls = 0;
+        var walkCalls = 0;
 
         UiAutomationService.s_getRootElement = (_, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(nameMatch);
+        UiAutomationService.s_getControlViewWalker = _ =>
         {
-            findAllCalls++;
-            return ElementArray();
+            walkCalls++;
+            return automation.get_ControlViewWalker();
         };
-        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) =>
-            throw new AssertFailedException("Substring search must not run after an exact AutomationId walk succeeds.");
 
         var results = await svc.SearchAsync(
             uiTarget,
             new UiSelector { Query = "btnInvoke" },
-            1,
+            2,
             CancellationToken.None);
 
         Assert.AreEqual(1, results.Length);
         Assert.AreEqual("btnInvoke", results[0].AutomationId);
-        Assert.AreEqual(1, findAllCalls, "Only the failed bulk exact lookup should run.");
+        Assert.AreEqual(2, findAllCalls, "The exact bulk miss must fall through to the substring bulk query.");
+        Assert.AreEqual(1, walkCalls, "Only the completed substring query should walk Control View.");
     }
 
     [TestMethod]
-    public async Task SearchAsync_PopupExactAutomationIdWalkPrecedesSubstringFallback()
+    public async Task FindSingleElementAsync_ExactMissAcrossMainAndPopup_UsesOneWalkPerWindow()
     {
         using var fx = new UiaTestFixture();
-        var (popupHwnd, popupTitle) = fx.OpenOwnedWindow("Exact Popup");
+        var (popupHwnd, popupTitle) = fx.OpenOwnedWindow("Substring Popup");
         var svc = NewService();
         var uiTarget = NonExplicitSession(fx);
         var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
         var mainRoot = automation.ElementFromHandle(new HWND(fx.Hwnd));
         var popupRoot = automation.ElementFromHandle(new HWND(popupHwnd));
-        var substringWalks = 0;
+        var walkCalls = 0;
 
         UiAutomationService.s_getRootElement = (_, _) => mainRoot;
         UiAutomationService.s_getAllAppWindows = (_, _) => [(popupHwnd, fx.ProcessId, popupTitle)];
         UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == popupHwnd ? popupRoot : null;
         UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
-        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) =>
+        UiAutomationService.s_getControlViewWalker = _ =>
         {
-            substringWalks++;
-            if (substringWalks > 1)
-            {
-                throw new AssertFailedException(
-                    "Popup substring search must not run after an exact AutomationId walk succeeds.");
-            }
-            return [];
+            walkCalls++;
+            return automation.get_ControlViewWalker();
         };
 
-        var results = await svc.SearchAsync(
+        var result = await svc.FindSingleElementAsync(
             uiTarget,
-            new UiSelector { Query = "btnOwned" },
-            1,
+            new UiSelector { Query = "OwnedOnly" },
             CancellationToken.None);
 
-        Assert.IsTrue(results.Any(result => result.AutomationId == "btnOwned"));
-        Assert.AreEqual(1, substringWalks, "Only the main-window substring fallback should run.");
+        Assert.IsNotNull(result);
+        Assert.AreEqual("btnOwnedOnly", result.AutomationId);
+        Assert.AreEqual(2, walkCalls, "The main window and popup should each run only their substring completion walk.");
     }
 
     [TestMethod]
@@ -808,10 +807,8 @@ public partial class RealUiAutomationTests
             "FindAll" => matches,
             _ => ThrowCom(),
         });
-        var findAllCalls = 0;
         UiAutomationService.s_getRootElement = (_, _) => root;
-        UiAutomationService.s_findAllDescendants = (_, _) =>
-            ++findAllCalls == 1 ? ElementArray() : matches;
+        UiAutomationService.s_findAllDescendants = (_, _) => matches;
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
 
         var ex = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(

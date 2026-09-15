@@ -437,7 +437,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var exactMatches = FindExactAutomationIdMatches(root, selector.Query, maxResults, ct);
             var found = exactMatches.Count > 0
                 ? exactMatches
-                : FindQueryMatches(root, selector, maxResults, ct);
+                : PreferExactAutomationIdMatches(
+                    FindQueryMatches(root, selector, maxResults, ct),
+                    selector.Query);
             foreach (var el in found)
             {
                 var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -476,7 +478,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, remaining, ct);
                         var windowFound = exactMatches.Count > 0
                             ? exactMatches
-                            : FindQueryMatches(windowRoot, selector, remaining, ct);
+                            : PreferExactAutomationIdMatches(
+                                FindQueryMatches(windowRoot, selector, remaining, ct),
+                                selector.Query);
                         foreach (var el in windowFound)
                         {
                             var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -548,15 +552,6 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 exactResult.WindowHandle = uiTarget.WindowHandle;
                 return Task.FromResult<UiElement?>(exactResult);
             }
-
-            var exactMatches = FindExactAutomationIdMatches(root, selector.Query, 1, ct);
-            if (exactMatches.Count > 0)
-            {
-                var nextId = 0;
-                var exactResult = ToUiElement(exactMatches[0], "", ref nextId);
-                exactResult.WindowHandle = uiTarget.WindowHandle;
-                return Task.FromResult<UiElement?>(exactResult);
-            }
         }
 
         var condition = BuildCondition(selector);
@@ -583,6 +578,15 @@ return Task.FromResult<UiElement?>(null);
                 }
             }
             return Task.FromResult<UiElement?>(null);
+        }
+
+        var recoveredExactMatch = FindExactAutomationIdMatch(matches, selector.Query!);
+        if (recoveredExactMatch is not null)
+        {
+            var nextId = 0;
+            var exactResult = ToUiElement(recoveredExactMatch, "", ref nextId);
+            exactResult.WindowHandle = uiTarget.WindowHandle;
+            return Task.FromResult<UiElement?>(exactResult);
         }
 
         if (matches.Count > 1)
@@ -1503,34 +1507,31 @@ return Task.FromResult<UiElement?>(null);
                 }
                 else
                 {
-                    var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, 1, ct);
-                    if (exactMatches.Count > 0)
+                    var matches = FindQueryMatches(windowRoot, selector, int.MaxValue, ct);
+                    var recoveredExactMatch = FindExactAutomationIdMatch(matches, selector.Query);
+                    if (recoveredExactMatch is not null)
                     {
                         var nextId = 0;
-                        found = ToUiElement(exactMatches[0], "", ref nextId);
+                        found = ToUiElement(recoveredExactMatch, "", ref nextId);
                     }
-                    else
+                    else if (matches.Count == 1)
                     {
-                        var matches = FindQueryMatches(windowRoot, selector, int.MaxValue, ct);
-                        if (matches.Count == 1)
+                        var nextId = 0;
+                        found = ToUiElement(matches[0], "", ref nextId);
+                    }
+                    else if (matches.Count > 1)
+                    {
+                        // Disambiguate: prefer the only invokable element
+                        IUIAutomationElement? invokable = null;
+                        int invokableCount = 0;
+                        foreach (var match in matches)
+                        {
+                            if (IsInvokable(match)) { invokable = match; invokableCount++; }
+                        }
+                        if (invokableCount == 1 && invokable is not null)
                         {
                             var nextId = 0;
-                            found = ToUiElement(matches[0], "", ref nextId);
-                        }
-                        else if (matches.Count > 1)
-                        {
-                            // Disambiguate: prefer the only invokable element
-                            IUIAutomationElement? invokable = null;
-                            int invokableCount = 0;
-                            foreach (var match in matches)
-                            {
-                                if (IsInvokable(match)) { invokable = match; invokableCount++; }
-                            }
-                            if (invokableCount == 1 && invokable is not null)
-                            {
-                                var nextId = 0;
-                                found = ToUiElement(invokable, "", ref nextId);
-                            }
+                            found = ToUiElement(invokable, "", ref nextId);
                         }
                     }
                 }
@@ -1783,7 +1784,8 @@ return Task.FromResult<UiElement?>(null);
         IUIAutomationElement root,
         IUIAutomationCondition condition,
         int maxResults,
-        Func<List<IUIAutomationElement>> manualSearch)
+        Func<List<IUIAutomationElement>> manualSearch,
+        bool completeEmptyResults = true)
     {
         var results = new List<IUIAutomationElement>();
         if (maxResults <= 0)
@@ -1802,6 +1804,11 @@ return Task.FromResult<UiElement?>(null);
         }
 
         if (results.Count >= maxResults)
+        {
+            return results;
+        }
+
+        if (results.Count == 0 && !completeEmptyResults)
         {
             return results;
         }
@@ -1876,7 +1883,8 @@ return Task.FromResult<UiElement?>(null);
             root,
             condition,
             maxResults,
-            () => ManualTreeSearchByAutomationId(root, automationId, maxResults, ct));
+            () => ManualTreeSearchByAutomationId(root, automationId, maxResults, ct),
+            completeEmptyResults: false);
     }
 
     private List<IUIAutomationElement> FindQueryMatches(
@@ -1893,6 +1901,29 @@ return Task.FromResult<UiElement?>(null);
                 condition,
                 maxResults,
                 () => ManualTreeSearch(root, selector.Query, maxResults, ct));
+    }
+
+    private static List<IUIAutomationElement> PreferExactAutomationIdMatches(
+        List<IUIAutomationElement> matches,
+        string automationId)
+    {
+        var exactMatches = matches
+            .Where(match => string.Equals(
+                SafeGetBstr(() => match.get_CurrentAutomationId()),
+                automationId,
+                StringComparison.Ordinal))
+            .ToList();
+        return exactMatches.Count > 0 ? exactMatches : matches;
+    }
+
+    private static IUIAutomationElement? FindExactAutomationIdMatch(
+        IEnumerable<IUIAutomationElement> matches,
+        string automationId)
+    {
+        return matches.FirstOrDefault(match => string.Equals(
+            SafeGetBstr(() => match.get_CurrentAutomationId()),
+            automationId,
+            StringComparison.Ordinal));
     }
 
     private static unsafe string? TryGetElementIdentity(IUIAutomationElement element)
