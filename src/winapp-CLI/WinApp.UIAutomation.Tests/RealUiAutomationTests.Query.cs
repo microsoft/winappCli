@@ -140,10 +140,43 @@ public partial class RealUiAutomationTests
                 fx.Form.Controls.Add(panel);
             }
         });
-        var svc = ServiceWithPartialQueryProvider(fx);
+        var bulkCounts = new List<int>();
+        var svc = ServiceWithPartialQueryProvider(fx, onBulkResult: bulkCounts.Add);
         await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() => svc.SearchAsync(SessionFor(fx),
             new UiSelector { Root = new() { Query = "duplicateRoot" }, ControlType = "Button" },
             1, CancellationToken.None));
+        CollectionAssert.Contains(bulkCounts, 1, "Uniqueness must complete a nonempty partial bulk result.");
+    }
+
+    [TestMethod]
+    [DataRow("GetFirstChildElement", false)]
+    [DataRow("GetNextSiblingElement", false)]
+    [DataRow("GetFirstChildElement", true)]
+    [DataRow("GetNextSiblingElement", true)]
+    public async Task Query_PartialNonzeroBulkResults_InterruptedCompletionCannotProveUniqueRoot(
+        string operation, bool invalidCast)
+    {
+        using var fx = new UiaTestFixture();
+        fx.OnUiThread(() =>
+        {
+            fx.Form.Controls.Add(new Panel { Name = "duplicateRoot" });
+            fx.Form.Controls.Add(new Panel { Name = "duplicateRoot" });
+        });
+        var bulkCounts = new List<int>();
+        var svc = ServiceWithPartialQueryProvider(fx, onBulkResult: bulkCounts.Add);
+        var realWalker = UiAutomationService.s_getControlViewWalker(svc);
+        Exception failure = invalidCast
+            ? new InvalidCastException("Provider interrupted completion.")
+            : new COMException("Provider interrupted completion.", unchecked((int)0x80040201));
+        UiAutomationService.s_getControlViewWalker = _ => ComProxy<IUIAutomationTreeWalker>((method, args) =>
+            method.Name == operation ? throw failure : method.Invoke(realWalker, args));
+
+        var actual = await Assert.ThrowsAsync<Exception>(() => svc.SearchAsync(SessionFor(fx),
+            new UiSelector { Root = new() { Query = "duplicateRoot" }, ControlType = "Button" },
+            1, CancellationToken.None));
+
+        Assert.AreSame(failure, actual);
+        CollectionAssert.Contains(bulkCounts, 1, "A partial root match must not establish uniqueness.");
     }
 
     [TestMethod]
@@ -151,11 +184,15 @@ public partial class RealUiAutomationTests
     {
         using var fx = new UiaTestFixture();
         fx.OnUiThread(() => fx.Form.Controls.Add(new Button { Name = "secondButton", Text = "Second" }));
-        var svc = ServiceWithPartialQueryProvider(fx);
+        var bulkCounts = new List<int>();
+        var svc = ServiceWithPartialQueryProvider(fx, onBulkResult: bulkCounts.Add);
         var matches = await svc.SearchAsync(SessionFor(fx), new UiSelector { ControlType = "Button" },
-            50, CancellationToken.None);
+            1000, CancellationToken.None);
         Assert.IsTrue(matches.Any(m => m.AutomationId == "btnInvoke"));
-        Assert.IsTrue(matches.Any(m => m.AutomationId == "secondButton"));
+        Assert.IsTrue(matches.Any(m => m.AutomationId == "secondButton"),
+            $"Actual matches: {string.Join(", ", matches.Select(m => m.AutomationId))}");
+        Assert.IsTrue(matches.Length < 1000, "Exercise completion below the requested cap, not capped ordering.");
+        CollectionAssert.Contains(bulkCounts, 1, "The shared completion path must receive a nonempty partial result.");
         await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() => svc.FindSingleElementAsync(SessionFor(fx),
             new UiSelector { ControlType = "Button" }, CancellationToken.None));
     }
@@ -177,7 +214,8 @@ public partial class RealUiAutomationTests
             "A capped Name match cannot stop the search for an exact AutomationId.");
     }
 
-    private static UiAutomationService ServiceWithPartialQueryProvider(UiaTestFixture fx, string? hiddenId = null)
+    private static UiAutomationService ServiceWithPartialQueryProvider(UiaTestFixture fx, string? hiddenId = null,
+        Action<int>? onBulkResult = null)
     {
         var svc = NewService();
         var field = typeof(UiAutomationService).GetField("_automation", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -195,6 +233,7 @@ public partial class RealUiAutomationTests
                 if (value != hiddenId) { visible.Add(element); }
             }
             // Model a provider stopping early, not one returning no matches at all.
+            onBulkResult?.Invoke(Math.Min(1, visible.Count));
             return ComProxy<IUIAutomationElementArray>((arrayMethod, _) => arrayMethod.Name switch
             {
                 "get_Length" => Math.Min(1, visible.Count),

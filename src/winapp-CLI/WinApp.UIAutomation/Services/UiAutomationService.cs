@@ -570,14 +570,14 @@ internal sealed partial class UiAutomationService : IUiAutomation
         ct.ThrowIfCancellationRequested();
         if (selector.HasConstraints)
         {
-            var matches = SearchConstrained(uiTarget, selector, 2, ct);
-            if (matches.Length > 1)
+            var constrainedMatches = SearchConstrained(uiTarget, selector, 2, ct);
+            if (constrainedMatches.Length > 1)
             {
                 throw new UiAmbiguousSelectorException(
-                    $"Selector matched multiple elements: {string.Join(", ", matches.Select(m => m.Selector))}. " +
+                    $"Selector matched multiple elements: {string.Join(", ", constrainedMatches.Select(m => m.Selector))}. " +
                     "Use a unique slug or narrow --root, --type, or --class-name.");
             }
-            return Task.FromResult(matches.FirstOrDefault());
+            return Task.FromResult(constrainedMatches.FirstOrDefault());
         }
 
         _logger.LogDebug("Finding single element in process {Pid}", uiTarget.ProcessId);
@@ -628,14 +628,14 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var condition = BuildCondition(selector);
         if (condition is null)
         {
-return Task.FromResult<UiElement?>(null);
+            return Task.FromResult<UiElement?>(null);
         }
 
         var matches = FindAllDescendantMatches(
             root,
             condition,
             int.MaxValue,
-            () => ManualTreeSearch(root, selector.Query!, int.MaxValue, ct));
+            () => ManualTreeSearch(root, selector.Query!, int.MaxValue, ct), ct: ct);
         if (matches.Count == 0)
         {
             // Element not found on main window — search popup/owned windows
@@ -1266,7 +1266,7 @@ return Task.FromResult<UiElement?>(null);
         UiElement? matchedUi = null;
         bool hashMismatchFound = false;
 
-        var candidates = EnumerateQueryDescendants(root, ct);
+        var candidates = EnumerateSearchDescendants(root, ct, throwOnTraversalFailure: true);
         if (includeRoot) { candidates = candidates.Prepend(root); }
         foreach (var element in candidates)
         {
@@ -1814,7 +1814,8 @@ return Task.FromResult<UiElement?>(null);
         IUIAutomationElement root,
         int maxResults,
         Func<IUIAutomationElement, bool> matches,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool throwOnTraversalFailure = false)
     {
         var results = new List<IUIAutomationElement>();
         if (maxResults <= 0)
@@ -1822,14 +1823,31 @@ return Task.FromResult<UiElement?>(null);
             return results;
         }
 
+        foreach (var element in EnumerateSearchDescendants(root, ct, throwOnTraversalFailure))
+        {
+            if (matches(element))
+            {
+                results.Add(element);
+                if (results.Count >= maxResults) { break; }
+            }
+        }
+
+        return results;
+    }
+
+    private IEnumerable<IUIAutomationElement> EnumerateSearchDescendants(
+        IUIAutomationElement root, CancellationToken ct, bool throwOnTraversalFailure = false)
+    {
+        ct.ThrowIfCancellationRequested();
         var walker = s_getControlViewWalker(this);
         var pending = new Stack<IUIAutomationElement>();
         TryPushTraversalElement(
             () => walker.GetFirstChildElement(root),
             pending,
-            "first child of the search root");
+            "first child of the search root",
+            throwOnTraversalFailure);
 
-        while (pending.Count > 0 && results.Count < maxResults)
+        while (pending.Count > 0)
         {
             ct.ThrowIfCancellationRequested();
             var element = pending.Pop();
@@ -1837,25 +1855,23 @@ return Task.FromResult<UiElement?>(null);
             TryPushTraversalElement(
                 () => walker.GetNextSiblingElement(element),
                 pending,
-                "next sibling");
+                "next sibling",
+                throwOnTraversalFailure);
             TryPushTraversalElement(
                 () => walker.GetFirstChildElement(element),
                 pending,
-                "first child");
+                "first child",
+                throwOnTraversalFailure);
 
-            if (matches(element))
-            {
-                results.Add(element);
-            }
+            yield return element;
         }
-
-        return results;
     }
 
     private void TryPushTraversalElement(
         Func<IUIAutomationElement?> getElement,
         Stack<IUIAutomationElement> pending,
-        string relationship)
+        string relationship,
+        bool throwOnTraversalFailure = false)
     {
         try
         {
@@ -1865,7 +1881,7 @@ return Task.FromResult<UiElement?>(null);
                 pending.Push(element);
             }
         }
-        catch (Exception ex) when (ex is COMException or InvalidCastException)
+        catch (Exception ex) when (!throwOnTraversalFailure && ex is COMException or InvalidCastException)
         {
             _logger.LogDebug("UIA Control View traversal could not read {Relationship}: {Message}", relationship, ex.Message);
         }
@@ -1881,6 +1897,8 @@ return Task.FromResult<UiElement?>(null);
         IUIAutomationCondition condition,
         int maxResults,
         Func<List<IUIAutomationElement>> manualSearch,
+        Func<IUIAutomationElement, bool>? matches = null,
+        CancellationToken ct = default,
         bool completeEmptyResults = true)
     {
         var results = new List<IUIAutomationElement>();
@@ -1892,10 +1910,12 @@ return Task.FromResult<UiElement?>(null);
         var bulkMatches = s_findAllDescendants(root, condition);
         if (bulkMatches is not null)
         {
-            var bulkCount = Math.Min(bulkMatches.get_Length(), maxResults);
-            for (var i = 0; i < bulkCount; i++)
+            var bulkCount = bulkMatches.get_Length();
+            for (var i = 0; i < bulkCount && results.Count < maxResults; i++)
             {
-                results.Add(bulkMatches.GetElement(i));
+                ct.ThrowIfCancellationRequested();
+                var element = bulkMatches.GetElement(i);
+                if (matches is null || matches(element)) { results.Add(element); }
             }
         }
 
@@ -1980,7 +2000,7 @@ return Task.FromResult<UiElement?>(null);
             condition,
             maxResults,
             () => ManualTreeSearchByAutomationId(root, automationId, maxResults, ct),
-            completeEmptyResults: false);
+            ct: ct, completeEmptyResults: false);
     }
 
     private List<IUIAutomationElement> FindQueryMatches(
@@ -1996,7 +2016,7 @@ return Task.FromResult<UiElement?>(null);
                 root,
                 condition,
                 maxResults,
-                () => ManualTreeSearch(root, selector.Query, maxResults, ct));
+                () => ManualTreeSearch(root, selector.Query, maxResults, ct), ct: ct);
     }
 
     private List<IUIAutomationElement> FindPreferredQueryMatches(
