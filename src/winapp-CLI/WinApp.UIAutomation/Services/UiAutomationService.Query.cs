@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Runtime.InteropServices.Marshalling;
 using Windows.Win32.UI.Accessibility;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
@@ -119,66 +120,52 @@ internal sealed partial class UiAutomationService
             return element is not null && MatchesQueryPredicates(element, selector) ? [element] : [];
         }
 
-        // FindAll can return a nonempty but incomplete set (for example after WebView2).
-        // Use the same Control View as inspect/slug resolution as the authority for queries
-        // and root uniqueness, rather than treating a partial bulk result as complete.
-        var matches = new List<IUIAutomationElement>();
-        var exactMatches = new List<IUIAutomationElement>();
-        var candidates = EnumerateQueryDescendants(root, ct);
-        if (includeRoot) { candidates = candidates.Prepend(root); }
-        foreach (var element in candidates)
+        // Complete the exact-ID search before considering even a full page of substring
+        // matches: a provider may omit a later exact ID from its bulk results.
+        if (selector.Query is { } query)
         {
-            ct.ThrowIfCancellationRequested();
-            if (!MatchesQueryPredicates(element, selector)) { continue; }
-            if (selector.Query is not { } query)
-            {
-                matches.Add(element);
-                if (matches.Count >= maxResults) { break; }
-                continue;
-            }
-
-            var aid = SafeGetBstr(() => element.get_CurrentAutomationId());
-            if (string.Equals(aid, query, StringComparison.Ordinal))
+            var exact = Search(_automation.CreatePropertyCondition(
+                UIA_PROPERTY_ID.UIA_AutomationIdPropertyId, ComVariant.Create(query)),
+                element => string.Equals(SafeGetBstr(() => element.get_CurrentAutomationId()),
+                    query, StringComparison.Ordinal));
+            if (exact.Count > 0)
             {
                 hasExactId = true;
-                exactMatches.Add(element);
-                if (exactMatches.Count >= maxResults) { return exactMatches; }
-                continue;
+                return exact;
             }
-            // Even a full page of substring matches cannot rule out a later exact ID.
-            if (exactMatches.Count > 0 || matches.Count >= maxResults) { continue; }
-            if (aid?.Contains(query, StringComparison.OrdinalIgnoreCase) == true
-                || SafeGetBstr(() => element.get_CurrentName())?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                matches.Add(element);
-            }
+            return Search(BuildCondition(selector)!, element =>
+                SafeGetBstr(() => element.get_CurrentAutomationId())?.Contains(query, StringComparison.OrdinalIgnoreCase) == true
+                || SafeGetBstr(() => element.get_CurrentName())?.Contains(query, StringComparison.OrdinalIgnoreCase) == true);
         }
-        return exactMatches.Count > 0 ? exactMatches : matches;
+        return Search(_automation.CreateTrueCondition(), _ => true);
+
+        List<IUIAutomationElement> Search(IUIAutomationCondition condition, Func<IUIAutomationElement, bool> textMatches)
+        {
+            if (selector.ControlType is { } controlType)
+            {
+                condition = _automation.CreateAndCondition(condition, _automation.CreatePropertyCondition(
+                    UIA_PROPERTY_ID.UIA_ControlTypePropertyId, ComVariant.Create(UiControlTypes.GetId(controlType))));
+            }
+            if (selector.ClassName is { } className)
+            {
+                condition = _automation.CreateAndCondition(condition, _automation.CreatePropertyConditionEx(
+                    UIA_PROPERTY_ID.UIA_ClassNamePropertyId, ComVariant.Create(className),
+                    PropertyConditionFlags.PropertyConditionFlags_IgnoreCase));
+            }
+            bool Matches(IUIAutomationElement element) => MatchesQueryPredicates(element, selector) && textMatches(element);
+            ct.ThrowIfCancellationRequested();
+            var rootMatches = includeRoot && Matches(root);
+            var remaining = maxResults - (rootMatches ? 1 : 0);
+            var results = FindAllDescendantMatches(root, condition, remaining,
+                () => ManualTreeSearchCore(root, remaining, Matches, ct, throwOnTraversalFailure: true),
+                Matches, ct);
+            if (rootMatches) { results.Insert(0, root); }
+            return results;
+        }
     }
 
     private static bool MatchesQueryPredicates(IUIAutomationElement element, UiSelector selector) =>
         (selector.ControlType is null || (int)element.get_CurrentControlType() == UiControlTypes.GetId(selector.ControlType))
         && (selector.ClassName is null || string.Equals(
             SafeGetBstr(() => element.get_CurrentClassName()), selector.ClassName, StringComparison.OrdinalIgnoreCase));
-
-    private IEnumerable<IUIAutomationElement> EnumerateQueryDescendants(IUIAutomationElement root, CancellationToken ct)
-    {
-        var walker = _automation.get_ControlViewWalker();
-        var parents = new Stack<IUIAutomationElement>();
-        parents.Push(root);
-        while (parents.TryPop(out var parent))
-        {
-            ct.ThrowIfCancellationRequested();
-            var child = walker.GetFirstChildElement(parent);
-            var children = new List<IUIAutomationElement>();
-            while (child is not null)
-            {
-                ct.ThrowIfCancellationRequested();
-                children.Add(child);
-                yield return child;
-                child = walker.GetNextSiblingElement(child);
-            }
-            for (var i = children.Count - 1; i >= 0; i--) { parents.Push(children[i]); }
-        }
-    }
 }
