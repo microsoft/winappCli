@@ -76,6 +76,20 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DataRow("DefinitelyMissing")]
+    [DataRow("fontweight")]
+    [DataRow("")]
+    public async Task WaitFor_UnknownProperty_InvalidArgumentsBeforeLookup(string name)
+    {
+        _fakeUia.FindSingleThrow = new AssertFailedException("Invalid names must fail before element lookup.");
+        var command = GetRequiredService<UiWaitForCommand>();
+        Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(command,
+            ["document", "-a", "TestApp", "--property", name, "--value", "x", "--json"]));
+        AssertJsonErrorCode("invalid_arguments");
+        Assert.AreEqual("", TestAnsiConsole.Output);
+    }
+
+    [TestMethod]
     public async Task GetProperty_TextAttribute_ComFailureIsScrubbed()
     {
         _fakeUia.FindSingleResult = new UiElement { Selector = "document" };

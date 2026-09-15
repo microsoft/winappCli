@@ -366,7 +366,8 @@ winapp ui get-property Document -p FontWeight -a myapp --json     # document for
 
 Property names are case-sensitive. An unknown name fails with `invalid_arguments`
 under `--json`; omit `--property` to list the properties, including all six text
-formatting attributes below.
+formatting attributes below. `wait-for --property` uses the same case-sensitive
+names and rejects unknown names before polling.
 
 #### Whole-document text formatting
 
