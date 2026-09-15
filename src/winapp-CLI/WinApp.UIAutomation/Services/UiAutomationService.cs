@@ -1310,6 +1310,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
     {
         // Read queries must not substitute a same-name replacement for the identity they matched.
         requireCurrentIdentity &= element.RequiresCurrentIdentity;
+        if (requireCurrentIdentity && element.Selector is null)
+        {
+            throw new UiElementNotFoundException(element.AutomationId ?? element.Name ?? element.Type);
+        }
         // Use the element's source HWND if it came from a different window (popup/dialog)
         IUIAutomationElement? root;
         if (element.WindowHandle is { } elHwnd && elHwnd != 0 && elHwnd != uiTarget.WindowHandle)
@@ -2185,7 +2189,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         }
     }
 
-    private static UiElement ToUiElement(IUIAutomationElement element, string path, ref int nextElementId)
+    private static UiElement ToUiElement(IUIAutomationElement element, string path, ref int nextElementId,
+        bool requireCurrentIdentity = false)
     {
         var id = $"e{nextElementId++}";
         var rect = element.get_CurrentBoundingRectangle();
@@ -2250,7 +2255,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 selector = SlugGenerator.GenerateSlugFromSafeArray(type, automationId, name, runtimeId);
             }
         }
-        catch { }
+        catch when (!requireCurrentIdentity) { }
 
         // Check scroll capability
         string? scrollDir = null;
@@ -2275,6 +2280,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         return new UiElement
         {
+            RequiresCurrentIdentity = requireCurrentIdentity,
             Id = id,
             Type = type,
             Name = name,

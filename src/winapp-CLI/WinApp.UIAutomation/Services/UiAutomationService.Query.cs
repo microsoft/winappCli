@@ -90,15 +90,14 @@ internal sealed partial class UiAutomationService
             foreach (var element in elements)
             {
                 ct.ThrowIfCancellationRequested();
-                var model = ToUiElement(element, "", ref nextId);
+                var model = ToUiElement(element, "", ref nextId, requireCurrentIdentity: true);
                 model.WindowHandle = sourceHwnd;
-                model.RequiresCurrentIdentity = true;
                 if (!IsInvokable(element))
                 {
                     var ancestor = FindInvokableAncestor(element, boundary);
                     if (ancestor is not null)
                     {
-                        model.InvokableAncestor = ToUiElement(ancestor, "", ref nextId);
+                        model.InvokableAncestor = ToUiElement(ancestor, "", ref nextId, requireCurrentIdentity: true);
                     }
                 }
                 results.Add(model);
@@ -141,6 +140,7 @@ internal sealed partial class UiAutomationService
 
         List<IUIAutomationElement> Search(IUIAutomationCondition condition, Func<IUIAutomationElement, bool> textMatches)
         {
+            condition = _automation.CreateAndCondition(condition, _automation.get_ControlViewCondition());
             if (selector.ControlType is { } controlType)
             {
                 condition = _automation.CreateAndCondition(condition, _automation.CreatePropertyCondition(

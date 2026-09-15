@@ -113,9 +113,16 @@ public partial class UiCommandTests
              "--type", "Edit", "--value", "replaced", "--timeout", "10000", "--json"]);
         await Task.Delay(1500);
         Assert.IsFalse(replacementWait.IsCompleted, "Wait should keep polling the existing, not-ready root.");
+        fx.OnUiThread(() => fx.Form.Controls["delayedRoot"]!.Dispose());
+        // Disposal can return before UIA removes the provider. Do not briefly expose two roots
+        // with the same ID: that is genuine ambiguity, not the replacement race under test.
+        var removed = await RunQueryProcessAsync(
+            ["ui", "wait-for", "delayedRoot", "-w", hwnd, "--type", "Pane",
+             "--gone", "--timeout", "5000", "--json"]);
+        Assert.AreEqual(0, removed.ExitCode, $"{removed.Stdout} {removed.Stderr}");
+        Assert.IsFalse(JsonSerializer.Deserialize<JsonElement>(removed.Stdout).GetProperty("timedOut").GetBoolean());
         fx.OnUiThread(() =>
         {
-            fx.Form.Controls["delayedRoot"]!.Dispose();
             var replacement = new Panel { Name = "delayedRoot", Width = 300, Height = 100 };
             replacement.Controls.Add(new TextBox { Name = "delayedValue", Text = "replaced", Width = 200 });
             fx.Form.Controls.Add(replacement);
