@@ -622,10 +622,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
         // Slug resolution: walk tree, regenerate slugs, match and validate hash
         if (selector.IsSlug)
         {
-            var slugResult = FindElementBySlug(selector.Slug!, root);
-            if (slugResult is not null)
+            var (slugResult, slugElement) = FindElementBySlugWithCom(selector.Slug!, root);
+            if (slugResult is not null && slugElement is not null)
             {
-                slugResult.WindowHandle = uiTarget.WindowHandle;
+                SetResolvedWindowHandle(slugResult, slugElement, uiTarget.WindowHandle);
                 return Task.FromResult<UiElement?>(slugResult);
             }
             // Not found on main window — search other windows (unless --window scoped us to one)
@@ -651,7 +651,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             {
                 var nextId = 0;
                 var exactResult = ToUiElement(exactMatch, "", ref nextId);
-                exactResult.WindowHandle = uiTarget.WindowHandle;
+                SetResolvedWindowHandle(exactResult, exactMatch, uiTarget.WindowHandle);
                 return Task.FromResult<UiElement?>(exactResult);
             }
         }
@@ -683,7 +683,7 @@ return Task.FromResult<UiElement?>(null);
                 {
                     var nextId = 0;
                     var manualResult = ToUiElement(manualResults[0], "", ref nextId);
-                    manualResult.WindowHandle = uiTarget.WindowHandle;
+                    SetResolvedWindowHandle(manualResult, manualResults[0], uiTarget.WindowHandle);
                     return Task.FromResult<UiElement?>(manualResult);
                 }
             }
@@ -722,7 +722,7 @@ return Task.FromResult<UiElement?>(null);
                 _logger.LogDebug("Disambiguated {Count} matches by picking the only invokable element", found.get_Length());
                 var nextId = 0;
                 var invokableResult = ToUiElement(invokableMatch, "", ref nextId);
-                invokableResult.WindowHandle = uiTarget.WindowHandle;
+                SetResolvedWindowHandle(invokableResult, invokableMatch, uiTarget.WindowHandle);
                 return Task.FromResult<UiElement?>(invokableResult);
             }
 
@@ -762,7 +762,7 @@ return Task.FromResult<UiElement?>(null);
         var element = found.GetElement(0);
         var nextElementId = 0;
         var result = ToUiElement(element, "", ref nextElementId);
-        result.WindowHandle = uiTarget.WindowHandle;
+        SetResolvedWindowHandle(result, element, uiTarget.WindowHandle);
 
         // Surface invokable ancestor for non-invokable elements
         if (!IsInvokable(element))
@@ -2158,6 +2158,15 @@ return Task.FromResult<UiElement?>(null);
         }
 
         return 0;
+    }
+
+    private void SetResolvedWindowHandle(
+        UiElement model,
+        IUIAutomationElement element,
+        long fallbackWindowHandle)
+    {
+        var hwnd = ResolveTopLevelWindowHandle(element);
+        model.WindowHandle = hwnd != 0 ? hwnd : fallbackWindowHandle;
     }
 
     private static bool HasPattern(IUIAutomationElement element, UIA_PATTERN_ID patternId)

@@ -904,7 +904,10 @@ unaware window, system DPI for a system-aware window, and current monitor DPI
 for a per-monitor-aware window. If the HWND or DPI context cannot be read,
 the command fails rather than silently substituting 96. When `status` resolves
 a process before it has a top-level window, `hwnd` is `0` and the DPI fields are
-omitted until a window exists.
+omitted until a window exists. For process-wide `inspect`, the selected target
+window remains fail-fast; if a later popup disappears after its tree was read,
+its `windows[]` entry carries `dpiError` and omits the DPI fields while the
+remaining window trees are still returned.
 
 See the shipped `winapp-ui-automation` skill's
 `references/ui-json-envelope.md` for complete examples of each envelope.

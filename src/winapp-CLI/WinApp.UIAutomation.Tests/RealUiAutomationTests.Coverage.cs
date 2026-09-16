@@ -274,6 +274,32 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task PromotedOwnedWindowSelectorResolvesWithOwnedWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (ownedHwnd, ownedTitle) = fx.OpenOwnedWindow(
+            "SelectorRoundTrip_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (ownedHwnd, fx.ProcessId, ownedTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+        var inspected = elements.Single(element => element.AutomationId == "btnOwned");
+        Assert.AreEqual("btnOwned", inspected.Selector);
+
+        var resolved = await svc.FindSingleElementAsync(
+            uiTarget,
+            new UiSelector { Query = inspected.Selector },
+            CancellationToken.None);
+
+        Assert.IsNotNull(resolved);
+        Assert.AreEqual(ownedHwnd, resolved.WindowHandle,
+            "a selector emitted for an owned window must resolve back to that HWND");
+    }
+
+    [TestMethod]
     public async Task InspectAsync_DuplicateAutomationIdsAcrossWindowsRemainSlugs()
     {
         using var fx = new UiaTestFixture();

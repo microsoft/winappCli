@@ -11,6 +11,7 @@ internal sealed class FakeWindowDpiContextProvider : IWindowDpiContextProvider
         new(144, 1.5, "per-monitor-aware", WindowDpiContextProvider.PhysicalScreenPixels);
 
     public Dictionary<long, WindowDpiContext> ResultsByHwnd { get; } = [];
+    public Dictionary<long, Exception> ThrowsByHwnd { get; } = [];
 
     public Exception? Throw { get; set; }
 
@@ -19,6 +20,10 @@ internal sealed class FakeWindowDpiContextProvider : IWindowDpiContextProvider
     public WindowDpiContext GetForWindow(long hwnd)
     {
         RequestedHwnds.Add(hwnd);
+        if (ThrowsByHwnd.TryGetValue(hwnd, out var hwndException))
+        {
+            throw hwndException;
+        }
         if (Throw is not null)
         {
             throw Throw;

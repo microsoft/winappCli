@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Tests;
@@ -173,5 +174,36 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         StringAssert.Contains(ConsoleStdErr.ToString(), "GetDpiForWindow failed for HWND 321");
+    }
+
+    [TestMethod]
+    public async Task Inspect_SecondaryDpiReadFailure_PreservesTreeAndSurfacesWindowError()
+    {
+        _fakeWindowDpiContextProvider.ResultsByHwnd[100] =
+            new(192, 2, "per-monitor-aware", WindowDpiContextProvider.PhysicalScreenPixels);
+        _fakeWindowDpiContextProvider.ThrowsByHwnd[200] =
+            new InvalidOperationException("GetDpiForWindow failed for HWND 200.");
+        _fakeUia.InspectResult =
+        [
+            new UiElement { Type = "---", Name = "HWND 100: \"Main\" (window, MainClass)", WindowHandle = 100 },
+            new UiElement { Type = "Button", Depth = 0, Selector = "btn-main" },
+            new UiElement { Type = "---", Name = "HWND 200: \"Closing\" (popup, PopupClass)", WindowHandle = 200 },
+            new UiElement { Type = "Text", Depth = 0, Selector = "txt-closing" },
+        ];
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        var windows = document.RootElement.GetProperty("windows");
+        Assert.AreEqual(2, windows.GetArrayLength());
+        Assert.AreEqual((uint)192, windows[0].GetProperty("windowDpi").GetUInt32());
+        Assert.AreEqual("txt-closing", windows[1].GetProperty("elements")[0].GetProperty("selector").GetString());
+        Assert.AreEqual(
+            "GetDpiForWindow failed for HWND 200.",
+            windows[1].GetProperty("dpiError").GetString());
+        Assert.IsFalse(windows[1].TryGetProperty("windowDpi", out _));
+        Assert.IsFalse(windows[1].TryGetProperty("scale", out _));
     }
 }

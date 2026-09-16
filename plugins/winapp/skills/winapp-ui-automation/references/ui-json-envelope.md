@@ -55,6 +55,11 @@ system-aware window, and the current monitor DPI for a per-monitor-aware
 window. If the HWND or DPI context cannot be read, the command fails with an
 error instead of substituting 96.
 
+The selected target window remains fail-fast. If a later popup or secondary
+window disappears after its UIA tree was collected, that window entry remains
+in `windows[]` with a `dpiError` message and without the four DPI context fields;
+the other window trees remain available.
+
 Element `x`, `y`, `width`, and `height` values are numbers in physical screen
 pixels. `0,0,0,0` is UI Automation's empty/no-displayed-UI rectangle in this
 projection. `isOffscreen` is independent: an offscreen element can still have
