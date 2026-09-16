@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
@@ -13,6 +14,33 @@ public class UnregisterCommandTests : BaseCommandTests
 {
     private FakePackageRegistrationService _fakePackageRegistrationService = null!;
     private FakeProjectRunService _fakeProjectRunService = null!;
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task UnregisterCommand_SingleFileOnTarget_RejectsBeforeEvaluatingOrRemoving()
+    {
+        var input = CreateSingleFile();
+        var command = GetRequiredService<WinAppRootCommand>();
+        var originalError = Console.Error;
+        using var error = new StringWriter();
+        Console.SetError(error);
+        int exitCode;
+        try
+        {
+            exitCode = await ParseAndInvokeWithCaptureAsync(command,
+                ["unregister", input.FullName, "--on", "sandbox", "--json"]);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
+        StringAssert.Contains(error.ToString(), "target_invalid_arguments");
+        StringAssert.Contains(error.ToString(), "manifest");
+        Assert.IsEmpty(_fakeProjectRunService.ResolveSingleFileIdentityInputs);
+        Assert.IsEmpty(_fakePackageRegistrationService.UnregisterByFullNameCalls);
+    }
 
     private const string TestManifestContent = """
         <?xml version="1.0" encoding="utf-8"?>
@@ -214,6 +242,53 @@ public class UnregisterCommandTests : BaseCommandTests
         // Assert
         Assert.AreEqual(0, exitCode);
         Assert.IsTrue(_fakePackageRegistrationService.UnregisterByFullNameCalls.Any(c => c.PackageFullName == "TestPackage_1.0.0.0_x64__abc123"));
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task UnregisterCommand_WithForceOnTarget_IsRejectedCoherently(bool json)
+    {
+        var manifest = await CreateTestManifestAsync();
+        var rootCommand = GetRequiredService<WinAppRootCommand>();
+        var arguments = new List<string>
+        {
+            "unregister",
+            "--manifest",
+            manifest.FullName,
+            "--on",
+            "sandbox",
+            "--force",
+        };
+        if (json)
+        {
+            arguments.Add("--json");
+        }
+
+        var originalError = Console.Error;
+        using var capturedError = new StringWriter();
+        Console.SetError(capturedError);
+        int exitCode;
+        try
+        {
+            exitCode = await ParseAndInvokeWithCaptureAsync(rootCommand, [.. arguments]);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
+        var error = capturedError.ToString().Trim();
+        StringAssert.Contains(error, "--force");
+        if (json)
+        {
+            var root = System.Text.Json.JsonDocument.Parse(error).RootElement;
+            Assert.AreEqual(
+                ExecutionTargetErrorCodes.TargetInvalidArguments,
+                root.GetProperty("error").GetProperty("code").GetString());
+        }
     }
 
     [TestMethod]

@@ -3,6 +3,8 @@
 
 using Microsoft.Extensions.Logging;
 using WinApp.Cli;
+using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 
 namespace WinApp.Cli.Tests;
 
@@ -156,6 +158,21 @@ public class ProgramMainTests
         Assert.IsTrue(stderr.Contains("Did you mean", StringComparison.Ordinal),
             $"A single-dash long-option typo must suggest the double-dash form. Got stderr: {stderr}");
         Assert.IsTrue(stderr.Contains("--app", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task Main_TargetOptionLikePositional_WithJson_EmitsTargetEnvelope()
+    {
+        var (stdout, stderr, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync(
+            ["target", "push", "sandbox", "--sorce", @".\Setup", "--json"]);
+
+        Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
+        Assert.AreEqual(string.Empty, stdout);
+
+        using var document = System.Text.Json.JsonDocument.Parse(stderr);
+        Assert.AreEqual(
+            ExecutionTargetErrorCodes.TargetInvalidArguments,
+            document.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
 
     [TestMethod]

@@ -15,28 +15,28 @@ internal static class UiErrors
 {
     public static void MissingApp(ILogger logger, bool json = false)
     {
-        const string msg = "Target app required. Use --app <name|title|PID> or --window <HWND>. Run 'winapp ui list-windows' to find running apps.";
+        var msg = $"Target app required. Use --app <name|title|PID> or --window <HWND>. Run '{UiCommandAdvice.Command("list-windows")}' to find running apps.";
         logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
         UiJsonError.Emit(json, UiJsonError.CodeMissingApp, msg);
     }
 
     public static void MissingSelector(ILogger logger, string commandName, bool json = false)
     {
-        var msg = $"A selector is required. Usage: winapp ui {commandName} <selector> -a <app>. Use 'winapp ui search <text> -a <app>' to find elements.";
+        var msg = $"A selector is required. Usage: {UiCommandAdvice.Command($"{commandName} <selector> -a <app>")}. Use '{UiCommandAdvice.Command("search <text> -a <app>")}' to find elements.";
         logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
         UiJsonError.Emit(json, UiJsonError.CodeMissingSelector, msg);
     }
 
     public static void ElementNotFound(ILogger logger, string selector, bool json = false)
     {
-        var msg = $"No element found matching '{selector}'. The UI may have changed — re-run 'winapp ui inspect' or 'winapp ui search' to find current elements. Prefer targeting by AutomationId (set via AutomationProperties.AutomationId in XAML) — these survive layout changes.";
+        var msg = $"No element found matching '{selector}'. The UI may have changed — re-run '{UiCommandAdvice.Command("inspect")}' or '{UiCommandAdvice.Command("search")}' to find current elements. Prefer targeting by AutomationId (set via AutomationProperties.AutomationId in XAML) — these survive layout changes.";
         logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
         UiJsonError.Emit(json, UiJsonError.CodeElementNotFound, $"No element found matching '{selector}'", selector);
     }
 
     public static void StaleElement(ILogger logger, bool json = false, TextWriter? errorOut = null)
     {
-        const string msg = "Element is no longer accessible — the app may have navigated or the element was removed. Re-run 'winapp ui inspect' to refresh the element tree. Prefer targeting by AutomationId — these are stable across layout changes.";
+        var msg = $"Element is no longer accessible — the app may have navigated or the element was removed. Re-run '{UiCommandAdvice.Command("inspect")}' to refresh the element tree. Prefer targeting by AutomationId — these are stable across layout changes.";
         logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
         UiJsonError.Emit(json, UiJsonError.CodeStaleElement, "Element is no longer accessible", errorOut: errorOut);
     }
@@ -49,8 +49,13 @@ internal static class UiErrors
 
     public static void GenericError(ILogger logger, Exception ex, bool json = false, TextWriter? errorOut = null)
     {
+        var message = ex is UiValueSetException valueSet
+            ? valueSet.FormatMessage(UiCommandAdvice.Format)
+            : ex.Message;
         logger.LogDebug("Stack trace: {StackTrace}", ex.StackTrace);
-        logger.LogError("{Symbol} {Message}", UiSymbols.Error, ex.Message);
-        UiJsonError.Emit(json, UiJsonError.CodeInternalError, ex.Message, details: ex.GetType().Name, errorOut: errorOut);
+        logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+        // Keep the existing JSON details value for this failure, including local invocations.
+        var details = ex is UiValueSetException ? nameof(InvalidOperationException) : ex.GetType().Name;
+        UiJsonError.Emit(json, UiJsonError.CodeInternalError, message, details: details, errorOut: errorOut);
     }
 }
