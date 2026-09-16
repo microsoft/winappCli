@@ -958,7 +958,6 @@ extends:
             env:
               GH_TOKEN: $(GITHUB_TOKEN_2)
               GH_MODELS_TOKEN: $(GH_MODELS_TOKEN)
-              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
             inputs:
               pwsh: true
               errorActionPreference: stop
@@ -966,4 +965,39 @@ extends:
               arguments: >-
                 -WingetPkgsFork "$(WingetPkgsFork)"
                 -MSLearnDocsFork "$(MSLearnDocsFork)"
-                -ServiceConnections "github-service-connection","$(SigningServiceName)","$(SymbolPublishingServiceConnection)","NuGet-WinAppCLI"
+
+          # Exercise the two federated service connections for real, without publishing anything.
+          #
+          # Acquiring a token proves what actually matters and what nothing else here can: the
+          # connection exists, this pipeline is authorized to use it, AND the workload-identity
+          # federation credential still works. That last part is the one that silently rotates or
+          # gets de-authorized under ES policy changes, and it is invisible to any amount of
+          # metadata inspection.
+          #
+          # Only these two are verifiable this way. github-service-connection is consumed solely by
+          # GitHubRelease@1, whose every action mutates, and NuGet-WinAppCLI carries an API key that
+          # is only validated on push - so neither can be exercised without actually releasing.
+          # See .pipelines/README.md; do not add a fake check for them.
+          - task: AzureCLI@2
+            displayName: Verify ESRP signing connection (token only, signs nothing)
+            inputs:
+              azureSubscription: $(SigningServiceName)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $account = az account show --only-show-errors | ConvertFrom-Json
+                if (-not $account.id) { throw "ESRP signing connection did not yield an authenticated context." }
+                Write-Host "[PASS] ESRP signing connection authenticated (subscription $($account.id))."
+
+          - task: AzureCLI@2
+            displayName: Verify symbol publishing connection (token only, publishes nothing)
+            inputs:
+              azureSubscription: $(SymbolPublishingServiceConnection)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                # Same resource the release's symbol request uses, so this exercises the exact
+                # token exchange that stage depends on.
+                $token = az account get-access-token --resource api://30471ccf-0966-45b9-a979-065dbedb24c1 --only-show-errors | ConvertFrom-Json
+                if (-not $token.accessToken) { throw "Symbol publishing connection did not yield an access token." }
+                Write-Host "[PASS] Symbol publishing connection issued a token for the symbol service."
