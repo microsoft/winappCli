@@ -255,4 +255,44 @@ public partial class UiCommandTests
         StringAssert.Contains(output, "toggle-on");
         StringAssert.Contains(output, "none");
     }
+
+    [TestMethod]
+    public async Task Invoke_ExplicitAction_TextSelector_CommitsToAutomationIdForUniquenessCheck()
+    {
+        // A plain-text/AutomationId selector is resolved to a first match stamped with a runtime slug.
+        // Explicit mode must hand the strict resolver the element's AutomationId identity (not that
+        // convenience slug) so the service can prove the AutomationId is unique before acting — otherwise
+        // a duplicate AutomationId silently activates whichever element resolved first.
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "internal", Selector = "elm-save-9a9a", AutomationId = "save", Name = "Save", Type = "Button"
+        };
+        _fakeUia.ExplicitInvokeResult = new UiInvokeActionResult("InvokePattern", "invoke");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["save", "-a", "TestApp", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("save", _fakeUia.LastInvokedElement!.Selector,
+            "Explicit mode must commit to the AutomationId identity so the strict resolver verifies uniqueness, not follow the first-match runtime slug.");
+    }
+
+    [TestMethod]
+    public async Task Invoke_ExplicitAction_SlugSelector_PreservesSlugIdentity()
+    {
+        // A user-supplied slug already names exactly one element via its RuntimeId hash, so it must be
+        // passed to the strict resolver verbatim rather than collapsed to a (possibly duplicated) AutomationId.
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "internal", Selector = "elm-save-9a9a", AutomationId = "save", Name = "Save", Type = "Button"
+        };
+        _fakeUia.ExplicitInvokeResult = new UiInvokeActionResult("InvokePattern", "invoke");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["elm-save-9a9a", "-a", "TestApp", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("elm-save-9a9a", _fakeUia.LastInvokedElement!.Selector,
+            "A user-supplied slug names exactly one element and must be used verbatim.");
+    }
 }

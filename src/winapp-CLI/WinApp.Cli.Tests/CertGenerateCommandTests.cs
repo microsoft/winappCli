@@ -379,4 +379,34 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
         StringAssert.Contains(errorProp.GetString(), "already exists");
     }
+
+    [TestMethod]
+    public async Task EmptyPassword_NonJson_ReturnsError()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "empty-pw.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", ""]);
+
+        Assert.AreEqual(1, exitCode, "An explicitly empty --password must be rejected before generating a PFX.");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "password cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty password.");
+    }
+
+    [TestMethod]
+    public async Task EmptyPassword_Json_OutputsJsonError()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "empty-pw-json.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", "   ", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+        Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
+        StringAssert.Contains(errorProp.GetString(), "password cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath));
+    }
 }

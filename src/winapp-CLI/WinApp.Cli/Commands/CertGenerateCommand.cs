@@ -96,6 +96,20 @@ internal class CertGenerateCommand : Command, IShortDescription
             var exportCer = parseResult.GetRequiredValue(ExportCerOption);
             var json = parseResult.GetRequiredValue(WinAppRootCommand.JsonOption);
 
+            // The npm wrapper now forwards an explicitly empty --password rather than dropping it, and a
+            // native user can pass one directly. An empty or whitespace password would produce a PFX with
+            // no effective protection, so reject it here. Omitting --password still uses the dev default.
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                const string message = "Certificate password cannot be empty. Omit --password to use the development default, or supply a non-empty password.";
+                if (json)
+                {
+                    return JsonErrorOutput.Write(ansiConsole, message);
+                }
+                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
+                return 1;
+            }
+
             // Check if certificate file already exists
             if (output.Exists)
             {
