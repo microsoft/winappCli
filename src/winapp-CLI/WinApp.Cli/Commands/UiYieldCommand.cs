@@ -72,13 +72,14 @@ internal class UiYieldCommand : Command, IShortDescription
                     // Not invalid_ui_workflow_id: that code means the variable is present but malformed,
                     // and conflating the two would send someone hunting for a bad value they never set.
                     logger.LogError(
-                        "{Symbol} Set {Variable} before running 'winapp ui yield' — without it each command is its own one-shot workflow that already releases the desktop when it finishes, so there is no turn to yield.",
+                        "{Symbol} Set {Variable} before running '{Command}' — without it each command is its own one-shot workflow that already releases the desktop when it finishes, so there is no turn to yield.",
                         UiSymbols.Error,
-                        UiOwnerResolver.WorkflowIdVariable);
+                        UiOwnerResolver.WorkflowIdVariable,
+                        UiCommandAdvice.Command("yield"));
                     UiJsonError.Emit(
                         json,
                         UiJsonError.CodeInvalidArguments,
-                        $"'winapp ui yield' requires {UiOwnerResolver.WorkflowIdVariable}. Without it each command is its own one-shot workflow and releases the desktop as soon as it finishes.",
+                        $"'{UiCommandAdvice.Command("yield")}' requires {UiOwnerResolver.WorkflowIdVariable}. Without it each command is its own one-shot workflow and releases the desktop as soon as it finishes.",
                         errorOut: parseResult.InvocationConfiguration.Error);
                     return 1;
 
@@ -86,7 +87,7 @@ internal class UiYieldCommand : Command, IShortDescription
                     throw new UiCoordinationException(
                         UiCoordinationErrorCodes.TurnBusy,
                         "This workflow still has a winapp ui command running or waiting, so its turn is not idle and was not released.",
-                        "Wait for this workflow's other winapp ui commands to finish — or stop them, for example a recording started with the same WINAPP_UI_WORKFLOW_ID — then run 'winapp ui yield' again.");
+                        $"Wait for this workflow's other winapp ui commands to finish — or stop them, for example a recording started with the same WINAPP_UI_WORKFLOW_ID — then run '{UiCommandAdvice.Command("yield")}' again.");
 
                 case UiYieldResult.Released:
                     EmitReleased(json, released: true);

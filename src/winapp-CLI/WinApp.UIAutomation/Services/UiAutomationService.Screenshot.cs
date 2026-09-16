@@ -284,6 +284,11 @@ internal sealed partial class UiAutomationService
         var (offsetX, offsetY, fitW, fitH) = CaptureGeometry.ComputeFittedContentRect(
             cropWidth, cropHeight, encoderWidth, encoderHeight, displayWidth, displayHeight);
         var content = s_captureFromScreenScaled(x, y, cropWidth, cropHeight, fitW, fitH);
+        // BI_RGB screen bitmaps do not define alpha. PNG consumers must see opaque desktop pixels.
+        for (var i = 3; i < content.Length; i += 4)
+        {
+            content[i] = 255;
+        }
         if (offsetX == 0 && offsetY == 0 && fitW == encoderWidth && fitH == encoderHeight)
         {
             return content;
@@ -312,22 +317,44 @@ internal sealed partial class UiAutomationService
     private static unsafe byte[] CaptureFromScreenScaled(int x, int y, int sourceWidth, int sourceHeight, int targetWidth, int targetHeight)
     {
         var hdcScreen = global::Windows.Win32.PInvoke.GetDC(global::Windows.Win32.Foundation.HWND.Null);
+        if (hdcScreen.IsNull)
+        {
+            throw ScreenCaptureFailure("GetDC");
+        }
         try
         {
             var hdcMem = global::Windows.Win32.PInvoke.CreateCompatibleDC(hdcScreen);
+            if (hdcMem.IsNull)
+            {
+                throw ScreenCaptureFailure("CreateCompatibleDC");
+            }
             try
             {
                 var hBitmap = global::Windows.Win32.PInvoke.CreateCompatibleBitmap(hdcScreen, targetWidth, targetHeight);
+                if (hBitmap.IsNull)
+                {
+                    throw ScreenCaptureFailure("CreateCompatibleBitmap");
+                }
                 try
                 {
                     var hOld = global::Windows.Win32.PInvoke.SelectObject(hdcMem, *(global::Windows.Win32.Graphics.Gdi.HGDIOBJ*)&hBitmap);
+                    if (hOld.IsNull || (nint)hOld.Value == -1)
+                    {
+                        throw ScreenCaptureFailure("SelectObject");
+                    }
                     try
                     {
-                        _ = global::Windows.Win32.PInvoke.SetStretchBltMode(hdcMem, global::Windows.Win32.Graphics.Gdi.STRETCH_BLT_MODE.HALFTONE);
-                        global::Windows.Win32.PInvoke.StretchBlt(
+                        if (global::Windows.Win32.PInvoke.SetStretchBltMode(hdcMem, global::Windows.Win32.Graphics.Gdi.STRETCH_BLT_MODE.HALFTONE) == 0)
+                        {
+                            throw ScreenCaptureFailure("SetStretchBltMode");
+                        }
+                        if (!global::Windows.Win32.PInvoke.StretchBlt(
                             hdcMem, 0, 0, targetWidth, targetHeight,
                             hdcScreen, x, y, sourceWidth, sourceHeight,
-                            global::Windows.Win32.Graphics.Gdi.ROP_CODE.SRCCOPY);
+                            global::Windows.Win32.Graphics.Gdi.ROP_CODE.SRCCOPY))
+                        {
+                            throw ScreenCaptureFailure("StretchBlt");
+                        }
                     }
                     finally
                     {
@@ -352,6 +379,9 @@ internal sealed partial class UiAutomationService
         }
     }
 
+    private static System.ComponentModel.Win32Exception ScreenCaptureFailure(string operation) =>
+        new(System.Runtime.InteropServices.Marshal.GetLastWin32Error(), $"{operation} failed while capturing screen pixels.");
+
     /// <remarks>
     /// Coverage ceiling (issue #630): this is the innermost GetDIBits extraction from a native HBITMAP.
     /// It is covered indirectly by real screenshot attempts and cannot be executed with managed-only
@@ -372,38 +402,21 @@ internal sealed partial class UiAutomationService
             }
         };
 
-        var pixelData = new byte[width * height * 4];
+        var pixelData = new byte[checked(width * height * 4)];
         fixed (byte* pPixels = pixelData)
         {
-            global::Windows.Win32.PInvoke.GetDIBits(hdc, hBitmap, 0, (uint)height, pPixels, &bmi,
+            var rows = global::Windows.Win32.PInvoke.GetDIBits(hdc, hBitmap, 0, (uint)height, pPixels, &bmi,
                 global::Windows.Win32.Graphics.Gdi.DIB_USAGE.DIB_RGB_COLORS);
+            if (rows != height)
+            {
+                throw ScreenCaptureFailure("GetDIBits");
+            }
         }
 
         return pixelData;
     }
 
-    internal static bool IsBlankCapture(byte[] pixels)
-    {
-        // Check if all pixels are zero (black/unrendered frame).
-        // Use int-sized chunks for speed on large buffers.
-        var span = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, long>(pixels.AsSpan());
-        foreach (var chunk in span)
-        {
-            if (chunk != 0)
-            {
-                return false;
-            }
-        }
-        // Check remaining bytes
-        for (var i = span.Length * sizeof(long); i < pixels.Length; i++)
-        {
-            if (pixels[i] != 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
+    internal static bool IsBlankCapture(byte[] pixels) => CapturedFrame.IsBlank(pixels);
 
     /// <remarks>
     /// Coverage ceiling (issue #630): real screenshot tests cover element cropping for normal controls.

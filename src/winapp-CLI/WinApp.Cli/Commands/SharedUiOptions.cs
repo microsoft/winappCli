@@ -28,6 +28,7 @@ internal static class SharedUiOptions
     public static Option<int> FpsOption { get; }
     public static Option<int> MaxEdgeOption { get; }
 
+
     static SharedUiOptions()
     {
         AppOption = new Option<string?>("--app", "-a")
@@ -122,5 +123,6 @@ internal static class SharedUiOptions
             Description = "Downscale so the longest edge is at most this many pixels (0 = no downscale)",
             DefaultValueFactory = _ => 0
         };
+
     }
 }

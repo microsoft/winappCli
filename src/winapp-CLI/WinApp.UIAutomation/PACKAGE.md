@@ -61,6 +61,18 @@ GPU-composited (WinUI 3, DirectX, video), where `PrintWindow` can return a blank
 
 `IWindowCapture.IsFrameCaptureSupported` reports which implementation you got at runtime.
 
+## Native desktop pixels
+
+`IWindowCapture.GetDesktopBounds()` returns the current input desktop's virtual-screen rectangle.
+Pass its origin and size to `CaptureScreenPixels`, using that same size for the encoder and
+display dimensions when you need unscaled BGRA pixels. Measure again afterward and discard the
+frame if the bounds changed. These operations do not activate a window. They require an unlocked
+interactive input desktop and a per-monitor-DPI-aware calling process.
+
+`CaptureCoordinates` describes a source screen rectangle and its content rectangle within an image.
+`ToScreenPoint` maps an image pixel center to an integer screen pixel and rejects padding.
+The screen origin may be negative; right and bottom bounds are exclusive.
+
 ## Using it with MSTest
 
 The package pairs with `MSTest.Windows.UIAutomation`, which launches the app and hands you the main

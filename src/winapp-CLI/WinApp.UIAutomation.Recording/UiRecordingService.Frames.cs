@@ -19,6 +19,7 @@ internal sealed partial class UiRecordingService
         public required RecordOptions Options { get; init; }
         public required int EncoderWidth { get; init; }
         public required int EncoderHeight { get; init; }
+        public CaptureCoordinates? Coordinates { get; init; }
     }
 
     private RecordFrameArtifactCoordinator CreateRecordFrameArtifactCoordinator(
@@ -30,6 +31,7 @@ internal sealed partial class UiRecordingService
             VideoPath = setup.Options.OutputPath,
             Width = setup.EncoderWidth,
             Height = setup.EncoderHeight,
+            Coordinates = setup.Coordinates,
             Requested = new RecordFrameRequestManifest
             {
                 DurationSec = setup.Options.DurationSec,
@@ -38,6 +40,19 @@ internal sealed partial class UiRecordingService
             },
             Logger = _logger,
         });
+    }
+
+    internal static CaptureCoordinates DescribeCoordinates(
+        PointerRect sourceBounds, int encoderWidth, int encoderHeight, int displayWidth, int displayHeight)
+    {
+        var (x, y, width, height) = CaptureGeometry.ComputeFittedContentRect(
+            sourceBounds.Right - sourceBounds.Left, sourceBounds.Bottom - sourceBounds.Top,
+            encoderWidth, encoderHeight, displayWidth, displayHeight);
+        return new CaptureCoordinates
+        {
+            SourceBounds = sourceBounds,
+            ContentRect = new PointerRect(x, y, x + width, y + height),
+        };
     }
 
     /// <summary>Computes even content and encoder sizes, padding to Media Foundation's minimum.</summary>
