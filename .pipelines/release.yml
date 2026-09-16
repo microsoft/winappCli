@@ -978,26 +978,43 @@ extends:
           # GitHubRelease@1, whose every action mutates, and NuGet-WinAppCLI carries an API key that
           # is only validated on push - so neither can be exercised without actually releasing.
           # See .pipelines/README.md; do not add a fake check for them.
+          #
+          # Both run on succeededOrFailed() so that one dead credential cannot hide another. The
+          # step before this one throws on a bad GitHub PAT, and under the default succeeded()
+          # condition that would skip both probes entirely - so the operator fixes the PAT, waits a
+          # week, and only then discovers a connection is also dead. Finding every broken credential
+          # in a single run is the whole point of the rehearsal.
           - task: AzureCLI@2
             displayName: Verify ESRP signing connection (token only, signs nothing)
+            condition: succeededOrFailed()
             inputs:
               azureSubscription: $(SigningServiceName)
               scriptType: pscore
               scriptLocation: inlineScript
               inlineScript: |
+                # The task's own federated login is the real test here - it fails before this script
+                # runs if the credential is dead. ESRP signing goes through EsrpCodeSigning/
+                # EsrpRelease, which use neither the az CLI nor Azure PowerShell, so unlike the
+                # symbol check below there is no release task worth mirroring.
                 $account = az account show --only-show-errors | ConvertFrom-Json
                 if (-not $account.id) { throw "ESRP signing connection did not yield an authenticated context." }
-                Write-Host "[PASS] ESRP signing connection authenticated (subscription $($account.id))."
+                Write-Host "[PASS] ESRP signing connection authenticated (identity $($account.id))."
 
-          - task: AzureCLI@2
+          # Deliberately AzurePowerShell@5 + Get-AzAccessToken rather than the az CLI: that is
+          # exactly what the real symbol stage runs, so this also catches a break in the task or in
+          # the Az modules themselves, not just in the connection behind them.
+          - task: AzurePowerShell@5
             displayName: Verify symbol publishing connection (token only, publishes nothing)
+            condition: succeededOrFailed()
             inputs:
               azureSubscription: $(SymbolPublishingServiceConnection)
-              scriptType: pscore
-              scriptLocation: inlineScript
-              inlineScript: |
-                # Same resource the release's symbol request uses, so this exercises the exact
-                # token exchange that stage depends on.
-                $token = az account get-access-token --resource api://30471ccf-0966-45b9-a979-065dbedb24c1 --only-show-errors | ConvertFrom-Json
-                if (-not $token.accessToken) { throw "Symbol publishing connection did not yield an access token." }
+              azurePowerShellVersion: LatestVersion
+              pwsh: true
+              ScriptType: InlineScript
+              Inline: |-
+                # Same resource the release's symbol request asks for, so this exercises the same
+                # token exchange that stage depends on. The token is never converted to plaintext -
+                # that it exists and is non-empty is all the proof needed.
+                $token = (Get-AzAccessToken -AsSecureString -ResourceUrl api://30471ccf-0966-45b9-a979-065dbedb24c1).Token
+                if (-not $token -or $token.Length -eq 0) { throw "Symbol publishing connection did not yield an access token." }
                 Write-Host "[PASS] Symbol publishing connection issued a token for the symbol service."
