@@ -10,6 +10,64 @@ namespace WinApp.Cli.Tests;
 public partial class UiCommandTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task QueryOptions_RealRetainedReadRaceRetriesQueryWithoutSerializedResolution(bool property)
+    {
+        if (!Environment.UserInteractive) { Assert.Inconclusive("Requires an interactive desktop."); }
+        using var fx = new UiaTestFixture();
+        var svc = RealStringQueryService(fx);
+        var target = _fakeTargetResolver.TargetResult;
+        var selector = new UiSelector { Root = new() { Query = "fixtureForm" }, Query = "txtValue", ControlType = "Edit" };
+        var original = await svc.FindSingleElementAsync(target, selector, CancellationToken.None);
+        Assert.IsNotNull(original);
+        var nativeProcessId = UiAutomationService.s_getElementProcessId;
+        var nativeRoot = UiAutomationService.s_getRootElement;
+        var reads = 0;
+        var lookups = 0;
+        try
+        {
+            UiAutomationService.s_getRootElement = (service, queryTarget, strict) =>
+            {
+                lookups++;
+                return nativeRoot(service, queryTarget, strict);
+            };
+            UiAutomationService.s_getElementProcessId = element =>
+            {
+                if (++reads == 1)
+                {
+                    fx.OnUiThread(() =>
+                    {
+                        var replacement = new TextBox { Name = "txtValue", Text = "ready" };
+                        fx.Form.Controls.Add(replacement);
+                        _ = replacement.Handle;
+                        fx.ValueBox.Dispose();
+                    });
+                    throw new System.Runtime.InteropServices.COMException(
+                        "Retained provider disappeared.", unchecked((int)0x80040201));
+                }
+                return nativeProcessId(element);
+            };
+            var args = new List<string>
+            {
+                "txtValue", "-w", fx.Hwnd.ToString(), "--root", "fixtureForm", "--type", "Edit",
+                "--value", "ready", "--timeout", "5000", "--json",
+            };
+            if (property) { args.AddRange(["--property", "Value"]); }
+            var exit = await ParseAndInvokeWithCaptureAsync(RealStringQueryCommand("wait-for", svc), args.ToArray());
+
+            Assert.AreEqual(0, exit, $"{TestAnsiConsole.Output} {ConsoleStdErr}");
+            Assert.AreEqual(2, reads);
+            Assert.AreEqual(2, lookups, "Retry must resolve the complete root-constrained query.");
+            Assert.AreEqual(1, _fakePollDelay.CallCount);
+            Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+            Assert.IsFalse(TestAnsiConsole.Output.Contains(original.Selector!, StringComparison.Ordinal));
+            StringAssert.Contains(TestAnsiConsole.Output, "ready");
+        }
+        finally { UiAutomationService.ResetNativeSeams(); }
+    }
+
+    [TestMethod]
     [DataRow("search", false)]
     [DataRow("search", true)]
     [DataRow("wait-for", false)]

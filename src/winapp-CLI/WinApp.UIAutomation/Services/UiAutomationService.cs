@@ -783,7 +783,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     _ => pattern.get_CurrentToggleState().ToString()
                 };
             }
-            catch { }
+            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
             try
             {
@@ -792,7 +792,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 props["Value"] = v.ToString();
                 props["IsReadOnly"] = (bool)pattern.get_CurrentIsReadOnly();
             }
-            catch { }
+            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
             try
             {
@@ -806,7 +806,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     props["IsSelected"] = (bool)pattern.get_CurrentIsSelected();
                 }
             }
-            catch { }
+            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
             try
             {
@@ -820,7 +820,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     _ => pattern.get_CurrentExpandCollapseState().ToString()
                 };
             }
-            catch { }
+            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
             try
             {
@@ -830,7 +830,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 props["HorizontallyScrollable"] = pattern.get_CurrentHorizontallyScrollable();
                 props["VerticallyScrollable"] = pattern.get_CurrentVerticallyScrollable();
             }
-            catch { }
+            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
         }
 
         if (propertyName is not null)
@@ -959,7 +959,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 return Task.FromResult<string?>(text.ToString());
             }
         }
-        catch { }
+        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
         // 2. Try ValuePattern (TextBox, ComboBox — simple text)
         try
@@ -972,7 +972,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 return Task.FromResult<string?>(text);
             }
         }
-        catch { }
+        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
         // 3. Try TogglePattern (ToggleSwitch, CheckBox — on/off/indeterminate)
         try
@@ -986,7 +986,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 _ => "Indeterminate"
             });
         }
-        catch { }
+        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
         // 4. Try SelectionPattern (ComboBox, RadioButton, TabView, ListView — selected item name)
         try
@@ -1003,7 +1003,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 }
             }
         }
-        catch { }
+        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
 
         // 5. Fall back to element Name (static text, labels)
         if (!string.IsNullOrEmpty(element.Name))
@@ -1368,6 +1368,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
     }
 
     // --- Private helpers ---
+
+    private static bool IsScopedReadRace(UiElement element, Exception exception) =>
+        element.RequiresCurrentIdentity
+        && exception is System.Runtime.InteropServices.COMException { HResult: UiaElementNotAvailable };
 
     /// <summary>
     /// Uses the provider element retained when the model was created. Touching ProcessId before

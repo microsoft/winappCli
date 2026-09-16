@@ -42,6 +42,10 @@ public partial class RealUiAutomationTests
         }, path == "walk");
         var model = (await svc.SearchAsync(target,
             new UiSelector { ControlType = "Edit" }, 1, CancellationToken.None)).Single();
+        if (path is "property" or "value")
+        {
+            model.Context = null; // These failures occur while re-resolving a serialized model.
+        }
         if (path == "root-self")
         {
             var field = typeof(UiAutomationService).GetField("_automation", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -126,6 +130,10 @@ public partial class RealUiAutomationTests
         await ResolveAsync(svc, target, "txtValue");
         var model = (await svc.SearchAsync(target,
             new UiSelector { Query = "txtValue", ControlType = "Edit" }, 1, CancellationToken.None)).Single();
+        if (path is "property" or "value")
+        {
+            model.Context = null; // A retained provider does not need to resolve its window again.
+        }
         var failure = new COMException("Window resolution failed.", hresult);
         var nativeFromHandle = UiAutomationService.s_elementFromHandle;
         if (path == "title")

@@ -99,6 +99,69 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Query_LiveReadsReuseContext_SerializedReadsResolveStrictIdentity(bool property)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var query = new UiSelector { Root = new() { Query = "fixtureForm" }, Query = "txtValue", ControlType = "Edit" };
+        var element = await svc.FindSingleElementAsync(target, query, CancellationToken.None);
+        Assert.IsNotNull(element);
+        Assert.IsNotNull(element.Context);
+        Assert.IsTrue(element.RequiresCurrentIdentity);
+        fx.OnUiThread(() => fx.ValueBox.Text = "live value");
+
+        async Task<string?> Read() => property
+            ? (string?)(await svc.GetPropertiesAsync(target, element, "Value", CancellationToken.None))["Value"]
+            : await svc.GetTextAsync(target, element, CancellationToken.None);
+
+        Assert.AreEqual("live value", await Read());
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+        element.Context = null;
+        Assert.AreEqual("live value", await Read());
+        Assert.AreEqual(1, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task Query_StaleRetainedContextSignalsRetryWithoutResolvingReplacement(bool property, bool patternRace)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var query = new UiSelector { Root = new() { Query = "fixtureForm" }, Query = "txtValue", ControlType = "Edit" };
+        var element = await svc.FindSingleElementAsync(target, query, CancellationToken.None);
+        Assert.IsNotNull(element?.Context);
+        var failure = new COMException("Retained provider disappeared.", unchecked((int)0x80040201));
+        if (patternRace)
+        {
+            var provider = element.Context.AutomationElement;
+            element.Context = new UiElementContext(ComProxy<IUIAutomationElement>((method, args) =>
+                method.Name == "GetCurrentPattern" ? throw failure : method.Invoke(provider, args)));
+        }
+        else
+        {
+            UiAutomationService.s_getElementProcessId = _ => throw failure;
+        }
+        var retained = element.Context.AutomationElement;
+
+        var actual = await Assert.ThrowsExactlyAsync<COMException>(async () =>
+        {
+            if (property) { await svc.GetPropertiesAsync(target, element, "Value", CancellationToken.None); }
+            else { await svc.GetTextAsync(target, element, CancellationToken.None); }
+        });
+
+        Assert.AreSame(failure, actual);
+        Assert.AreSame(retained, element.Context.AutomationElement);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -109,6 +172,7 @@ public partial class RealUiAutomationTests
         var svc = NewService();
         var target = SessionFor(fx);
         var element = await ResolveAsync(svc, target, "txtValue");
+        element.Context = null; // Model restored without an in-process provider context.
         element.Selector = null;
         element.RequiresCurrentIdentity = constrained;
 
@@ -251,6 +315,7 @@ public partial class RealUiAutomationTests
         var query = new UiSelector { Root = new() { Query = "readRoot" }, Query = "readValue", ControlType = "Edit" };
         var old = await svc.FindSingleElementAsync(target, query, CancellationToken.None);
         Assert.IsNotNull(old);
+        old.Context = null; // Exercise strict serialized identity resolution, not a retained provider.
         fx.OnUiThread(() =>
         {
             if (replace)
@@ -552,7 +617,7 @@ public partial class RealUiAutomationTests
         Form popup = null!;
         fx.OnUiThread(() =>
         {
-            popup = new Form { Name = "queryPopup", Text = "Query Popup" };
+            popup = new NonActivatingTestForm { Name = "queryPopup", Text = "Query Popup" };
             popup.Controls.Add(new TextBox { Name = "popupValue", Text = "popup" });
             // A separate top-level UIA tree, not an owned Form embedded by the provider.
             popup.Show();
@@ -589,7 +654,7 @@ public partial class RealUiAutomationTests
             windows.Add(((nint)fx.Hwnd, fx.ProcessId, fx.Title));
             if (earlierPopup)
             {
-                firstPopup = new Form { Name = "earlierPopup", Text = "Earlier Popup" };
+                firstPopup = new NonActivatingTestForm { Name = "earlierPopup", Text = "Earlier Popup" };
                 for (var i = 0; i < 3; i++)
                 {
                     firstPopup.Controls.Add(new Panel { Name = $"popupContainer{i}", AccessibleName = "ScopeRoot" });
@@ -597,7 +662,7 @@ public partial class RealUiAutomationTests
                 firstPopup.Show();
                 windows.Add((firstPopup.Handle, fx.ProcessId, firstPopup.Text));
             }
-            popup = new Form { Name = "ScopeRoot", Text = "Exact Root Popup" };
+            popup = new NonActivatingTestForm { Name = "ScopeRoot", Text = "Exact Root Popup" };
             popup.Controls.Add(new TextBox { Name = "popupValue", Text = "exact-root-value" });
             popup.Show();
             windows.Add((popup.Handle, fx.ProcessId, popup.Text));
@@ -645,12 +710,12 @@ public partial class RealUiAutomationTests
         fx.OnUiThread(() =>
         {
             fx.Form.Controls.Add(new Panel { Name = mainExact ? "ScopeRoot" : "mainContainer", AccessibleName = "ScopeRoot" });
-            popup = new Form { Name = "ScopeRoot", Text = "Exact Root Popup" };
+            popup = new NonActivatingTestForm { Name = "ScopeRoot", Text = "Exact Root Popup" };
             popup.Controls.Add(new TextBox { Name = "popupValue", Text = "popup" });
             popup.Show();
             if (!mainExact)
             {
-                secondPopup = new Form { Name = "ScopeRoot", Text = "Second Exact Root Popup" };
+                secondPopup = new NonActivatingTestForm { Name = "ScopeRoot", Text = "Second Exact Root Popup" };
                 secondPopup.Show();
             }
         });
