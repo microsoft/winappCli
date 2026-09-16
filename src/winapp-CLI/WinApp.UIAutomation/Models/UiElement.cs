@@ -28,16 +28,16 @@ public sealed class UiElement
     /// <summary><see langword="true"/> when the element is scrolled out of view or otherwise not on screen.</summary>
     public bool IsOffscreen { get; set; }
 
-    /// <summary>Left edge of the element in screen coordinates.</summary>
+    /// <summary>Left edge of the element in physical screen pixels.</summary>
     public double X { get; set; }
 
-    /// <summary>Top edge of the element in screen coordinates.</summary>
+    /// <summary>Top edge of the element in physical screen pixels.</summary>
     public double Y { get; set; }
 
-    /// <summary>Width of the element in pixels.</summary>
+    /// <summary>Width of the element in physical screen pixels.</summary>
     public double Width { get; set; }
 
-    /// <summary>Height of the element in pixels.</summary>
+    /// <summary>Height of the element in physical screen pixels. A 0,0,0,0 rectangle is UIA's empty/no-displayed-UI rectangle.</summary>
     public double Height { get; set; }
 
     /// <summary>Child elements, when the result is a nested tree. <see langword="null"/> on flat result lists.</summary>

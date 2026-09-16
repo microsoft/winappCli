@@ -157,4 +157,21 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);
     }
+
+    [TestMethod]
+    public async Task Inspect_DpiReadFailure_ReturnsExplicitJsonError()
+    {
+        _fakeUia.InspectResult =
+        [
+            new UiElement { Type = "Window", Depth = 0, WindowHandle = 321 },
+        ];
+        _fakeWindowDpiContextProvider.Throw =
+            new InvalidOperationException("GetDpiForWindow failed for HWND 321.");
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "GetDpiForWindow failed for HWND 321");
+    }
 }
