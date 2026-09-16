@@ -4,6 +4,7 @@
 using System.Text.Json;
 using System.Diagnostics.Tracing;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Tests;
@@ -963,6 +964,59 @@ public class ProgramJsonBridgeTests : BaseCommandTests
         Assert.AreEqual(1, exitCode, "verbose/json conflict must exit 1");
         Assert.IsTrue(stderr.Contains("Cannot specify both --verbose and --json"),
             $"--verbose=true --json must trigger the conflict; got stderr: {stderr}");
+    }
+
+    // -------------------------------------------------------------------------
+    // `target ...` — a mistyped option must come back as the same error envelope
+    // every other `target` failure uses, so a caller parsing JSON never has to
+    // parse help text instead.
+    // -------------------------------------------------------------------------
+
+    [TestMethod]
+    public async Task Target_OptionTypo_Json_EmitsTheTargetErrorEnvelopeOnStderr()
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(
+            ["target", "record", "sandbox", "-o", "out.mp4", "--duration-sec", "nope", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(string.Empty, stdout.Trim(), "Stdout carries results only, never diagnostics.");
+
+        var jsonStart = stderr.IndexOf('{');
+        Assert.IsTrue(jsonStart >= 0, $"stderr must carry a JSON error envelope; got: {stderr}");
+
+        var error = JsonSerializer.Deserialize<JsonElement>(stderr.AsSpan(jsonStart).TrimEnd())
+            .GetProperty("error");
+
+        Assert.AreEqual(
+            ExecutionTargetErrorCodes.TargetInvalidArguments,
+            error.GetProperty("code").GetString());
+        Assert.IsFalse(
+            string.IsNullOrWhiteSpace(error.GetProperty("message").GetString()),
+            "The message must say what was wrong with the command line.");
+    }
+
+    [TestMethod]
+    public async Task Target_UnknownOption_Json_EmitsJsonRatherThanHelp()
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(
+            ["target", "snapshot", "sandbox", "--nonsense", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(string.Empty, stdout.Trim());
+        Assert.IsFalse(stderr.Contains("Usage:", StringComparison.Ordinal), $"Help is not JSON; got: {stderr}");
+        StringAssert.Contains(stderr, ExecutionTargetErrorCodes.TargetInvalidArguments);
+    }
+
+    [TestMethod]
+    public async Task Target_OptionTypo_WithoutJson_StillExplainsItselfInPlainText()
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(
+            ["target", "record", "sandbox", "-o", "out.mp4", "--duration-sec", "nope"]);
+
+        Assert.AreNotEqual(0, exitCode);
+        Assert.IsFalse(
+            (stdout + stderr).Contains(ExecutionTargetErrorCodes.TargetInvalidArguments, StringComparison.Ordinal),
+            "Without --json a human gets the ordinary command-line diagnostics, not a machine envelope.");
     }
 
     [TestMethod]

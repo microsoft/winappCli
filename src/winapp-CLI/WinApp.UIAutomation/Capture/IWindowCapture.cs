@@ -38,6 +38,13 @@ public interface IFrameGrabber : IDisposable
 public interface IWindowCapture
 {
     /// <summary>
+    /// Measures the current interactive virtual desktop in physical pixels without activation.
+    /// Throws when the process is not on the input desktop. Call before and after desktop capture
+    /// and reject a frame if the bounds changed. The calling process must be per-monitor DPI aware.
+    /// </summary>
+    PointerRect GetDesktopBounds() => DesktopCapture.GetBounds();
+
+    /// <summary>
     /// Whether continuous frame capture is available on this system. When <see langword="false"/>,
     /// <see cref="StartFrameGrabber"/> throws and callers must fall back to another capture path.
     /// </summary>

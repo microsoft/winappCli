@@ -103,6 +103,7 @@ winapp CLI is open source. You can find the source code, file issues, and contri
 - [Debugging with package identity](debugging.md)
 - [Security guidance](security.md)
 - [UI automation](ui-automation.md)
+- [Windows Sandbox execution](sandbox-execution.md)
 - [NPM programmatic API](npm-usage.md)
 - [Framework guides](guides/dotnet.md)
 - [Get started with Electron](guides/electron/index.md)

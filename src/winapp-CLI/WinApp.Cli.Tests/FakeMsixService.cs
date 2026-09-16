@@ -78,6 +78,7 @@ internal class FakeMsixService : IMsixService
         DirectoryInfo inputDirectory,
         DirectoryInfo outputAppXDirectory,
         TaskContext taskContext,
+        LayoutReconciliation reconciliation,
         bool clean = false,
         string? executable = null,
         string? runtimeArch = null,
@@ -90,6 +91,7 @@ internal class FakeMsixService : IMsixService
         CancellationToken cancellationToken = default)
     {
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
+        LayoutReconciliations.Add(reconciliation);
         AddLooseLayoutRuntimeCalls.Add((runtimeArch, projectFile?.FullName, framework, noRestore));
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
@@ -104,7 +106,41 @@ internal class FakeMsixService : IMsixService
         return Task.FromResult(FakeIdentityResult);
     }
 
+    /// <summary>
+    /// The ownership each loose-layout call was made with, in order. This is how a caller says
+    /// whether the directory is winapp's to prune, so it is worth asserting on.
+    /// </summary>
+    public List<LayoutReconciliation> LayoutReconciliations { get; } = [];
+
     public bool EnsureRuntimeInstalledResult { get; set; } = true;
+
+    /// <summary>Records each <see cref="MaterializeLooseLayoutAsync"/> call's manifest and output folder.</summary>
+    public List<(string Manifest, string OutputDirectory)> MaterializeLooseLayoutCalls { get; } = [];
+
+    /// <inheritdoc/>
+    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(
+        FileInfo appxManifestPath,
+        DirectoryInfo inputDirectory,
+        DirectoryInfo outputAppXDirectory,
+        TaskContext taskContext,
+        LayoutReconciliation reconciliation,
+        string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        bool selfContained = false,
+        bool ensureExecutionAlias = false,
+        PackageGraphSource? packageGraph = null,
+        CancellationToken cancellationToken = default)
+    {
+        MaterializeLooseLayoutCalls.Add((appxManifestPath.FullName, outputAppXDirectory.FullName));
+        LayoutReconciliations.Add(reconciliation);
+        if (ExceptionToThrow != null)
+        {
+            throw ExceptionToThrow;
+        }
+        return Task.FromResult(FakeIdentityResult);
+    }
 
     public Task<bool> EnsureWindowsAppRuntimeInstalledAsync(
         FileInfo? projectFile,

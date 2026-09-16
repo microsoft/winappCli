@@ -249,7 +249,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
                     var example = realElements.FirstOrDefault(IsInteractive) ?? realElements.FirstOrDefault();
                     var exampleSelector = example?.Selector ?? example?.Id;
                     var exampleHint = exampleSelector is not null
-                        ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]winapp ui invoke {EscapeMarkup(exampleSelector)} -a <app>[/]"
+                        ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]{EscapeMarkup(UiCommandAdvice.Command($"invoke {exampleSelector} -a <app>"))}[/]"
                         : "";
                     ansiConsole.WriteLine();
                     ansiConsole.MarkupLine($"[grey]Found {displayedElements.Length} elements (--depth {depth}).{exampleHint}[/]");

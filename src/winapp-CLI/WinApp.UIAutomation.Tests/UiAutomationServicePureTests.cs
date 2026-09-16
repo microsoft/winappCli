@@ -20,6 +20,8 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 [DoNotParallelize]
 public class UiAutomationServicePureTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestCleanup]
     public void CleanupSeams()
     {
@@ -186,6 +188,33 @@ public class UiAutomationServicePureTests
         Assert.IsTrue(UiAutomationService.IsBlankCapture(pixels));
     }
 
+    /// <summary>
+    /// The blank check is the same one everywhere it is asked. It used to be copied into the
+    /// screenshot path and the frame-capture backend, and video recording -- which is in another
+    /// assembly and cannot see either copy -- did not ask at all, which is how blank frames reached
+    /// an MP4. Both internal callers now answer through this public one.
+    /// </summary>
+    [TestMethod]
+    public void IsBlank_IsTheSameAnswerEveryCallerGets()
+    {
+        var blank = new byte[13];
+        var painted = new byte[13];
+        painted[11] = 0x01;
+
+        Assert.IsTrue(CapturedFrame.IsBlank(blank));
+        Assert.IsFalse(CapturedFrame.IsBlank(painted));
+        Assert.AreEqual(CapturedFrame.IsBlank(blank), UiAutomationService.IsBlankCapture(blank));
+        Assert.AreEqual(CapturedFrame.IsBlank(painted), UiAutomationService.IsBlankCapture(painted));
+        Assert.AreEqual(CapturedFrame.IsBlank(blank), WgcCapture.IsBlankCapture(blank));
+        Assert.AreEqual(CapturedFrame.IsBlank(painted), WgcCapture.IsBlankCapture(painted));
+    }
+
+    [TestMethod]
+    public void IsBlank_NullBuffer_Throws()
+    {
+        Assert.ThrowsExactly<ArgumentNullException>(() => CapturedFrame.IsBlank(null!));
+    }
+
     [TestMethod]
     public void CaptureFromWindowWithBlankRetry_RetriesBlankFrame()
     {
@@ -237,7 +266,8 @@ public class UiAutomationServicePureTests
         Assert.AreEqual((10, 20, 4, 2, 4, 2), args);
         Assert.AreEqual(4 * 4 * 4, frame.Length);
         Assert.IsTrue(frame.Take(16).All(b => b == 0), "top letterbox row must remain black");
-        Assert.IsTrue(frame.Skip(16).Take(32).All(b => b == 0x7F), "content rows must be copied into the centered band");
+        Assert.IsTrue(frame.Skip(16).Take(32).Select((b, i) => b == (i % 4 == 3 ? 255 : 0x7F)).All(value => value),
+            "content RGB must be copied into the centered band, with opaque alpha");
         Assert.IsTrue(frame.Skip(48).All(b => b == 0), "bottom letterbox row must remain black");
     }
 
@@ -250,6 +280,10 @@ public class UiAutomationServicePureTests
         var frame = UiAutomationService.CaptureScreenFrame(0, 0, 2, 2, 2, 2, 2, 2);
 
         Assert.AreSame(expected, frame);
+        Assert.AreEqual((byte)255, frame[3], "Screen DC alpha is undefined; PNG pixels must be opaque.");
+        Assert.AreEqual((byte)255, frame[15]);
+        Assert.AreEqual((byte)0, frame[0], "RGB must remain unchanged.");
+        Assert.AreEqual((byte)14, frame[14]);
     }
 
     [TestMethod]

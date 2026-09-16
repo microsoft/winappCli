@@ -63,6 +63,10 @@ public partial class RealUiAutomationTests
         Assert.IsTrue(width > 10 && width < 300, $"unexpected crop width {width}");
         Assert.IsTrue(height > 5 && height < 200, $"unexpected crop height {height}");
         Assert.AreEqual(width * height * 4, pixels.Length);
+        Assert.AreEqual(
+            0,
+            svc.SerializedElementResolutionCount,
+            "A slug-based screenshot crop must reuse the provider element found by slug resolution.");
     }
 
     [TestMethod]

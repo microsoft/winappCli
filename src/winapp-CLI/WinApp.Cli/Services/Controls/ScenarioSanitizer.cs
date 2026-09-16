@@ -22,10 +22,12 @@ using System.Xml;
 /// so a line break in one would forge an extra output row; those collapse to a space
 /// (<see cref="StripLineControlChars(string?)"/>), and <c>Id</c>/<c>ControlId</c> drop
 /// them outright since an id is a lookup key, never prose.</item>
-/// <item>Drops XAML that is not well-formed rather than shipping broken markup an
-/// agent would paste and fail to compile — malformed truncation "repairs" and a
-/// small number of pre-existing upstream samples produce unparseable XAML.</item>
-/// <item>Drops C# whose braces don't balance for the same reason.</item>
+/// <item>Drops XAML that is not well-formed or still contains a live substitution
+/// placeholder rather than shipping broken markup an agent would paste and fail to
+/// compile — malformed truncation "repairs" and a small number of pre-existing
+/// upstream samples produce unparseable XAML.</item>
+/// <item>Drops C# whose braces don't balance or whose body still contains a live
+/// substitution placeholder for the same reason.</item>
 /// </list>
 /// Curated core patterns are hand-authored and trusted, so they don't go through here.
 /// </summary>
@@ -66,10 +68,18 @@ internal static partial class ScenarioSanitizer
         s.RelatedControls = StripLineControlChars(s.RelatedControls);
 
         var xaml = StripControlChars(s.Xaml);
-        s.Xaml = !string.IsNullOrWhiteSpace(xaml) && XamlIsWellFormed(xaml) ? xaml : null;
+        s.Xaml = !string.IsNullOrWhiteSpace(xaml)
+            && !SampleSubstitutionPlaceholder.Contains(xaml)
+            && XamlIsWellFormed(xaml)
+            ? xaml
+            : null;
 
         var csharp = StripControlChars(s.CSharp);
-        s.CSharp = !string.IsNullOrWhiteSpace(csharp) && CSharpBracesBalanced(csharp) ? csharp : null;
+        s.CSharp = !string.IsNullOrWhiteSpace(csharp)
+            && !SampleSubstitutionPlaceholder.Contains(csharp)
+            && CSharpBracesBalanced(csharp)
+            ? csharp
+            : null;
     }
 
     /// <summary>Prefixes that appear before a colon in element/attribute names — used to
