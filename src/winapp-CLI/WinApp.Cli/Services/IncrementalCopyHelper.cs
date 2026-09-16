@@ -6,77 +6,10 @@ namespace WinApp.Cli.Services;
 /// <summary>
 /// Static helper for incremental file copy operations.
 /// Compares source and destination by file size and last-write timestamp
-/// to skip unchanged files and remove stale files.
+/// to skip unchanged files.
 /// </summary>
 internal static class IncrementalCopyHelper
 {
-    internal record SyncResult(int Copied, int Skipped, int Deleted);
-
-    /// <summary>
-    /// Synchronizes files from <paramref name="sourceDir"/> to <paramref name="destDir"/> incrementally.
-    /// Only copies files that are new or changed (by size or timestamp).
-    /// Removes stale files from <paramref name="destDir"/> that no longer exist in source,
-    /// except for files in <paramref name="protectedFileNames"/>.
-    /// </summary>
-    internal static SyncResult SyncDirectory(
-        DirectoryInfo sourceDir,
-        DirectoryInfo destDir,
-        HashSet<string>? protectedFileNames = null)
-    {
-        if (!destDir.Exists)
-        {
-            destDir.Create();
-        }
-
-        var destFullPath = destDir.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        var sourceRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int copied = 0, skipped = 0;
-
-        foreach (var file in sourceDir.EnumerateFiles("*", SearchOption.AllDirectories))
-        {
-            // Skip files that are inside the dest folder (if dest is nested inside source)
-            if (file.FullName.StartsWith(destFullPath, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var relativePath = Path.GetRelativePath(sourceDir.FullName, file.FullName);
-            sourceRelativePaths.Add(relativePath);
-            var destFile = new FileInfo(Path.Combine(destDir.FullName, relativePath));
-
-            // Skip copy if destination exists with same size and timestamp
-            if (destFile.Exists && destFile.Length == file.Length && destFile.LastWriteTimeUtc == file.LastWriteTimeUtc)
-            {
-                skipped++;
-                continue;
-            }
-
-            destFile.Directory?.Create();
-            file.CopyTo(destFile.FullName, overwrite: true);
-            copied++;
-        }
-
-        // Remove stale files in dest that no longer exist in source
-        int deleted = 0;
-        foreach (var destFile in destDir.EnumerateFiles("*", SearchOption.AllDirectories))
-        {
-            var relativePath = Path.GetRelativePath(destDir.FullName, destFile.FullName);
-
-            if (protectedFileNames != null && protectedFileNames.Contains(relativePath))
-            {
-                continue;
-            }
-
-            if (!sourceRelativePaths.Contains(relativePath))
-            {
-                destFile.Delete();
-                deleted++;
-            }
-        }
-
-        return new SyncResult(copied, skipped, deleted);
-    }
-
     /// <summary>
     /// Copies a list of files to a target directory incrementally,
     /// skipping files that are unchanged (same size and timestamp).

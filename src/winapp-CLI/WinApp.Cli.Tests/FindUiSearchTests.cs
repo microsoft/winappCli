@@ -378,16 +378,20 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
-    public void CleanGalleryContent_ValuePositionSubstitution_IsStillFlattened()
+    public void CleanGalleryContent_ValuePositionSubstitution_DropsTheAttribute()
     {
-        // A token inside an attribute value stays well-formed once flattened, so the existing
-        // cosmetic behavior is kept — only the attribute and content cases change.
+        // Flattening a value-position token to "..." keeps the markup well-formed but not
+        // pasteable: a measured 140 attributes in the previous bake were typed properties
+        // (StrokeThickness, Height, Orientation, IsChecked...) where "..." is a compile
+        // error. Dropping the attribute lets the property fall back to its own default.
         const string upstream = """<ProgressRing Value="$(DeterminateProgressValue)" $(Background)/>""";
 
         var cleaned = GalleryFetcher.CleanGalleryContent(upstream);
 
         Assert.IsTrue(ScenarioSanitizer.XamlIsWellFormed(cleaned), $"got: {cleaned}");
-        StringAssert.Contains(cleaned, "Value=\"...\"", "value-position tokens keep their flattening");
+        Assert.IsFalse(cleaned.Contains("\"...\""), $"the token must not be flattened, got: {cleaned}");
+        Assert.IsFalse(cleaned.Contains("Value="), $"the unresolvable attribute must be dropped, got: {cleaned}");
+        Assert.IsFalse(cleaned.Contains("$("), $"no token may be served raw, got: {cleaned}");
     }
 
     [TestMethod]

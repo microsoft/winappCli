@@ -78,4 +78,51 @@ public class GalleryFetcherCleanContentTests
         Assert.IsFalse(cleaned.Contains("Margin=\"-8\""), "own-line negative margin must still be dropped");
         StringAssert.Contains(cleaned, "Content=\"Go\"");
     }
+
+    [TestMethod]
+    public void CleanGalleryContent_ValuePositionToken_DropsTheAttributeRatherThanFlatteningIt()
+    {
+        // "..." is not a double, so StrokeThickness="..." is a compile error on paste. Dropping
+        // the attribute leaves the property at its own default, which always compiles.
+        var cleaned = GalleryFetcher.CleanGalleryContent(
+            "<Line X1=\"0\" StrokeThickness=\"$(Slider1)\" Stroke=\"Red\" />");
+
+        Assert.IsFalse(cleaned.Contains("..."), $"token must not be flattened: {cleaned}");
+        Assert.IsFalse(cleaned.Contains("StrokeThickness"), $"attribute must be dropped: {cleaned}");
+        StringAssert.Contains(cleaned, "X1=\"0\"");
+        StringAssert.Contains(cleaned, "Stroke=\"Red\"");
+    }
+
+    [TestMethod]
+    public void CleanGalleryContent_ValuePositionToken_LeavesAWellFormedTag()
+    {
+        string[] fragments =
+        [
+            "<Line StrokeThickness=\"$(Slider1)\" />",
+            "<StackPanel Orientation=\"$(Orientation)\"><TextBlock Text=\"Hi\" /></StackPanel>",
+            "<Rectangle\n    RadiusX=\"$(RadiusX)\"\n    RadiusY=\"$(RadiusY)\"\n    Fill=\"Blue\" />",
+            "<CheckBox IsChecked=\"$(IsChecked)\" Content=\"Go\" />",
+        ];
+
+        foreach (var fragment in fragments)
+        {
+            var cleaned = GalleryFetcher.CleanGalleryContent(fragment);
+
+            Assert.IsFalse(cleaned.Contains("$("), $"token survived: {cleaned}");
+            Assert.IsFalse(cleaned.Contains("..."), $"token was flattened: {cleaned}");
+            Assert.IsTrue(ScenarioSanitizer.XamlIsWellFormed(cleaned), $"tag was corrupted: {cleaned}");
+        }
+    }
+
+    [TestMethod]
+    public void CleanGalleryContent_KnownValueRewrites_StillWinOverAttributeDropping()
+    {
+        // These must be applied before the position-aware pass: an InfoBar that loses IsOpen
+        // defaults to collapsed, so the sample would render as nothing.
+        var cleaned = GalleryFetcher.CleanGalleryContent(
+            "<InfoBar IsOpen=\"$(IsOpen)\" Severity=\"$(Severity)\" Title=\"Hi\" />");
+
+        StringAssert.Contains(cleaned, "IsOpen=\"True\"");
+        StringAssert.Contains(cleaned, "Severity=\"Informational\"");
+    }
 }

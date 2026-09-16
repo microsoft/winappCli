@@ -151,7 +151,7 @@ public class ValueSetterTests
     {
         var strategy = new FakeValueSetStrategy();
 
-        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+        var ex = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(strategy, Element(selector: "Rich Text Editor"), "hello"));
 
         StringAssert.Contains(ex.Message, "put_accValue");
@@ -161,13 +161,31 @@ public class ValueSetterTests
     }
 
     [TestMethod]
+    public void Apply_LocalRecoveryMessage_IsUnchanged()
+    {
+        var ex = Assert.ThrowsExactly<UiValueSetException>(
+            () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(selector: "SearchBox"), "Alpine"));
+
+        Assert.AreEqual(
+            "Element e1 (Edit) could not be set via ValuePattern, RangeValuePattern, or " +
+            "LegacyIAccessible (put_accValue). This control may not support setting a value programmatically. " +
+            "As a last resort, type the value with 'winapp ui send-keys' — for example: " +
+            "winapp ui send-keys --verbatim \"<value>\" --target \"SearchBox\" --via send-input -a <app>. " +
+            "WinUI 3 / WPF rich text controls need '--via send-input' (types real keystrokes; requires the app " +
+            "foregrounded on an unlocked desktop) — the default post-message transport is silently dropped by the " +
+            "XAML input pipeline. The post-message default (no foreground needed) works for classic Win32 edit controls.",
+            ex.Message);
+        Assert.IsFalse(ex.Message.Contains("Alpine", StringComparison.Ordinal), "Do not echo a potentially sensitive value.");
+    }
+
+    [TestMethod]
     public void Apply_ThrowMessage_UsesNameThenAutomationId_ForSendKeysTarget()
     {
-        var byName = Assert.ThrowsExactly<InvalidOperationException>(
+        var byName = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(name: "My Field"), "x"));
         StringAssert.Contains(byName.Message, "--target \"My Field\"");
 
-        var byAutomationId = Assert.ThrowsExactly<InvalidOperationException>(
+        var byAutomationId = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(automationId: "field-1"), "x"));
         StringAssert.Contains(byAutomationId.Message, "--target \"field-1\"");
     }
@@ -187,7 +205,7 @@ public class ValueSetterTests
         // Each app-controlled name carries exactly one shell metacharacter surrounded by safe text, so a
         // regression that let that specific character through would echo the raw name and fail this case.
         // Unsafe targets must fall back to the "<selector>" placeholder in the copy-pasteable example.
-        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+        var ex = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(name: unsafeName), "x"));
 
         StringAssert.Contains(ex.Message, "--target \"<selector>\"");
@@ -200,7 +218,7 @@ public class ValueSetterTests
     public void Apply_ThrowMessage_KeepsSafeTarget(string safeName)
     {
         // Benign names (spaces, path separators, drive colon, digits, hyphens) are safe and echoed verbatim.
-        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+        var ex = Assert.ThrowsExactly<UiValueSetException>(
             () => ValueSetter.Apply(new FakeValueSetStrategy(), Element(name: safeName), "x"));
 
         StringAssert.Contains(ex.Message, $"--target \"{safeName}\"");

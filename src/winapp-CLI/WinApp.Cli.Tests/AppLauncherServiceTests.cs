@@ -149,6 +149,64 @@ public class AppLauncherServiceTests
         Assert.IsNull(result);
     }
 
+    // ---- GetRegisteredPackageOrThrow -----------------------------------------
+
+    /// <summary>
+    /// The real implementation reads <c>Package.InstalledPath</c> — the location the package
+    /// manager itself recorded — never <c>Package.InstalledLocation.Path</c>, which binds a live
+    /// <c>StorageFolder</c> and throws once nothing exists at that path any more (for example after
+    /// an interrupted <c>--clean</c> deleted a still-registered deployment's layout). This is
+    /// exercised through the seam rather than a real installed package, but the contract it proves
+    /// is exactly the one the fix depends on: a location this method reports is never required to
+    /// exist on disk, and callers must never be blocked from repairing that damage.
+    /// </summary>
+    [TestMethod]
+    public void GetRegisteredPackageOrThrow_InjectedValue_SurvivesEvenWhenTheLocationDoesNotExistOnDisk()
+    {
+        var missingLocation = Path.Join(Path.GetTempPath(), $"winapp-test-does-not-exist-{Guid.NewGuid():n}");
+        Assert.IsFalse(Directory.Exists(missingLocation), "Precondition: the simulated location must not exist.");
+
+        _service.FindRegisteredPackageImpl = _ =>
+            new RegisteredPackage(
+                "Contoso.App_1.0.0.0_x64__abcdefgh",
+                "Contoso.App",
+                "CN=Contoso",
+                missingLocation,
+                IsDevelopmentMode: true);
+
+        var result = _service.GetRegisteredPackageOrThrow("Contoso.App_abcdefgh");
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("Contoso.App_1.0.0.0_x64__abcdefgh", result.FullName);
+        Assert.AreEqual(missingLocation, result.InstallLocation);
+    }
+
+    /// <summary>
+    /// Unlike the tolerant <see cref="GetPackageFullName"/>, this must never swallow a query
+    /// failure into a value that looks the same as "confirmed not installed" — a caller proving a
+    /// previous instance was stopped depends on that distinction.
+    /// </summary>
+    [TestMethod]
+    public void GetRegisteredPackageOrThrow_InjectedThrows_Propagates()
+    {
+        _service.FindRegisteredPackageImpl = _ => throw new InvalidOperationException("inventory unavailable");
+
+        Assert.ThrowsExactly<InvalidOperationException>(
+            () => _service.GetRegisteredPackageOrThrow("Contoso.App_abcdefgh"));
+    }
+
+    [TestMethod]
+    public void GetRegisteredPackageOrThrow_DefaultImpl_UnknownFamily_ReturnsNull()
+    {
+        // Exercises the real DefaultFindRegisteredPackage PackageManager query, the same way
+        // GetPackageFullName_DefaultImpl_UnknownFamily_ReturnsNull exercises its sibling.
+        var family = _service.ComputePackageFamilyName("WinAppCliTestNoSuch", "CN=WinAppCliTests");
+
+        var result = _service.GetRegisteredPackageOrThrow(family);
+
+        Assert.IsNull(result);
+    }
+
     // ---- LaunchExecutable (real stdio paths) -------------------------------
 
     [TestMethod]
@@ -168,7 +226,7 @@ public class AppLauncherServiceTests
             await launched.WaitForExitAsync(cts.Token);
 
             Assert.AreEqual(0, launched.ExitCode, "Suppressed launch must drain output and exit, not deadlock on a full pipe");
-            Assert.IsTrue(File.Exists(Path.Combine(workingDir.FullName, "marker.txt")),
+            Assert.IsTrue(File.Exists(Path.Join(workingDir.FullName, "marker.txt")),
                 "The child must run in the supplied working directory with the given arguments");
         }
         finally
