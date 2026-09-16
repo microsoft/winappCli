@@ -112,7 +112,9 @@ Everything else, for real:
 - GitHub credential checks via `scripts/check-release-credentials.ps1` — PAT scopes and expiry,
   and fork push permission.
 - **The two federated service connections, exercised for real.** `AzureCLI@2` acquires a token
-  from the ESRP signing connection and from the symbol publishing connection. Nothing is signed
+  from the ESRP signing connection, and `AzurePowerShell@5` acquires one from the symbol
+  publishing connection — the latter deliberately matching the task and cmdlet the real symbol
+  stage runs, so a break in that task or in the Az modules is caught too. Nothing is signed
   and nothing is published, but it proves the connection exists, this pipeline is authorized to
   use it, **and the workload-identity federation credential still works** — the part that silently
   rotates or gets de-authorized under ES policy changes.
