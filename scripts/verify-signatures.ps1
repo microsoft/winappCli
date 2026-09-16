@@ -29,6 +29,10 @@
     .nupkg is still covered by that container's signature, but a binary extracted from the
     portable winappcli-<arch>.zip carries no container signature at all and must stand on its own.
 
+    For the same reason the signature has to be embedded. A catalog-signed binary reports Valid on
+    whichever machine holds the matching .cat file and carries nothing once it is copied anywhere
+    else, so catalog signatures are rejected rather than accepted.
+
 .PARAMETER Path
     One or more files or directories to scan. Wildcards are supported, so the versioned npm
     tarball can be passed as artifacts\*.tgz. Every path must resolve, and every resolved root
@@ -180,6 +184,17 @@ try {
         if ($signature.Status -ne 'Valid') {
             $errors.Add("$($binary.Display): $($signature.Status)")
             Write-Host "[SIGN] FAIL  $($binary.Display) -> $($signature.Status)" -ForegroundColor Red
+            continue
+        }
+
+        # Status alone is not enough. A catalog signature lives in a system .cat file, not in the
+        # binary, so a catalog-signed file reports Valid on the machine holding that catalog and
+        # carries nothing at all once a user extracts it from the portable zip somewhere else.
+        # Accepting it would green-light precisely the unsigned-at-rest state this gate exists to
+        # prevent, so require the signature to be embedded.
+        if ($signature.SignatureType -ne 'Authenticode') {
+            $errors.Add("$($binary.Display): signature is $($signature.SignatureType), not an embedded Authenticode signature.")
+            Write-Host "[SIGN] FAIL  $($binary.Display) -> $($signature.SignatureType) signature, not embedded" -ForegroundColor Red
             continue
         }
 

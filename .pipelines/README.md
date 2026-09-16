@@ -205,7 +205,7 @@ Service connection checks are skipped outside Azure Pipelines, so this runs fine
 - `scripts/verify-signatures.ps1` (+ tests in `scripts/tests/`)
 - `.pipelines/templates/release-assets.yaml` — the renaming, shared with the real release
 
-Both test suites run as part of `scripts/build-cli.ps1`, and are deliberately **offline-only**:
+All three test suites run as part of `scripts/build-cli.ps1`, and are deliberately **offline-only**:
 that suite also runs during a real release build, so a test that reached `api.github.com` would let
 a GitHub outage block a release.
 

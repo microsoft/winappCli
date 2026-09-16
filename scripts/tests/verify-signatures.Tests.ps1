@@ -14,6 +14,43 @@
     build, so a test that reached the network would let an outage block a release.
 #>
 
+BeforeDiscovery {
+    # The fixture probe is deliberately repeated in BeforeAll below, and it has to be.
+    # Pester evaluates -Skip: during discovery, which runs before BeforeAll - but neither
+    # BeforeDiscovery variables nor file-body definitions survive into the run phase, where the
+    # resolved paths are actually needed. Discovery therefore resolves the skip flags, and the run
+    # phase resolves the paths.
+    #
+    # The "good" fixture must carry an EMBEDDED Authenticode signature, not a catalog one.
+    # Catalog-signed system files like notepad.exe and kernel32.dll report Valid but are exactly
+    # what the verifier rejects, so using one here would assert the opposite of the contract.
+    function Find-SignedFixture {
+        param([string[]]$Candidate, [string]$Type)
+
+        foreach ($path in $Candidate) {
+            if (-not (Test-Path -LiteralPath $path)) { continue }
+            $signature = Get-AuthenticodeSignature -LiteralPath $path
+            if ($signature.Status -eq 'Valid' -and $signature.SignatureType -eq $Type) { return $path }
+        }
+        return $null
+    }
+
+    $embeddedCandidates = @(
+        (Join-Path $PSHOME 'pwsh.exe'),
+        (Join-Path $PSHOME 'powershell.exe'),
+        "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe")
+
+    # Probed separately because a machine with no intact catalog store would report NotSigned, and
+    # the catalog tests would then pass for the wrong reason.
+    $catalogCandidates = @(
+        "$env:SystemRoot\System32\notepad.exe",
+        "$env:SystemRoot\System32\kernel32.dll",
+        "$env:SystemRoot\System32\where.exe")
+
+    $script:NoSignedBinary = -not (Find-SignedFixture -Candidate $embeddedCandidates -Type 'Authenticode')
+    $script:NoCatalogBinary = -not (Find-SignedFixture -Candidate $catalogCandidates -Type 'Catalog')
+}
+
 BeforeAll {
     $script:VerifyScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'verify-signatures.ps1'
 
@@ -21,21 +58,28 @@ BeforeAll {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
     }
 
-    # A validly signed binary to build fixtures from. Probed rather than hardcoded so the suite
-    # does not depend on one particular Windows image shipping one particular file.
-    $script:SignedBinary = $null
-    foreach ($candidate in @(
-            (Join-Path $PSHOME 'pwsh.exe'),
-            (Join-Path $PSHOME 'powershell.exe'),
-            "$env:SystemRoot\System32\notepad.exe",
-            "$env:SystemRoot\System32\kernel32.dll")) {
-        if ((Test-Path -LiteralPath $candidate) -and
-            (Get-AuthenticodeSignature -LiteralPath $candidate).Status -eq 'Valid') {
-            $script:SignedBinary = $candidate
-            break
+    # See BeforeDiscovery: this repeats that probe because discovery-phase state does not reach
+    # the run phase.
+    function Find-SignedFixture {
+        param([string[]]$Candidate, [string]$Type)
+
+        foreach ($path in $Candidate) {
+            if (-not (Test-Path -LiteralPath $path)) { continue }
+            $signature = Get-AuthenticodeSignature -LiteralPath $path
+            if ($signature.Status -eq 'Valid' -and $signature.SignatureType -eq $Type) { return $path }
         }
+        return $null
     }
-    $script:NoSignedBinary = -not $script:SignedBinary
+
+    $script:SignedBinary = Find-SignedFixture -Type 'Authenticode' -Candidate @(
+        (Join-Path $PSHOME 'pwsh.exe'),
+        (Join-Path $PSHOME 'powershell.exe'),
+        "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe")
+
+    $script:CatalogBinary = Find-SignedFixture -Type 'Catalog' -Candidate @(
+        "$env:SystemRoot\System32\notepad.exe",
+        "$env:SystemRoot\System32\kernel32.dll",
+        "$env:SystemRoot\System32\where.exe")
 
     function New-FixtureRoot {
         $root = Join-Path ([System.IO.Path]::GetTempPath()) ("sigtest-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -55,6 +99,13 @@ BeforeAll {
 
         New-Item -ItemType Directory -Path $Directory -Force | Out-Null
         [System.IO.File]::WriteAllBytes((Join-Path $Directory $Name), [byte[]](1..64))
+    }
+
+    function Add-CatalogSignedBinary {
+        param([string]$Directory, [string]$Name = 'catalog.exe')
+
+        New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+        Copy-Item -LiteralPath $script:CatalogBinary -Destination (Join-Path $Directory $Name) -Force
     }
 
     function New-ZipContainer {
@@ -221,6 +272,41 @@ Describe 'verify-signatures.ps1' -Skip:$script:NoSignedBinary {
             $LASTEXITCODE | Should -Be 0
 
             { & $script:VerifyScript -Path (Join-Path $script:root '*.tgz') } | Should -Not -Throw
+        }
+    }
+
+    Context 'embedded signatures' {
+
+        It 'rejects a catalog-signed binary, which carries no signature once it is copied elsewhere' -Skip:$script:NoCatalogBinary {
+            # Get-AuthenticodeSignature reports Valid for these because this machine holds the
+            # matching catalog. Extracted from the portable zip on a user's machine, the same file
+            # has nothing to validate against - so accepting it would defeat the whole gate.
+            $script:root = New-FixtureRoot
+            $dir = Join-Path $script:root 'cli'
+            Add-CatalogSignedBinary -Directory $dir
+
+            { & $script:VerifyScript -Path $dir } |
+                Should -Throw -ExpectedMessage '*not an embedded Authenticode signature*'
+        }
+
+        It 'rejects a catalog-signed binary nested inside a container' -Skip:$script:NoCatalogBinary {
+            $script:root = New-FixtureRoot
+            $layout = Join-Path $script:root 'layout'
+            Add-CatalogSignedBinary -Directory (Join-Path $layout 'tools\win-x64') -Name 'winapp.exe'
+            New-ZipContainer -SourceDirectory $layout -Destination (Join-Path $script:root 'nuget\BuildTools.WinApp.nupkg')
+
+            { & $script:VerifyScript -Path (Join-Path $script:root 'nuget') } |
+                Should -Throw -ExpectedMessage '*not an embedded Authenticode signature*'
+        }
+
+        It 'fails a catalog-signed binary even when an embedded-signed one passes alongside it' -Skip:$script:NoCatalogBinary {
+            $script:root = New-FixtureRoot
+            $dir = Join-Path $script:root 'cli'
+            Add-SignedBinary -Directory $dir
+            Add-CatalogSignedBinary -Directory $dir
+
+            { & $script:VerifyScript -Path $dir } |
+                Should -Throw -ExpectedMessage '*not an embedded Authenticode signature*'
         }
     }
 
