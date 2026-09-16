@@ -48,7 +48,9 @@ searched when you pass `--source reactor`.
   reach for `--source reactor` when you're actually building a Reactor app.
 - **Result shape varies by source.** Gallery and Toolkit scenarios return XAML,
   C#, or both (one-sided samples are kept); Reactor scenarios are C#-only
-  declarative WinUI (no XAML).
+  declarative WinUI (no XAML). If an upstream Gallery-style sample still contains
+  unresolved `$(Name)` substitution placeholders, `find-ui` suppresses that
+  language block rather than presenting it as pasteable code.
 - Distinct from `winapp ui search`, which searches a *running app's* UI tree via
   UI Automation — unrelated to control/sample discovery.
 

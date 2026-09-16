@@ -125,11 +125,11 @@
           "type": "string"
         },
         "xaml": {
-          "description": "The sample's XAML, exactly as it should be pasted into a project. Must be a well-formed XML fragment: consumers validate it and drop samples that fail to parse, so malformed markup silently removes the sample rather than shipping something that will not compile. Namespace prefixes used here should be declared in this sample's 'xmlnsImports', or in the control's when every sample shares the same imports.",
+          "description": "The sample's XAML, exactly as it should be pasted into a project. Must be a well-formed XML fragment and must not contain unresolved Gallery substitution placeholders of the form '$(Name)'. If a placeholder cannot be resolved statically, delete the enclosing attribute or markup before publishing the XAML, so the target control's default value applies. Consumers validate this field and drop XAML that fails to parse or still contains a substitution placeholder rather than shipping something that will not compile. Namespace prefixes used here should be declared in this sample's 'xmlnsImports', or in the control's when every sample shares the same imports.",
           "type": "string"
         },
         "code": {
-          "description": "The sample's C#, exactly as it should be pasted into a project. Consumers validate that braces balance and drop the code otherwise. Omit the control-level 'usings' — consumers add those.",
+          "description": "The sample's C#, exactly as it should be pasted into a project. Gallery substitution placeholders of the form '$(Name)' are not pasteable C# because they can occur inside expressions, enum members, or assignment right-hand sides. Schema version 1 has no safe generic rewrite for them: producers should omit or resolve placeholder-dependent C# before publishing, and consumers that promise pasteable output may drop or explicitly mark code that still contains those placeholders. Consumers also validate that braces balance and drop the code otherwise. Omit the control-level 'usings' — consumers add those.",
           "type": "string"
         },
         "language": {
@@ -145,6 +145,27 @@
           "description": "XAML namespace declarations required by this specific sample, when they differ from the control's 'xmlnsImports'. Omit it when the control-level value applies. Needed because sibling samples of one control can pull in different namespaces.",
           "type": "array",
           "items": { "type": "string" }
+        },
+        "gallery": {
+          "description": "WinUI Gallery-specific extraction metadata. Consumers must not require this object; it is informational and may be ignored by non-Gallery sources.",
+          "type": "object",
+          "properties": {
+            "xamlPlaceholdersDropped": {
+              "description": "Names of Gallery substitution placeholders that were removed while producing this sample's 'xaml'. This is a diagnostic trail for static cleanup only; the published 'xaml' value itself must already be pasteable and contain no '$(Name)' placeholders.",
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "xamlOmittedAsMalformed": {
+              "description": "Present and true when this sample's XAML was withheld because it did not parse as a well-formed fragment — typically a placeholder standing in for an element name (for example '<$(EasingFunction)/>'), which leaves no valid markup once removed. The 'xaml' field is absent whenever this is true, so a sample carrying it is code-only and may be dropped entirely if it has no 'code' either. Producers should omit this field rather than emit false.",
+              "type": "boolean"
+            },
+            "codePlaceholdersPresent": {
+              "description": "Names of Gallery substitution placeholders that are STILL PRESENT in this sample's 'code'. Note the deliberate asymmetry with 'xamlPlaceholdersDropped': that field lists placeholders already removed and guarantees clean output, whereas this one warns that the published 'code' is NOT pasteable as-is. Placeholders survive in C# because, unlike a XAML attribute, there is no construct whose absence yields a default: the token may be an identifier fragment ('BadgeNotificationGlyph.$(SelectedGlyph)'), a fixed-arity argument ('SetBorderAndTitleBar($(HasBorder), $(HasTitleBar))'), or an entire statement, none of which can be deleted without a syntax error or gutting the sample. Consumers that promise pasteable output should suppress or clearly mark such 'code' rather than serving it; consumers that can reason about the tokens may use these names to substitute their own values.",
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": true
