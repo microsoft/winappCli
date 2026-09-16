@@ -207,7 +207,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             if (target is not null)
             {
                 startElement = target;
-                var scopedHwnd = GetTopLevelWindowHandle(startElement);
+                var scopedHwnd = ResolveTopLevelWindowHandle(startElement);
                 if (scopedHwnd != 0)
                 {
                     mainHwnd = scopedHwnd;
@@ -390,7 +390,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var current = target;
 
         // Add the target element itself first
-        var windowHandle = GetTopLevelWindowHandle(current);
+        var windowHandle = ResolveTopLevelWindowHandle(current);
         ancestors.Add(ToUiElement(current, "", ref nextElementId));
 
         while (true)
@@ -427,10 +427,6 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
 
             ancestors.Add(ToUiElement(parent, "", ref nextElementId));
-            if (windowHandle == 0)
-            {
-                windowHandle = GetTopLevelWindowHandle(parent);
-            }
             current = parent;
         }
 
@@ -2139,6 +2135,29 @@ return Task.FromResult<UiElement?>(null);
         {
             return 0;
         }
+    }
+
+    private nint ResolveTopLevelWindowHandle(IUIAutomationElement element)
+    {
+        var walker = _automation.get_ControlViewWalker();
+        IUIAutomationElement? current = element;
+        var remaining = 40;
+        while (current is not null && remaining-- > 0)
+        {
+            var hwnd = GetTopLevelWindowHandle(current);
+            if (hwnd != 0) { return hwnd; }
+
+            try
+            {
+                current = walker.GetParentElement(current);
+            }
+            catch (COMException)
+            {
+                return 0;
+            }
+        }
+
+        return 0;
     }
 
     private static bool HasPattern(IUIAutomationElement element, UIA_PATTERN_ID patternId)

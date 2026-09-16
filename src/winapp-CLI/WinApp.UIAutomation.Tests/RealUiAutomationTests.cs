@@ -201,11 +201,11 @@ public partial class RealUiAutomationTests
             ownedByMain: true);
         var uiTarget = NonExplicitSession(fx);
 
-        var tree = await svc.InspectAsync(uiTarget, "btnOwned", 0, CancellationToken.None);
+        var tree = await svc.InspectAsync(uiTarget, "Windowless Owned Item", 0, CancellationToken.None);
 
-        var ownedButton = tree.Single(element => element.AutomationId == "btnOwned");
-        Assert.AreEqual(ownedHwnd, ownedButton.WindowHandle,
-            "a scoped element must carry its own top-level HWND for DPI context");
+        var ownedItem = tree.Single(element => element.Name == "Windowless Owned Item");
+        Assert.AreEqual(ownedHwnd, ownedItem.WindowHandle,
+            "a windowless scoped element must inherit its owned top-level HWND for DPI context");
     }
 
     [TestMethod]
