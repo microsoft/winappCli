@@ -15,6 +15,12 @@ internal sealed class FakeUiRecordingService : IUiRecordingService
 
     public RecordOptions? LastRecordOptions { get; private set; }
 
+    /// <summary>The window the recording was pointed at.</summary>
+    public UiTarget? LastTarget { get; private set; }
+
+    /// <summary>The element the recording was cropped to, or null for the whole window.</summary>
+    public string? LastElementId { get; private set; }
+
     public Exception? RecordException { get; set; }
 
     public Exception? RecordExceptionAfterStarted { get; set; }
@@ -31,9 +37,21 @@ internal sealed class FakeUiRecordingService : IUiRecordingService
 
     public Task? WaitAfterRecordingStarted { get; set; }
 
-    public async Task<RecordCaptureResult> RecordAsync(UiTarget uiTarget, string? elementId, RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
+    /// <summary>Runs at the moment recording begins, to observe what the caller still holds open.</summary>
+    public Action? WhileRecording { get; set; }
+
+    public Task<RecordCaptureResult> RecordDesktopAsync(RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
+        => RecordCoreAsync(null, null, options, onRecordingStarted, ct);
+
+    public Task<RecordCaptureResult> RecordAsync(UiTarget uiTarget, string? elementId, RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
+        => RecordCoreAsync(uiTarget, elementId, options, onRecordingStarted, ct);
+
+    private async Task<RecordCaptureResult> RecordCoreAsync(UiTarget? uiTarget, string? elementId, RecordOptions options, Action<bool>? onRecordingStarted, CancellationToken ct)
     {
         LastRecordOptions = options;
+        LastTarget = uiTarget;
+        LastElementId = elementId;
+        WhileRecording?.Invoke();
         if (RecordException is not null)
         {
             throw RecordException;
@@ -104,6 +122,7 @@ internal sealed class FakeUiRecordingService : IUiRecordingService
             StopReason = RecordResult.StopReason,
             FrameArtifacts = frameArtifacts,
             Warnings = RecordResult.Warnings,
+            Coordinates = RecordResult.Coordinates,
         };
     }
 }

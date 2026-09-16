@@ -146,6 +146,7 @@ public partial class RealUiAutomationTests
         var svc = NewService();
         var target = SessionFor(fx);
         var model = await ResolveAsync(svc, target, "btnInvoke");
+        model.Context = null;
         model.Selector = model.AutomationId;
         var duplicateClicks = 0;
         fx.OnUiThread(() =>

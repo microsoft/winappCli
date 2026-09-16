@@ -1576,6 +1576,29 @@ public class MsixServiceTests
     }
 
     [TestMethod]
+    public async Task UnregisterExistingPackageAsync_WithPublisher_IgnoresSameNameFromAnotherPublisher()
+    {
+        var fake = new FakePackageRegistrationService
+        {
+            FakeDevPackages =
+            [
+                new("MyApp_1.0.0.0_x64__expected", "MyApp", "1.0.0.0", _tempDir.FullName, true, "CN=Expected"),
+                new("MyApp_1.0.0.0_x64__external", "MyApp", "1.0.0.0", @"C:\External", true, "CN=External"),
+            ],
+        };
+        var svc = CreateMsixServiceForUnregister(fake, _tempDir.FullName);
+
+        var result = await svc.UnregisterExistingPackageAsync(
+            "MyApp",
+            CreateTestTaskContext(),
+            publisher: "CN=Expected");
+
+        Assert.IsTrue(result);
+        Assert.HasCount(1, fake.UnregisterByFullNameCalls);
+        Assert.AreEqual("MyApp_1.0.0.0_x64__expected", fake.UnregisterByFullNameCalls[0].PackageFullName);
+    }
+
+    [TestMethod]
     public async Task UnregisterExistingPackageAsync_NonDevInTree_RemovesWithoutPreservingAppData()
     {
         var inTreeLocation = Path.Combine(_tempDir.FullName, "PackageInstall");

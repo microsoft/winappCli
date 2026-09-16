@@ -63,6 +63,20 @@ test('uiInvoke omits only an undefined action and forwards every explicit action
   }
 });
 
+test('uiInvoke keeps execution target and action before the protected selector', async () => {
+  const state = captureSpawnArgs();
+  await uiInvoke({ selector: '--action', window: 1234, action: 'select', on: 'sandbox', quiet: true });
+  const argv = state.calls[0];
+  const separator = argv.indexOf('--');
+  assert.deepEqual(argv.slice(separator + 1), ['--action']);
+  for (const [flag, value] of [['--on', 'sandbox'], ['--action', 'select'], ['--window', '1234']]) {
+    const index = argv.indexOf(flag);
+    assert.ok(index > 1 && index < separator);
+    assert.equal(argv[index + 1], value);
+  }
+  assert.ok(argv.indexOf('--quiet') < separator);
+});
+
 test('run emits repeatable --property as separate flag/value pairs and keeps --quiet before the -- passthrough', async () => {
   const state = captureSpawnArgs();
 

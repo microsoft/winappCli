@@ -124,9 +124,9 @@ internal class UiSendKeysCommand : Command, IShortDescription
             // operand is also what lets the compiler treat keysStr as non-null on the fall-through path.)
             if (string.IsNullOrEmpty(keysStr) || (!verbatim && string.IsNullOrWhiteSpace(keysStr)))
             {
-                logger.LogError("{Symbol} Keys are required. Usage: winapp ui send-keys <keys> -a <app>", UiSymbols.Error);
-                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments,
-                    "Keys are required. Usage: winapp ui send-keys <keys> -a <app>");
+                var message = $"Keys are required. Usage: {UiCommandAdvice.Command("send-keys <keys> -a <app>")}";
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message);
                 return 1;
             }
 
@@ -363,20 +363,20 @@ internal class UiSendKeysCommand : Command, IShortDescription
                         warnings.Add(
                             $"Injecting system-reserved key(s) via --via send-input because --allow-system-keys was set: {systemCombosStr}. " +
                             "These act on the OS/shell beyond the target app.");
-                   }
+                    }
 
-                   int textChars = actions.OfType<TextInput>().Sum(t => t.Text.Length);
-                   if (textChars > KeyboardInput.DefaultTextChunkChars)
-                   {
-                       logger.LogWarning(
-                           "{Symbol} {Count} characters via --via send-input are auto-throttled into paced chunks for reliable delivery, so this may take a moment. For bulk text, 'ui set-value' is faster and more reliable.",
-                           UiSymbols.Warning, textChars);
-                       warnings.Add(
-                           $"{textChars} characters via send-input are auto-throttled into paced chunks for reliable delivery, so this may take a moment. For bulk text, 'ui set-value' is faster and more reliable.");
-                   }
+                    int textChars = actions.OfType<TextInput>().Sum(t => t.Text.Length);
+                    if (textChars > KeyboardInput.DefaultTextChunkChars)
+                    {
+                        logger.LogWarning(
+                            "{Symbol} {Count} characters via --via send-input are auto-throttled into paced chunks for reliable delivery, so this may take a moment. For bulk text, 'ui set-value' is faster and more reliable.",
+                            UiSymbols.Warning, textChars);
+                        warnings.Add(
+                            $"{textChars} characters via send-input are auto-throttled into paced chunks for reliable delivery, so this may take a moment. For bulk text, 'ui set-value' is faster and more reliable.");
+                    }
                 }
 
-               if (json)
+                if (json)
                 {
                     var result = new UiSendKeysResult
                     {

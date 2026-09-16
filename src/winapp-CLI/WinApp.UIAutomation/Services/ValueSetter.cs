@@ -35,7 +35,7 @@ internal static class ValueSetter
     /// <summary>
     /// Sets <paramref name="text"/> on the element behind <paramref name="strategy"/> using the
     /// fallback chain ValuePattern → RangeValuePattern (numeric only) → LegacyIAccessible
-    /// (<c>put_accValue</c>). Throws <see cref="InvalidOperationException"/> with an actionable
+    /// (<c>put_accValue</c>). Throws <see cref="UiValueSetException"/> with an actionable
     /// <c>send-keys</c> hint when no mechanism succeeds.
     /// </summary>
     public static void Apply(IValueSetStrategy strategy, UiElement element, string text)
@@ -68,37 +68,6 @@ internal static class ValueSetter
             return;
         }
 
-        // Echo the element's own selector/name/id in the copy-pasteable example only when it consists of
-        // safe characters; otherwise use a placeholder. This keeps app-controlled text from injecting shell
-        // metacharacters (quotes, $(), backticks, %VAR%, newlines, ...) into the example if a user pastes
-        // the hint into a shell. The hint is only displayed, never executed by winapp.
-        var rawTarget = element.Selector ?? element.Name ?? element.AutomationId;
-        var sendKeysTarget = !string.IsNullOrEmpty(rawTarget) && IsSafeHintTarget(rawTarget)
-            ? rawTarget
-            : "<selector>";
-        throw new InvalidOperationException(
-            $"Element {element.Id} ({element.Type}) could not be set via ValuePattern, RangeValuePattern, or " +
-            "LegacyIAccessible (put_accValue). This control may not support setting a value programmatically. " +
-            "As a last resort, type the value with 'winapp ui send-keys' — for example: " +
-            $"winapp ui send-keys --verbatim \"<value>\" --target \"{sendKeysTarget}\" --via send-input -a <app>. " +
-            "WinUI 3 / WPF rich text controls need '--via send-input' (types real keystrokes; requires the app " +
-            "foregrounded on an unlocked desktop) — the default post-message transport is silently dropped by the " +
-            "XAML input pipeline. The post-message default (no foreground needed) works for classic Win32 edit controls.");
-    }
-
-    // A hint target is safe to echo into the copy-pasteable example only if it contains no shell
-    // metacharacters — letters, digits, spaces, and a few path/separator punctuation marks. Anything
-    // else (quotes, $, `, %, ;, |, &, parentheses, newlines, ...) forces the "<selector>" placeholder.
-    private static bool IsSafeHintTarget(string value)
-    {
-        foreach (var c in value)
-        {
-            if (!(char.IsLetterOrDigit(c) || c is ' ' or '_' or '-' or '.' or ':' or '/' or '\\'))
-            {
-                return false;
-            }
-        }
-
-        return true;
+        throw new UiValueSetException(element);
     }
 }

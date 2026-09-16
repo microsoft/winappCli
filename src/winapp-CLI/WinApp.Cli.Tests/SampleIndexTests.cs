@@ -290,6 +290,100 @@ public class SampleIndexTests
         Assert.IsNull(scenarios[0].CSharp, "usings alone are not a sample");
     }
 
+    [TestMethod]
+    public void Parse_SuppressesXamlWithSubstitutionPlaceholders()
+    {
+        const string Json = """
+        {
+          "schemaVersion": 1,
+          "controls": [
+            {
+              "id": "button",
+              "samples": [
+                {
+                  "header": "Keeps code",
+                  "xaml": "<Button IsEnabled=\"$(IsEnabled)\" />",
+                  "code": "var button = new Button();"
+                },
+                {
+                  "header": "Drops empty sample",
+                  "xaml": "<Button Content=\"$(Label)\" />"
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var (scenarios, _, _) = SampleIndexParser.Parse(Json, "gallery");
+
+        Assert.AreEqual(1, scenarios.Length, "placeholder-only XAML samples have no usable content");
+        Assert.AreEqual("button-1", scenarios[0].Id, "kept ids stay contiguous from 1");
+        Assert.IsNull(scenarios[0].Xaml, "XAML containing live substitution placeholders is not pasteable");
+        Assert.AreEqual("var button = new Button();", scenarios[0].CSharp, "clean C# from the same sample is still useful");
+    }
+
+    [TestMethod]
+    public void Parse_SuppressesCSharpWithSubstitutionPlaceholders()
+    {
+        const string Json = """
+        {
+          "schemaVersion": 1,
+          "controls": [
+            {
+              "id": "appwindow",
+              "samples": [
+                {
+                  "header": "Keeps XAML",
+                  "xaml": "<Button Content=\"Toggle\" />",
+                  "code": "presenter.IsAlwaysOnTop = $(IsAlwaysOnTop);"
+                },
+                {
+                  "header": "Drops empty sample",
+                  "code": "ColorHelper.FromArgb($(Color));"
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var (scenarios, _, _) = SampleIndexParser.Parse(Json, "gallery");
+
+        Assert.AreEqual(1, scenarios.Length, "placeholder-only C# samples have no usable content");
+        Assert.AreEqual("appwindow-1", scenarios[0].Id, "kept ids stay contiguous from 1");
+        Assert.AreEqual("<Button Content=\"Toggle\" />", scenarios[0].Xaml, "clean XAML from the same sample is still useful");
+        Assert.IsNull(scenarios[0].CSharp, "C# containing live substitution placeholders is not pasteable");
+    }
+
+    [TestMethod]
+    public void Parse_CleanSamplePassesThroughUntouched()
+    {
+        const string Json = """
+        {
+          "schemaVersion": 1,
+          "controls": [
+            {
+              "id": "button",
+              "samples": [
+                {
+                  "header": "Clean",
+                  "xaml": "<Button Content=\"Click\" />",
+                  "code": "var button = new Button { Content = \"Click\" };"
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var (scenarios, _, _) = SampleIndexParser.Parse(Json, "gallery");
+
+        Assert.AreEqual(1, scenarios.Length);
+        Assert.AreEqual("<Button Content=\"Click\" />", scenarios[0].Xaml);
+        Assert.AreEqual("var button = new Button { Content = \"Click\" };", scenarios[0].CSharp);
+    }
+
     /// <summary>
     /// The version gate is the whole point of publishing <c>schemaVersion</c>: a future
     /// document must be refused rather than read with today's field meanings. An absent

@@ -93,6 +93,16 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    public void Invoke_InvalidAction_IsRejectedByParserBeforeTargetRouting()
+    {
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse(
+            ["ui", "invoke", "Save", "-a", "TestApp", "--on", "sandbox", "--action", "selekt", "--json"]);
+
+        Assert.IsNotEmpty(parsed.Errors, "Remote UI routing runs before handler preflight; invalid actions must fail parsing.");
+        StringAssert.Contains(string.Join(" ", parsed.Errors.Select(error => error.Message)), "--action");
+    }
+
+    [TestMethod]
     [DataRow("click")]
     [DataRow("auto")]
     [DataRow("ToggleOn")]
@@ -101,14 +111,26 @@ public partial class UiCommandTests
     [DataRow("")]
     public async Task Invoke_InvalidAction_RejectsBeforeDesktopAcquisition(string action)
     {
-        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
-            ["item", "-a", "TestApp", "--action", action, "--json"]);
+        string[] args = ["ui", "invoke", "item", "-a", "TestApp", "--action", action, "--json"];
+        Assert.IsNotEmpty(GetRequiredService<WinAppRootCommand>().Parse(args).Errors);
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
 
         Assert.AreEqual(1, exitCode);
-        AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
-        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
-        Assert.IsNull(_fakeUia.LastInvokeAction);
-        Assert.IsNull(_fakeUia.LastInvokedElement);
+        AssertJsonErrorCodeIn(stderr, UiJsonError.CodeInvalidArguments);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(stdout));
+    }
+
+    [TestMethod]
+    public async Task Invoke_InvalidRemoteAction_ReportsJsonBeforePreparingTarget()
+    {
+        string[] args = ["ui", "invoke", "Save", "-a", "TestApp", "--on", "sandbox", "--action", "", "--json"];
+        Assert.IsNotEmpty(GetRequiredService<WinAppRootCommand>().Parse(args).Errors,
+            "Do not run a remote command unless parsing rejects it before target preparation.");
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(stdout));
+        AssertJsonErrorCodeIn(stderr, UiJsonError.CodeInvalidArguments);
     }
 
     [TestMethod]

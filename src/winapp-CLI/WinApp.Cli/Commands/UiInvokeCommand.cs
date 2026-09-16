@@ -46,6 +46,14 @@ internal class UiInvokeCommand : Command, IShortDescription
         Options.Add(ActionOption);
 
         Options.Add(WinAppRootCommand.JsonOption);
+        Validators.Add(result =>
+        {
+            if (result.GetResult(ActionOption) is { Tokens.Count: 1 } action &&
+                ParseAction(action.Tokens[0].Value) is null)
+            {
+                result.AddError("--action must be invoke, select, toggle, toggle-on, toggle-off, expand, or collapse.");
+            }
+        });
     }
 
     public class Handler(
@@ -68,15 +76,6 @@ internal class UiInvokeCommand : Command, IShortDescription
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
-
-            if (parseResult.GetValue(ActionOption) is { } action && ParseAction(action) is null)
-            {
-                const string message = "--action must be invoke, select, toggle, toggle-on, toggle-off, expand, or collapse.";
-                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
-                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message,
-                    errorOut: parseResult.InvocationConfiguration.Error);
-                return 1;
-            }
 
             if (string.IsNullOrWhiteSpace(app) && window is null)
             {

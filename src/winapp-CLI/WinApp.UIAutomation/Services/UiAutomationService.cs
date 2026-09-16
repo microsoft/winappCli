@@ -21,9 +21,14 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// </remarks>
 internal sealed partial class UiAutomationService : IUiAutomation
 {
+    private const int UiaElementNotAvailable = unchecked((int)0x80040201);
+
     private readonly ILogger<UiAutomationService> _logger;
     private readonly IUIAutomation _automation;
     private readonly IUiSelectorParser _selectorParser;
+    private int _serializedElementResolutionCount;
+
+    internal int SerializedElementResolutionCount => Volatile.Read(ref _serializedElementResolutionCount);
 
     internal static Func<UiAutomationService, UiTarget, IUIAutomationElement?> s_getRootElement = (service, uiTarget) => service.GetRootElementCore(uiTarget);
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_getRootElementForHwnd = (service, hwnd) => service.GetRootElementForHwndCore(hwnd);
@@ -184,8 +189,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 var slugResult = FindElementBySlug(elementId, root);
                 if (slugResult is not null)
                 {
-                    // Re-find the COM element
-                    target = ResolveComElement(uiTarget, slugResult);
+                    target = GetAutomationElement(uiTarget, slugResult);
                 }
             }
             else
@@ -318,7 +322,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var slugResult = FindElementBySlug(elementId, root);
             if (slugResult is not null)
             {
-                target = ResolveComElement(uiTarget, slugResult);
+                target = GetAutomationElement(uiTarget, slugResult);
             }
         }
         else
@@ -745,7 +749,7 @@ return Task.FromResult<UiElement?>(null);
         }
 
         // Query the live COM element for additional properties
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element);
         if (comElement is not null)
         {
             // General UIA properties (convert COM BOOL to C# bool)
@@ -836,7 +840,7 @@ return Task.FromResult<UiElement?>(null);
 
         _logger.LogDebug("Invoking element {ElementId}", element.Id);
 
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -891,7 +895,7 @@ return Task.FromResult<UiElement?>(null);
         ct.ThrowIfCancellationRequested();
         _ = ExplicitUiInvoker.Describe(action); // Reject invalid values before resolving/touching UIA.
 
-        var comElement = ResolveComElement(uiTarget, element, strictIdentity: true);
+        var comElement = GetAutomationElement(uiTarget, element, strictIdentity: true);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -906,7 +910,7 @@ return Task.FromResult<UiElement?>(null);
 
         _logger.LogDebug("Setting value on element {ElementId}", element.Id);
 
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -925,7 +929,7 @@ return Task.FromResult<UiElement?>(null);
 
         _logger.LogDebug("Focusing element {ElementId}", element.Id);
 
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -941,7 +945,7 @@ return Task.FromResult<UiElement?>(null);
 
         _logger.LogDebug("Getting text from element {ElementId}", element.Id);
 
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -1019,7 +1023,7 @@ return Task.FromResult<UiElement?>(null);
 
         _logger.LogDebug("Scrolling element {ElementId} into view", element.Id);
 
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -1091,7 +1095,7 @@ return Task.FromResult<UiElement?>(null);
 
         _logger.LogDebug("Scrolling container {ElementId}", element.Id);
 
-        var comElement = ResolveComElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -1374,6 +1378,31 @@ return Task.FromResult<UiElement?>(null);
     // --- Private helpers ---
 
     /// <summary>
+    /// Uses the provider element retained when the model was created. Touching ProcessId before
+    /// returning it keeps stale/provider failures explicit even in operation paths that probe
+    /// optional properties or patterns inside narrow fallback catches.
+    /// </summary>
+    private IUIAutomationElement? GetAutomationElement(UiTarget uiTarget, UiElement element, bool strictIdentity = false)
+    {
+        if (element.Context is { } context)
+        {
+            try
+            {
+                _ = s_getElementProcessId(context.AutomationElement);
+            }
+            catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == UiaElementNotAvailable)
+            {
+                throw new InvalidOperationException(
+                    $"Element {element.Id} is stale. Re-run 'inspect' or 'search'.",
+                    ex);
+            }
+            return context.AutomationElement;
+        }
+
+        return ResolveComElement(uiTarget, element, strictIdentity);
+    }
+
+    /// <summary>
     /// Re-finds a live COM UIA element from our serialized UiElement model.
     /// Uses slug-based resolution first (most precise), then falls back to
     /// AutomationId or Name+Type property matching. Explicit actions use strictIdentity:
@@ -1381,6 +1410,8 @@ return Task.FromResult<UiElement?>(null);
     /// </summary>
     private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element, bool strictIdentity = false)
     {
+        Interlocked.Increment(ref _serializedElementResolutionCount);
+
         // Use the element's source HWND if it came from a different window (popup/dialog)
         IUIAutomationElement? root;
         if (element.WindowHandle is { } elHwnd && elHwnd != 0 && elHwnd != uiTarget.WindowHandle)
@@ -2097,6 +2128,7 @@ return Task.FromResult<UiElement?>(null);
 
         return new UiElement
         {
+            Context = new UiElementContext(element),
             Id = id,
             Type = type,
             Name = name,

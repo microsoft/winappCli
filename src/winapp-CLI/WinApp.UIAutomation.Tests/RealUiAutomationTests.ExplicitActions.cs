@@ -8,6 +8,93 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    public async Task ExplicitAction_AllRetainedActions_UseSameProviderWithoutResolution()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var button = await ResolveAsync(svc, target, "btnInvoke");
+        var check = await ResolveAsync(svc, target, "chkToggle");
+        var elements = await svc.InspectAsync(target, "treeView", 3, CancellationToken.None);
+        var treeItem = elements.First(e => e.Type == "TreeItem" && e.Name == "Root");
+        var requests = new[]
+        {
+            (button, UiInvokeAction.Invoke, "InvokePattern", "invoke"),
+            (check, UiInvokeAction.Toggle, "TogglePattern", "toggle"),
+            (check, UiInvokeAction.ToggleOn, "TogglePattern", "none"),
+            (check, UiInvokeAction.ToggleOff, "TogglePattern", "toggle"),
+            (check, UiInvokeAction.ToggleOff, "TogglePattern", "none"),
+            (check, UiInvokeAction.ToggleOn, "TogglePattern", "toggle"),
+            (treeItem, UiInvokeAction.Select, "SelectionItemPattern", "select"),
+            (treeItem, UiInvokeAction.Collapse, "ExpandCollapsePattern", "collapse"),
+            (treeItem, UiInvokeAction.Expand, "ExpandCollapsePattern", "expand"),
+        };
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+        foreach (var (element, action, pattern, performed) in requests)
+        {
+            Assert.IsNotNull(element.Context);
+            Assert.AreEqual(new UiInvokeActionResult(pattern, performed),
+                await svc.InvokeAsync(target, element, action, CancellationToken.None));
+            Assert.AreEqual(0, svc.SerializedElementResolutionCount, $"{action} re-resolved its retained provider.");
+        }
+        Assert.IsTrue(fx.OnUiThread(() => fx.ToggleCheck.Checked));
+        Assert.AreEqual("Root", fx.OnUiThread(() => fx.Tree.SelectedNode?.Text));
+        Assert.IsTrue(fx.OnUiThread(() => fx.Tree.Nodes[0].IsExpanded));
+        await WaitForAsync(() => Task.FromResult(fx.OnUiThread(() => fx.ResultBox.Text == "clicked")),
+            "retained explicit invoke did not click the selected button");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitAction_RemovedRetainedButton_DoesNotInvokeReplacement(bool sameAutomationId)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var selected = await ResolveAsync(svc, target, "btnInvoke");
+        Assert.IsNotNull(selected.Context);
+        var replacementClicks = 0;
+        fx.OnUiThread(() =>
+        {
+            fx.InvokeButton.Dispose();
+            var replacement = new Button
+            {
+                Name = sameAutomationId ? "btnInvoke" : "replacement",
+                AccessibleName = "Click Me",
+                Text = "Click Me",
+                Bounds = new System.Drawing.Rectangle(10, 10, 120, 30),
+            };
+            replacement.Click += (_, _) => replacementClicks++;
+            fx.Form.Controls.Add(replacement);
+            replacement.CreateControl();
+        });
+        var replacementModel = await ResolveAsync(svc, target, sameAutomationId ? "btnInvoke" : "replacement");
+        Assert.IsNotNull(replacementModel.Context);
+        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
+        StringAssert.Contains(error.Message, "stale");
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+        Assert.AreEqual(0, fx.OnUiThread(() => replacementClicks));
+    }
+
+    [TestMethod]
+    public async Task ExplicitAction_RetainedValidationFailure_DoesNotResolveAgain()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var selected = await ResolveAsync(svc, target, "btnInvoke");
+        var failure = new System.Runtime.InteropServices.COMException("Provider access denied.", unchecked((int)0x80070005));
+        UiAutomationService.s_getElementProcessId = _ => throw failure;
+        var error = await Assert.ThrowsExactlyAsync<System.Runtime.InteropServices.COMException>(
+            () => svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
+        Assert.AreSame(failure, error);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+        Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ExplicitAction_RemovedSelectedButton_DoesNotRebindToSurvivingSameNameSibling(bool promotedAutomationId)
@@ -23,6 +110,7 @@ public partial class RealUiAutomationTests
             fx.ParentInvokeButton.Click += (_, _) => secondaryClicks++;
         });
         var selected = await ResolveAsync(svc, target, "btnInvoke");
+        selected.Context = null; // Exercise the serialized-model route, not the retained provider.
         if (promotedAutomationId)
         {
             selected.Selector = selected.AutomationId;
@@ -51,6 +139,7 @@ public partial class RealUiAutomationTests
         var target = SessionFor(fx);
         var selected = await ResolveAsync(svc, target, "btnInvoke");
         // The caller holds a stale runtime selector alongside an AutomationId which still exists.
+        selected.Context = null;
         selected.Selector = "btn-removed-primary-1234";
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
@@ -64,6 +153,7 @@ public partial class RealUiAutomationTests
         var svc = NewService();
         var target = SessionFor(fx);
         var selected = await ResolveAsync(svc, target, "btnInvoke");
+        selected.Context = null;
         selected.Selector = selected.AutomationId;
         fx.OnUiThread(() => fx.ParentInvokeButton.Name = "btnInvoke");
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
