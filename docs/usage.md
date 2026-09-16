@@ -1185,7 +1185,9 @@ After migration, re-run only the deterministic checks at explicit workflow gates
 winapp migrate verify <target>
 ```
 
-`migrate verify` refreshes namespace, project-item decision, and activation-declaration coverage. It detects missing or changed target activation declarations and stale project-item evidence, but does not scaffold again, modify application source, resolve semantic activation behavior, or overwrite behavioral-validation state.
+`migrate verify` refreshes namespace, project-item decision, activation-declaration, and target-project ownership coverage. It detects missing or changed target activation declarations, stale project-item evidence, and contained nested projects whose source or generated files are consumed by the entry project's active SDK defaults or explicit items. It does not scaffold again, modify application source, resolve semantic activation behavior, or overwrite behavioral-validation state.
+
+Nested projects and normal `ProjectReference` graphs are valid. `mechanicalVerification.targetProjectGraph` reports `not-required` when no project is nested below the entry project directory, `passed` when nested project ownership is protected by active exclusions/removals, `failed` for deterministic collisions, and `incomplete` when conditioned, property-expanded, imported, or unsupported MSBuild evidence prevents a safe conclusion. A `failed` or `incomplete` result creates verifier-owned `UWMIG013` and prevents `mechanical-migration-complete`. Resolve it by moving the nested project outside the entry project's default-item root or by adding active exclusions/removals that cover its source and generated `obj`/`bin` content while retaining `ProjectReference` ownership. Re-running `migrate verify` clears or reopens the issue and TODO from current evidence.
 
 Review-required project items appear under `mechanicalVerification.projectItems.reviewRequiredItems` with stable IDs. Record a supported deterministic decision instead of editing `UWMIG012` or `mechanicalVerification` by hand:
 
@@ -1216,7 +1218,7 @@ Key report fields:
 - `transforms` records deterministic operations that ran.
 - `activationAnalysis` records source protocol/file-association facts, source locations, target schema coverage, verification status, and deterministic inspection issues.
 - `projectItemDecisions` records target-owned review-item decisions and their recomputed verification evidence.
-- `mechanicalVerification` records file coverage, legacy namespace residuals, activation declaration coverage, and source/target project-item coverage.
+- `mechanicalVerification` records file coverage, legacy namespace residuals, activation declaration coverage, source/target project-item coverage, and structured `targetProjectGraph` collision evidence.
 - `todos` records required semantic migration work and source locations.
 - `validation` declares the state plan and source/target evidence roots; parity starts as `unverified`.
 
@@ -2056,5 +2058,4 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 

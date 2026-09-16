@@ -676,6 +676,7 @@ internal partial class MigrateCommand
             IReadOnlyCollection<string> preserved,
             IReadOnlyCollection<string> intentionallyExcluded,
             string targetRoot,
+            string targetProject,
             ProjectItemMigrationResult projectItems,
             MigrationReport report)
         {
@@ -699,13 +700,21 @@ internal partial class MigrateCommand
                 .ToList();
 
             var (residuals, uninspectedFiles) = FindLegacyNamespaceResiduals(targetRoot);
-            RefreshMechanicalTodos(report, residuals, projectItems);
+            var targetProjectGraph = AnalyzeTargetProjectGraph(
+                targetRoot,
+                targetProject);
+            RefreshMechanicalTodos(
+                report,
+                residuals,
+                projectItems,
+                targetProjectGraph);
             var activationContracts = CreateActivationVerification(
                 report.ActivationAnalysis);
 
             var failed = residuals.Count > 0
                 || unclassified.Count > 0
                 || projectItems.MissingTargetItems.Count > 0
+                || targetProjectGraph.Status is "failed" or "incomplete"
                 || HasActivationMechanicalFailure(report.ActivationAnalysis);
             return new MigrationMechanicalVerification
             {
@@ -731,6 +740,7 @@ internal partial class MigrateCommand
                     ReviewRequiredItems = projectItems.ReviewRequiredItems,
                     VerifiedDecisionItems = projectItems.VerifiedDecisionItems
                 },
+                TargetProjectGraph = targetProjectGraph,
                 ActivationContracts = activationContracts
             };
         }
@@ -755,13 +765,21 @@ internal partial class MigrateCommand
                 projectItems,
                 report);
             var (residuals, uninspectedFiles) = FindLegacyNamespaceResiduals(targetRoot);
-            RefreshMechanicalTodos(report, residuals, projectItems);
+            var targetProjectGraph = AnalyzeTargetProjectGraph(
+                targetRoot,
+                targetProject);
+            RefreshMechanicalTodos(
+                report,
+                residuals,
+                projectItems,
+                targetProjectGraph);
             var activationContracts = CreateActivationVerification(
                 report.ActivationAnalysis);
 
             var failed = residuals.Count > 0
                 || report.MechanicalVerification.Inventory.UnclassifiedFiles.Count > 0
                 || projectItems.MissingTargetItems.Count > 0
+                || targetProjectGraph.Status is "failed" or "incomplete"
                 || HasActivationMechanicalFailure(report.ActivationAnalysis);
             return new MigrationMechanicalVerification
             {
@@ -779,6 +797,7 @@ internal partial class MigrateCommand
                     ReviewRequiredItems = projectItems.ReviewRequiredItems,
                     VerifiedDecisionItems = projectItems.VerifiedDecisionItems
                 },
+                TargetProjectGraph = targetProjectGraph,
                 ActivationContracts = activationContracts
             };
         }
@@ -787,8 +806,10 @@ internal partial class MigrateCommand
             FindLegacyNamespaceResiduals(string targetRoot)
         {
             var residuals = new List<MigrationLocation>();
-            var uninspectedFiles = 0;
-            foreach (var file in EnumerateFiles(targetRoot))
+            var files = EnumerateContainedVerificationFiles(
+                targetRoot,
+                out var uninspectedFiles);
+            foreach (var file in files)
             {
                 var relativePath = Path.GetRelativePath(targetRoot, file);
                 if (string.Equals(
@@ -825,12 +846,94 @@ internal partial class MigrateCommand
             return (residuals, uninspectedFiles);
         }
 
+        private static List<string> EnumerateContainedVerificationFiles(
+            string targetRoot,
+            out int uninspectedPaths)
+        {
+            var files = new List<string>();
+            uninspectedPaths = 0;
+            var pending = new Stack<string>();
+            pending.Push(targetRoot);
+            while (pending.Count > 0)
+            {
+                var directory = pending.Pop();
+                List<string> childFiles;
+                List<string> childDirectories;
+                try
+                {
+                    childFiles = Directory.EnumerateFiles(
+                        directory,
+                        "*",
+                        SearchOption.TopDirectoryOnly).ToList();
+                    childDirectories = Directory.EnumerateDirectories(
+                        directory,
+                        "*",
+                        SearchOption.TopDirectoryOnly).ToList();
+                }
+                catch (Exception exception) when (
+                    exception is IOException
+                    or UnauthorizedAccessException)
+                {
+                    uninspectedPaths++;
+                    continue;
+                }
+
+                foreach (var file in childFiles)
+                {
+                    var relativePath = Path.GetRelativePath(
+                        targetRoot,
+                        file);
+                    if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                            targetRoot,
+                            relativePath,
+                            out var containedFile,
+                            out _,
+                            out _))
+                    {
+                        uninspectedPaths++;
+                        continue;
+                    }
+                    files.Add(containedFile);
+                }
+                foreach (var childDirectory in childDirectories)
+                {
+                    var name = Path.GetFileName(childDirectory);
+                    if (ExcludeDirSegments.Contains(
+                            name,
+                            StringComparer.OrdinalIgnoreCase)
+                        || name.Equals(
+                            ".migration-evidence",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    var relativePath = Path.GetRelativePath(
+                        targetRoot,
+                        childDirectory);
+                    if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                            targetRoot,
+                            relativePath,
+                            out var containedDirectory,
+                            out _,
+                            out _))
+                    {
+                        uninspectedPaths++;
+                        continue;
+                    }
+                    pending.Push(containedDirectory);
+                }
+            }
+            return files;
+        }
+
         private static void RefreshMechanicalTodos(
             MigrationReport report,
             List<MigrationLocation> residuals,
-            ProjectItemMigrationResult projectItems)
+            ProjectItemMigrationResult projectItems,
+            MigrationTargetProjectGraphVerification targetProjectGraph)
         {
-            report.Todos.RemoveAll(todo => todo.Id is "UWMIG011" or "UWMIG012");
+            report.Todos.RemoveAll(todo =>
+                todo.Id is "UWMIG011" or "UWMIG012" or "UWMIG013");
             if (residuals.Count > 0)
             {
                 report.Todos.Add(new MigrationTodo
@@ -859,42 +962,70 @@ internal partial class MigrateCommand
                         .ToList()
                 });
             }
+
+            if (targetProjectGraph.Status is "failed" or "incomplete")
+            {
+                report.Todos.Add(new MigrationTodo
+                {
+                    Id = "UWMIG013",
+                    Category = "target-project-graph",
+                    Priority = "required",
+                    Summary =
+                        "Resolve nested target project files consumed by the entry project",
+                    Reason =
+                        $"{targetProjectGraph.Issues.Count} target project ownership issue(s) require moving nested projects outside the entry default-item root or adding active exclusions/removals for their source and obj/bin content while retaining ProjectReference ownership.",
+                    Locations = targetProjectGraph.Issues
+                        .SelectMany(issue => issue.SamplePaths)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Select(path => new MigrationLocation
+                        {
+                            Path = path
+                        })
+                        .ToList()
+                });
+            }
         }
 
         private static bool TryReadInspectableText(string path, out string text)
         {
-            var extension = Path.GetExtension(path);
-            if (!KnownTextExtensions.Contains(extension)
-                && new FileInfo(path).Length > UnknownTextInspectionLimit)
-            {
-                text = string.Empty;
-                return false;
-            }
-
             try
             {
+                var extension = Path.GetExtension(path);
+                if (!KnownTextExtensions.Contains(extension)
+                    && new FileInfo(path).Length >
+                        UnknownTextInspectionLimit)
+                {
+                    text = string.Empty;
+                    return false;
+                }
                 text = ReadTextFile(path).Content;
-            }
-            catch (DecoderFallbackException)
-            {
-                text = string.Empty;
-                return false;
-            }
+                if (KnownTextExtensions.Contains(extension))
+                {
+                    return true;
+                }
 
-            if (KnownTextExtensions.Contains(extension))
-            {
+                var controls = text.Count(character =>
+                    char.IsControl(character)
+                    && character is not '\r'
+                        and not '\n'
+                        and not '\t'
+                        and not '\f');
+                if (controls >
+                    Math.Max(4, text.Length / 100))
+                {
+                    text = string.Empty;
+                    return false;
+                }
                 return true;
             }
-
-            var controls = text.Count(character =>
-                char.IsControl(character)
-                && character is not '\r' and not '\n' and not '\t' and not '\f');
-            if (controls > Math.Max(4, text.Length / 100))
+            catch (Exception exception) when (
+                exception is DecoderFallbackException
+                or IOException
+                or UnauthorizedAccessException)
             {
                 text = string.Empty;
                 return false;
             }
-            return true;
         }
 
         private sealed class StringTupleComparer : IEqualityComparer<(string Kind, string RelativePath)>

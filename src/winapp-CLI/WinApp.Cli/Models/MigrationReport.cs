@@ -287,6 +287,60 @@ internal sealed class MigrationMechanicalVerification
 
     [JsonPropertyName("activationContracts")]
     public MigrationActivationVerification ActivationContracts { get; set; } = new();
+
+    [JsonPropertyName("targetProjectGraph")]
+    public MigrationTargetProjectGraphVerification TargetProjectGraph { get; set; } = new();
+}
+
+internal sealed class MigrationTargetProjectGraphVerification
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "not-run";
+
+    [JsonPropertyName("entryProject")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EntryProject { get; set; }
+
+    [JsonPropertyName("nestedProjects")]
+    public List<string> NestedProjects { get; set; } = [];
+
+    [JsonPropertyName("issues")]
+    public List<MigrationTargetProjectGraphIssue> Issues { get; set; } = [];
+}
+
+internal sealed class MigrationTargetProjectGraphIssue
+{
+    [JsonPropertyName("kind")]
+    public required string Kind { get; set; }
+
+    [JsonPropertyName("severity")]
+    public string Severity { get; set; } = "error";
+
+    [JsonPropertyName("entryProject")]
+    public required string EntryProject { get; set; }
+
+    [JsonPropertyName("nestedProject")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NestedProject { get; set; }
+
+    [JsonPropertyName("nestedDirectory")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NestedDirectory { get; set; }
+
+    [JsonPropertyName("itemKinds")]
+    public List<string> ItemKinds { get; set; } = [];
+
+    [JsonPropertyName("samplePaths")]
+    public List<string> SamplePaths { get; set; } = [];
+
+    [JsonPropertyName("generatedPaths")]
+    public List<string> GeneratedPaths { get; set; } = [];
+
+    [JsonPropertyName("reason")]
+    public required string Reason { get; set; }
+
+    [JsonPropertyName("requiredResolution")]
+    public required string RequiredResolution { get; set; }
 }
 
 internal sealed class MigrationActivationVerification

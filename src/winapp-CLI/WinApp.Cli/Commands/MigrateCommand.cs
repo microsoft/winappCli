@@ -425,6 +425,7 @@ internal partial class MigrateCommand : Command, IShortDescription
                 preservedReferences,
                 intentionallyExcluded,
                 targetRoot,
+                targetProject,
                 projectItemResult,
                 report);
             report.Status = report.MechanicalVerification.Status == "passed"

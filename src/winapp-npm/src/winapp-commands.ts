@@ -788,7 +788,7 @@ export interface MigrateVerifyOptions extends CommonOptions {
 }
 
 /**
- * Re-run namespace residual, activation declaration, and project-item decision checks against the recorded migration inventory without modifying application source or behavioral validation.
+ * Re-run namespace residual, activation declaration, project-item decision, and target-project ownership checks against the recorded migration inventory without modifying application source or behavioral validation.
  */
 export async function migrateVerify(options: MigrateVerifyOptions): Promise<WinappResult> {
   const args: string[] = ['migrate', 'verify'];

@@ -17,7 +17,7 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
     };
 
     public MigrateVerifyCommand()
-        : base("verify", "Re-run namespace residual, activation declaration, and project-item decision checks against the recorded migration inventory without modifying application source or behavioral validation.")
+        : base("verify", "Re-run namespace residual, activation declaration, project-item decision, and target-project ownership checks against the recorded migration inventory without modifying application source or behavioral validation.")
     {
         TargetArgument.AcceptExistingOnly();
         Arguments.Add(TargetArgument);
@@ -161,6 +161,10 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 $"{verification.ActivationContracts.MigratedContracts} verified; " +
                 $"{verification.ActivationContracts.ReviewRequiredContracts} review-required; " +
                 $"{verification.ActivationContracts.Issues} issue(s).");
+            Console.Out.WriteLine(
+                $"Target project graph: {verification.TargetProjectGraph.Status}; " +
+                $"{verification.TargetProjectGraph.NestedProjects.Count} nested project(s); " +
+                $"{verification.TargetProjectGraph.Issues.Count} issue(s).");
             return verification.Status == "passed" ? 0 : 1;
         }
     }

@@ -197,7 +197,16 @@ internal static class MigrationReportStore
         report.MechanicalVerification.Inventory ??= new MigrationFileInventory();
         report.MechanicalVerification.ProjectItems ??= new MigrationProjectItemVerification();
         report.MechanicalVerification.ActivationContracts ??= new MigrationActivationVerification();
+        report.MechanicalVerification.TargetProjectGraph ??= new MigrationTargetProjectGraphVerification();
         report.MechanicalVerification.ProjectItems.ReviewRequiredItems ??= [];
+        report.MechanicalVerification.TargetProjectGraph.NestedProjects ??= [];
+        report.MechanicalVerification.TargetProjectGraph.Issues ??= [];
+        foreach (var issue in report.MechanicalVerification.TargetProjectGraph.Issues)
+        {
+            issue.ItemKinds ??= [];
+            issue.SamplePaths ??= [];
+            issue.GeneratedPaths ??= [];
+        }
         foreach (var decision in report.ProjectItemDecisions)
         {
             decision.EvidenceFiles ??= [];

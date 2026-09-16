@@ -168,6 +168,15 @@ public class MigrateCommandTests : MigrateCommandTestBase
             ".migration-evidence/target",
             validation.GetProperty("targetReplay").GetProperty("evidenceRoot").GetString());
         Assert.AreEqual("unverified", validation.GetProperty("parityStatus").GetString());
+        var targetProjectGraph = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("targetProjectGraph");
+        Assert.AreEqual(
+            "not-required",
+            targetProjectGraph.GetProperty("status").GetString());
+        Assert.AreEqual(
+            0,
+            targetProjectGraph.GetProperty("nestedProjects").GetArrayLength());
     }
 
     [TestMethod]

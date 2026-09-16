@@ -64,6 +64,8 @@ internal partial class MigrateCommand
             internal List<string> IncompleteReasons { get; } = [];
 
             internal string? DirectoryBuildProps { get; set; }
+
+            internal string? DirectoryBuildTargets { get; set; }
         }
 
         private sealed record ProjectItemEvidenceResult(
@@ -74,8 +76,13 @@ internal partial class MigrateCommand
             string targetRoot,
             string targetProject,
             out ProjectEvidenceGraph graph,
-            out string error)
+            out string error,
+            HashSet<string>? relevantProperties = null,
+            HashSet<string>? relevantItemKinds = null,
+            bool allowDeterministicChoose = false)
         {
+            relevantProperties ??= ClosureRelevantProperties;
+            relevantItemKinds ??= MigratedProjectItemKinds;
             graph = null!;
             error = string.Empty;
             if (!MigrationPathResolver.TryResolveContainedRelativePath(
@@ -101,6 +108,9 @@ internal partial class MigrateCommand
                     graph,
                     context,
                     required: true,
+                    relevantProperties,
+                    relevantItemKinds,
+                    allowDeterministicChoose,
                     out error))
             {
                 return false;
@@ -122,7 +132,10 @@ internal partial class MigrateCommand
                 "DirectoryBuildPropsPath",
                 evaluateImportControl: false,
                 graph,
-                context);
+                context,
+                relevantProperties,
+                relevantItemKinds,
+                allowDeterministicChoose);
             AddAutomaticDirectoryBuildFile(
                 targetRoot,
                 targetProject,
@@ -131,7 +144,10 @@ internal partial class MigrateCommand
                 "DirectoryBuildTargetsPath",
                 evaluateImportControl: true,
                 graph,
-                context);
+                context,
+                relevantProperties,
+                relevantItemKinds,
+                allowDeterministicChoose);
             if (graph.IncompleteReasons.Count > 0)
             {
                 error =
@@ -169,6 +185,9 @@ internal partial class MigrateCommand
             ProjectEvidenceGraph graph,
             ProjectConditionContext context,
             bool required,
+            HashSet<string> relevantProperties,
+            HashSet<string> relevantItemKinds,
+            bool allowDeterministicChoose,
             out string error)
         {
             error = string.Empty;
@@ -194,7 +213,9 @@ internal partial class MigrateCommand
                     LoadOptions.PreserveWhitespace | LoadOptions.SetLineInfo);
             }
             catch (Exception exception) when (
-                exception is XmlException or IOException)
+                exception is XmlException
+                or IOException
+                or UnauthorizedAccessException)
             {
                 error = $"MSBuild evidence file '{relativePath}' could not be read: {exception.Message}";
                 graph.RejectedDocuments[relativePath] = error;
@@ -240,9 +261,14 @@ internal partial class MigrateCommand
                 document,
                 relativePath,
                 context,
-                graph.IncompleteReasons);
+                graph.IncompleteReasons,
+                relevantProperties,
+                relevantItemKinds,
+                allowDeterministicChoose);
             foreach (var import in document.Descendants().Where(element =>
-                IsEvaluationImport(element)
+                IsSupportedEvidenceImport(
+                    element,
+                    allowDeterministicChoose)
                 && IsProjectElement(element, "Import")))
             {
                 var importValue = import.Attribute("Project")?.Value.Trim();
@@ -306,6 +332,9 @@ internal partial class MigrateCommand
                     graph,
                     context,
                     required: false,
+                    relevantProperties,
+                    relevantItemKinds,
+                    allowDeterministicChoose,
                     out _);
             }
             return true;
@@ -315,12 +344,17 @@ internal partial class MigrateCommand
             XDocument document,
             string relativePath,
             ProjectConditionContext context,
-            List<string> incompleteReasons)
+            List<string> incompleteReasons,
+            HashSet<string> relevantProperties,
+            HashSet<string> relevantItemKinds,
+            bool allowDeterministicChoose)
         {
             foreach (var property in document.Descendants().Where(element =>
                 IsProjectElement(element, element.Name.LocalName)
-                && ClosureRelevantProperties.Contains(element.Name.LocalName)
-                && !IsEvaluationProperty(element)))
+                && relevantProperties.Contains(element.Name.LocalName)
+                && !IsSupportedEvidenceProperty(
+                    element,
+                    allowDeterministicChoose)))
             {
                 if (EvaluateElementCondition(property, context)
                     != DeterministicCondition.False)
@@ -332,9 +366,11 @@ internal partial class MigrateCommand
 
             foreach (var item in document.Descendants().Where(element =>
                 IsProjectElement(element, element.Name.LocalName)
-                && MigratedProjectItemKinds.Contains(element.Name.LocalName)
+                && relevantItemKinds.Contains(element.Name.LocalName)
                 && HasClosureRelevantItemOperation(element)
-                && !IsEvaluationItem(element)))
+                && !IsSupportedEvidenceItem(
+                    element,
+                    allowDeterministicChoose)))
             {
                 if (EvaluateElementCondition(item, context)
                     != DeterministicCondition.False)
@@ -346,7 +382,9 @@ internal partial class MigrateCommand
 
             foreach (var import in document.Descendants().Where(element =>
                 IsProjectElement(element, "Import")
-                && !IsEvaluationImport(element)))
+                && !IsSupportedEvidenceImport(
+                    element,
+                    allowDeterministicChoose)))
             {
                 if (EvaluateElementCondition(import, context)
                     != DeterministicCondition.False)
@@ -372,30 +410,74 @@ internal partial class MigrateCommand
             string overridePathProperty,
             bool evaluateImportControl,
             ProjectEvidenceGraph graph,
-            ProjectConditionContext context)
+            ProjectConditionContext context,
+            HashSet<string> relevantProperties,
+            HashSet<string> relevantItemKinds,
+            bool allowDeterministicChoose)
         {
+            string? automaticFileOverride = null;
             if (evaluateImportControl)
             {
-                var importStatus = GetAutomaticDirectoryBuildImportStatus(
-                    graph.Documents.Values,
-                    importEnabledProperty,
-                    overridePathProperty,
-                    context,
-                    out var reason);
-                if (importStatus == DirectoryBuildImportStatus.Disabled)
+                if (allowDeterministicChoose)
                 {
-                    return;
+                    if (!TryEvaluateOrderedDirectoryBuildTargetsImport(
+                            graph,
+                            context,
+                            out var enabled,
+                            out var overridePath,
+                            out var reason))
+                    {
+                        graph.IncompleteReasons.Add(reason);
+                        return;
+                    }
+                    if (!enabled)
+                    {
+                        return;
+                    }
+                    if (overridePath is not null)
+                    {
+                        if (!TryResolveLiteralImport(
+                                targetRoot,
+                                targetProject,
+                                overridePath,
+                                out automaticFileOverride,
+                                out _)
+                            || !File.Exists(automaticFileOverride))
+                        {
+                            graph.IncompleteReasons.Add(
+                                $"The active {overridePathProperty} value '{overridePath}' is not an existing contained literal file.");
+                            return;
+                        }
+                    }
                 }
-                if (importStatus == DirectoryBuildImportStatus.Unmodeled)
+                else
                 {
-                    graph.IncompleteReasons.Add(reason);
-                    return;
+                    var importStatus =
+                        GetAutomaticDirectoryBuildImportStatus(
+                            graph.Documents.Values,
+                            importEnabledProperty,
+                            overridePathProperty,
+                            context,
+                            allowDeterministicChoose,
+                            out var reason);
+                    if (importStatus ==
+                        DirectoryBuildImportStatus.Disabled)
+                    {
+                        return;
+                    }
+                    if (importStatus ==
+                        DirectoryBuildImportStatus.Unmodeled)
+                    {
+                        graph.IncompleteReasons.Add(reason);
+                        return;
+                    }
                 }
             }
 
-            var automaticFile = FindNearestAncestorFile(
-                Path.GetDirectoryName(targetProject)!,
-                fileName);
+            var automaticFile = automaticFileOverride
+                ?? FindNearestAncestorFile(
+                    Path.GetDirectoryName(targetProject)!,
+                    fileName);
             if (automaticFile is null)
             {
                 return;
@@ -421,6 +503,9 @@ internal partial class MigrateCommand
                 graph,
                 context,
                 required: false,
+                relevantProperties,
+                relevantItemKinds,
+                allowDeterministicChoose,
                 out _);
             if (fileName.Equals(
                     "Directory.Build.props",
@@ -429,6 +514,13 @@ internal partial class MigrateCommand
             {
                 graph.DirectoryBuildProps = automaticRelative;
             }
+            if (fileName.Equals(
+                    "Directory.Build.targets",
+                    StringComparison.OrdinalIgnoreCase)
+                && graph.Documents.ContainsKey(automaticRelative))
+            {
+                graph.DirectoryBuildTargets = automaticRelative;
+            }
         }
 
         private static DirectoryBuildImportStatus GetAutomaticDirectoryBuildImportStatus(
@@ -436,13 +528,16 @@ internal partial class MigrateCommand
             string importEnabledProperty,
             string overridePathProperty,
             ProjectConditionContext context,
+            bool allowDeterministicChoose,
             out string reason)
         {
             reason = string.Empty;
             foreach (var property in participatingDocuments
                 .SelectMany(document => document.Descendants())
                 .Where(element =>
-                    IsEvaluationProperty(element)
+                    IsSupportedEvidenceProperty(
+                        element,
+                        allowDeterministicChoose)
                     && (IsProjectElement(element, importEnabledProperty)
                         || IsProjectElement(element, overridePathProperty))))
             {
@@ -1407,6 +1502,54 @@ internal partial class MigrateCommand
             element.Parent is { } propertyGroup
             && IsProjectElement(propertyGroup, "PropertyGroup")
             && propertyGroup.Parent == element.Document?.Root;
+
+        private static bool IsSupportedEvidenceImport(
+            XElement element,
+            bool allowDeterministicChoose) =>
+            IsEvaluationImport(element)
+            || (allowDeterministicChoose
+                && IsDirectChooseBranchChild(element, "Import"))
+            || (allowDeterministicChoose
+                && element.Parent is { } importGroup
+                && IsProjectElement(importGroup, "ImportGroup")
+                && IsDirectChooseBranchChild(
+                    importGroup,
+                    "ImportGroup"));
+
+        private static bool IsSupportedEvidenceItem(
+            XElement element,
+            bool allowDeterministicChoose) =>
+            IsEvaluationItem(element)
+            || (allowDeterministicChoose
+                && element.Parent is { } itemGroup
+                && IsProjectElement(itemGroup, "ItemGroup")
+                && IsDirectChooseBranchChild(
+                    itemGroup,
+                    "ItemGroup"));
+
+        private static bool IsSupportedEvidenceProperty(
+            XElement element,
+            bool allowDeterministicChoose) =>
+            IsEvaluationProperty(element)
+            || (allowDeterministicChoose
+                && element.Parent is { } propertyGroup
+                && IsProjectElement(
+                    propertyGroup,
+                    "PropertyGroup")
+                && IsDirectChooseBranchChild(
+                    propertyGroup,
+                    "PropertyGroup"));
+
+        private static bool IsDirectChooseBranchChild(
+            XElement element,
+            string localName) =>
+            IsProjectElement(element, localName)
+            && element.Parent is { } branch
+            && (IsProjectElement(branch, "When")
+                || IsProjectElement(branch, "Otherwise"))
+            && branch.Parent is { } choose
+            && IsProjectElement(choose, "Choose")
+            && choose.Parent == element.Document?.Root;
 
         [GeneratedRegex(
             @"^\s*'\$\(MSBuildProjectName\)'\s*(?<operator>==|!=)\s*'(?<value>[^']*)'\s*$",
