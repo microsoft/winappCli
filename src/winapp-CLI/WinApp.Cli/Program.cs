@@ -18,6 +18,11 @@ internal static class Program
 {
     internal static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == Services.Performance.PerfCaptureWorker.InternalVerb)
+        {
+            return await Services.Performance.PerfCaptureWorker.RunAsync(args);
+        }
+
         // Hidden internal verb: the WinUI DbgEng triage pass runs in this isolated child process so
         // its modern dbgeng.dll is not poisoned by the system32 dbghelp.dll the parent already loaded.
         // Intercept before any host/service setup to keep the loader state clean and output noise-free.
@@ -97,7 +102,15 @@ internal static class Program
                     NewCommand.EmitParseErrorJson(message);
                     return NewCommand.ExitInvalidArgs;
                 }
-                if (ResolveEffectiveJson(parseResult) && IsUiDescendant(parseResult))
+                if (ResolveEffectiveJson(parseResult) && RunCommand.IsProfileInvocation(parseResult))
+                {
+                    RunCommand.EmitProfileParseError(message);
+                }
+                else if (ResolveEffectiveJson(parseResult) && PerfCommand.IsDescendant(parseResult))
+                {
+                    PerfCommand.EmitError(true, "invalid_arguments", message);
+                }
+                else if (ResolveEffectiveJson(parseResult) && IsUiDescendant(parseResult))
                 {
                     UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, message);
                 }
@@ -157,6 +170,11 @@ internal static class Program
         // accepts a "-foo"-shaped positional value would get a false-positive typo error.
         if (parsedArgs.Errors.Count > 0)
         {
+            if (effectiveJson && (PerfCommand.IsDescendant(parsedArgs) || RunCommand.IsProfileInvocation(parsedArgs)))
+            {
+                return await RunWithTelemetryAsync(parsedArgs, isCompleteMode,
+                    () => Task.FromResult(1), CommandInvokedEvent.Log, CommandCompletedEvent.Log);
+            }
             var typo = OptionTypoValidator.FindLikelyLongOptionTypo(args, parsedArgs);
             if (typo is not null)
             {
@@ -276,6 +294,24 @@ internal static class Program
             }
 
             bool effectiveJson = ResolveEffectiveJson(parsedArgs);
+            if (effectiveJson && parsedArgs.Errors.Count > 0 && RunCommand.IsProfileInvocation(parsedArgs))
+            {
+                RunCommand.EmitProfileParseError(string.Join("; ", parsedArgs.Errors.Select(e => e.Message)));
+                if (!isCompleteMode)
+                {
+                    logCommandCompleted(parsedArgs.CommandResult, 1);
+                }
+                return 1;
+            }
+            if (effectiveJson && parsedArgs.Errors.Count > 0 && PerfCommand.IsDescendant(parsedArgs))
+            {
+                PerfCommand.EmitError(true, "invalid_arguments", string.Join("; ", parsedArgs.Errors.Select(e => e.Message)));
+                if (!isCompleteMode)
+                {
+                    logCommandCompleted(parsedArgs.CommandResult, 1);
+                }
+                return 1;
+            }
 
             // Parse-error → JSON bridge: activated only when the SELECTED command exposes --json,
             // its parsed value is true (effectiveJson), AND the command is a ui descendant (M3).

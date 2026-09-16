@@ -555,6 +555,123 @@ function packageApp(options: PackageOptions): Promise<WinappResult>
 
 ---
 
+### `perfAnalyze()`
+
+Query a finalized winapp capture directory. ETL stays authoritative; derived NDJSON is cached locally. Partial evidence is returned with nonzero exit status.
+
+```typescript
+function perfAnalyze(options: PerfAnalyzeOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `directory` | `string` | Yes | Capture directory containing capture.json and its ETL files. |
+| `depth` | `number \| undefined` | No | Expansion depth, 0-4. Defaults: call 2, element 0. Call trees show instrumented operations, not CPU stacks. |
+| `element` | `string \| undefined` | No | Trace-local element ID for the events view. |
+| `event` | `string \| undefined` | No | Exact event name or evidence ID for the events view. |
+| `family` | `string \| undefined` | No | Exact operation family for --view calls, for example layout, frames, input, or initialization. |
+| `fromMarker` | `string \| undefined` | No | Range start at a recorded marker. |
+| `fromMs` | `number \| undefined` | No | Range start relative to capture readiness. |
+| `id` | `string \| undefined` | No | Trace-local ID for --view element or --view call; optional interval ID for --view gc. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `limit` | `number \| undefined` | No | Rows per page, 1-100. |
+| `maxBytes` | `number \| undefined` | No | Whole JSON response byte budget, 4096-1048576. |
+| `minFrameMs` | `number \| undefined` | No | Minimum complete Frame duration for --view hotspots. Default: 16.67 ms. |
+| `offset` | `number \| undefined` | No | Zero-based row offset. |
+| `provider` | `string \| undefined` | No | Provider GUID for the events view. |
+| `sort` | `string \| undefined` | No | Ranking: self, inclusive, or count for summary/elements; duration for gc. |
+| `thread` | `number \| undefined` | No | Restrict to an ETW thread ID. |
+| `toMarker` | `string \| undefined` | No | Range end at a recorded marker. |
+| `toMs` | `number \| undefined` | No | Range end relative to capture readiness. |
+| `type` | `string \| undefined` | No | Observed type substring for elements/element views. |
+| `view` | `string \| undefined` | No | summary, elements, element, frames, hotspots, events, calls, call, or gc. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
+### `perfMark()`
+
+Record a uniquely named marker using the worker's QPC clock.
+
+```typescript
+function perfMark(options: PerfMarkOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `captureId` | `string` | Yes | ID returned by perf start. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `name` | `string` | Yes | Unique marker name (1-128 characters). |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
+### `perfStart()`
+
+Start a bounded private ETW worker and return after provider/control readiness.
+
+```typescript
+function perfStart(options: PerfStartOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `app` | `string` | Yes | Target WinUI 3 app (process name, window title, or PID). |
+| `durationSec` | `number \| undefined` | No | Capture duration: 1-300 seconds. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxSizeMib` | `number \| undefined` | No | Maximum raw ETL size: 1-1024 MiB. |
+| `output` | `string` | Yes | Empty capture directory to create. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
+### `perfStatus()`
+
+Read current or final capture status. Readiness is not proof of decoded coverage.
+
+```typescript
+function perfStatus(options: PerfStatusOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `captureId` | `string` | Yes | ID returned by perf start. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
+### `perfStop()`
+
+Finalize an owned capture without closing the app; repeated stops are safe.
+
+```typescript
+function perfStop(options: PerfStopOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `captureId` | `string` | Yes | ID returned by perf start. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
+
+---
+
 ### `restore()`
 
 Use after cloning a repo or when .winapp/ folder is missing. Reinstalls SDK packages without changing versions, reading them from winapp.yaml or, for a .NET project initialized by 'init', from the .csproj via 'dotnet restore'. Requires a project already initialized by 'init'. To check for newer SDK versions, use 'update' instead.
@@ -602,6 +719,9 @@ function run(options?: RunOptions): Promise<WinappResult>
 | `noLaunch` | `boolean \| undefined` | No | Only create the debug identity and register the package without launching the application |
 | `noRestore` | `boolean \| undefined` | No | Project and single-file mode: skip restoring before building. Ignored in folder mode. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
+| `profile` | `string \| undefined` | No | Record WinUI 3 performance ETW to an empty directory. Attaches after the real PID is available; early startup events may be missed. |
+| `profileDurationSec` | `number \| undefined` | No | With --profile: trace for 1-300 seconds; stopping the trace does not stop the app. |
+| `profileMaxSizeMib` | `number \| undefined` | No | With --profile: maximum raw ETL size, 1-1024 MiB. |
 | `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. |
 | `property` | `string \| string[] \| undefined` | No | Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
 | `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too. |
@@ -1876,6 +1996,88 @@ type ManifestTemplates = "packaged" | "sparse"
 | `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
 | `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
 
+### `PerfAnalyzeOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `directory` | `string` | Yes | Capture directory containing capture.json and its ETL files. |
+| `depth` | `number \| undefined` | No | Expansion depth, 0-4. Defaults: call 2, element 0. Call trees show instrumented operations, not CPU stacks. |
+| `element` | `string \| undefined` | No | Trace-local element ID for the events view. |
+| `event` | `string \| undefined` | No | Exact event name or evidence ID for the events view. |
+| `family` | `string \| undefined` | No | Exact operation family for --view calls, for example layout, frames, input, or initialization. |
+| `fromMarker` | `string \| undefined` | No | Range start at a recorded marker. |
+| `fromMs` | `number \| undefined` | No | Range start relative to capture readiness. |
+| `id` | `string \| undefined` | No | Trace-local ID for --view element or --view call; optional interval ID for --view gc. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `limit` | `number \| undefined` | No | Rows per page, 1-100. |
+| `maxBytes` | `number \| undefined` | No | Whole JSON response byte budget, 4096-1048576. |
+| `minFrameMs` | `number \| undefined` | No | Minimum complete Frame duration for --view hotspots. Default: 16.67 ms. |
+| `offset` | `number \| undefined` | No | Zero-based row offset. |
+| `provider` | `string \| undefined` | No | Provider GUID for the events view. |
+| `sort` | `string \| undefined` | No | Ranking: self, inclusive, or count for summary/elements; duration for gc. |
+| `thread` | `number \| undefined` | No | Restrict to an ETW thread ID. |
+| `toMarker` | `string \| undefined` | No | Range end at a recorded marker. |
+| `toMs` | `number \| undefined` | No | Range end relative to capture readiness. |
+| `type` | `string \| undefined` | No | Observed type substring for elements/element views. |
+| `view` | `string \| undefined` | No | summary, elements, element, frames, hotspots, events, calls, call, or gc. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `PerfMarkOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `captureId` | `string` | Yes | ID returned by perf start. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `name` | `string` | Yes | Unique marker name (1-128 characters). |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `PerfStartOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `app` | `string` | Yes | Target WinUI 3 app (process name, window title, or PID). |
+| `durationSec` | `number \| undefined` | No | Capture duration: 1-300 seconds. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxSizeMib` | `number \| undefined` | No | Maximum raw ETL size: 1-1024 MiB. |
+| `output` | `string` | Yes | Empty capture directory to create. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `PerfStatusOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `captureId` | `string` | Yes | ID returned by perf start. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
+### `PerfStopOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `captureId` | `string` | Yes | ID returned by perf start. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+| `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
+| `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+
 ### `RestoreOptions`
 
 | Property | Type | Required | Description |
@@ -1908,6 +2110,9 @@ type ManifestTemplates = "packaged" | "sparse"
 | `noLaunch` | `boolean \| undefined` | No | Only create the debug identity and register the package without launching the application |
 | `noRestore` | `boolean \| undefined` | No | Project and single-file mode: skip restoring before building. Ignored in folder mode. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
+| `profile` | `string \| undefined` | No | Record WinUI 3 performance ETW to an empty directory. Attaches after the real PID is available; early startup events may be missed. |
+| `profileDurationSec` | `number \| undefined` | No | With --profile: trace for 1-300 seconds; stopping the trace does not stop the app. |
+| `profileMaxSizeMib` | `number \| undefined` | No | With --profile: maximum raw ETL size, 1-1024 MiB. |
 | `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. |
 | `property` | `string \| string[] \| undefined` | No | Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
 | `runtime` | `string \| undefined` | No | Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too. |

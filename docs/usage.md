@@ -664,6 +664,10 @@ winapp manifest update-assets mylogo.png --verbose
 
 ### run
 
+To record native WinUI performance while launching, add `--profile <empty-directory>`.
+See the [performance guide](guides/winui-performance.md) for duration/size options,
+startup coverage, detached capture, and offline analysis.
+
 Create a loose layout package from a build output folder, register it with Windows using the `Windows.Management.Deployment.PackageManager` API, and launch the application — simulating a full MSIX install for debugging. Returns the process ID for debugger attachment.
 
 `winapp run` operates in one of three modes, chosen automatically from the input:
@@ -1922,6 +1926,17 @@ per command must inject the same explicit value into each one. The value is opaq
 as a credential, and is only ever persisted as a SHA-256 hash. See
 [UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
 
+### perf
+
+```powershell
+winapp perf start --app 1234 --output .\traces\scenario --json
+winapp perf analyze .\traces\scenario --json
+```
+
+Record and query WinUI 3 layout, frame, input and scrolling evidence. Stop the
+capture before analysis. See the [performance guide](guides/winui-performance.md)
+for the complete start/mark/stop/query workflow and interpretation limits.
+
 ### ui
 
 Inspect and interact with running Windows app UIs using UI Automation (UIA).
@@ -1991,7 +2006,6 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
 
 
 

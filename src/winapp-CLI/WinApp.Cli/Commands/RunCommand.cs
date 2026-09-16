@@ -13,6 +13,7 @@ using System.Text.Json.Serialization;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.Performance;
 using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
@@ -207,6 +208,9 @@ internal partial class RunCommand : Command, IShortDescription
         Options.Add(PropertyOption);
         Options.Add(ProjectOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        Options.Add(ProfileOption);
+        Options.Add(ProfileDurationOption);
+        Options.Add(ProfileSizeOption);
     }
 
     public partial class Handler(
@@ -221,7 +225,8 @@ internal partial class RunCommand : Command, IShortDescription
         IManifestTemplateService manifestTemplateService,
         IManifestService manifestService,
         IProjectContextDetector projectContextDetector,
-        ILogger<RunCommand> logger) : AsynchronousCommandLineAction
+        ILogger<RunCommand> logger,
+        PerfCaptureService? perfCaptureService = null) : AsynchronousCommandLineAction
     {
         // Test seams for the execution-alias launch path. They isolate the two operating-system
         // boundaries — resolving the Windows App Execution Alias proxy location and starting the
@@ -258,7 +263,7 @@ internal partial class RunCommand : Command, IShortDescription
             ProjectContextPackaging.Unknown,
             ProjectExecutionMode.SingleFile);
 
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        private async Task<int> InvokeCoreAsync(ParseResult parseResult, CancellationToken cancellationToken)
         {
             // input is optional (ArgumentArity.ZeroOrOne). The final FileSystemInfo is resolved
             // below, AFTER the passthrough split, because a bare `winapp run -- <app-arg>` makes the
@@ -782,7 +787,10 @@ internal partial class RunCommand : Command, IShortDescription
 
                     // Step 3: Launch the application using IApplicationActivationManager
                     taskContext.AddDebugMessage($"{UiSymbols.Rocket} Launching application...");
+                    await PrepareProfileAsync(cancellationToken);
+                    var launchedAfter = DateTime.UtcNow;
                     processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    await BindProfileAsync(processId, launchedAfter, cancellationToken);
 
                     return (0, $"{packageFamilyName} launched (PID: {processId})");
                 }
@@ -824,7 +832,7 @@ internal partial class RunCommand : Command, IShortDescription
                     // project-mode detach path (Change 3 / L6).
                     ansiConsole.WriteLine(processId.ToString());
                 }
-                return 0;
+                return profileRun?.Error is null ? 0 : 1;
             }
 
             // Alias launch: run in this terminal with inherited stdio. When the alias was a default rather
@@ -844,7 +852,17 @@ internal partial class RunCommand : Command, IShortDescription
 
                 if (aumid != null)
                 {
+                    try
+                    {
+                        await PrepareProfileAsync(cancellationToken);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                    {
+                        return Fail($"Failed to prepare performance capture: {ex.Message}", isJson);
+                    }
+                    var launchedAfter = DateTime.UtcNow;
                     processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    await BindProfileAsync(processId, launchedAfter, cancellationToken);
                 }
             }
 
@@ -915,7 +933,8 @@ internal partial class RunCommand : Command, IShortDescription
             {
                 AUMID = aumid,
                 ProcessId = processId,
-                Error = errorMessage
+                Error = errorMessage,
+                Profile = profileRun?.Result,
             };
 
             var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);
@@ -1254,12 +1273,15 @@ internal partial class RunCommand : Command, IShortDescription
 
             try
             {
+                await PrepareProfileAsync(cancellationToken);
+                var launchedAfter = DateTime.UtcNow;
                 using var process = ProcessStarter(psi);
                 if (process == null)
                 {
                     logger.LogError("{UISymbol} Failed to start process via execution alias '{Alias}' ({Path}).", UiSymbols.Error, alias, aliasFile.FullName);
                     return 1;
                 }
+                await BindProfileAsync(unchecked((uint)process.Id), launchedAfter, cancellationToken);
 
                 if (debugOutput)
                 {
@@ -1298,6 +1320,7 @@ internal sealed class RunCommandResult
     public string? AUMID { get; set; }
     public uint? ProcessId { get; set; }
     public string? Error { get; set; }
+    public RunProfileResult? Profile { get; set; }
 }
 
 [JsonSerializable(typeof(RunCommandResult))]

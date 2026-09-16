@@ -218,6 +218,8 @@ npx winapp --help
 
 **App Identity & Debugging:**
 
+- [`perf`](./docs/guides/winui-performance.md) - Record and query WinUI operation trees, layout/scrolling timings, and managed GC suspension context
+
 - [`pack`](./docs/usage.md#pack) - Create MSIX packages from directories
 - [`run`](./docs/usage.md#run) - Run app as a packaged application for debugging (loose layout registration)
 - [`create-debug-identity`](./docs/usage.md#create-debug-identity) - Add sparse package identity to an existing exe
