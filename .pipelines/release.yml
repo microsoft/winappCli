@@ -979,6 +979,10 @@ extends:
           # is only validated on push - so neither can be exercised without actually releasing.
           # See .pipelines/README.md; do not add a fake check for them.
           #
+          # Both bind the same parameters the real signing and symbol tasks bind, not the
+          # underlying variables, so a run that overrides either identity verifies the connection
+          # it would actually use rather than the default one.
+          #
           # Both run on succeededOrFailed() so that one dead credential cannot hide another. The
           # step before this one throws on a bad GitHub PAT, and under the default succeeded()
           # condition that would skip both probes entirely - so the operator fixes the PAT, waits a
@@ -988,7 +992,7 @@ extends:
             displayName: Verify ESRP signing connection (token only, signs nothing)
             condition: succeededOrFailed()
             inputs:
-              azureSubscription: $(SigningServiceName)
+              azureSubscription: ${{ parameters.signingIdentity.serviceName }}
               scriptType: pscore
               scriptLocation: inlineScript
               inlineScript: |
@@ -1007,7 +1011,7 @@ extends:
             displayName: Verify symbol publishing connection (token only, publishes nothing)
             condition: succeededOrFailed()
             inputs:
-              azureSubscription: $(SymbolPublishingServiceConnection)
+              azureSubscription: ${{ parameters.symbolsIdentity.serviceConnection }}
               azurePowerShellVersion: LatestVersion
               pwsh: true
               ScriptType: InlineScript
