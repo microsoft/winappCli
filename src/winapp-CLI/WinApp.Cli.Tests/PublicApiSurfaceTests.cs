@@ -24,6 +24,7 @@ public class PublicApiSurfaceTests
     [
         "AppNotFoundException",
         "CaptureGeometry",
+        "CaptureCoordinates",
         "CoordinateParser",
         "ForegroundCheck",
         "ForegroundGuard",
@@ -64,6 +65,7 @@ public class PublicApiSurfaceTests
         "UiSelector",
         "UiTarget",
         "UiTargetResolver",
+        "UiValueSetException",
         "WindowMetadata",
     ];
 

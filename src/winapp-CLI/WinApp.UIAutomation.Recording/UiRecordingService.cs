@@ -36,6 +36,31 @@ internal sealed partial class UiRecordingService(
     private static PointerRect ToPointerRect(RECT rect)
         => new(rect.left, rect.top, rect.right, rect.bottom);
 
+    /// <summary>Whether a window is minimized, through the seam or from Windows.</summary>
+    internal static Func<nint, bool> s_isWindowMinimized = static hwnd
+        => global::Windows.Win32.PInvoke.IsIconic(new HWND(hwnd));
+
+    /// <summary>Restores a minimized window, through the seam or from Windows.</summary>
+    internal static Action<nint> s_restoreWindow = static hwnd
+        => global::Windows.Win32.PInvoke.ShowWindow(
+            new HWND(hwnd), global::Windows.Win32.UI.WindowsAndMessaging.SHOW_WINDOW_CMD.SW_RESTORE);
+
+    /// <summary>Brings a window to the foreground, through the seam or from Windows.</summary>
+    internal static Action<nint> s_bringToForeground = static hwnd
+        => global::Windows.Win32.PInvoke.SetForegroundWindow(new HWND(hwnd));
+
+    /// <summary>Restores the window seams to the behavior production uses.</summary>
+    internal static void ResetWindowStateSeams()
+    {
+        s_isWindowMinimized = static hwnd
+            => global::Windows.Win32.PInvoke.IsIconic(new HWND(hwnd));
+        s_restoreWindow = static hwnd
+            => global::Windows.Win32.PInvoke.ShowWindow(
+                new HWND(hwnd), global::Windows.Win32.UI.WindowsAndMessaging.SHOW_WINDOW_CMD.SW_RESTORE);
+        s_bringToForeground = static hwnd
+            => global::Windows.Win32.PInvoke.SetForegroundWindow(new HWND(hwnd));
+    }
+
     /// <remarks>
     /// Coverage ceiling (issue #630): deterministic tests cover the frame-loop orchestration through
     /// WGC/screen/PrintWindow seams. The remaining lines in this method are native window-state arms
@@ -43,7 +68,7 @@ internal sealed partial class UiRecordingService(
     /// fault arms, and cancellation timing races that require mutating real desktop windows or native
     /// WGC failures and are not safe to trigger on the shared coverage host.
     /// </remarks>
-    public async Task<RecordCaptureResult> RecordAsync(UiTarget uiTarget, string? elementId, RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
+    private async Task<RecordCaptureResult> RecordCoreAsync(UiTarget? uiTarget, string? elementId, RecordOptions options, CancellationToken ct, Action<bool>? onRecordingStarted = null)
     {
         // Validate before touching a window or creating output. The CLI rejects these at the command
         // layer, but that guard does not travel with the package: a direct library caller passing
@@ -52,6 +77,7 @@ internal sealed partial class UiRecordingService(
         ArgumentOutOfRangeException.ThrowIfNegative(options.DurationSec, nameof(options.DurationSec));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.Fps, nameof(options.Fps));
         ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEdge, nameof(options.MaxEdge));
+        ct.ThrowIfCancellationRequested();
 
         // The encoder cannot go below 64 pixels, so a smaller cap does not shrink the video - it
         // produces a 64x64 one holding a few pixels of content, which is not what "at most this many
@@ -61,67 +87,80 @@ internal sealed partial class UiRecordingService(
             ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxEdge, MfH264MinWidth, nameof(options.MaxEdge));
         }
 
-        _logger.LogDebug("Recording process {Pid} (duration={Dur}s, fps={Fps}, maxEdge={MaxEdge}, captureScreen={Screen})",
-            uiTarget.ProcessId, options.DurationSec, options.Fps, options.MaxEdge, options.CaptureScreen);
+        var desktopBounds = uiTarget is null ? _windowCapture.GetDesktopBounds() : (PointerRect?)null;
+        nint rootHwnd = 0;
+        HWND hwnd = default;
+        RECT rect;
 
-        if (!_uiAutomation.TryResolveRootWindow(uiTarget, out var rootHwnd, out var rootName))
+        if (uiTarget is not null)
         {
-            throw new InvalidOperationException($"No UIA window found for {uiTarget.ProcessName} (PID {uiTarget.ProcessId}).");
-        }
+            _logger.LogDebug("Recording process {Pid} (duration={Dur}s, fps={Fps}, maxEdge={MaxEdge}, captureScreen={Screen})",
+                uiTarget.ProcessId, options.DurationSec, options.Fps, options.MaxEdge, options.CaptureScreen);
 
-        if (rootName is not null)
-        {
-            uiTarget.WindowTitle = rootName;
-        }
-
-        if (rootHwnd == 0 && uiTarget.WindowHandle != 0)
-        {
-            rootHwnd = (nint)uiTarget.WindowHandle;
-        }
-        if (rootHwnd == 0)
-        {
-            throw new InvalidOperationException($"No native window handle for {uiTarget.ProcessName}. Is the window visible?");
-        }
-
-        var hwnd = new HWND(rootHwnd);
-
-        if (global::Windows.Win32.PInvoke.IsIconic(hwnd))
-        {
-            global::Windows.Win32.PInvoke.ShowWindow(hwnd, global::Windows.Win32.UI.WindowsAndMessaging.SHOW_WINDOW_CMD.SW_RESTORE);
-            await Task.Delay(300, ct).ConfigureAwait(false);
-        }
-
-        // Bring to foreground for screen-DC capture.
-        if (options.CaptureScreen)
-        {
-            global::Windows.Win32.PInvoke.SetForegroundWindow(hwnd);
-            await Task.Delay(150, ct).ConfigureAwait(false);
-
-            // SetForegroundWindow is advisory. If it was refused, every screen-DC frame would record
-            // whichever window is really in front and the caller would get a perfectly playable MP4 of
-            // the wrong app. Verify after the activation delay and before any frame is captured. Capture
-            // safety, not coordination: it says nothing about who else may be driving the desktop.
-            //
-            // The capture predicate, not the injection one: a modal dialog the target owns is part of
-            // its UI and is sitting on the pixels being recorded, which is the reason to record the
-            // screen rather than the window. An unrelated foreground window is still refused, and a
-            // refusal still produces no artifact.
-            if (!ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
+            if (!_uiAutomation.TryResolveRootWindow(uiTarget, out rootHwnd, out var rootName))
             {
-                throw new ForegroundLostException(
-                    "The target window is not in the foreground, so a screen recording would capture " +
-                    "whatever window is actually in front. Bring the window to the foreground and retry, " +
-                    "or record the window directly instead of the screen.");
+                throw new InvalidOperationException($"No UIA window found for {uiTarget.ProcessName} (PID {uiTarget.ProcessId}).");
+            }
+
+            if (rootName is not null)
+            {
+                uiTarget.WindowTitle = rootName;
+            }
+
+            if (rootHwnd == 0 && uiTarget.WindowHandle != 0)
+            {
+                rootHwnd = (nint)uiTarget.WindowHandle;
+            }
+            if (rootHwnd == 0)
+            {
+                throw new InvalidOperationException($"No native window handle for {uiTarget.ProcessName}. Is the window visible?");
+            }
+
+            hwnd = new HWND(rootHwnd);
+
+            if (s_isWindowMinimized(rootHwnd))
+            {
+                s_restoreWindow(rootHwnd);
+                await Task.Delay(300, ct).ConfigureAwait(false);
+            }
+
+            // Bring to foreground for screen-DC capture.
+            if (options.CaptureScreen)
+            {
+                s_bringToForeground(rootHwnd);
+                await Task.Delay(150, ct).ConfigureAwait(false);
+
+                // SetForegroundWindow is advisory. If it was refused, every screen-DC frame would record
+                // whichever window is really in front and the caller would get a perfectly playable MP4 of
+                // the wrong app. Verify after the activation delay and before any frame is captured. Capture
+                // safety, not coordination: it says nothing about who else may be driving the desktop.
+                //
+                // The capture predicate, not the injection one: a modal dialog the target owns is part of
+                // its UI and is sitting on the pixels being recorded, which is the reason to record the
+                // screen rather than the window. An unrelated foreground window is still refused, and a
+                // refusal still produces no artifact.
+                if (!ForegroundGuard.ForegroundIsCapturableFor((long)rootHwnd))
+                {
+                    throw new ForegroundLostException(
+                        "The target window is not in the foreground, so a screen recording would capture " +
+                        "whatever window is actually in front. Bring the window to the foreground and retry, " +
+                        "or record the window directly instead of the screen.");
+                }
+            }
+
+            global::Windows.Win32.PInvoke.GetWindowRect(hwnd, out rect);
+            if (rect.right - rect.left <= 0 || rect.bottom - rect.top <= 0)
+            {
+                throw new InvalidOperationException("Window has zero size. Is it minimized?");
             }
         }
-
-        global::Windows.Win32.PInvoke.GetWindowRect(hwnd, out var rect);
-        if (rect.right - rect.left <= 0 || rect.bottom - rect.top <= 0)
+        else
         {
-            throw new InvalidOperationException("Window has zero size. Is it minimized?");
+            var bounds = desktopBounds!.Value;
+            rect = new RECT { left = bounds.Left, top = bounds.Top, right = bounds.Right, bottom = bounds.Bottom };
         }
 
-        var useScreen = options.CaptureScreen;
+        var useScreen = options.CaptureScreen || desktopBounds.HasValue;
         var useWgc = !useScreen && _windowCapture.IsFrameCaptureSupported;
 
         IFrameGrabber? grabber = null;
@@ -156,6 +195,7 @@ internal sealed partial class UiRecordingService(
                     _logger.LogDebug(ex, "WGC recorder init failed; throwing (no silent screen fallback without --capture-screen)");
                     grabber?.Dispose();
                     grabber = null;
+
                     // Screen capture requires explicit consent because it can include overlapping windows.
                     EnsureWgcFallbackConsented(ex, options.CaptureScreen, _logger);
                     useScreen = true;
@@ -182,7 +222,7 @@ internal sealed partial class UiRecordingService(
             var cropY = 0;
             var cropW = srcWidth;
             var cropH = srcHeight;
-            if (!string.IsNullOrEmpty(elementId))
+            if (uiTarget is not null && !string.IsNullOrEmpty(elementId))
             {
                 // Use the canonical single-element resolution path (same as ui click/hover) so that:
                 //   - An ambiguous plain-text selector (multiple matches) → structured error with slug
@@ -288,6 +328,25 @@ internal sealed partial class UiRecordingService(
             }
 
             var (encoderW, encoderH, displayW, displayH) = ComputeTargetSize(cropW, cropH, options.MaxEdge);
+            var coordinates = desktopBounds is { } sourceBounds
+                ? DescribeCoordinates(sourceBounds, encoderW, encoderH, displayW, displayH)
+                : null;
+            byte[]? initialDesktopFrame = null;
+            if (desktopBounds is { } initialBounds)
+            {
+                initialDesktopFrame = _windowCapture.CaptureScreenPixels(
+                    initialBounds.Left, initialBounds.Top, cropW, cropH,
+                    encoderW, encoderH, displayW, displayH);
+                if (_windowCapture.GetDesktopBounds() != initialBounds)
+                {
+                    throw new InvalidOperationException("The desktop display bounds changed while preparing capture.");
+                }
+                if (initialDesktopFrame.Length != checked(encoderW * encoderH * 4))
+                {
+                    throw new InvalidOperationException("Desktop capture returned an incomplete pixel buffer.");
+                }
+                ct.ThrowIfCancellationRequested();
+            }
             var bitrate = (uint)Math.Clamp((long)encoderW * encoderH * options.Fps / 8, 1_000_000, 24_000_000);
 
             // Last foreground check before any file exists. The earlier one ran right after the
@@ -307,11 +366,7 @@ internal sealed partial class UiRecordingService(
                     "window to the foreground and retry, or record the window directly instead of the screen.");
             }
 
-            // Never replace an existing recording. The CLI refuses up front ("recording never
-            // replaces existing artifacts"), but that guard does not travel with the package, and
-            // the previous video-only path silently overwrote OutputPath - running the readme
-            // sample twice destroyed the first take. This also covers a file that appears while
-            // recording is already in progress.
+            // Replacements are staged by RecordAsync; the encoder never clobbers its destination.
             using var encoder = Mp4SinkWriterEncoder.s_createNoClobber(
                 options.OutputPath, encoderW, encoderH, options.Fps, bitrate);
 
@@ -321,6 +376,8 @@ internal sealed partial class UiRecordingService(
             long lastEncodedVersion = -1;
             var startedSignaled = false;
             var targetClosed = false;
+            var captureUnavailable = false;
+            var displayChanged = false;
             RecordFrameArtifactResult? frameArtifacts = null;
 
             if (options.FramesDirectory is not null)
@@ -330,6 +387,7 @@ internal sealed partial class UiRecordingService(
                     Options = options,
                     EncoderWidth = encoderW,
                     EncoderHeight = encoderH,
+                    Coordinates = coordinates,
                 });
             }
 
@@ -380,12 +438,9 @@ internal sealed partial class UiRecordingService(
                         break;
                     }
 
-                    // Elapsed time only ends a recording that has already captured something.
-                    // Reaching the requested duration before the first frame is committed means
-                    // capture was slow to start, not that the recording is done; ending here handed
-                    // the caller an empty MP4 and a zero-frame manifest instead of a recording.
-                    // Cancellation is unaffected and still ends the loop at zero frames.
-                    if (totalFrames.HasValue && frameIndex > 0 && stopwatch.Elapsed.TotalSeconds >= options.DurationSec)
+                    // Allow slow startup to produce its first frame.
+                    if (totalFrames.HasValue && frameIndex > 0 &&
+                        stopwatch.Elapsed.TotalSeconds >= options.DurationSec)
                     {
                         break;
                     }
@@ -396,6 +451,7 @@ internal sealed partial class UiRecordingService(
                         if (closedLatest is not null)
                         {
                             var (closedSrc, closedSw, closedSh, closedVersion) = closedLatest.Value;
+
                             if (ShouldEncodeClosedDrainFrame(closedVersion, lastEncodedVersion))
                             {
                                 var closedCropW = isWholeWindowWgc ? closedSw : cropW;
@@ -425,6 +481,7 @@ internal sealed partial class UiRecordingService(
                             continue;
                         }
                         var (source, sw, sh, version) = latest.Value;
+
                         sourceVersion = version;
                         frame = ProcessFrame(
                             source, sw, sh, cropX, cropY,
@@ -432,17 +489,58 @@ internal sealed partial class UiRecordingService(
                             isWholeWindowWgc ? sh : cropH,
                             encoderW, encoderH, displayW, displayH);
                     }
+                    else if (initialDesktopFrame is { } initialFrame)
+                    {
+                        frame = initialFrame;
+                        initialDesktopFrame = null;
+                    }
                     else if (useScreen)
                     {
-                        frame = _windowCapture.CaptureScreenPixels(
-                            captureOriginLeft + cropX,
-                            captureOriginTop + cropY,
-                            cropW,
-                            cropH,
-                            encoderW,
-                            encoderH,
-                            displayW,
-                            displayH);
+                        if (desktopBounds is { } expectedBounds)
+                        {
+                            try
+                            {
+                                if (_windowCapture.GetDesktopBounds() != expectedBounds)
+                                {
+                                    displayChanged = true;
+                                    break;
+                                }
+                            }
+                            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                            {
+                                _logger.LogWarning(ex, "The desktop is no longer available for capture.");
+                                captureUnavailable = true;
+                                break;
+                            }
+                        }
+                        try
+                        {
+                            frame = _windowCapture.CaptureScreenPixels(
+                                captureOriginLeft + cropX,
+                                captureOriginTop + cropY,
+                                cropW,
+                                cropH,
+                                encoderW,
+                                encoderH,
+                                displayW,
+                                displayH);
+                            if (desktopBounds.HasValue && frame.Length != checked(encoderW * encoderH * 4))
+                            {
+                                throw new InvalidOperationException("Desktop capture returned an incomplete pixel buffer.");
+                            }
+                            if (desktopBounds is { } capturedBounds && _windowCapture.GetDesktopBounds() != capturedBounds)
+                            {
+                                displayChanged = true;
+                                break;
+                            }
+                        }
+                        catch (Exception ex) when (desktopBounds.HasValue &&
+                            ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                        {
+                            _logger.LogWarning(ex, "Desktop frame capture failed.");
+                            captureUnavailable = true;
+                            break;
+                        }
                     }
                     else
                     {
@@ -495,6 +593,18 @@ internal sealed partial class UiRecordingService(
                 ct.ThrowIfCancellationRequested();
             }
 
+            if (frameIndex == 0 && (captureUnavailable || displayChanged))
+            {
+                // Do not publish an empty recording when the desktop became unavailable.
+                if (frameOutput is not null)
+                {
+                    await frameOutput.AbortAsync().ConfigureAwait(false);
+                }
+
+                throw new InvalidOperationException(
+                    "The input desktop became unavailable or changed geometry before a frame could be captured.");
+            }
+
             if (mp4Failure is null)
             {
                 try
@@ -515,9 +625,13 @@ internal sealed partial class UiRecordingService(
             var frameCadenceRatio = frameAchievedFps / options.Fps;
             var stopReason = mp4Failure is not null
                 ? "mp4_failed"
+                : displayChanged
+                    ? "display_changed"
                 : targetClosed
                     ? "target_closed"
-                    : ct.IsCancellationRequested ? "cancelled" : "duration_elapsed";
+                    : captureUnavailable
+                        ? "capture_unavailable"
+                        : ct.IsCancellationRequested ? "cancelled" : "duration_elapsed";
 
             if (mp4Failure is not null)
             {
@@ -566,7 +680,7 @@ internal sealed partial class UiRecordingService(
                 frameArtifacts = await frameOutput.CompleteAfterVideoSuccessAsync(
                     new RecordFrameCompletion
                     {
-                        Status = "complete",
+                        Status = desktopBounds.HasValue && (displayChanged || captureUnavailable) ? "partial" : "complete",
                         StopReason = stopReason,
                         StartedUtc = startedUtc,
                         ElapsedMs = elapsedMs,
@@ -593,6 +707,13 @@ internal sealed partial class UiRecordingService(
             {
                 warnings = [$"Capture cadence was {cadenceRatio:P0} of the requested {options.Fps} fps."];
             }
+            if (desktopBounds.HasValue && (displayChanged || captureUnavailable))
+            {
+                warnings ??= [];
+                warnings.Add(displayChanged
+                    ? "The desktop display bounds changed. Recording stopped before capturing pixels with a different coordinate mapping."
+                    : "The input desktop became unavailable. Only frames captured before it was lost were retained.");
+            }
             if (frameArtifacts?.Truncated == true)
             {
                 warnings ??= [];
@@ -613,6 +734,7 @@ internal sealed partial class UiRecordingService(
                 CadenceRatio = cadenceRatio,
                 StopReason = stopReason,
                 FrameArtifacts = frameArtifacts,
+                Coordinates = coordinates,
                 Warnings = warnings?.ToArray(),
             };
         }

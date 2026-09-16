@@ -132,6 +132,53 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task FreshlyResolvedElements_AllOperationsReuseTheRetainedProviderElement()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var button = await ResolveAsync(svc, uiTarget, "btnInvoke");
+        var valueBox = await ResolveAsync(svc, uiTarget, "txtValue");
+        var scrollPanel = await ResolveAsync(svc, uiTarget, "pnlScroll");
+        var deepChild = await ResolveAsync(svc, uiTarget, "pnlChild39");
+
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+
+        await svc.GetPropertiesAsync(uiTarget, button, "Name", CancellationToken.None);
+        await svc.GetTextAsync(uiTarget, valueBox, CancellationToken.None);
+        await svc.SetValueAsync(uiTarget, valueBox, "retained-provider", CancellationToken.None);
+        await svc.FocusAsync(uiTarget, button, CancellationToken.None);
+        await svc.InvokeAsync(uiTarget, button, CancellationToken.None);
+        await svc.ScrollContainerAsync(uiTarget, scrollPanel, "down", null, CancellationToken.None);
+        await svc.ScrollIntoViewAsync(uiTarget, deepChild, CancellationToken.None);
+        var elementWindow = svc.ResolveElementTopLevelWindow(uiTarget, button);
+
+        Assert.AreNotEqual(0, elementWindow);
+        Assert.AreEqual(
+            0,
+            svc.SerializedElementResolutionCount,
+            "An operation re-walked the UIA tree instead of using the element retained by FindSingleElementAsync.");
+    }
+
+    [TestMethod]
+    public async Task RetainedElement_NonStaleProviderError_PropagatesUnchanged()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var element = await ResolveAsync(svc, uiTarget, "txtValue");
+        var providerError = new System.Runtime.InteropServices.COMException(
+            "Provider access denied.",
+            unchecked((int)0x80070005));
+        UiAutomationService.s_getElementProcessId = _ => throw providerError;
+
+        var actual = await Assert.ThrowsExactlyAsync<System.Runtime.InteropServices.COMException>(
+            () => svc.GetTextAsync(uiTarget, element, CancellationToken.None));
+
+        Assert.AreSame(providerError, actual);
+    }
+
+    [TestMethod]
     public async Task InvokeAsync_StaleElement_ThrowsAfterWindowClosed()
     {
         var svc = NewService();
@@ -142,7 +189,8 @@ public partial class RealUiAutomationTests
             uiTarget = SessionFor(fx);
             button = await ResolveAsync(svc, uiTarget, "btnInvoke");
         }
-        // Window is now closed; the previously-resolved element can no longer be re-resolved.
+        // Window is now closed; touching the retained provider element must preserve the package's
+        // explicit stale-element error instead of falling through optional pattern probes.
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.InvokeAsync(uiTarget, button, CancellationToken.None));
         StringAssert.Contains(ex.Message, "stale");

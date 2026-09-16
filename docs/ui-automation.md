@@ -31,6 +31,21 @@ winapp ui invoke Close -a notepad
 winapp ui screenshot -a notepad
 ```
 
+## Running UI automation in Windows Sandbox
+
+To keep automation off your desktop, add `--on sandbox` to the run and UI commands:
+
+```powershell
+winapp run . --on sandbox --detach
+winapp ui inspect --on sandbox -a MyApp
+winapp ui invoke --on sandbox SubmitButton -a MyApp
+```
+
+`--detach` returns after launch; without it, `run` waits for the app to exit. Keep
+`--on sandbox` on every guest command, including those using a PID or window handle.
+See [Windows Sandbox execution](sandbox-execution.md#automating-the-ui) for client
+requirements, brief setup/reconnect focus changes, workflow coordination, and host output delivery.
+
 ## Coordinating concurrent UI workflows
 
 Windows has only one foreground window, one keyboard focus, one cursor, and one input stream. When
@@ -384,14 +399,18 @@ Use `--capture-screen` when you need to capture popup menus, dropdowns, flyouts,
 > Because the screen DC captures whatever is actually in front, `--capture-screen` **verifies the target reached the foreground immediately before capturing** and fails with **`foreground_not_target`** if it didn't (focus-stealing prevention, a UAC prompt, or another window activating itself). No image is written in that case — previously the command exited 0 and handed back a picture of the wrong window. `ui record --capture-screen` applies the same check before the first frame.
 
 ### record
-Record a window or element region to an H.264 MP4. By default, recording continues until Ctrl+C or, for redirected stdin, a newline or EOF.
+Record a window or element region to an H.264 MP4. Prefer a positive `--duration-sec`
+for unattended scripts. Without a duration, recording continues until Ctrl+C or, for
+redirected stdin, a newline or EOF. The npm `uiRecord` and `targetRecord` helpers require
+an integer `durationSec` from 1 through 86400; their abort signal cancels forcefully
+rather than gracefully finalizing a recording.
 
 ```bash
 # Record for 10 seconds
 winapp ui record -a myapp --duration-sec 10 --fps 15 --output demo.mp4
 
 # Add agent-readable frames
-winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output demo.mp4 --json
+winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output evidence.mp4 --json
 
 # Stop an unbounded recording through stdin
 "" | winapp ui record -a myapp --json --output capture.mp4
@@ -406,13 +425,14 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 - `--max-edge N` — Downscale so the longest edge is at most N pixels (0 = no downscale).
 - `--capture-screen` — Capture from the screen DC (includes overlays/popups; foregrounds the window).
 - `--output <path>` — Output MP4 path. Defaults to `recording-<timestamp>-<guid>.mp4`.
+- `--overwrite` — Replace existing recording outputs after the new take finishes. Without it, existing outputs are rejected.
 - `--frames` — Write timestamped JPEG evidence to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280). Frame data is capped at 1 GiB; the MP4 continues if the cap is reached.
 
 **Agent-readable frame artifacts:**
 
 ```text
-demo.mp4
-demo.frames/
+evidence.mp4
+evidence.frames/
   manifest.json
   frames.ndjson
   frames/
@@ -423,7 +443,20 @@ demo.frames/
 
 `manifest.json` records the request, timing, MP4 status, image dimensions, and status (`complete`, `partial`, or `truncated`). Truncated timing covers the retained prefix, while `video` describes the complete MP4.
 
-With `--frames`, existing MP4 and frame paths are not replaced. If MP4 finalization fails, preserved frames are published under `<output-name>.frames.partial-*`. Frame artifacts contain unencrypted screen content; handle them like screenshots or video.
+Choose a new output path unless you intend to replace a recording with `--overwrite`.
+Without it, either an existing video or its paired `.frames` directory blocks recording,
+even when you omit `--frames`.
+The previous MP4 stays intact if the new capture fails. On successful replacement,
+the previous frame directory is retained as `<output-name>.frames.previous-<id>`,
+even if the new recording omits `--frames`. Preserve partial evidence and follow the
+reported `recoveryHint` before retrying. If MP4 finalization fails, preserved frames can be published under
+`<output-name>.frames.partial-*`. Frame artifacts contain unencrypted screen content;
+handle them like screenshots or video.
+
+With `--on sandbox`, both the MP4 and the frame directory are delivered to the host,
+including default outputs when `--output` is omitted. See
+[Sandbox capture](sandbox-execution.md#screenshots-and-recordings) for interrupted
+recordings and whole-desktop capture.
 
 **Capture modes** (reported in the JSON `mode` field):
 - `wgc` — Windows Graphics Capture (default; works while the window is occluded).
@@ -438,7 +471,7 @@ With `--frames`, existing MP4 and frame paths are not replaced. If MP4 finalizat
 - `element_not_found` — The selector did not match.
 - `ambiguous_selector` — The selector matched multiple elements; use a suggested slug.
 - `invalid_arguments` — An option value is invalid.
-- `output_exists` — With `--frames`, the MP4 or frame directory already exists.
+- `output_exists` — A recording output already exists and cannot be replaced under the requested options.
 - `frame_output_failed` — Neither artifact could be preserved after frame output failed.
 - `partial_output` — Only one artifact completed; inspect `partialOutput` and `recoveryHint`.
 

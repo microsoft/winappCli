@@ -45,7 +45,7 @@ internal sealed partial class UiAutomationService
     {
         try
         {
-            var comElement = ResolveComElement(target, element);
+            var comElement = GetAutomationElement(target, element);
             if (comElement is null)
             {
                 return 0;
