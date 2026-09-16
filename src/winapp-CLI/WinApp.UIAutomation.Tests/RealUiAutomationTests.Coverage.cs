@@ -71,6 +71,10 @@ public partial class RealUiAutomationTests
         Assert.AreEqual("Item 04", scoped[0].Name);
         Assert.IsTrue(ancestors.Any(a => a.AutomationId == "lstItems"), "ancestor chain should include the list");
         Assert.AreEqual("Item 04", ancestors.Last().Name);
+        Assert.AreEqual(
+            0,
+            svc.SerializedElementResolutionCount,
+            "Slug-scoped inspect and ancestor inspection must reuse the provider element found by slug resolution.");
         StringAssert.Contains(ex.Message, "RuntimeId hash");
     }
 
