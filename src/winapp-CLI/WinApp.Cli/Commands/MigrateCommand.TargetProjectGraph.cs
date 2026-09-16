@@ -14,9 +14,10 @@ internal partial class MigrateCommand
         private static readonly HashSet<string> TargetGraphRelevantProperties =
             new(StringComparer.OrdinalIgnoreCase)
             {
-                "UseWinUI",
                 "EnableDefaultItems",
+                "DisableDefaultItemsInProjectFolder",
                 "EnableDefaultCompileItems",
+                "EnableDefaultEmbeddedResourceItems",
                 "EnableDefaultContentItems",
                 "EnableDefaultWindowsAppSdkContentItems",
                 "EnableDefaultNoneItems",
@@ -25,7 +26,11 @@ internal partial class MigrateCommand
                 "EnableDefaultPRIResourceItems",
                 "EnableDefaultPriItems",
                 "EnableDefaultWindowsAppSdkPRIResourceItems",
+                "EnableDefaultAssets",
+                "UseWPF",
+                "UseUwpTools",
                 "DefaultItemExcludes",
+                "DefaultItemExcludesInProjectFolder",
                 "DefaultExcludesInProjectFolder",
                 "ImportDirectoryBuildProps",
                 "ImportDirectoryBuildTargets",
@@ -54,6 +59,7 @@ internal partial class MigrateCommand
             new(StringComparer.OrdinalIgnoreCase)
             {
                 "Compile",
+                "EmbeddedResource",
                 "Page",
                 "ApplicationDefinition",
                 "PRIResource",
@@ -97,6 +103,7 @@ internal partial class MigrateCommand
             TargetGraphItemKinds =
             [
                 new("Compile"),
+                new("EmbeddedResource"),
                 new("Page"),
                 new("ApplicationDefinition"),
                 new("PRIResource"),
@@ -116,6 +123,8 @@ internal partial class MigrateCommand
 
             internal bool EnableCompile { get; set; } = true;
 
+            internal bool EnableEmbeddedResource { get; set; } = true;
+
             internal bool EnableContent { get; set; } = true;
 
             internal bool EnableWindowsAppSdkContent { get; set; } = true;
@@ -130,7 +139,7 @@ internal partial class MigrateCommand
 
             internal bool EnableWindowsAppSdkPriResource { get; set; } = true;
 
-            internal bool UseWinUi { get; set; }
+            internal bool EnableAssets { get; set; } = true;
 
             internal List<string> Excludes { get; } = [];
 
@@ -138,48 +147,60 @@ internal partial class MigrateCommand
                 string kind,
                 string path)
             {
-                if (!EnableDefaultItems
-                    || Excludes.Any(pattern =>
-                        MsBuildGlobMatches(pattern, path)))
+                if (!EnableDefaultItems)
                 {
                     return false;
                 }
 
                 var extension = Path.GetExtension(path);
+                var excluded = Excludes.Any(pattern =>
+                    MsBuildGlobMatches(pattern, path));
                 return kind switch
                 {
                     "Compile" =>
-                        EnableCompile
+                        !excluded
+                        && EnableCompile
                         && extension.Equals(
                             ".cs",
                             StringComparison.OrdinalIgnoreCase),
+                    "EmbeddedResource" =>
+                        !excluded
+                        && EnableEmbeddedResource
+                        && extension.Equals(
+                            ".resx",
+                            StringComparison.OrdinalIgnoreCase),
                     "Content" =>
-                        EnableContent
-                        && EnableWindowsAppSdkContent
-                        && IsWindowsAppSdkImage(path),
+                        (EnableAssets
+                            && IsWinUiAsset(path))
+                        || (!excluded
+                            && EnableContent
+                            && EnableWindowsAppSdkContent
+                            && IsWindowsAppSdkImage(path)),
                     "Page" =>
-                        UseWinUi
+                        !excluded
                         && EnablePage
                         && extension.Equals(
                             ".xaml",
                             StringComparison.OrdinalIgnoreCase)
-                        && !Path.GetFileName(path).Equals(
-                            "App.xaml",
-                            StringComparison.OrdinalIgnoreCase),
+                        && (!path.Equals(
+                                "App.xaml",
+                                StringComparison.OrdinalIgnoreCase)
+                            || !EnableApplicationDefinition),
                     "ApplicationDefinition" =>
-                        UseWinUi
-                        && EnableApplicationDefinition
-                        && Path.GetFileName(path).Equals(
+                        EnableApplicationDefinition
+                        && path.Equals(
                             "App.xaml",
                             StringComparison.OrdinalIgnoreCase),
                     "PRIResource" =>
-                        EnablePriResource
+                        !excluded
+                        && EnablePriResource
                         && EnableWindowsAppSdkPriResource
                         && extension.Equals(
                             ".resw",
                             StringComparison.OrdinalIgnoreCase),
                     "None" =>
-                        EnableNone
+                        !excluded
+                        && EnableNone
                         && !IsClaimedByAnotherDefaultItem(path),
                     _ => false
                 };
@@ -193,21 +214,22 @@ internal partial class MigrateCommand
                         ".cs",
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    return EnableCompile;
+                    return true;
+                }
+                if (extension.Equals(
+                        ".resx",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
                 }
                 if (extension.Equals(
                         ".xaml",
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    return UseWinUi
-                        && (Path.GetFileName(path).Equals(
-                                "App.xaml",
-                                StringComparison.OrdinalIgnoreCase)
-                            ? EnableApplicationDefinition
-                            : EnablePage);
+                    return EnableApplicationDefinition
+                        && EnablePage;
                 }
-                if (EnableContent
-                    && EnableWindowsAppSdkContent
+                if (EnableWindowsAppSdkContent
                     && IsWindowsAppSdkImage(path))
                 {
                     return true;
@@ -215,7 +237,6 @@ internal partial class MigrateCommand
                 return extension.Equals(
                         ".resw",
                         StringComparison.OrdinalIgnoreCase)
-                    && EnablePriResource
                     && EnableWindowsAppSdkPriResource;
             }
         }
@@ -826,7 +847,8 @@ internal partial class MigrateCommand
                 StringComparer.OrdinalIgnoreCase)
             {
                 ["DefaultItemExcludes"] =
-                    "bin/**;obj/**;**/*.user;**/*.*proj;**/*.sln;**/*.vssscc;**/.DS_Store;**/.*/**",
+                    "bin/**;obj/**;**/*.user;**/*.*proj;**/*.sln;**/*.slnx;**/*.vssscc;**/.DS_Store;**/.*/**",
+                ["DefaultItemExcludesInProjectFolder"] = string.Empty,
                 ["DefaultExcludesInProjectFolder"] = string.Empty
             };
             var visited = new HashSet<string>(
@@ -854,12 +876,30 @@ internal partial class MigrateCommand
             {
                 return false;
             }
+            if (graph.DirectoryBuildTargets is not null
+                && !TryEvaluateTargetGraphProperties(
+                    graph,
+                    graph.DirectoryBuildTargets,
+                    context,
+                    visited,
+                    values,
+                    TargetGraphPolicyProperties,
+                    out error))
+            {
+                return false;
+            }
 
+            var hasExplicitEnableDefaultItems =
+                values.TryGetValue(
+                    "EnableDefaultItems",
+                    out var rawEnableDefaultItems)
+                && !string.IsNullOrWhiteSpace(
+                    rawEnableDefaultItems);
             if (!TryReadBooleanProperty(
                     values,
-                    "UseWinUI",
+                    "DisableDefaultItemsInProjectFolder",
                     defaultValue: false,
-                    out var useWinUi,
+                    out var disableDefaultItemsInProjectFolder,
                     out error)
                 || !TryReadBooleanProperty(
                     values,
@@ -872,6 +912,12 @@ internal partial class MigrateCommand
                     "EnableDefaultCompileItems",
                     defaultValue: true,
                     out var enableCompile,
+                    out error)
+                || !TryReadBooleanProperty(
+                    values,
+                    "EnableDefaultEmbeddedResourceItems",
+                    defaultValue: true,
+                    out var enableEmbeddedResource,
                     out error)
                 || !TryReadBooleanProperty(
                     values,
@@ -902,13 +948,41 @@ internal partial class MigrateCommand
                     "EnableDefaultApplicationDefinition",
                     defaultValue: true,
                     out var enableApplicationDefinition,
+                    out error)
+                || !TryReadBooleanProperty(
+                    values,
+                    "EnableDefaultAssets",
+                    defaultValue: true,
+                    out var enableAssets,
+                    out error)
+                || !TryReadBooleanProperty(
+                    values,
+                    "UseWPF",
+                    defaultValue: false,
+                    out var useWpf,
+                    out error)
+                || !TryReadBooleanProperty(
+                    values,
+                    "UseUwpTools",
+                    defaultValue: false,
+                    out var useUwpTools,
                     out error))
             {
                 return false;
             }
-            policy.UseWinUi = useWinUi;
-            policy.EnableDefaultItems = enableDefaultItems;
+            if (useWpf || useUwpTools)
+            {
+                error =
+                    "The target project uses WPF or UWP tooling default items, which are outside the supported WinUI migration target graph.";
+                return false;
+            }
+            policy.EnableDefaultItems =
+                hasExplicitEnableDefaultItems
+                ? enableDefaultItems
+                : !disableDefaultItemsInProjectFolder;
             policy.EnableCompile = enableCompile;
+            policy.EnableEmbeddedResource =
+                enableEmbeddedResource;
             policy.EnableContent = enableContent;
             policy.EnableWindowsAppSdkContent =
                 enableWindowsAppSdkContent;
@@ -916,6 +990,7 @@ internal partial class MigrateCommand
             policy.EnablePage = enablePage;
             policy.EnableApplicationDefinition =
                 enableApplicationDefinition;
+            policy.EnableAssets = enableAssets;
 
             var priProperty = values.ContainsKey(
                 "EnableDefaultPRIResourceItems")
@@ -945,6 +1020,7 @@ internal partial class MigrateCommand
             foreach (var propertyName in new[]
             {
                 "DefaultItemExcludes",
+                "DefaultItemExcludesInProjectFolder",
                 "DefaultExcludesInProjectFolder"
             })
             {
@@ -1699,11 +1775,18 @@ internal partial class MigrateCommand
                 or ".tga"
                 or ".gif";
 
+        private static bool IsWinUiAsset(
+            string path) =>
+            MsBuildGlobMatches(
+                "Assets/**/*.*",
+                path);
+
         private static string CanonicalTargetGraphItemKind(
             string kind) =>
             kind.ToUpperInvariant() switch
             {
                 "COMPILE" => "Compile",
+                "EMBEDDEDRESOURCE" => "EmbeddedResource",
                 "PAGE" => "Page",
                 "APPLICATIONDEFINITION" =>
                     "ApplicationDefinition",

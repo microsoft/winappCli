@@ -161,6 +161,49 @@ internal static class MigrationPathResolver
         return true;
     }
 
+    internal static bool TryResolveContainedAbsolutePath(
+        string root,
+        string? value,
+        out string fullPath,
+        out string normalizedRelativePath,
+        out string error)
+    {
+        fullPath = string.Empty;
+        normalizedRelativePath = string.Empty;
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(value)
+            || !Path.IsPathFullyQualified(value)
+            || value.Contains("$(", StringComparison.Ordinal)
+            || value.Contains("@(", StringComparison.Ordinal)
+            || value.IndexOfAny(['*', '?']) >= 0)
+        {
+            error = "The path must be a fully qualified literal path.";
+            return false;
+        }
+
+        string relativePath;
+        try
+        {
+            relativePath = Path.GetRelativePath(
+                Path.GetFullPath(root),
+                Path.GetFullPath(value));
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            error = exception.Message;
+            return false;
+        }
+        return TryResolveContainedRelativePath(
+            root,
+            relativePath,
+            out fullPath,
+            out normalizedRelativePath,
+            out error);
+    }
+
     private static bool TryEnsureNoReparsePoints(
         string path,
         out string error)

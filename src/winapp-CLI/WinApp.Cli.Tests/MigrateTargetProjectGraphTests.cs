@@ -16,8 +16,8 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
     private static readonly string[] ExpectedCollisionKinds =
     [
         "Compile",
+        "EmbeddedResource",
         "Page",
-        "ApplicationDefinition",
         "PRIResource",
         "Content",
         "None"
@@ -149,6 +149,10 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
         await WriteAsync(
             target,
             @"Nested\Resources\en-us\Resources.resw",
+            "<root />");
+        await WriteAsync(
+            target,
+            @"Nested\Resources.resx",
             "<root />");
         await WriteAsync(
             target,
@@ -524,6 +528,76 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Verify_ResxUsesEmbeddedResourceOwnership()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphDefaultEmbeddedResource");
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            CleanCsproj);
+        await WriteAsync(
+            target,
+            @"Nested\Resources.resx",
+            "<root />");
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.Add(new XElement(
+                    ns + "ItemGroup",
+                    new XElement(
+                        ns + "None",
+                        new XAttribute(
+                            "Remove",
+                            @"Nested\**"))));
+            });
+
+        var (collisionExit, collisionOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(1, collisionExit, collisionOutput);
+        using (var collisionReport =
+            await ReadReportAsync(target))
+        {
+            var itemKinds = collisionReport.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("targetProjectGraph")
+                .GetProperty("issues")[0]
+                .GetProperty("itemKinds")
+                .EnumerateArray()
+                .Select(kind => kind.GetString())
+                .ToList();
+            CollectionAssert.Contains(
+                itemKinds,
+                "EmbeddedResource");
+            CollectionAssert.DoesNotContain(
+                itemKinds,
+                "None");
+        }
+
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.Add(new XElement(
+                    ns + "ItemGroup",
+                    new XElement(
+                        ns + "EmbeddedResource",
+                        new XAttribute(
+                            "Remove",
+                            @"Nested\**"))));
+            });
+
+        var (removedExit, removedOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(0, removedExit, removedOutput);
+    }
+
+    [TestMethod]
     public async Task Verify_WindowsAppSdkPriDefaultsDoNotDependOnUseWinUI()
     {
         var (target, _, _) =
@@ -593,6 +667,396 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
             await VerifyAsync(target);
 
         Assert.AreEqual(0, disabledExit, disabledOutput);
+    }
+
+    [TestMethod]
+    public async Task Verify_XamlDefaultsDoNotDependOnUseWinUI()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphDefaultXaml");
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            CleanCsproj);
+        await WriteAsync(
+            target,
+            @"Nested\View.xaml",
+            "<Page x:Class=\"Nested.View\" />");
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Descendants()
+                    .Single(element =>
+                        element.Name.LocalName == "UseWinUI")
+                    .Value = "false";
+                document.Root.Add(new XElement(
+                    ns + "ItemGroup",
+                    new XElement(
+                        ns + "None",
+                        new XAttribute(
+                            "Remove",
+                            @"Nested\**"))));
+            });
+
+        var (exitCode, output) = await VerifyAsync(target);
+
+        Assert.AreEqual(1, exitCode, output);
+        using var report = await ReadReportAsync(target);
+        var itemKinds = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("targetProjectGraph")
+            .GetProperty("issues")[0]
+            .GetProperty("itemKinds")
+            .EnumerateArray()
+            .Select(kind => kind.GetString())
+            .ToList();
+        CollectionAssert.Contains(itemKinds, "Page");
+    }
+
+    [TestMethod]
+    public async Task Verify_NestedAppXamlIsPageForEntryProject()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphNestedAppXaml");
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            CleanCsproj);
+        await WriteAsync(
+            target,
+            @"Nested\App.xaml",
+            "<Application x:Class=\"Nested.App\" />");
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.Add(new XElement(
+                    ns + "ItemGroup",
+                    new XElement(
+                        ns + "ApplicationDefinition",
+                        new XAttribute(
+                            "Remove",
+                            @"Nested\App.xaml"))));
+            });
+
+        var (exitCode, output) = await VerifyAsync(target);
+
+        Assert.AreEqual(1, exitCode, output);
+        using var report = await ReadReportAsync(target);
+        var itemKinds = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("targetProjectGraph")
+            .GetProperty("issues")[0]
+            .GetProperty("itemKinds")
+            .EnumerateArray()
+            .Select(kind => kind.GetString())
+            .ToList();
+        CollectionAssert.Contains(itemKinds, "Page");
+        CollectionAssert.DoesNotContain(
+            itemKinds,
+            "ApplicationDefinition");
+    }
+
+    [TestMethod]
+    public async Task Verify_DisabledApplicationDefinitionFallsBackToPage()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphAppXamlFallback");
+        var nestedProject = XDocument.Parse(
+            CleanCsproj,
+            LoadOptions.PreserveWhitespace);
+        var ns = nestedProject.Root!.Name.Namespace;
+        nestedProject.Root.AddFirst(new XElement(
+            ns + "PropertyGroup",
+            new XElement(
+                ns + "EnableDefaultApplicationDefinition",
+                "false"),
+            new XElement(
+                ns + "EnableDefaultNoneItems",
+                "false")));
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            nestedProject.ToString(
+                SaveOptions.DisableFormatting));
+        await WriteAsync(
+            target,
+            @"Nested\App.xaml",
+            "<Application x:Class=\"Nested.App\" />");
+
+        var (exitCode, output) = await VerifyAsync(target);
+
+        Assert.AreEqual(1, exitCode, output);
+        using var report = await ReadReportAsync(target);
+        var itemKinds = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("targetProjectGraph")
+            .GetProperty("issues")[0]
+            .GetProperty("itemKinds")
+            .EnumerateArray()
+            .Select(kind => kind.GetString())
+            .ToList();
+        CollectionAssert.Contains(itemKinds, "Page");
+    }
+
+    [TestMethod]
+    public async Task Verify_ApplicationDefinitionIgnoresDefaultExcludes()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphAppXamlExcludes");
+        var nestedProject = XDocument.Parse(
+            CleanCsproj,
+            LoadOptions.PreserveWhitespace);
+        var ns = nestedProject.Root!.Name.Namespace;
+        nestedProject.Root.AddFirst(new XElement(
+            ns + "PropertyGroup",
+            new XElement(
+                ns + "DefaultItemExcludes",
+                "$(DefaultItemExcludes);App.xaml")));
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            nestedProject.ToString(
+                SaveOptions.DisableFormatting));
+        await WriteAsync(
+            target,
+            @"Nested\App.xaml",
+            "<Application x:Class=\"Nested.App\" />");
+
+        var (exitCode, output) = await VerifyAsync(target);
+
+        Assert.AreEqual(1, exitCode, output);
+    }
+
+    [TestMethod]
+    public async Task Verify_WinUiAssetsIgnoreSdkDefaultExcludes()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphWinUiAssets");
+        await WriteAsync(
+            target,
+            @"Assets\Nested\Nested.csproj",
+            CleanCsproj);
+        await WriteAsync(
+            target,
+            @"Assets\Nested\data.json",
+            """{"ownedBy":"Nested"}""");
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.AddFirst(new XElement(
+                    ns + "PropertyGroup",
+                    new XElement(
+                        ns + "EnableDefaultNoneItems",
+                        "false"),
+                    new XElement(
+                        ns + "DefaultItemExcludes",
+                        "$(DefaultItemExcludes);Assets\\**")));
+            });
+
+        var (collisionExit, collisionOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(1, collisionExit, collisionOutput);
+        using (var report = await ReadReportAsync(target))
+        {
+            var itemKinds = report.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("targetProjectGraph")
+                .GetProperty("issues")[0]
+                .GetProperty("itemKinds")
+                .EnumerateArray()
+                .Select(kind => kind.GetString())
+                .ToList();
+            CollectionAssert.Contains(itemKinds, "Content");
+        }
+
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.Add(new XElement(
+                    ns + "PropertyGroup",
+                    new XElement(
+                        ns + "EnableDefaultAssets",
+                        "false")));
+            });
+
+        var (disabledExit, disabledOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(0, disabledExit, disabledOutput);
+    }
+
+    [TestMethod]
+    public async Task Verify_OtherXamlToolingDefaultsAreIncomplete()
+    {
+        foreach (var propertyName in new[]
+        {
+            "UseWPF",
+            "UseUwpTools"
+        })
+        {
+            var (target, _, _) =
+                await CreateMigrationAsync(
+                    $"Graph{propertyName}");
+            await WriteAsync(
+                target,
+                @"Nested\Nested.csproj",
+                CleanCsproj);
+            await WriteAsync(
+                target,
+                @"Nested\View.xaml",
+                "<Page x:Class=\"Nested.View\" />");
+            MutateProject(
+                target,
+                document =>
+                {
+                    var ns = document.Root!.Name.Namespace;
+                    document.Root.AddFirst(new XElement(
+                        ns + "PropertyGroup",
+                        new XElement(
+                            ns + propertyName,
+                            "true")));
+                });
+
+            var (exitCode, output) =
+                await VerifyAsync(target);
+
+            Assert.AreEqual(1, exitCode, output);
+            using var report = await ReadReportAsync(target);
+            Assert.AreEqual(
+                "incomplete",
+                report.RootElement
+                    .GetProperty("mechanicalVerification")
+                    .GetProperty("targetProjectGraph")
+                    .GetProperty("status")
+                    .GetString());
+        }
+    }
+
+    [TestMethod]
+    public async Task Verify_DisabledDefaultKindsDoNotFallBackToNone()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphSelectiveDefaults");
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            CleanCsproj);
+        await WriteAsync(
+            target,
+            @"Nested\Model.cs",
+            "namespace Nested; public sealed class Model { }");
+        await WriteAsync(
+            target,
+            @"Nested\Assets\logo.png",
+            "image-bytes");
+        await WriteAsync(
+            target,
+            @"Nested\Resources\en-us\Resources.resw",
+            "<root />");
+        await WriteAsync(
+            target,
+            @"Nested\Resources.resx",
+            "<root />");
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.AddFirst(new XElement(
+                    ns + "PropertyGroup",
+                    new XElement(
+                        ns + "EnableDefaultCompileItems",
+                        "false"),
+                    new XElement(
+                        ns + "EnableDefaultEmbeddedResourceItems",
+                        "false"),
+                    new XElement(
+                        ns + "EnableDefaultContentItems",
+                        "false"),
+                    new XElement(
+                        ns + "EnableDefaultPRIResourceItems",
+                        "false")));
+            });
+
+        var (exitCode, output) = await VerifyAsync(target);
+
+        Assert.AreEqual(0, exitCode, output);
+    }
+
+    [TestMethod]
+    public async Task Verify_DisableDefaultItemsHonorsExplicitOverride()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphDisableDefaults");
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            CleanCsproj);
+        await WriteAsync(
+            target,
+            @"Nested\Model.cs",
+            "namespace Nested; public sealed class Model { }");
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.AddFirst(new XElement(
+                    ns + "PropertyGroup",
+                    new XElement(
+                        ns + "DisableDefaultItemsInProjectFolder",
+                        "true")));
+            });
+
+        var (disabledExit, disabledOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(0, disabledExit, disabledOutput);
+
+        MutateProject(
+            target,
+            document =>
+            {
+                var ns = document.Root!.Name.Namespace;
+                document.Root.Add(new XElement(
+                    ns + "PropertyGroup",
+                    new XElement(
+                        ns + "EnableDefaultItems",
+                        "true")));
+            });
+
+        var (explicitExit, explicitOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(1, explicitExit, explicitOutput);
+    }
+
+    [TestMethod]
+    public async Task Verify_SlnxUsesSdkDefaultExclusion()
+    {
+        var (target, _, _) =
+            await CreateMigrationAsync("GraphSlnx");
+        await WriteAsync(
+            target,
+            @"Nested\Nested.csproj",
+            CleanCsproj);
+        await WriteAsync(
+            target,
+            @"Nested\Nested.slnx",
+            "<Solution />");
+
+        var (exitCode, output) = await VerifyAsync(target);
+
+        Assert.AreEqual(0, exitCode, output);
     }
 
     [TestMethod]
@@ -806,6 +1270,7 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
             <Project>
               <ItemGroup>
                 <Compile Remove="Nested\**" />
+                <EmbeddedResource Remove="Nested\**" />
                 <Page Remove="Nested\**" />
                 <ApplicationDefinition Remove="Nested\**" />
                 <PRIResource Remove="Nested\**" />
@@ -889,9 +1354,27 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
             await VerifyAsync(target);
 
         Assert.AreEqual(
-            1,
+            0,
             latePropertyExit,
             latePropertyOutput);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <PropertyGroup>
+                <DefaultItemExcludesInProjectFolder>$(DefaultItemExcludesInProjectFolder);Nested\**</DefaultItemExcludesInProjectFolder>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        var (aliasPropertyExit, aliasPropertyOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(
+            0,
+            aliasPropertyExit,
+            aliasPropertyOutput);
         await WriteAsync(
             target,
             "NestedOwnership.targets",
@@ -899,6 +1382,7 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
             <Project>
               <ItemGroup>
                 <Compile Remove="Nested\**" />
+                <EmbeddedResource Remove="Nested\**" />
                 <Page Remove="Nested\**" />
                 <ApplicationDefinition Remove="Nested\**" />
                 <PRIResource Remove="Nested\**" />
@@ -953,6 +1437,7 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
                 <Otherwise>
                   <ItemGroup>
                     <Compile Remove="Nested\**" />
+                    <EmbeddedResource Remove="Nested\**" />
                     <Page Remove="Nested\**" />
                     <ApplicationDefinition Remove="Nested\**" />
                     <PRIResource Remove="Nested\**" />
@@ -990,6 +1475,7 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
                 <Otherwise>
                   <ItemGroup>
                     <Compile Remove="Nested\**" />
+                    <EmbeddedResource Remove="Nested\**" />
                     <Page Remove="Nested\**" />
                     <ApplicationDefinition Remove="Nested\**" />
                     <PRIResource Remove="Nested\**" />
@@ -1020,6 +1506,7 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
                 <Otherwise>
                   <ItemGroup>
                     <Compile Remove="Nested\**" />
+                    <EmbeddedResource Remove="Nested\**" />
                     <Page Remove="Nested\**" />
                     <ApplicationDefinition Remove="Nested\**" />
                     <PRIResource Remove="Nested\**" />
@@ -1056,6 +1543,7 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
             <Project>
               <ItemGroup>
                 <Compile Remove="Nested\**" />
+                <EmbeddedResource Remove="Nested\**" />
                 <Page Remove="Nested\**" />
                 <ApplicationDefinition Remove="Nested\**" />
                 <PRIResource Remove="Nested\**" />
@@ -1137,7 +1625,30 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
         var (overrideExit, overrideOutput) =
             await VerifyAsync(target);
 
-        Assert.AreEqual(0, overrideExit, overrideOutput);
+        Assert.AreEqual(1, overrideExit, overrideOutput);
+
+        document = XDocument.Load(
+            entryProject,
+            LoadOptions.PreserveWhitespace);
+        document.Descendants()
+            .Single(element =>
+                element.Name.LocalName
+                    == "DirectoryBuildTargetsPath")
+            .Value = Path.Combine(
+                target.FullName,
+                "build",
+                "NestedOwnership.targets");
+        document.Save(
+            entryProject,
+            SaveOptions.DisableFormatting);
+
+        var (absoluteOverrideExit, absoluteOverrideOutput) =
+            await VerifyAsync(target);
+
+        Assert.AreEqual(
+            0,
+            absoluteOverrideExit,
+            absoluteOverrideOutput);
 
         document = XDocument.Load(
             entryProject,
@@ -1181,6 +1692,7 @@ public class MigrateTargetProjectGraphTests : MigrateCommandTestBase
             <Project>
               <ItemGroup>
                 <Compile Remove="Nested\**" />
+                <EmbeddedResource Remove="Nested\**" />
                 <Page Remove="Nested\**" />
                 <ApplicationDefinition Remove="Nested\**" />
                 <PRIResource Remove="Nested\**" />

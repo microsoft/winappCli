@@ -20,9 +20,11 @@ internal partial class MigrateCommand
             {
                 "UseWinUI",
                 "EnableDefaultItems",
+                "DisableDefaultItemsInProjectFolder",
                 "EnableDefaultPRIResourceItems",
                 "EnableDefaultPriItems",
                 "DefaultItemExcludes",
+                "DefaultItemExcludesInProjectFolder",
                 "DefaultExcludesInProjectFolder",
                 "ImportDirectoryBuildProps",
                 "ImportDirectoryBuildTargets",
@@ -436,16 +438,16 @@ internal partial class MigrateCommand
                     }
                     if (overridePath is not null)
                     {
-                        if (!TryResolveLiteralImport(
+                        if (!MigrationPathResolver.TryResolveContainedAbsolutePath(
                                 targetRoot,
-                                targetProject,
                                 overridePath,
                                 out automaticFileOverride,
+                                out _,
                                 out _)
                             || !File.Exists(automaticFileOverride))
                         {
                             graph.IncompleteReasons.Add(
-                                $"The active {overridePathProperty} value '{overridePath}' is not an existing contained literal file.");
+                                $"The active {overridePathProperty} value '{overridePath}' is not an existing contained absolute file.");
                             return;
                         }
                     }
