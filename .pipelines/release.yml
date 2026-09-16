@@ -1050,6 +1050,28 @@ extends:
                   Write-Host "Prerelease version: $v"
                   Write-Host "##vso[task.setvariable variable=pkgVersion;isOutput=true]$v"
             - task: PowerShell@2
+              displayName: Test library packages
+              inputs:
+                pwsh: true
+                targetType: inline
+                script: |
+                  # Gate the publish on the tests that cover exactly the three shipped packages, so
+                  # a manual prerelease queue cannot sign and immutably publish a test-failing
+                  # commit. Deliberately narrower than the full stable Build (NativeAOT + MSIX + CLI
+                  # suite): only the UI Automation engine/recording and WinUI analyzer tests are
+                  # relevant to these packages, which keeps this stage decoupled and fast. Runner
+                  # choice mirrors build-cli.ps1 - the UI Automation suite is a Microsoft.Testing.
+                  # Platform app (dotnet run), the analyzer suite is xUnit (dotnet test).
+                  $root = "$(System.DefaultWorkingDirectory)"
+                  $uiaTests = Join-Path $root "src/winapp-CLI/WinApp.UIAutomation.Tests/WinApp.UIAutomation.Tests.csproj"
+                  $analyzerTests = Join-Path $root "src/winapp-Analyzer/Microsoft.WindowsAppSDK.Analyzers.Tests/Microsoft.WindowsAppSDK.Analyzers.Tests.csproj"
+                  $failed = $false
+                  dotnet run --project $uiaTests -c Debug
+                  if ($LASTEXITCODE -ne 0) { Write-Warning "WinApp.UIAutomation.Tests failed ($LASTEXITCODE)"; $failed = $true }
+                  dotnet test $analyzerTests -c Debug
+                  if ($LASTEXITCODE -ne 0) { Write-Warning "Analyzer tests failed ($LASTEXITCODE)"; $failed = $true }
+                  if ($failed) { Write-Error "Library tests failed; refusing to build and publish prerelease packages."; exit 1 }
+            - task: PowerShell@2
               displayName: Pack library packages (unsigned)
               inputs:
                 pwsh: true

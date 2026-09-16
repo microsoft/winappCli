@@ -43,6 +43,10 @@ Notes:
 
 - Signing is required: the stages are also gated on `DoEsrp` (on by default), so they can never
   publish unsigned packages. Unticking `DoEsrp` prunes the path entirely — nothing publishes.
+- The build stage runs the library test suites (`WinApp.UIAutomation.Tests` and the WinUI analyzer
+  tests) before packing, so a test-failing commit can't be signed or published. This is narrower
+  than the full stable `Build` (which also builds the NativeAOT CLI and MSIX) on purpose, to keep
+  the path fast while still validating exactly what ships.
 - The version must be a SemVer prerelease (e.g. `0.6.3-prerelease.1`); a stable version, including
   one with build metadata like `0.7.0+build-1`, is rejected. Blank auto-computes the prerelease.
 - Run it from a **non-`rel/v*`, non-`main`** branch to also keep the `main`-gated rehearsal stages
