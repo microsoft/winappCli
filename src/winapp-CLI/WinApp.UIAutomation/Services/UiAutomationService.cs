@@ -169,11 +169,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
             return Task.FromResult<UiElement[]>([]);
         }
 
-        var mainHwnd = (nint)uiTarget.WindowHandle;
-        if (mainHwnd == 0)
-        {
-            mainHwnd = GetTopLevelWindowHandle(root);
-        }
+        var resolvedRootHwnd = GetTopLevelWindowHandle(root);
+        var mainHwnd = resolvedRootHwnd != 0
+            ? resolvedRootHwnd
+            : (nint)uiTarget.WindowHandle;
 
         // If a selector is provided, scope the tree walk to that element
         IUIAutomationElement startElement = root;

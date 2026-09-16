@@ -446,6 +446,26 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task InspectAsync_StaleStoredHwndUsesRecoveredRootHwnd()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var staleHwnd = fx.Hwnd + 1000;
+        var uiTarget = NonExplicitSession(fx);
+        uiTarget.WindowHandle = staleHwnd;
+        UiAutomationService.s_getRootElement = (service, _) =>
+            UiAutomationService.s_elementFromHandle(service, fx.Hwnd);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
+
+        Assert.IsTrue(elements.Length > 0);
+        Assert.IsTrue(elements.All(element => element.WindowHandle == fx.Hwnd),
+            "a recovered live root must replace a stale nonzero session HWND");
+    }
+
+    [TestMethod]
     public async Task NamelessSlug_ResolvesPrefixHashSelector()
     {
         using var fx = new UiaTestFixture();
