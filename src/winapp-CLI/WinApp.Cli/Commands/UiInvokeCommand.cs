@@ -114,6 +114,24 @@ internal class UiInvokeCommand : Command, IShortDescription
                     return 1;
                 }
 
+                // Explicit actions must target exactly one element. A slug already names one, but a
+                // plain-text or AutomationId selector is resolved to its first match by
+                // FindSingleElementAsync (which acts on the retained provider without re-checking), so a
+                // duplicate would silently activate the first. Verify the selector is unambiguous up front
+                // and fail closed — never guess — when more than one element matches.
+                if (action is not null && !selector.IsSlug)
+                {
+                    var matches = await uiAutomation.SearchAsync(uiTarget, selector, maxResults: 2, cancellationToken);
+                    if (matches.Length > 1)
+                    {
+                        UiErrors.AmbiguousSelector(logger,
+                            $"'{selectorStr}' matches more than one element, so --action cannot target it deterministically. " +
+                            $"Re-run '{UiCommandAdvice.Command("search")}' and pass an exact slug to --action.",
+                            json, parseResult.InvocationConfiguration.Error);
+                        return 1;
+                    }
+                }
+
                 string pattern;
                 string performedAction;
                 UiElement invokedElement = element;
@@ -143,16 +161,6 @@ internal class UiInvokeCommand : Command, IShortDescription
                     {
                         if (action is { } explicitAction)
                         {
-                            // A plain-text or AutomationId selector was resolved to the first match and
-                            // stamped with a runtime slug. Explicit mode must not silently act on the first
-                            // of several duplicates, so for a non-slug selector that matched a control with an
-                            // AutomationId, commit to that AutomationId: the strict resolver then proves it is
-                            // unique and fails closed when it is ambiguous. A name-only match keeps its runtime
-                            // slug (which already names one element), and a user-supplied slug is kept verbatim.
-                            if (!selector.IsSlug && !string.IsNullOrEmpty(element.AutomationId))
-                            {
-                                element.Selector = element.AutomationId;
-                            }
                             var outcome = await uiAutomation.InvokeAsync(uiTarget, element, explicitAction, cancellationToken);
                             pattern = outcome.Pattern;
                             performedAction = outcome.PerformedAction;
