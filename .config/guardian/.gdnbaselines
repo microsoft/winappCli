@@ -26,7 +26,8 @@
       "tool": "binskim",
       "ruleId": "BA2007",
       "createdDate": "2026-09-17 17:38:46Z",
-      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change, and every published version of it fails this rule. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled."
+      "expirationDate": "2027-03-16 17:38:46Z",
+      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change. The versions checked, 14.2.0 and 8.3.1.3 on both win-x64 and win-arm64, all fail this rule; reported upstream as mono/SkiaSharp#5108. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled. This error is baselined with an expiration date of 180 days from 2026-09-17 17:38:46Z."
     },
     "bef185746e419cfc313d6e9ffc371635712e5b4ded6c576407eebf03706d1a64": {
       "signature": "bef185746e419cfc313d6e9ffc371635712e5b4ded6c576407eebf03706d1a64",
@@ -43,7 +44,8 @@
       "tool": "binskim",
       "ruleId": "BA2007",
       "createdDate": "2026-09-17 17:38:46Z",
-      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change, and every published version of it fails this rule. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled."
+      "expirationDate": "2027-03-16 17:38:46Z",
+      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change. The versions checked, 14.2.0 and 8.3.1.3 on both win-x64 and win-arm64, all fail this rule; reported upstream as mono/SkiaSharp#5108. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled. This error is baselined with an expiration date of 180 days from 2026-09-17 17:38:46Z."
     },
     "d9a3c66c830ce4995996ce22ffec0bdef5992aac4c050baac37f3b810f903cd7": {
       "signature": "d9a3c66c830ce4995996ce22ffec0bdef5992aac4c050baac37f3b810f903cd7",
