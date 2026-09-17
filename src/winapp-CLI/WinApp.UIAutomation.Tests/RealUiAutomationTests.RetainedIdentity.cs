@@ -10,14 +10,62 @@ public partial class RealUiAutomationTests
     {
         using var fx = new ExplicitIdentityFixture(duplicate: true);
         var svc = NewService();
-        var selected = await ResolveAsync(svc, fx.Target, "save");
-        Assert.IsNotNull(selected.Context);
-        selected.Selector = selected.AutomationId; // UiInvokeCommand's non-slug explicit branch.
-
-        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
-            () => svc.InvokeAsync(fx.Target, selected, UiInvokeAction.Invoke, CancellationToken.None));
-        StringAssert.Contains(error.Message, "no longer unique");
+        var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
+            () => svc.FindSingleElementAsync(fx.Target, new UiSelector { Query = "save" }, requireUnique: true, CancellationToken.None));
+        StringAssert.Contains(error.Message, "Selector matched 2 elements");
+        StringAssert.Contains(error.Message, "btn-");
         Assert.AreEqual(0, fx.ClickCount);
+    }
+
+    [TestMethod]
+    [DataRow("Primary", false)]
+    [DataRow("SECONDARY SAVE", true)]
+    public async Task ExplicitAction_NoActivateUniqueNameWithSharedAutomationId_InvokesSelectedProvider(string query, bool secondary)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: true);
+        var svc = NewService();
+        var selected = await svc.FindSingleElementAsync(fx.Target, new UiSelector { Query = query }, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        Assert.IsNotNull(selected.Context);
+        Assert.AreEqual("save", selected.AutomationId);
+        Assert.AreNotEqual("save", selected.Selector);
+
+        Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+            await svc.InvokeAsync(fx.Target, selected, UiInvokeAction.Invoke, CancellationToken.None));
+        await WaitForAsync(() => Task.FromResult(fx.ClickCount == 1), "The selected name match was not invoked.");
+        Assert.AreEqual(secondary ? 1 : 0, fx.SecondaryClicks);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitAction_NoActivateOwnedWindow_StrictSelectionPreservesScopeAndProvider(bool ownedByMain)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false);
+        var hwnd = fx.ShowOwnedButton(ownedByMain);
+        var svc = NewService();
+        var selector = new UiSelector { Query = "Owned Save" };
+        if (!ownedByMain)
+        {
+            Assert.IsNull(await svc.FindSingleElementAsync(fx.Target, selector, requireUnique: true, CancellationToken.None));
+        }
+        var target = new UiTarget
+        {
+            ProcessId = fx.Target.ProcessId,
+            ProcessName = fx.Target.ProcessName,
+            WindowHandle = fx.Target.WindowHandle,
+            IsExplicitWindow = false,
+        };
+        var selected = await svc.FindSingleElementAsync(target, selector, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        Assert.IsNotNull(selected.Context);
+        Assert.AreEqual(hwnd, selected.WindowHandle);
+        Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+            await svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
+        await WaitForAsync(() => Task.FromResult(fx.SecondaryClicks == 1), "The owned-window provider was not invoked.");
+        Assert.AreEqual(1, fx.ClickCount);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
     }
 
     [TestMethod]
@@ -28,7 +76,7 @@ public partial class RealUiAutomationTests
         var elements = await svc.InspectAsync(fx.Target, null, 3, CancellationToken.None);
         var second = elements.Single(e => e.Name == "Secondary Save" && e.Type == "Button");
         Assert.IsNotNull(SlugGenerator.ParseSlug(second.Selector!));
-        var selected = await svc.FindSingleElementAsync(fx.Target, new UiSelector { Slug = second.Selector }, CancellationToken.None);
+        var selected = await svc.FindSingleElementAsync(fx.Target, new UiSelector { Slug = second.Selector }, requireUnique: true, CancellationToken.None);
         Assert.IsNotNull(selected);
         Assert.IsNotNull(selected.Context);
 
@@ -58,8 +106,8 @@ public partial class RealUiAutomationTests
     {
         using var fx = new ExplicitIdentityFixture(duplicate: false);
         var svc = NewService();
-        var selected = await ResolveAsync(svc, fx.Target, "save");
-        selected.Selector = selected.AutomationId;
+        var selected = await svc.FindSingleElementAsync(fx.Target, new UiSelector { Query = "Primary" }, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
         fx.ReplacePrimary();
         Assert.IsNotNull(await ResolveAsync(svc, fx.Target, "save"));
 
@@ -78,6 +126,8 @@ public partial class RealUiAutomationTests
         private IdentityForm _form = null!;
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213", Justification = "Owned and disposed by the form's Controls collection; replacements dispose the removed button.")]
         private Button _primary = null!;
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213", Justification = "Closed and disposed on the UI thread before the main form closes.")]
+        private IdentityForm? _other;
         private Exception? _startupError;
         private int _primaryClicks;
         private int _secondaryClicks;
@@ -132,6 +182,16 @@ public partial class RealUiAutomationTests
             _primary.CreateControl();
         });
 
+        public long ShowOwnedButton(bool ownedByMain) => (long)_form.Invoke(() =>
+        {
+            var owned = new IdentityForm();
+            _other = owned;
+            owned.Controls.Add(MakeButton("Owned Save", 10, () => Interlocked.Increment(ref _secondaryClicks)));
+            if (ownedByMain) { owned.Show(_form); }
+            else { owned.Show(); }
+            return (long)owned.Handle;
+        });
+
         private static Button MakeButton(string name, int top, Action onClick)
         {
             var button = new Button { Name = "save", AccessibleName = name, Text = name, Left = 10, Top = top, Width = 140 };
@@ -141,7 +201,14 @@ public partial class RealUiAutomationTests
 
         public void Dispose()
         {
-            if (_thread.IsAlive) { _form.Invoke(_form.Close); }
+            if (_thread.IsAlive)
+            {
+                _form.Invoke(() =>
+                {
+                    _other?.Close();
+                    _form.Close();
+                });
+            }
             if (!_thread.Join(TimeSpan.FromSeconds(10))) { throw new TimeoutException("Identity fixture did not close."); }
             _ready.Dispose();
         }

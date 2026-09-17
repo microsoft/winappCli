@@ -63,6 +63,16 @@ public interface IUiAutomation
     /// <exception cref="UiAmbiguousSelectorException">More than one element matched.</exception>
     Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct);
 
+    /// <summary>Finds one element, optionally requiring complete, unambiguous selection.</summary>
+    /// <param name="uiTarget">The app or window to search.</param>
+    /// <param name="selector">What to match. Exact AutomationId matches take precedence over name or AutomationId substrings.</param>
+    /// <param name="requireUnique">When true, checks the complete ControlView without preferring invokable matches.
+    /// Slugs retain their exact resolution behavior. The returned element retains the selected provider for subsequent actions.</param>
+    /// <param name="ct">Cancels the search.</param>
+    /// <returns>The match, or <see langword="null"/> when nothing matched.</returns>
+    /// <exception cref="UiAmbiguousSelectorException">More than one element matched.</exception>
+    Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct);
+
     /// <summary>Reads an element's UIA properties.</summary>
     /// <param name="uiTarget">The app or window that owns the element.</param>
     /// <param name="element">The element to read.</param>

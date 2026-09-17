@@ -792,8 +792,15 @@ await ui.InvokeAsync(target, save!, default);
 For deterministic actions, use the overload taking `UiInvokeAction`:
 
 ```csharp
-UiInvokeActionResult result = await ui.InvokeAsync(target, save!, UiInvokeAction.Invoke, default);
+var selected = await ui.FindSingleElementAsync(
+    target, new UiSelector { Query = "Save" }, requireUnique: true, default);
+if (selected is null) throw new InvalidOperationException("Save was not found.");
+UiInvokeActionResult result = await ui.InvokeAsync(target, selected, UiInvokeAction.Invoke, default);
 ```
+
+`requireUnique: true` rejects ambiguous text instead of choosing an invokable
+match. Exact AutomationId matches take precedence over name or AutomationId
+substrings; a unique name can still select a control whose AutomationId is shared.
 
 It returns `Pattern` and `PerformedAction` with the same meanings as the
 [CLI action result](../plugins/winapp/skills/winapp-ui-automation/references/ui-json-envelope.md#ui-invoke---json).

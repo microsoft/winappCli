@@ -12,6 +12,8 @@ public class FakeUiAutomationService : IUiAutomation
     public UiElement[] InspectResult { get; set; } = [];
     public UiElement[] SearchResult { get; set; } = [];
     public UiElement? FindSingleResult { get; set; }
+    public Exception? FindUniqueThrow { get; set; }
+    public List<bool> FindSingleRequireUniqueCalls { get; } = [];
 
     /// <summary>
     /// Optional per-call results for <see cref="FindSingleElementAsync"/>. When non-empty, the first
@@ -150,6 +152,13 @@ public class FakeUiAutomationService : IUiAutomation
     {
         if (SearchThrow is not null) { throw SearchThrow; }
         return Task.FromResult(SearchResult.Take(maxResults).ToArray());
+    }
+
+    public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
+    {
+        FindSingleRequireUniqueCalls.Add(requireUnique);
+        if (requireUnique && FindUniqueThrow is not null) { throw FindUniqueThrow; }
+        return FindSingleElementAsync(uiTarget, selector, ct);
     }
 
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)

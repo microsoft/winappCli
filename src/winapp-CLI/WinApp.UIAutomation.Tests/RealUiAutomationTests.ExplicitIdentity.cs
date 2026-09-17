@@ -10,6 +10,111 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    [DataRow(0, "save", true, false, "save", true)]
+    [DataRow(1, "save", true, false, "save", true)]
+    [DataRow(0, "", false, true, "Primary", true)]
+    [DataRow(1, "", false, true, "Primary", true)]
+    [DataRow(0, "save", true, false, "PRIMARY", false)]
+    [DataRow(1, "save", true, false, "PRIMARY", false)]
+    [DataRow(0, "save", false, true, "save", false)]
+    [DataRow(1, "save", false, true, "save", false)]
+    public async Task ExplicitSelection_PartialBulkResults_UsesCompleteControlView(
+        int bulkCount, string automationId, bool duplicate, bool sameName, string query, bool ambiguous)
+    {
+        var calls = new List<string>();
+        var retained = ConfigureExplicitIdentityTree(calls, bulkCount, duplicate, 2048,
+            automationId: automationId, sameName: sameName);
+        UiAutomationService.s_getElementProcessId = _ => Environment.ProcessId;
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake", IsExplicitWindow = true };
+        if (ambiguous)
+        {
+            var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
+                () => svc.FindSingleElementAsync(target, new UiSelector { Query = query }, requireUnique: true, CancellationToken.None));
+            StringAssert.Contains(error.Message, "Selector matched 2 elements");
+            StringAssert.Contains(error.Message, "inspect");
+            Assert.IsFalse(calls.Contains("invoke"));
+        }
+        else
+        {
+            var selected = await svc.FindSingleElementAsync(target, new UiSelector { Query = query }, requireUnique: true, CancellationToken.None);
+            Assert.IsNotNull(selected);
+            Assert.AreSame(retained, selected.Context!.AutomationElement);
+            Assert.IsNull(selected.InvokableAncestor);
+            Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+                await svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
+            Assert.AreEqual(1, calls.Count(c => c == "invoke"));
+            Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+        }
+        Assert.IsFalse(calls.Contains("bulk"), "Neither zero nor nonzero partial bulk results can prove uniqueness.");
+        Assert.IsTrue(calls.Contains("identity:2049"), "The complete tree must be examined even after finding a match.");
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ExplicitSelection_SameNameParentAndChild_NeverPrefersInvokable(bool childInvokable)
+    {
+        var calls = new List<string>();
+        ConfigureExplicitIdentityTree(calls, 1, false, 0, automationId: "", sameName: true, lastInvokable: childInvokable);
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
+        await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
+            () => svc.FindSingleElementAsync(target, new UiSelector { Query = "Primary" }, requireUnique: true, CancellationToken.None));
+        Assert.IsFalse(calls.Contains("invoke"));
+    }
+
+    [TestMethod]
+    [DataRow("first")]
+    [DataRow("sibling")]
+    [DataRow("identity")]
+    [DataRow("name")]
+    [DataRow("stale")]
+    public async Task ExplicitSelection_IncompleteControlView_NeverReturnsCandidate(string failure)
+    {
+        var calls = new List<string>();
+        ConfigureExplicitIdentityTree(calls, 1, false, 3, failure);
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
+        await Assert.ThrowsExactlyAsync<COMException>(
+            () => svc.FindSingleElementAsync(target, new UiSelector { Query = "Primary" }, requireUnique: true, CancellationToken.None));
+        Assert.IsFalse(calls.Contains("invoke"));
+    }
+
+    [TestMethod]
+    public async Task ExplicitSelection_EmptyMissingAndCanceled_DoNotAct()
+    {
+        var calls = new List<string>();
+        ConfigureExplicitIdentityTree(calls, 1, false, 3);
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake", IsExplicitWindow = true };
+        Assert.IsNull(await svc.FindSingleElementAsync(target, new UiSelector(), requireUnique: true, CancellationToken.None));
+        Assert.IsNull(await svc.FindSingleElementAsync(target, new UiSelector { Query = "absent" }, requireUnique: true, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(
+            () => svc.FindSingleElementAsync(target, new UiSelector { Query = "save" }, requireUnique: true, new CancellationToken(true)));
+        Assert.IsFalse(calls.Contains("invoke"));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitSelection_WindowProviderFailure_IsNotIgnored(bool ownedWindow)
+    {
+        var calls = new List<string>();
+        ConfigureExplicitIdentityTree(calls, 1, false, 0);
+        UiAutomationService.s_getAllAppWindows = (_, _) => [(42, Environment.ProcessId, "Owned")];
+        UiAutomationService.s_elementFromHandle = (_, _) => throw new COMException("Provider failed.");
+        var svc = NewService();
+        var target = new UiTarget
+        {
+            ProcessId = Environment.ProcessId, ProcessName = "fake", WindowHandle = ownedWindow ? 0 : 42,
+        };
+        await Assert.ThrowsExactlyAsync<COMException>(
+            () => svc.FindSingleElementAsync(target, new UiSelector { Query = "absent" }, requireUnique: true, CancellationToken.None));
+        Assert.IsFalse(calls.Contains("invoke"));
+    }
+
+    [TestMethod]
     [DataRow(true, true, true)]
     [DataRow(false, true, true)]
     [DataRow(false, true, false)]
@@ -140,7 +245,8 @@ public partial class RealUiAutomationTests
     // The bulk provider deliberately omits the tail: a one-element result looks unique even when
     // a duplicate exists. A synthetic ControlView allows arbitrary depth and deterministic faults.
     private static IUIAutomationElement ConfigureExplicitIdentityTree(
-        List<string> calls, int bulkCount, bool duplicate, int depth, string? failure = null)
+        List<string> calls, int bulkCount, bool duplicate, int depth, string? failure = null,
+        string automationId = "save", bool sameName = false, bool lastInvokable = true)
     {
         var invoke = ComProxy<IUIAutomationInvokePattern>((method, _) =>
         {
@@ -154,13 +260,28 @@ public partial class RealUiAutomationTests
             var index = i;
             nodes[i] = ComProxy<IUIAutomationElement>((method, _) =>
             {
-                if (method.Name == "GetCurrentPattern") { return invoke; }
+                if (method.Name == "GetCurrentPattern")
+                {
+                    return index == 0 || (index == nodes.Length - 1 && lastInvokable) ? invoke : null;
+                }
                 if (method.Name == "get_CurrentAutomationId")
                 {
                     calls.Add($"identity:{index}");
                     if (failure == "identity" && index == nodes.Length - 1) { return ThrowCom(); }
-                    return StringBstr(index == 0 || (duplicate && index == nodes.Length - 1) ? "save" : "container");
+                    return StringBstr(index == 0 || ((duplicate || automationId.Length == 0) && index == nodes.Length - 1)
+                        ? automationId : "container");
                 }
+                if (method.Name == "get_CurrentName")
+                {
+                    if (failure == "name" && index == nodes.Length - 1) { return ThrowCom(); }
+                    return StringBstr(index == 0 || (sameName && index == nodes.Length - 1)
+                        ? "Primary Save" : index == nodes.Length - 1 ? "Secondary Save" : "Container");
+                }
+                if (method.Name == "get_CurrentControlType") { return UIA_CONTROLTYPE_ID.UIA_ButtonControlTypeId; }
+                if (method.Name == "get_CurrentBoundingRectangle") { return new global::Windows.Win32.Foundation.RECT(); }
+                if (method.Name == "get_CurrentIsEnabled") { return new global::Windows.Win32.Foundation.BOOL(true); }
+                if (method.Name == "get_CurrentIsOffscreen") { return new global::Windows.Win32.Foundation.BOOL(false); }
+                if (method.Name == "get_CurrentNativeWindowHandle") { return new global::Windows.Win32.Foundation.HWND(42); }
                 return ThrowCom();
             });
         }

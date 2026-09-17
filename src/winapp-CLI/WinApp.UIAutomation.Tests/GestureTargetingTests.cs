@@ -122,6 +122,9 @@ public class GestureTargetingTests
 
         public QueueUiAutomation(IEnumerable<UiElement?> elements) => _elements = new Queue<UiElement?>(elements);
 
+        public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
+            => throw new NotImplementedException();
+
         public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
         {
             Assert.AreSame(Session, uiTarget);
@@ -156,4 +159,3 @@ public class GestureTargetingTests
         }
     }
 }
-

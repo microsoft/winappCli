@@ -183,6 +183,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.IsNull(_fakeUia.LastInvokeAction);
+        Assert.IsFalse(_fakeUia.FindSingleRequireUniqueCalls.Single());
         Assert.AreSame(ancestor, _fakeUia.LastInvokedElement);
         using var document = JsonDocument.Parse(TestAnsiConsole.Output);
         Assert.AreEqual("auto", document.RootElement.GetProperty("requestedAction").GetString());
@@ -259,17 +260,8 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Invoke_ExplicitAction_AmbiguousTextSelector_FailsClosedWithoutInvoking()
     {
-        // A plain-text/AutomationId selector that matches more than one element must fail closed under
-        // --action rather than acting on FindSingleElementAsync's first match.
-        _fakeUia.FindSingleResult = new UiElement
-        {
-            Id = "internal", Selector = "elm-save-9a9a", AutomationId = "save", Name = "Save", Type = "Button"
-        };
-        _fakeUia.SearchResult =
-        [
-            new UiElement { Id = "a", Selector = "elm-save-9a9a", AutomationId = "save" },
-            new UiElement { Id = "b", Selector = "elm-save-1b1b", AutomationId = "save" },
-        ];
+        _fakeUia.FindUniqueThrow = new UiAmbiguousSelectorException("Selector matched 2 elements. Use a slug from 'inspect'.");
+        _fakeUia.SearchThrow = new AssertFailedException("Search results cannot establish uniqueness.");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
             ["save", "-a", "TestApp", "--action", "invoke", "--json"]);
@@ -277,6 +269,8 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode(UiJsonError.CodeAmbiguousSelector);
         Assert.AreEqual(0, _fakeUia.ExplicitInvokeCalls, "An ambiguous --action selector must not invoke anything.");
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.Single());
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
     }
 
     [TestMethod]
@@ -286,16 +280,18 @@ public partial class UiCommandTests
         {
             Id = "internal", Selector = "elm-save-9a9a", AutomationId = "save", Name = "Save", Type = "Button"
         };
-        _fakeUia.SearchResult = [new UiElement { Id = "a", Selector = "elm-save-9a9a", AutomationId = "save" }];
+        _fakeUia.SearchThrow = new AssertFailedException("Strict selection must not be checked with Search.");
         _fakeUia.ExplicitInvokeResult = new UiInvokeActionResult("InvokePattern", "invoke");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
-            ["save", "-a", "TestApp", "--action", "invoke", "--json"]);
+            ["Save", "-a", "TestApp", "--action", "invoke", "--json"]);
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeUia.ExplicitInvokeCalls, "A unique --action selector must still invoke.");
-        Assert.AreEqual("save", _fakeUia.LastInvokedElement!.Selector,
-            "The service must verify complete AutomationId uniqueness even when bulk search returns one result.");
+        Assert.AreEqual("elm-save-9a9a", _fakeUia.LastInvokedElement!.Selector,
+            "A unique name match must retain its identity, not become a possibly duplicated AutomationId.");
+        Assert.AreSame(_fakeUia.FindSingleResult, _fakeUia.LastInvokedElement);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.Single());
     }
 
     [TestMethod]
@@ -304,11 +300,7 @@ public partial class UiCommandTests
         // A slug names exactly one element by RuntimeId, so the ambiguity guard does not apply even when
         // a text query for the same name would be ambiguous.
         _fakeUia.FindSingleResult = new UiElement { Id = "internal", Selector = "elm-save-9a9a", AutomationId = "save" };
-        _fakeUia.SearchResult =
-        [
-            new UiElement { Id = "a", Selector = "elm-save-9a9a", AutomationId = "save" },
-            new UiElement { Id = "b", Selector = "elm-save-1b1b", AutomationId = "save" },
-        ];
+        _fakeUia.SearchThrow = new AssertFailedException("Slugs must not use bulk search.");
         _fakeUia.ExplicitInvokeResult = new UiInvokeActionResult("InvokePattern", "invoke");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),

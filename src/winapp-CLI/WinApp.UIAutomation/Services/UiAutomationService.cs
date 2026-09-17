@@ -615,6 +615,80 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return Task.FromResult(results);
     }
 
+    public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
+    {
+        if (!requireUnique || selector.IsSlug)
+        {
+            return FindSingleElementAsync(uiTarget, selector, ct);
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (selector.Query is null) { return Task.FromResult<UiElement?>(null); }
+
+        // An explicit HWND must not fall back to a different root after a provider failure.
+        var root = uiTarget.WindowHandle != 0
+            ? s_elementFromHandle(this, (nint)uiTarget.WindowHandle)
+            : GetRootElement(uiTarget);
+        if (root is null) { return Task.FromResult<UiElement?>(null); }
+
+        var result = FindUniqueQueryElement(root, selector.Query, uiTarget.WindowHandle, ct);
+        if (result is null && !uiTarget.IsExplicitWindow)
+        {
+            foreach (var (hwnd, _, _) in GetAllAppWindows(uiTarget))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (hwnd == uiTarget.WindowHandle) { continue; }
+                var windowRoot = s_elementFromHandle(this, hwnd);
+                if (windowRoot is null) { continue; }
+                result = FindUniqueQueryElement(windowRoot, selector.Query, hwnd, ct);
+                if (result is not null) { break; }
+            }
+        }
+        return Task.FromResult(result);
+    }
+
+    private UiElement? FindUniqueQueryElement(IUIAutomationElement root, string query, long hwnd, CancellationToken ct)
+    {
+        var exactMatches = new List<IUIAutomationElement>();
+        var substringMatches = new List<IUIAutomationElement>();
+        foreach (var candidate in EnumerateExplicitControlView(root, ct))
+        {
+            // Failed identity reads must not turn a partial traversal into a unique match.
+            var automationId = candidate.get_CurrentAutomationId().ToString() ?? string.Empty;
+            var name = candidate.get_CurrentName().ToString() ?? string.Empty;
+            if (automationId == query)
+            {
+                exactMatches.Add(candidate);
+            }
+            else if (automationId.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                     name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                substringMatches.Add(candidate);
+            }
+        }
+
+        var matches = exactMatches.Count > 0 ? exactMatches : substringMatches;
+        if (matches.Count == 0) { return null; }
+        if (matches.Count > 1)
+        {
+            var listing = new System.Text.StringBuilder();
+            listing.AppendLine($"Selector matched {matches.Count} elements:");
+            var nextId = 0;
+            foreach (var candidate in matches.Take(5))
+            {
+                var suggestion = ToUiElement(candidate, "", ref nextId);
+                listing.AppendLine($"  {suggestion.Type} \"{suggestion.Name}\"  -> {suggestion.Selector ?? "(run inspect for an exact selector)"}");
+            }
+            listing.Append("Use a slug from 'inspect' to target a specific element.");
+            throw new UiAmbiguousSelectorException(listing.ToString());
+        }
+
+        var id = 0;
+        var result = ToUiElement(matches[0], "", ref id);
+        SetResolvedWindowHandle(result, matches[0], hwnd);
+        return result;
+    }
+
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -1588,27 +1662,18 @@ return Task.FromResult<UiElement?>(null);
         // iteratively, and never return a candidate after a traversal or property-read failure.
         try
         {
-            var walker = s_getExplicitIdentityWalker(this);
-            var pending = new Stack<IUIAutomationElement>();
-            pending.Push(root);
             IUIAutomationElement? match = null;
-            while (pending.TryPop(out var parent))
+            foreach (var child in EnumerateExplicitControlView(root, CancellationToken.None))
             {
-                var child = walker.GetFirstChildElement(parent);
-                while (child is not null)
+                // Do not use SafeGetBstr: a failed identity read leaves uniqueness unknown.
+                if (child.get_CurrentAutomationId().ToString() == automationId)
                 {
-                    // Do not use SafeGetBstr: a failed identity read leaves uniqueness unknown.
-                    if (child.get_CurrentAutomationId().ToString() == automationId)
+                    if (match is not null)
                     {
-                        if (match is not null)
-                        {
-                            throw new InvalidOperationException(
-                                $"AutomationId '{automationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
-                        }
-                        match = child;
+                        throw new InvalidOperationException(
+                            $"AutomationId '{automationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
                     }
-                    pending.Push(child);
-                    child = walker.GetNextSiblingElement(child);
+                    match = child;
                 }
             }
             return match;
@@ -1617,6 +1682,25 @@ return Task.FromResult<UiElement?>(null);
         {
             throw new InvalidOperationException(
                 $"Cannot verify AutomationId '{automationId}' is unique because the ControlView could not be read completely. Re-run 'inspect' or 'search'.", ex);
+        }
+    }
+
+    private IEnumerable<IUIAutomationElement> EnumerateExplicitControlView(IUIAutomationElement root, CancellationToken ct)
+    {
+        var walker = s_getExplicitIdentityWalker(this);
+        var pending = new Stack<IUIAutomationElement>();
+        pending.Push(root);
+        while (pending.TryPop(out var parent))
+        {
+            ct.ThrowIfCancellationRequested();
+            var child = walker.GetFirstChildElement(parent);
+            while (child is not null)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return child;
+                pending.Push(child);
+                child = walker.GetNextSiblingElement(child);
+            }
         }
     }
 
