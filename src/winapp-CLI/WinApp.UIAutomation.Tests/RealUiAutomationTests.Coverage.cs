@@ -71,6 +71,10 @@ public partial class RealUiAutomationTests
         Assert.AreEqual("Item 04", scoped[0].Name);
         Assert.IsTrue(ancestors.Any(a => a.AutomationId == "lstItems"), "ancestor chain should include the list");
         Assert.AreEqual("Item 04", ancestors.Last().Name);
+        Assert.AreEqual(
+            0,
+            svc.SerializedElementResolutionCount,
+            "Slug-scoped inspect and ancestor inspection must reuse the provider element found by slug resolution.");
         StringAssert.Contains(ex.Message, "RuntimeId hash");
     }
 
@@ -955,7 +959,7 @@ public partial class RealUiAutomationTests
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
         UiAutomationService.s_getRootElement = (_, _) => root;
 
-        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsExactlyAsync<UiValueSetException>(
             () => svc.SetValueAsync(uiTarget, model, "hello", CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "could not be set via ValuePattern");

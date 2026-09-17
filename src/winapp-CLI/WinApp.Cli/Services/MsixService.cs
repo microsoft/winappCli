@@ -473,7 +473,7 @@ internal partial class MsixService(
             {
                 taskContext.AddDebugMessage($"{UiSymbols.Note} MSBuild-generated manifest detected");
                 taskContext.AddDebugMessage($"{UiSymbols.Files} Using appxrecipe for staging: {recipeFile.Name}");
-                await CopyFilesFromRecipeAsync(recipeFile, stagingDir, taskContext, cancellationToken);
+                await CopyFilesFromRecipeAsync(recipeFile, stagingDir, taskContext, LayoutReconciliation.None, cancellationToken);
             }
             else
             {
