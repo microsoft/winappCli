@@ -184,7 +184,7 @@ jobs:
 
   metrics:
     needs: [build-artifacts, validate-tests]
-    if: ${{ !cancelled() && needs.build-artifacts.result == 'success' && (needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure') }}
+    if: ${{ !cancelled() && needs.build-artifacts.result == 'success' && (needs.validate-tests.result == 'success' || (github.event_name == 'pull_request' && needs.validate-tests.result == 'failure')) }}
     runs-on: windows-latest
     permissions:
       contents: read

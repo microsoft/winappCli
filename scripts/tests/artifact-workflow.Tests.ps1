@@ -115,6 +115,7 @@ Describe 'Artifact-first workflow dependencies' {
     It 'joins package and test artifacts before collecting and reporting metrics' {
         $metrics = Get-JobText $buildWorkflow 'metrics'
         $metrics | Should -Match 'needs: \[build-artifacts, validate-tests\]'
+        $metrics | Should -Match ([regex]::Escape("needs.validate-tests.result == 'success' || (github.event_name == 'pull_request' && needs.validate-tests.result == 'failure')"))
         foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Core', 'validation-results-UIAutomation', 'test-results')) {
             $metrics | Should -Match "(?m)^\s+name: $artifact\r?$"
         }
