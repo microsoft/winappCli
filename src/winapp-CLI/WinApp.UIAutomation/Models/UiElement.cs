@@ -8,6 +8,8 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// </summary>
 public sealed class UiElement
 {
+    internal UiElementContext? Context { get; set; }
+
     /// <summary>Synthetic walk-order id (e0, e1, ...). Useful in flat result lists; null on nested inspect output where elements are addressed via tree position + selector.</summary>
     public string? Id { get; set; }
     /// <summary>The element's UIA control type, such as "Button" or "Edit".</summary>
@@ -28,16 +30,16 @@ public sealed class UiElement
     /// <summary><see langword="true"/> when the element is scrolled out of view or otherwise not on screen.</summary>
     public bool IsOffscreen { get; set; }
 
-    /// <summary>Left edge of the element in screen coordinates.</summary>
+    /// <summary>Left edge of the element in physical screen pixels.</summary>
     public double X { get; set; }
 
-    /// <summary>Top edge of the element in screen coordinates.</summary>
+    /// <summary>Top edge of the element in physical screen pixels.</summary>
     public double Y { get; set; }
 
-    /// <summary>Width of the element in pixels.</summary>
+    /// <summary>Width of the element in physical screen pixels.</summary>
     public double Width { get; set; }
 
-    /// <summary>Height of the element in pixels.</summary>
+    /// <summary>Height of the element in physical screen pixels. A 0,0,0,0 rectangle is UIA's empty/no-displayed-UI rectangle.</summary>
     public double Height { get; set; }
 
     /// <summary>Child elements, when the result is a nested tree. <see langword="null"/> on flat result lists.</summary>

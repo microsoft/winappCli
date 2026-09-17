@@ -45,29 +45,13 @@ internal sealed partial class UiAutomationService
     {
         try
         {
-            var comElement = ResolveComElement(target, element);
+            var comElement = GetAutomationElement(target, element);
             if (comElement is null)
             {
                 return 0;
             }
 
-            var walker = _automation.get_ControlViewWalker();
-            var current = comElement;
-            var maxWalk = 40;
-            while (current is not null && maxWalk-- > 0)
-            {
-                var native = current.get_CurrentNativeWindowHandle();
-                if (!native.IsNull)
-                {
-                    var root = global::Windows.Win32.PInvoke.GetAncestor(
-                        native,
-                        global::Windows.Win32.UI.WindowsAndMessaging.GET_ANCESTOR_FLAGS.GA_ROOT);
-                    return root.IsNull ? (nint)native : (nint)root;
-                }
-                current = walker.GetParentElement(current);
-            }
-
-            return 0;
+            return ResolveTopLevelWindowHandle(comElement);
         }
         catch (System.Runtime.InteropServices.COMException ex)
         {

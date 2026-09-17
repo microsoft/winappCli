@@ -86,6 +86,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IUiOwnerResolver, UiOwnerResolver>()
             .AddSingleton<IInteractiveDesktopLock, InteractiveDesktopLock>()
             .AddSingleton<IDesktopForegroundService, DesktopForegroundService>()
+            .AddSingleton<IWindowDpiContextProvider, WindowDpiContextProvider>()
             .AddSingleton<IControlsSearchService, ControlsSearchService>()
             // Execution targets (Windows Sandbox and any future target)
             .AddSingleton<ITargetStateDirectoryProvider>(_ => new TargetStateDirectoryProvider())

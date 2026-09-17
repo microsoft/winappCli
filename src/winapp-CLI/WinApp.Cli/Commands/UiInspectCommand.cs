@@ -46,6 +46,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
     public partial class Handler(
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
+        IWindowDpiContextProvider windowDpiContextProvider,
         IAnsiConsole ansiConsole,
         IInteractiveDesktopLock desktopLock,
         ILogger<UiInspectCommand> logger) : UiCoordinatedAction(desktopLock, logger)
@@ -143,6 +144,25 @@ internal partial class UiInspectCommand : Command, IShortDescription
                     // and surface them as ancestorPath breadcrumbs on the surviving descendants.
                     var jsonElements = interactive ? allElements : elements;
                     var windows = BuildWindows(jsonElements, uiTarget, interactive);
+                    for (var i = 0; i < windows.Length; i++)
+                    {
+                        var windowInfo = windows[i];
+                        try
+                        {
+                            var dpiContext = windowDpiContextProvider.GetForWindow(windowInfo.Hwnd);
+                            windowInfo.WindowDpi = dpiContext.WindowDpi;
+                            windowInfo.Scale = dpiContext.Scale;
+                            windowInfo.DpiAwareness = dpiContext.DpiAwareness;
+                            windowInfo.CoordinateSpace = dpiContext.CoordinateSpace;
+                        }
+                        catch (InvalidOperationException ex) when (i > 0)
+                        {
+                            // The first group is the selected target and remains fail-fast. A
+                            // secondary transient window can disappear after its UIA walk; preserve
+                            // the other groups and surface that window's missing context explicitly.
+                            windowInfo.DpiError = ex.Message;
+                        }
+                    }
 
                     var result = new UiInspectResult
                     {

@@ -151,11 +151,10 @@ Describe 'winui-app sample' {
             # without launching the app (no GUI, deterministic in CI).
             $output = Invoke-WinappCommand -Arguments 'run . --no-launch'
             "$output" | Should -Match ([regex]::Escape("-p:PublishProfile=$($script:profileName)"))
-            # Verify the *release* publish profile was not selected. Match the resolved
-            # PublishProfile token specifically rather than a bare 'release-' anywhere in output:
-            # the CLI banner prints the version, which on a branch build embeds the branch name
-            # (e.g. 0.6.3-...-prerelease-pipeline.1) and would otherwise false-match 'release-'.
-            "$output" | Should -Not -Match 'PublishProfile=release-'
+            # Scoped to the profile argument rather than the whole console output: winapp prints its
+            # version banner, which carries the branch name, so a bare 'release-' match fails on any
+            # branch whose name happens to contain it.
+            "$output" | Should -Not -Match ([regex]::Escape('PublishProfile=release-'))
             "$output" | Should -Match 'Registering packaged application'
             "$output" | Should -Match 'registered'
         }
