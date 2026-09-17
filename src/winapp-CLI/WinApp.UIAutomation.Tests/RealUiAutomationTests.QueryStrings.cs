@@ -250,7 +250,8 @@ public partial class RealUiAutomationTests
         var nativeGetter = UiAutomationService.s_getCurrentBstr;
         UiAutomationService.s_getCurrentBstr = (candidate, property) =>
         {
-            if (!automation.CompareElements(element, candidate)) { return nativeGetter(candidate, property); }
+            if (property is not (UIA_PROPERTY_ID.UIA_NamePropertyId or UIA_PROPERTY_ID.UIA_AutomationIdPropertyId or UIA_PROPERTY_ID.UIA_ClassNamePropertyId)
+                || !automation.CompareElements(element, candidate)) { return nativeGetter(candidate, property); }
             var method = property switch
             {
                 UIA_PROPERTY_ID.UIA_NamePropertyId => "get_CurrentName",

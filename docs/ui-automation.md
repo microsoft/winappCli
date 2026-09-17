@@ -830,8 +830,8 @@ When passing a `UiElement` restored from JSON to `GetTextAsync` or
 must still identify the original element; if it no longer exists, these reads
 throw `UiElementNotFoundException` instead of selecting another element with
 the same AutomationId or name. Run the original query again to refresh the
-result. Scoped reads also propagate failures from an acquired UIA pattern
-rather than returning a previously captured value.
+result. Scoped reads also propagate failures from general UIA property getters
+and acquired UIA patterns rather than returning null or a previously captured value.
 
 Recording is a separate package so that projects which only inspect and drive UI don't pull in
 SkiaSharp. The automation package targets both `net10.0-windows` and

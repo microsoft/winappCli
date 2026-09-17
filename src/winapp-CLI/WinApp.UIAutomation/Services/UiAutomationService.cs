@@ -764,12 +764,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
         if (comElement is not null)
         {
             // General UIA properties (convert COM BOOL to C# bool)
-            try { props["HasKeyboardFocus"] = (bool)comElement.get_CurrentHasKeyboardFocus(); } catch { }
-            try { props["IsKeyboardFocusable"] = (bool)comElement.get_CurrentIsKeyboardFocusable(); } catch { }
-            try { var v = SafeGetBstr(() => comElement.get_CurrentAcceleratorKey()); if (v is not null) { props["AcceleratorKey"] = v; } } catch { }
-            try { var v = SafeGetBstr(() => comElement.get_CurrentAccessKey()); if (v is not null) { props["AccessKey"] = v; } } catch { }
-            try { var v = SafeGetBstr(() => comElement.get_CurrentHelpText()); if (v is not null) { props["HelpText"] = v; } } catch { }
-            try { props["IsPassword"] = comElement.get_CurrentIsContentElement() && comElement.get_CurrentControlType() == UIA_CONTROLTYPE_ID.UIA_EditControlTypeId; } catch { }
+            try { props["HasKeyboardFocus"] = (bool)comElement.get_CurrentHasKeyboardFocus(); } catch when (!element.RequiresCurrentIdentity) { }
+            try { props["IsKeyboardFocusable"] = (bool)comElement.get_CurrentIsKeyboardFocusable(); } catch when (!element.RequiresCurrentIdentity) { }
+            try { var v = SafeGetBstr(() => s_getCurrentBstr(comElement, UIA_PROPERTY_ID.UIA_AcceleratorKeyPropertyId), element.RequiresCurrentIdentity); if (v is not null) { props["AcceleratorKey"] = v; } } catch when (!element.RequiresCurrentIdentity) { }
+            try { var v = SafeGetBstr(() => s_getCurrentBstr(comElement, UIA_PROPERTY_ID.UIA_AccessKeyPropertyId), element.RequiresCurrentIdentity); if (v is not null) { props["AccessKey"] = v; } } catch when (!element.RequiresCurrentIdentity) { }
+            try { var v = SafeGetBstr(() => s_getCurrentBstr(comElement, UIA_PROPERTY_ID.UIA_HelpTextPropertyId), element.RequiresCurrentIdentity); if (v is not null) { props["HelpText"] = v; } } catch when (!element.RequiresCurrentIdentity) { }
+            try { props["IsPassword"] = comElement.get_CurrentIsContentElement() && comElement.get_CurrentControlType() == UIA_CONTROLTYPE_ID.UIA_EditControlTypeId; } catch when (!element.RequiresCurrentIdentity) { }
 
             // Pattern-specific properties
             var patternAcquired = false;
@@ -2609,6 +2609,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
             UIA_PROPERTY_ID.UIA_NamePropertyId => element.get_CurrentName(),
             UIA_PROPERTY_ID.UIA_AutomationIdPropertyId => element.get_CurrentAutomationId(),
             UIA_PROPERTY_ID.UIA_ClassNamePropertyId => element.get_CurrentClassName(),
+            UIA_PROPERTY_ID.UIA_AcceleratorKeyPropertyId => element.get_CurrentAcceleratorKey(),
+            UIA_PROPERTY_ID.UIA_AccessKeyPropertyId => element.get_CurrentAccessKey(),
+            UIA_PROPERTY_ID.UIA_HelpTextPropertyId => element.get_CurrentHelpText(),
             _ => throw new ArgumentOutOfRangeException(nameof(property)),
         };
 
