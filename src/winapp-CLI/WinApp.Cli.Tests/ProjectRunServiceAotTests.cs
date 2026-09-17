@@ -607,6 +607,30 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
+    public async Task PublishAot_UsesFinalPropertiesEnvelopeAndKeepsEarlierTargetOutputVisible()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        var finalProperties = PropertyJson(project, assets, publishAot: true, packaging: "None");
+        const string targetOutput = """{"Properties":{"PublishAot":"false"}}""";
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetArgumentListHandler = _ =>
+                (0, $"{targetOutput}\nPublish diagnostic\n{finalProperties}", string.Empty),
+        };
+        using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = NewService(dotnet, logger: logger);
+
+        var outcome = await service.PublishAotAndResolveAsync(
+            project, Options(), CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        StringAssert.Contains(_consoles.Last().Output, targetOutput);
+        StringAssert.Contains(_consoles.Last().Output, "Publish diagnostic");
+    }
+
+    [TestMethod]
     public void PublishEnvironment_AddsInstalledVsWhereDirectoryOnce()
     {
         var installer = _tempDirectory.CreateSubdirectory("Installer");
@@ -751,14 +775,34 @@ public sealed class ProjectRunServiceAotTests
                 "bin",
                 "native",
                 $"{targetName ?? assemblyName}.exe"),
+            ["RunCommand"] = string.Empty,
+            ["RunArguments"] = string.Empty,
             ["OutputType"] = "WinExe",
             ["WindowsPackageType"] = packaging,
             ["_WinAppRunSupportActive"] = winAppRunSupportActive ? "true" : "false",
             ["EnableMsixTooling"] = enableMsixTooling ? "true" : "false",
+            ["MsixPackageSupport"] = enableMsixTooling ? "true" : "false",
+            ["AppxPackageSigningEnabled"] = string.Empty,
+            ["PackageCertificateKeyFile"] = string.Empty,
+            ["PackageCertificatePassword"] = string.Empty,
+            ["PackageCertificateThumbprint"] = string.Empty,
+            ["AppxPackageSigningTimestampServerUrl"] = string.Empty,
+            ["WinAppRunUseExecutionAlias"] = string.Empty,
+            ["PublishTrimmed"] = string.Empty,
             ["WindowsAppSDKSelfContained"] = "true",
+            ["SelfContained"] = "true",
+            ["PublishProfile"] = string.Empty,
+            ["PublishProfileName"] = string.Empty,
+            ["PublishProfileFullPath"] = string.Empty,
+            ["WebPublishProfileFile"] = string.Empty,
+            ["PublishProfileImported"] = string.Empty,
+            ["_PublishProfileRootFolder"] = string.Empty,
+            ["TargetFramework"] = "net10.0-windows10.0.19041.0",
+            ["Platform"] = "x64",
             ["ProjectAssetsFile"] = assets.FullName,
             ["RuntimeIdentifier"] = "win-x64",
             ["FinalAppxManifestName"] = manifest ?? string.Empty,
+            ["WinAppManifestPath"] = string.Empty,
             ["AppxPackageRecipe"] = recipe ?? string.Empty,
         };
         return JsonSerializer.Serialize(new { Properties = properties });
