@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
+using Microsoft.Extensions.Logging;
 using Windows.Win32.UI.Accessibility;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
@@ -24,6 +25,11 @@ internal sealed partial class UiAutomationService
     {
         if (element is null)
         {
+            if (propertyName is null)
+            {
+                _logger.LogWarning("Text formatting omitted from all properties because no live element was resolved.");
+                return;
+            }
             throw new InvalidOperationException("Element is stale. Re-run 'inspect' or 'search'.");
         }
 
@@ -51,7 +57,15 @@ internal sealed partial class UiAutomationService
             {
                 // CsWin32 projects VARIANT as ComVariant, which owns BSTR/IUnknown storage.
                 using var value = range.GetAttributeValue(id);
-                props[name] = FormatTextAttribute(value, mixed, notSupported);
+                try
+                {
+                    props[name] = FormatTextAttribute(value, mixed, notSupported);
+                }
+                catch (InvalidOperationException) when (propertyName is null)
+                {
+                    _logger.LogWarning("Text attribute {AttributeName} omitted from all properties because its value could not be decoded (VARIANT type {VariantType}).",
+                        name, value.VarType);
+                }
             }
         }
     }

@@ -73,6 +73,55 @@ public class TextAttributeTests
     }
 
     [TestMethod]
+    public async Task GetProperties_AllWithoutLiveElement_PreservesCachedBasics()
+    {
+        UiAutomationService.s_getRootElement = (_, _) => null;
+        var service = new UiAutomationService(NullLogger<UiAutomationService>.Instance, new UiSelectorParser());
+        var model = new UiElement { Name = "Cached document" };
+        var all = await service.GetPropertiesAsync(new UiTarget(), model, null, CancellationToken.None);
+        Assert.AreEqual(7, all.Count);
+        Assert.AreEqual("Cached document", all["Name"]);
+        foreach (var name in AttributeNames)
+        {
+            Assert.IsFalse(all.ContainsKey(name));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                service.GetPropertiesAsync(new UiTarget(), model, name, CancellationToken.None));
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task GetProperties_AllMalformedAttribute_PreservesOtherValues(bool foreignToken)
+    {
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var range = Proxy<IUIAutomationTextRange>((_, args) =>
+            (UIA_TEXTATTRIBUTE_ID)args![0]! == UIA_TEXTATTRIBUTE_ID.UIA_FontWeightAttributeId
+                ? foreignToken ? UnknownVariant(automation) : ComVariant.Create(700L)
+                : ComVariant.Create("valid"));
+        var pattern = Proxy<IUIAutomationTextPattern>((_, _) => range);
+        var service = ServiceWithElement((method, args) => method.Name switch
+        {
+            "GetCurrentPropertyValue" => ComVariant.Create(true),
+            "GetCurrentPattern" when (UIA_PATTERN_ID)args![0]! == UIA_PATTERN_ID.UIA_TextPatternId => pattern,
+            _ => throw new COMException(),
+        });
+        var model = new UiElement { AutomationId = "document", Name = "Cached document" };
+        var all = await service.GetPropertiesAsync(new UiTarget(), model, null, CancellationToken.None);
+        Assert.AreEqual("Cached document", all["Name"]);
+        Assert.IsFalse(all.ContainsKey("FontWeight"));
+        foreach (var name in AttributeNames.Skip(1))
+        {
+            Assert.AreEqual("valid", all[name]);
+        }
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            service.GetPropertiesAsync(new UiTarget(), model, "FontWeight", CancellationToken.None));
+    }
+
+    private static unsafe ComVariant UnknownVariant(object token) =>
+        ComVariant.CreateRaw(VarEnum.VT_UNKNOWN, (nint)ComInterfaceMarshaller<object>.ConvertToUnmanaged(token));
+
+    [TestMethod]
     public async Task GetProperties_NoPattern_ReturnsUnavailableInFullAndSingleResults()
     {
         var service = ServiceWithElement((method, _) => method.Name == "GetCurrentPropertyValue"

@@ -30,7 +30,10 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         var result = JsonSerializer.Deserialize<JsonElement>(TestAnsiConsole.Output);
-        Assert.AreEqual(2, result.EnumerateObject().Count());
+        Assert.AreEqual(3, result.EnumerateObject().Count());
+        var typedElement = result.GetProperty("element");
+        Assert.AreEqual("document", typedElement.GetProperty("selector").GetString());
+        Assert.IsFalse(typedElement.TryGetProperty("id", out _));
         Assert.AreEqual("document", result.GetProperty("elementId").GetString());
         var properties = result.GetProperty("properties");
         Assert.AreEqual(_fakeUia.PropertiesResult.Count, properties.EnumerateObject().Count());

@@ -407,6 +407,11 @@ Each attribute can instead return:
 | `"NotSupported"` | The document's TextPattern provider does not report this attribute. Check the app's accessibility support. |
 | `"Unavailable"` | The element has no TextPattern. Use `inspect` or `search` to find its text/document element. |
 
+When listing all properties, cached basic properties remain available if no live
+element can be resolved, and a malformed formatting value is omitted without
+discarding other properties. These omissions are logged as warnings. Request a
+specific formatting property to get an error instead of an omission.
+
 Provider failures remain errors, not `"Unavailable"`. For `stale_element`, inspect
 the app again and retry with a current selector.
 
