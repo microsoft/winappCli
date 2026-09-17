@@ -825,6 +825,14 @@ resolves official type names and the two documented aliases, returning `0` for
 an invalid name. `UiControlTypes.GetName(id)` returns the canonical name, or
 `Unknown(id)` for an unrecognized ID.
 
+When passing a `UiElement` restored from JSON to `GetTextAsync` or
+`GetPropertiesAsync`, keep its `Selector` and `WindowHandle`. A slug selector
+must still identify the original element; if it no longer exists, these reads
+throw `UiElementNotFoundException` instead of selecting another element with
+the same AutomationId or name. Run the original query again to refresh the
+result. Scoped reads also propagate failures from an acquired UIA pattern
+rather than returning a previously captured value.
+
 Recording is a separate package so that projects which only inspect and drive UI don't pull in
 SkiaSharp. The automation package targets both `net10.0-windows` and
 `net10.0-windows10.0.19041.0`; the latter adds Windows Graphics Capture, which is what lets

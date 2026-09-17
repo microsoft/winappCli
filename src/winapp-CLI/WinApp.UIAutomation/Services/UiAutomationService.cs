@@ -593,7 +593,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         // Slug resolution: walk tree, regenerate slugs, match and validate hash
         if (selector.IsSlug)
         {
-            var (slugResult, slugElement) = FindElementBySlugWithCom(selector.Slug!, root);
+            var (slugResult, slugElement) = FindElementBySlugWithCom(selector.Slug!, root, ct: ct);
             if (slugResult is not null && slugElement is not null)
             {
                 SetResolvedWindowHandle(slugResult, slugElement, uiTarget.WindowHandle);
@@ -772,9 +772,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
             try { props["IsPassword"] = comElement.get_CurrentIsContentElement() && comElement.get_CurrentControlType() == UIA_CONTROLTYPE_ID.UIA_EditControlTypeId; } catch { }
 
             // Pattern-specific properties
+            var patternAcquired = false;
             try
             {
                 var pattern = (IUIAutomationTogglePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_TogglePatternId);
+                ArgumentNullException.ThrowIfNull(pattern);
+                patternAcquired = true;
                 props["ToggleState"] = pattern.get_CurrentToggleState() switch
                 {
                     global::Windows.Win32.UI.Accessibility.ToggleState.ToggleState_Off => "Off",
@@ -783,34 +786,44 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     _ => pattern.get_CurrentToggleState().ToString()
                 };
             }
-            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+            catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
+            patternAcquired = false;
             try
             {
                 var pattern = (IUIAutomationValuePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_ValuePatternId);
+                ArgumentNullException.ThrowIfNull(pattern);
+                patternAcquired = true;
                 var v = pattern.get_CurrentValue();
                 props["Value"] = v.ToString();
                 props["IsReadOnly"] = (bool)pattern.get_CurrentIsReadOnly();
             }
-            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+            catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
+            patternAcquired = false;
             try
             {
                 if (comElement is IUIAutomationSelectionItemPattern selPattern)
                 {
+                    patternAcquired = true;
                     props["IsSelected"] = (bool)selPattern.get_CurrentIsSelected();
                 }
                 else
                 {
                     var pattern = (IUIAutomationSelectionItemPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_SelectionItemPatternId);
+                    ArgumentNullException.ThrowIfNull(pattern);
+                    patternAcquired = true;
                     props["IsSelected"] = (bool)pattern.get_CurrentIsSelected();
                 }
             }
-            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+            catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
+            patternAcquired = false;
             try
             {
                 var pattern = (IUIAutomationExpandCollapsePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_ExpandCollapsePatternId);
+                ArgumentNullException.ThrowIfNull(pattern);
+                patternAcquired = true;
                 props["ExpandCollapseState"] = pattern.get_CurrentExpandCollapseState() switch
                 {
                     global::Windows.Win32.UI.Accessibility.ExpandCollapseState.ExpandCollapseState_Collapsed => "Collapsed",
@@ -820,17 +833,20 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     _ => pattern.get_CurrentExpandCollapseState().ToString()
                 };
             }
-            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+            catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
+            patternAcquired = false;
             try
             {
                 var pattern = (IUIAutomationScrollPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_ScrollPatternId);
+                ArgumentNullException.ThrowIfNull(pattern);
+                patternAcquired = true;
                 props["ScrollHorizontalPercent"] = pattern.get_CurrentHorizontalScrollPercent();
                 props["ScrollVerticalPercent"] = pattern.get_CurrentVerticalScrollPercent();
                 props["HorizontallyScrollable"] = pattern.get_CurrentHorizontallyScrollable();
                 props["VerticallyScrollable"] = pattern.get_CurrentVerticallyScrollable();
             }
-            catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+            catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
         }
 
         if (propertyName is not null)
@@ -949,9 +965,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
         }
 
         // 1. Try TextPattern (RichEditBox, Document controls — full text with formatting support)
+        var patternAcquired = false;
         try
         {
             var pattern = (IUIAutomationTextPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_TextPatternId);
+            ArgumentNullException.ThrowIfNull(pattern);
+            patternAcquired = true;
             var range = pattern.get_DocumentRange();
             var text = range.GetText(-1);
             if (text.Length > 0)
@@ -959,12 +978,15 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 return Task.FromResult<string?>(text.ToString());
             }
         }
-        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+        catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
         // 2. Try ValuePattern (TextBox, ComboBox — simple text)
+        patternAcquired = false;
         try
         {
             var pattern = (IUIAutomationValuePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_ValuePatternId);
+            ArgumentNullException.ThrowIfNull(pattern);
+            patternAcquired = true;
             var bstr = pattern.get_CurrentValue();
             var text = bstr.ToString();
             if (!string.IsNullOrEmpty(text))
@@ -972,12 +994,15 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 return Task.FromResult<string?>(text);
             }
         }
-        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+        catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
         // 3. Try TogglePattern (ToggleSwitch, CheckBox — on/off/indeterminate)
+        patternAcquired = false;
         try
         {
             var pattern = (IUIAutomationTogglePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_TogglePatternId);
+            ArgumentNullException.ThrowIfNull(pattern);
+            patternAcquired = true;
             var state = pattern.get_CurrentToggleState();
             return Task.FromResult<string?>(state switch
             {
@@ -986,12 +1011,15 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 _ => "Indeterminate"
             });
         }
-        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+        catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
         // 4. Try SelectionPattern (ComboBox, RadioButton, TabView, ListView — selected item name)
+        patternAcquired = false;
         try
         {
             var pattern = (IUIAutomationSelectionPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_SelectionPatternId);
+            ArgumentNullException.ThrowIfNull(pattern);
+            patternAcquired = true;
             var selection = pattern.GetCurrentSelection();
             if (selection.get_Length() > 0)
             {
@@ -1003,7 +1031,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 }
             }
         }
-        catch (Exception ex) when (!IsScopedReadRace(element, ex)) { }
+        catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
         // 5. Fall back to element Name (static text, labels)
         if (!string.IsNullOrEmpty(element.Name))
@@ -1369,9 +1397,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
     // --- Private helpers ---
 
-    private static bool IsScopedReadRace(UiElement element, Exception exception) =>
+    private static bool IsScopedReadFailure(UiElement element, Exception exception, bool patternAcquired) =>
         element.RequiresCurrentIdentity
-        && exception is System.Runtime.InteropServices.COMException { HResult: UiaElementNotAvailable };
+        && (patternAcquired || exception is System.Runtime.InteropServices.COMException { HResult: UiaElementNotAvailable });
 
     /// <summary>
     /// Uses the provider element retained when the model was created. Touching ProcessId before
@@ -1411,6 +1439,11 @@ internal sealed partial class UiAutomationService : IUiAutomation
     {
         Interlocked.Increment(ref _serializedElementResolutionCount);
 
+        // A serialized slug still names an exact identity even though its in-process metadata is gone.
+        if (requireCurrentIdentity && element.Selector is { } selector && SlugGenerator.ParseSlug(selector) is not null)
+        {
+            element.RequiresCurrentIdentity = true;
+        }
         // Read queries must not substitute a same-name replacement for the identity they matched.
         requireCurrentIdentity &= element.RequiresCurrentIdentity;
         if (requireCurrentIdentity && element.Selector is null)

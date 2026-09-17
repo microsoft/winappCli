@@ -700,7 +700,7 @@ public partial class RealUiAutomationTests
         var uiTarget = NonExplicitSession(fx);
         uiTarget.WindowHandle = 0;
         uiTarget.WindowTitle = selectedTitle;
-        UiAutomationService.s_getRootElement = (service, _) =>
+        UiAutomationService.s_getRootElement = (service, _, _) =>
             UiAutomationService.s_elementFromHandle(service, selectedHwnd);
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(selectedHwnd, fx.ProcessId, selectedTitle), (fx.Hwnd, fx.ProcessId, fx.Title)];
@@ -722,7 +722,7 @@ public partial class RealUiAutomationTests
         var childHwnd = fx.OnUiThread(() => (nint)fx.InvokeButton.Handle);
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
-        UiAutomationService.s_getRootElementForHwnd = (_, _) => null;
+        UiAutomationService.s_getRootElementForHwnd = (_, _, _) => null;
 
         var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
 
@@ -742,7 +742,7 @@ public partial class RealUiAutomationTests
         var calls = 0;
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
-        UiAutomationService.s_getRootElementForHwnd = (service, hwnd) =>
+        UiAutomationService.s_getRootElementForHwnd = (service, hwnd, _) =>
             hwnd == childHwnd && ++calls == 1
                 ? UiAutomationService.s_elementFromHandle(service, hwnd)
                 : null;
@@ -766,7 +766,7 @@ public partial class RealUiAutomationTests
         var calls = 0;
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title), (staleHwnd, fx.ProcessId, "closed")];
-        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) =>
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd, _) =>
             hwnd == staleHwnd && ++calls == 1 ? staleRoot : null;
 
         var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
@@ -803,7 +803,7 @@ public partial class RealUiAutomationTests
         var staleHwnd = fx.Hwnd + 1000;
         var uiTarget = NonExplicitSession(fx);
         uiTarget.WindowHandle = staleHwnd;
-        UiAutomationService.s_getRootElement = (service, _) =>
+        UiAutomationService.s_getRootElement = (service, _, _) =>
             UiAutomationService.s_elementFromHandle(service, fx.Hwnd);
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title)];

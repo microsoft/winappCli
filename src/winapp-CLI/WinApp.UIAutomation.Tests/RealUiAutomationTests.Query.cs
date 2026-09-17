@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows.Forms;
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.TestSupport;
 using Windows.Win32.UI.Accessibility;
@@ -122,6 +123,94 @@ public partial class RealUiAutomationTests
         element.Context = null;
         Assert.AreEqual("live value", await Read());
         Assert.AreEqual(1, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Query_JsonRoundTripCannotReadAnotherRoot(bool property)
+    {
+        using var fx = new UiaTestFixture();
+        TextBox inboxValue = null!;
+        fx.OnUiThread(() =>
+        {
+            fx.ValueBox.Name = "archiveUnused";
+            fx.Form.Controls.Add(new ComboBox { Name = "txtValue", Text = "ARCHIVE-ONLY", Top = 350 });
+            var inbox = new Panel { Name = "Inbox", Top = 250, Width = 200, Height = 100 };
+            inboxValue = new TextBox { Name = "txtValue", Text = "INBOX-ONLY" };
+            inbox.Controls.Add(inboxValue);
+            fx.Form.Controls.Add(inbox);
+        });
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var element = await svc.FindSingleElementAsync(target,
+            new UiSelector { Root = new() { Query = "Inbox" }, Query = "txtValue", ControlType = "Edit" }, default);
+        Assert.IsNotNull(element);
+        var json = JsonSerializer.Serialize(element, QueryElementJsonContext.Default.UiElement);
+        Assert.DoesNotContain("Context", json);
+        Assert.DoesNotContain("RequiresCurrentIdentity", json);
+        element = JsonSerializer.Deserialize(json, QueryElementJsonContext.Default.UiElement)!;
+        Assert.IsNull(element.Context);
+
+        async Task<string?> Read() => property
+            ? (string?)(await svc.GetPropertiesAsync(target, element, "Value", default))["Value"]
+            : await svc.GetTextAsync(target, element, default);
+
+        Assert.AreEqual("INBOX-ONLY", await Read());
+        fx.OnUiThread(() => inboxValue.Dispose());
+        await Assert.ThrowsExactlyAsync<UiElementNotFoundException>(Read);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task Query_AcquiredValueGetterFailureCannotReturnCachedRead(bool property, bool constrained)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var element = await svc.FindSingleElementAsync(target,
+            new UiSelector { Query = "txtValue", ControlType = constrained ? "Edit" : null }, default);
+        Assert.IsNotNull(element?.Context);
+        fx.OnUiThread(() => fx.ValueBox.Text = "NOT-READY");
+        var provider = element.Context.AutomationElement;
+        var failure = new COMException("Value getter failed.", unchecked((int)0x80004005));
+        var getterCalls = 0;
+        element.Context = new UiElementContext(ComProxy<IUIAutomationElement>((method, args) =>
+        {
+            if (method.Name == "GetCurrentPattern" && (UIA_PATTERN_ID)args![0]! == UIA_PATTERN_ID.UIA_ValuePatternId)
+            {
+                var value = (IUIAutomationValuePattern)method.Invoke(provider, args)!;
+                return ComProxy<IUIAutomationValuePattern>((getter, parameters) =>
+                {
+                    if (getter.Name == "get_CurrentValue") { getterCalls++; throw failure; }
+                    return getter.Invoke(value, parameters);
+                });
+            }
+            // Exercise normal unsupported TextPattern -> ValuePattern fallback.
+            if (method.Name == "GetCurrentPattern" && (UIA_PATTERN_ID)args![0]! == UIA_PATTERN_ID.UIA_TextPatternId)
+            {
+                throw new COMException("Pattern unsupported.", unchecked((int)0x80040204));
+            }
+            return method.Invoke(provider, args);
+        }));
+
+        async Task<string?> Read() => property
+            ? (string?)(await svc.GetPropertiesAsync(target, element, "Value", default))["Value"]
+            : await svc.GetTextAsync(target, element, default);
+
+        if (constrained)
+        {
+            Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<COMException>(Read));
+        }
+        else
+        {
+            Assert.AreEqual(property ? element.Value : element.Name, await Read());
+        }
+        Assert.AreEqual(1, getterCalls);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
     }
 
     [TestMethod]
