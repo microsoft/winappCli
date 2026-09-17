@@ -162,6 +162,67 @@ Describe 'winui-app sample' {
         It 'Finds the inferred-profile output with --no-build' -Skip:$script:skip {
             Invoke-WinappCommand -Arguments 'run . --no-build --no-launch'
         }
+
+        It 'Publishes Native AOT and stages the recipe executable without launching' -Skip:$script:skip {
+            # Keep PublishAot local to the app: a global -p would also reach the netstandard library.
+            $projectPath = Join-Path $script:tempDir 'winui-app.csproj'
+            $project = [System.Xml.Linq.XDocument]::Load($projectPath)
+            $project.Root.Add([System.Xml.Linq.XElement]::Parse(
+                '<PropertyGroup><PublishAot>true</PublishAot></PropertyGroup>'))
+            $project.Save($projectPath)
+
+            # run has no --no-register option. Use a unique identity and always unregister it.
+            $manifestPath = Join-Path $script:tempDir 'Package.appxmanifest'
+            $manifest = [System.Xml.Linq.XDocument]::Load($manifestPath)
+            $identityName = "winui-aot-test-$([guid]::NewGuid().ToString('N'))"
+            $manifest.Root.Element($manifest.Root.Name.Namespace + 'Identity').SetAttributeValue('Name', $identityName)
+            $manifest.Save($manifestPath)
+            $layoutDir = Join-Path $script:tempDir 'AotLayout'
+
+            try {
+                $output = Invoke-WinappCommand -Arguments "run . --aot --arch $($script:platform) --no-launch --output-appx-directory AotLayout"
+                "$output" | Should -Match 'Native AOT output:'
+
+                [xml]$stagedManifest = Get-Content (Join-Path $layoutDir 'appxmanifest.xml') -Raw
+                $stagedManifest.Package.Identity.Name | Should -Be $identityName
+                $stagedManifest.Package.Identity.ProcessorArchitecture | Should -Be $script:platform.ToLowerInvariant()
+                $stagedManifest.Package.Applications.Application.EntryPoint | Should -Be 'Windows.FullTrustApplication'
+                $executable = $stagedManifest.Package.Applications.Application.Executable
+                $executable | Should -Be 'winui-app.exe'
+                $stagedExe = Join-Path $layoutDir $executable
+                $stagedExe | Should -Exist
+
+                $recipes = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter '*.build.appxrecipe')
+                $recipes.Count | Should -Be 1
+                $recipe = [System.Xml.Linq.XDocument]::Load($recipes[0].FullName)
+                $entries = @($recipe.Descendants() | Where-Object {
+                    $_.Name.LocalName -eq 'AppxPackagedFile' -and
+                    $_.Element($_.Name.Namespace + 'PackagePath').Value -eq $executable
+                })
+                $entries.Count | Should -Be 1
+                $nativeExe = [System.IO.Path]::GetFullPath($entries[0].Attribute('Include').Value, $recipes[0].DirectoryName)
+                $nativeExe | Should -Exist
+                $published = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter $executable |
+                    Where-Object { $_.Directory.Name -eq 'publish' })
+                $published.Count | Should -Be 1
+                (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $nativeExe).Hash
+                (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $published[0].FullName).Hash
+
+                $stream = [System.IO.File]::OpenRead($stagedExe)
+                $pe = [System.Reflection.PortableExecutable.PEReader]::new($stream)
+                try {
+                    $pe.PEHeaders.CorHeader | Should -BeNullOrEmpty -Because 'the staged executable must be native, not a managed assembly'
+                    $expectedMachine = if ($script:rid -eq 'win-arm64') { 'Arm64' } else { 'Amd64' }
+                    $pe.PEHeaders.CoffHeader.Machine.ToString() | Should -Be $expectedMachine
+                } finally {
+                    $pe.Dispose()
+                    $stream.Dispose()
+                }
+            } finally {
+                Get-AppxPackage -Name $identityName -ErrorAction Stop |
+                    ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -ErrorAction Stop }
+            }
+        }
     }
 
     Context 'Phase 2: Sample Build Check' {

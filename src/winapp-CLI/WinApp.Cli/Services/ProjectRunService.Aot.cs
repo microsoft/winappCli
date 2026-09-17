@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Xml.Linq;
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
@@ -110,89 +109,13 @@ internal sealed partial class ProjectRunService
             writeLine = CreateSynchronizedRedactedLineWriter();
         }
 
-        List<string>? propertyCandidate = null;
-        var outputLock = new object();
-        void WritePublishOutput(string line)
-        {
-            lock (outputLock)
-            {
-                var trimmed = line.Trim();
-                if (propertyCandidate is not null)
-                {
-                    propertyCandidate.Add(line);
-                    if (propertyCandidate.Count == 2 &&
-                        !trimmed.StartsWith("\"Properties\":", StringComparison.Ordinal))
-                    {
-                        foreach (var bufferedLine in propertyCandidate)
-                        {
-                            writeLine(bufferedLine);
-                        }
-                        propertyCandidate = null;
-                        return;
-                    }
-
-                    var candidateText = string.Join(Environment.NewLine, propertyCandidate);
-                    if (TryParseCompletePropertyEnvelope(candidateText))
-                    {
-                        propertyCandidate = null;
-                    }
-                    return;
-                }
-
-                if (trimmed == "{")
-                {
-                    propertyCandidate = [line];
-                }
-                else if (trimmed.StartsWith('{') && TryParseCompletePropertyEnvelope(trimmed))
-                {
-                    // Suppress only a complete MSBuild property envelope. A target-emitted partial
-                    // Properties object is ordinary publish output and must remain visible.
-                }
-                else
-                {
-                    writeLine(line);
-                }
-            }
-        }
-
-        try
-        {
-            return await dotNetService.RunDotnetCommandAsync(
-                workingDirectory,
-                arguments,
-                BuildAotPublishEnvironment(),
-                WritePublishOutput,
-                writeLine,
-                cancellationToken);
-        }
-        finally
-        {
-            lock (outputLock)
-            {
-                if (propertyCandidate is not null)
-                {
-                    foreach (var bufferedLine in propertyCandidate)
-                    {
-                        writeLine(bufferedLine);
-                    }
-                }
-            }
-        }
-    }
-
-    private static bool TryParseCompletePropertyEnvelope(string text)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(text);
-            return document.RootElement.TryGetProperty("Properties", out var properties) &&
-                properties.ValueKind == JsonValueKind.Object &&
-                RequestedProperties.All(name => properties.TryGetProperty(name, out _));
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
+        return await dotNetService.RunDotnetCommandAsync(
+            workingDirectory,
+            arguments,
+            BuildAotPublishEnvironment(),
+            writeLine,
+            writeLine,
+            cancellationToken);
     }
 
     internal static IReadOnlyDictionary<string, string>? BuildAotPublishEnvironment(

@@ -580,7 +580,7 @@ public sealed class ProjectRunServiceAotTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task PublishAot_HidesOnlyTheFinalPropertiesEnvelope(bool indented)
+    public async Task PublishAot_StreamsDiagnosticsAndPropertiesEnvelope(bool indented)
     {
         var project = WriteProject();
         var assets = WriteFile("obj\\project.assets.json", "{}");
@@ -603,17 +603,21 @@ public sealed class ProjectRunServiceAotTests
 
         Assert.IsNotNull(outcome.Resolution);
         StringAssert.Contains(_consoles.Last().Output, "Publish diagnostic");
-        Assert.IsFalse(_consoles.Last().Output.Contains("\"Properties\"", StringComparison.Ordinal));
+        StringAssert.Contains(_consoles.Last().Output, properties.ReplaceLineEndings());
     }
 
     [TestMethod]
-    public async Task PublishAot_UsesFinalPropertiesEnvelopeAndKeepsEarlierTargetOutputVisible()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PublishAot_UsesFinalPropertiesEnvelopeAndKeepsEarlierTargetOutputVisible(bool indented)
     {
         var project = WriteProject();
         var assets = WriteFile("obj\\project.assets.json", "{}");
         WriteFile("publish\\Sample.exe", "native");
         var finalProperties = PropertyJson(project, assets, publishAot: true, packaging: "None");
-        const string targetOutput = """{"Properties":{"PublishAot":"false"}}""";
+        var targetOutput = indented
+            ? "{\n  \"Properties\": { \"PublishAot\": \"false\" }\n}"
+            : """{"Properties":{"PublishAot":"false"}}""";
         var dotnet = new FakeDotNetService
         {
             RunDotnetArgumentListHandler = _ =>
@@ -626,8 +630,9 @@ public sealed class ProjectRunServiceAotTests
             project, Options(), CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        StringAssert.Contains(_consoles.Last().Output, targetOutput);
+        StringAssert.Contains(_consoles.Last().Output, targetOutput.ReplaceLineEndings());
         StringAssert.Contains(_consoles.Last().Output, "Publish diagnostic");
+        StringAssert.Contains(_consoles.Last().Output, finalProperties);
     }
 
     [TestMethod]
