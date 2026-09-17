@@ -110,8 +110,15 @@ Everything else, for real:
   WinGet URLs and documented download links hardcode. The real rename happens later in
   `Release_GitHub`, which has no checkout and so cannot run the verifier — doing it here means a
   naming regression fails the build instead of silently publishing wrong URLs (#568).
-- Credential and service-connection checks via `scripts/check-release-credentials.ps1` — PAT scopes
-  and expiry, fork push permission, and service-connection readiness.
+- GitHub credential checks via `scripts/check-release-credentials.ps1` — PAT scopes and expiry,
+  and fork push permission.
+- **The two federated service connections, exercised for real.** `AzureCLI@2` acquires a token
+  from the ESRP signing connection, and `AzurePowerShell@5` acquires one from the symbol
+  publishing connection — the latter deliberately matching the task and cmdlet the real symbol
+  stage runs, so a break in that task or in the Az modules is caught too. Nothing is signed
+  and nothing is published, but it proves the connection exists, this pipeline is authorized to
+  use it, **and the workload-identity federation credential still works** — the part that silently
+  rotates or gets de-authorized under ES policy changes.
 
 ### Limitations
 
@@ -123,6 +130,11 @@ Everything else, for real:
 - **Connection existence is not credential validity.** `github-service-connection` and
   `NuGet-WinAppCLI` are checked for existence and readiness only; nothing authenticates the secret
   inside them without publishing.
+  **Two connections cannot be verified at all.** `github-service-connection` is consumed only by
+  `GitHubRelease@1`, whose every action mutates, and `NuGet-WinAppCLI` carries an API key that is
+  only validated on push. There is deliberately no check for them — a metadata lookup would prove
+  nothing about the credential, and it is better to say so than to fake coverage. They are covered
+  the moment you cut a real release.
 - **The publish calls themselves never run.** The rehearsal validates their preconditions, not the
   final API call.
 
@@ -132,30 +144,27 @@ The schedule is defined in YAML and needs **no new pipeline** — it runs on the
 **WinDevCLI - Release** definition, which already has its variable groups and service connections
 authorized. That is the main practical advantage of this design.
 
-Three things to check in the ADO UI:
+Two things to check in the ADO UI:
 
 1. **"Override the YAML schedule" must be off**, or the weekly trigger will not fire.
 2. Any **Branch control** check on the shared service connections must allow **both**
    `refs/heads/rel/v*` and `refs/heads/main`. A `rel/v*`-only filter would block the rehearsal;
    a `main`-only filter would block real releases.
-3. Grant the **build service identity `Read` on each service connection** (connection → Security →
-   add `<project> Build Service` as Reader). Grant it on **every** connection the check names —
-   the permission is per connection, so a partial grant leaves the rest unverifiable. Without it
-   the checks report `WARN` rather than failing, so this is optional; the check simply has no
-   value until it is granted.
 
-> **What this check can and cannot prove.** Azure DevOps does **not** return 403 when a caller
-> lacks endpoint read permission — it returns HTTP 200 with an empty list, which reads identically
-> to "this connection does not exist". Because the grant is per connection, seeing one endpoint
-> also says nothing about seeing another. **Absence is therefore never provable here**, and an
-> invisible connection is always reported `WARN`, never `FAIL`.
+No extra permission grant is needed. An earlier version of this check read the service endpoints
+over REST, which required the build identity to have `View Service Connection` — a permission
+nothing else needs, and which it does not have. That produced four false "Not found" failures for
+two weeks running (builds 20260907.1 and 20260914.1) against connections that were all present and
+authorized.
+
+> **Why using a connection beats inspecting it.** Pipelines are authorized to *use* a service
+> connection through pipeline authorization, which is separate from the ACL that governs *reading*
+> it over REST. So releases can work perfectly while the endpoint list comes back empty — the two
+> are unrelated, and the empty list means nothing.
 >
-> What remains definitive: a visible connection is confirmed present, and a visible connection
-> that reports `isReady: false` is a real `FAIL`.
->
-> The first real rehearsal (build 20260914.1) failed with four "Not found" verdicts against four
-> connections that all existed and were ready. That is the failure mode this wording exists to
-> prevent recurring.
+> More importantly, no amount of metadata tells you whether a connection's credential still works.
+> Acquiring a token does. That is why the ESRP and symbol-publishing connections are now exercised
+> directly in `release.yml` rather than looked up.
 
 `always: true` on the schedule is deliberate: without it a quiet week produces no run, and a quiet
 week is exactly when an external policy change slips in unnoticed.
@@ -169,6 +178,7 @@ week is exactly when an external policy change slips in unnoticed.
 | Generate Release Notes | `GITHUB_TOKEN_2` expired or lost access. Cannot fail the build — it falls back to a git-log changelog. |
 | `Preflight - assert asset name contract` | Package naming changed, or an architecture stopped building. Fix `templates/release-assets.yaml` — `Release_GitHub` uses the same copy. Note this gate is **not** rehearsal-only; it fails real releases too, by design. |
 | `Check release credentials` | Read the PASS/WARN/FAIL summary at the end of the log. `FAIL` is definitive; `WARN` means the check could not determine an answer and is not actionable on its own. A token-expiry `WARN` is the one worth acting on early — the PAT is regenerated by hand. |
+| `Verify ESRP signing connection (token only, signs nothing)` / `Verify symbol publishing connection (token only, publishes nothing)` | The federated identity behind that connection no longer works — rotated, expired, or de-authorized for this pipeline. A real release would fail at signing or symbol publishing. Nothing was signed or published by the check itself. Both steps run even if an earlier check failed, so treat their verdicts independently. |
 | WinGet (rehearsal path) | `wingetcreate`, the installer downloads, or the manifest schema changed. A real submission would fail the same way. |
 | MS Learn (rehearsal path) | A doc edit landed that the port or validation script rejects. |
 | `Verify shipped binaries are signed` | A binary is shipping unsigned. Read the failure line — it names each file, using `container!/path` for anything nested. See [Signing and Code Sign Validation](#signing-and-code-sign-validation). |
@@ -196,7 +206,8 @@ $env:GH_TOKEN = 'ghp_...'
     -MSLearnDocsFork '<owner>/windows-dev-docs-pr'
 ```
 
-Service connection checks are skipped outside Azure Pipelines, so this runs fine offline.
+This command checks GitHub credentials only — the federated service connections are exercised by
+the pipeline steps above, so it needs no Azure access and runs fine offline.
 
 ### Related
 
