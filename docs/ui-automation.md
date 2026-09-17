@@ -473,13 +473,14 @@ specific formatting property to get an error instead of an omission.
 Provider failures remain errors, not `"Unavailable"`. For `stale_element`, inspect
 the app again and retry with a current selector.
 
-JSON retains the `elementId` and string-valued `properties` envelope; existing
-properties, including `BoundingRectangle`, keep their formats. For example:
+The [JSON envelope](../plugins/winapp/skills/winapp-ui-automation/references/ui-json-envelope.md#ui-get-property---json)
+includes `elementId`, a typed `element`, and string-valued `properties`.
+Existing properties, including `BoundingRectangle`, keep their formats.
+For example, the formatting portion of `properties` is:
 
 ```json
 {
-  "elementId": "Document",
-  "properties": { "FontWeight": "700" }
+  "FontWeight": "700"
 }
 ```
 

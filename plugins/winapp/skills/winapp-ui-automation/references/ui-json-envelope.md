@@ -204,6 +204,21 @@ The typed `element` object is the canonical way to consume geometry and boolean
 state. The existing `properties` values intentionally remain strings for
 backward compatibility.
 
+### Whole-document formatting
+
+```bash
+winapp ui get-property Document -a myapp --property FontWeight --json
+```
+
+The envelope above is unchanged; its `properties` map contains the requested
+formatting value, such as `"FontWeight": "700"`. Omitting `--property` includes
+the six [whole-document formatting attributes](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#whole-document-text-formatting).
+That reference defines their units, omission behavior, and the `Mixed`,
+`NotSupported`, and `Unavailable` states.
+
+Unknown, case-sensitive property names fail with `invalid_arguments` on stderr,
+not a successful null value. Omit `--property` to discover valid names.
+
 ## `ui status --json`
 
 The resolved target also reports its window DPI context:
@@ -228,29 +243,6 @@ error rather than a silent 96-DPI fallback.
 The internal `id`, `parentSelector`, and `windowHandle` fields are
 **scrubbed** from typed element results — both at the top level and inside any
 nested `invokableAncestor`. Don't depend on them; use `selector` as the handle.
-
-## `ui get-property --json`
-
-```bash
-winapp ui get-property Document -a myapp --property FontWeight --json
-```
-
-```json
-{
-  "elementId": "Document",
-  "properties": { "FontWeight": "700" }
-}
-```
-
-`elementId` contains the resolved element selector. `properties` values are strings
-(or null for an unavailable existing scalar property), not JSON numbers or booleans.
-Omitting `--property` returns the full property set, including the six
-[whole-document formatting attributes](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#whole-document-text-formatting).
-That reference defines their units and the `Mixed`, `NotSupported`, and `Unavailable`
-states. Existing properties such as `BoundingRectangle` keep their string format.
-
-Unknown, case-sensitive property names fail with `invalid_arguments` on stderr,
-not a successful null value. Omit `--property` to discover valid names.
 
 ## Error envelope
 
