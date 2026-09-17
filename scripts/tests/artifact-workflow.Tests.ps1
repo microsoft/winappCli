@@ -44,8 +44,8 @@ AfterAll {
 Describe 'Artifact-first workflow dependencies' {
     It 'publishes packages without tests and keeps the original check as a strict aggregate' {
         $producer = Get-JobText $buildWorkflow 'build-artifacts'
-        $producer | Should -Match 'build-cli\.ps1 -OnlyPackage -UseExistingArtifacts'
-        $producer | Should -Match '(?m)^\s+needs: publish-cli'
+        $producer | Should -Match 'build-cli\.ps1 -SkipTests -SkipDocs'
+        $producer | Should -Not -Match '(?m)^\s+needs:'
         $producer | Should -Not -Match 'collect-metrics|test-results'
         $producer | Should -Match 'Downloads - awaiting validation'
         foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages')) {
@@ -54,23 +54,14 @@ Describe 'Artifact-first workflow dependencies' {
 
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
-        $gate | Should -Match 'needs: \[publish-cli, build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics\]'
+        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics\]'
     }
 
-    It 'publishes both architectures on separate runners and packages their same-run outputs' {
-        $publish = Get-JobText $buildWorkflow 'publish-cli'
-        $publish | Should -Match 'architecture: \[x64, arm64\]'
-        $publish | Should -Match 'fail-fast: false'
-        $publish | Should -Match 'runs-on: windows-latest'
-        $publish | Should -Match 'fetch-depth: 0'
-        $publish | Should -Match 'build-cli\.ps1 -SkipAll -Architecture \$\{\{ matrix.architecture \}\}'
-        $publish | Should -Match 'name: cli-publish-\$\{\{ matrix.architecture \}\}'
+    It 'builds both architectures in one producer without intermediate publish artifacts' {
         $producer = Get-JobText $buildWorkflow 'build-artifacts'
-        foreach ($arch in @('x64', 'arm64')) {
-            $producer | Should -Match "name: cli-publish-$arch"
-            $producer | Should -Match "artifacts/cli/win-$arch/"
-        }
-        $producer | Should -Not -Match 'dotnet publish|run-id:'
+        $producer | Should -Match 'fetch-depth: 0'
+        $producer | Should -Match 'path: artifacts/cli/'
+        $buildWorkflow | Should -Not -Match 'cli-publish-|OnlyPackage| -Architecture '
     }
 
     It 'keeps formatting, lint and compilation gates on freshly generated npm commands' {
@@ -157,7 +148,7 @@ Describe 'Artifact-first workflow dependencies' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('publish-cli', 'build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
+        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
             $results[$job] = @{ result = 'success' }
         }
         $env:IS_PR = 'true'

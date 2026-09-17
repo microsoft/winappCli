@@ -243,15 +243,9 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 
 ### CI integration
 
-`Build and Package` publishes x64 and ARM64 on separate runners with
-`-SkipAll -Architecture x64` (or `arm64`). Each publish carries its version,
-commit, and CLI executable hash alongside its runtime folder. The packaging runner
-downloads both to `artifacts\cli` and uses `-OnlyPackage -UseExistingArtifacts`,
-which validates the actual PE architectures and matching provenance without
-cleaning or republishing the inputs. Preserve full git history in all three
-jobs so they calculate the same build number.
-
-The workflow uploads packages in `build-artifacts`, then starts the full
+`Build and Package` builds both CLI architectures and all packages together
+with `-SkipTests -SkipDocs`. Keep full git history in `build-artifacts` so the
+build number is calculated correctly. It uploads packages, then starts the full
 test suite, documentation validation, UI E2E, and (on PRs) sample tests as
 independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
 not republish or delete the downloaded CLI and NuGet packages.

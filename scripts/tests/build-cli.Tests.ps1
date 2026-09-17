@@ -28,23 +28,9 @@ BeforeAll {
         Set-Content (Join-Path $root 'scripts\setup-winapprun.ps1') '# Fixture installer'
         Set-Content (Join-Path $root 'artifacts\keep.txt') 'unrelated artifact'
         foreach ($arch in @('win-x64', 'win-arm64')) {
-            $pe = [byte[]]::new(128)
-            $pe[0] = 0x4D
-            $pe[1] = 0x5A
-            $pe[0x3C] = 0x40
-            $pe[0x40] = 0x50
-            $pe[0x41] = 0x45
-            $pe[0x44] = 0x64
-            $pe[0x45] = if ($arch -eq 'win-x64') { 0x86 } else { 0xAA }
             $cliPath = Join-Path $root "artifacts\cli\$arch\winapp.exe"
-            [System.IO.File]::WriteAllBytes($cliPath, $pe)
-            Copy-Item $cliPath (Join-Path $root "fake-$arch.exe")
+            Set-Content $cliPath "downloaded $arch"
             Set-Content (Join-Path $root "artifacts\cli\$arch\winapp.pdb") 'normal PDB output'
-            @{
-                schemaVersion = 1; runtimeId = $arch; sourceCommit = ('1' * 40)
-                fullVersion = '1.2.3-fixture.17'; assemblyVersion = '1.2.3.17'
-                cliSha256 = (Get-FileHash $cliPath).Hash
-            } | ConvertTo-Json | Set-Content (Join-Path $root "artifacts\cli\$arch.build.json")
             Set-Content (Join-Path $root "src\winapp-npm\bin\$arch\winapp.exe") 'stale npm binary'
         }
         foreach ($id in $script:PackageIds) {
@@ -125,12 +111,6 @@ function Add-Trace {
     [pscustomobject]@{ Name = $Name; Arguments = @($Arguments) } |
         ConvertTo-Json -Depth 10 -Compress | Add-Content "$PSScriptRoot\trace.jsonl"
 }
-function git {
-    if (($args -join ' ') -ne 'rev-parse HEAD') { throw "Unexpected git operation: $args" }
-    Add-Trace 'source-commit'
-    $global:LASTEXITCODE = if ($fixture.Fail -eq 'git') { 1 } else { 0 }
-    return ('1' * 40)
-}
 foreach ($arch in @('win-x64', 'win-arm64')) {
     $path = Join-Path $PSScriptRoot "artifacts\cli\$arch\winapp.exe"
     Set-Item -LiteralPath "Function:\$path" -Value {
@@ -149,9 +129,7 @@ function dotnet {
     } elseif ($step -eq 'publish') {
         $output = $arguments[[array]::IndexOf($arguments, '-o') + 1]
         New-Item -ItemType Directory -Path $output -Force | Out-Null
-        $runtimeId = $arguments[[array]::IndexOf($arguments, '-r') + 1]
-        Copy-Item (Join-Path $PSScriptRoot "fake-$runtimeId.exe") (Join-Path $output 'winapp.exe')
-        if ($fixture.Fail -eq 'publish-placeholder') { Set-Content (Join-Path $output 'winapp.exe') 'placeholder' }
+        Set-Content (Join-Path $output 'winapp.exe') 'published'
     } elseif ($step -eq 'run' -or $step -eq 'test') {
         $project = $arguments[[array]::IndexOf($arguments, '--project') + 1]
         if ($step -eq 'test') {
@@ -319,148 +297,6 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=False fixture'
         $result.Output | Should -Match 'awaiting validation'
         $result.Output | Should -Not -Match 'Ready for distribution'
-    }
-
-    It 'publishes only <Architecture> with the existing AOT version arguments and provenance' -ForEach @(
-        @{ Architecture = 'x64' }
-        @{ Architecture = 'arm64' }
-    ) {
-        $result = Invoke-BuildFixture $root -Flags @{ SkipAll = $true; Architecture = $Architecture }
-
-        $result.ExitCode | Should -Be 0 -Because $result.Output
-        $publishes = @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' })
-        $publishes.Count | Should -Be 1
-        $result.Trace | Should -Match "-c Release -r win-$Architecture --self-contained"
-        $result.Trace | Should -Match '/p:Version=1.2.3.17 /p:AssemblyVersion=1.2.3.17 /p:FileVersion=1.2.3.17 /p:InformationalVersion=1.2.3-fixture.17 /p:IncludeSourceRevisionInInformationalVersion=false'
-        $result.Trace | Should -Not -Match 'dotnet build|dotnet run|dotnet test|(?m)^npm |package-npm|package-nuget|package-msix|pester|generate-llm-docs'
-        $other = if ($Architecture -eq 'x64') { 'arm64' } else { 'x64' }
-        Join-Path $root "artifacts\cli\win-$other" | Should -Not -Exist
-        $provenance = Get-Content (Join-Path $root "artifacts\cli\win-$Architecture.build.json") -Raw | ConvertFrom-Json
-        $provenance.runtimeId | Should -BeExactly "win-$Architecture"
-        $provenance.sourceCommit | Should -BeExactly ('1' * 40)
-        $provenance.fullVersion | Should -BeExactly '1.2.3-fixture.17'
-        $provenance.assemblyVersion | Should -BeExactly '1.2.3.17'
-        $provenance.cliSha256 | Should -BeExactly (Get-FileHash (Join-Path $root "artifacts\cli\win-$Architecture\winapp.exe")).Hash
-    }
-
-    It 'refuses a successful publish that leaves a placeholder instead of a PE executable' {
-        $result = Invoke-BuildFixture $root -Flags @{ SkipAll = $true; Architecture = 'arm64' } -Fail 'publish-placeholder'
-
-        $result.ExitCode | Should -Not -Be 0
-        $result.Output | Should -Match 'not a PE executable'
-        Join-Path $root 'artifacts\cli\win-arm64.build.json' | Should -Not -Exist
-    }
-
-    It 'packages merged architecture publish outputs without changing downloaded files or stale results' {
-        $mergeRoot = New-BuildFixture
-        foreach ($id in $script:PackageIds) {
-            Remove-Item (Join-Path $mergeRoot "artifacts\nuget\$id.9.8.7-prerelease.42.nupkg")
-        }
-        foreach ($architecture in @('x64', 'arm64')) {
-            $publishRoot = New-BuildFixture
-            $published = Invoke-BuildFixture $publishRoot -Flags @{ SkipAll = $true; Architecture = $architecture }
-            $published.ExitCode | Should -Be 0 -Because $published.Output
-            Copy-Item (Join-Path $publishRoot "artifacts\cli\win-$architecture\winapp.exe") (Join-Path $mergeRoot "artifacts\cli\win-$architecture\winapp.exe") -Force
-            Copy-Item (Join-Path $publishRoot "artifacts\cli\win-$architecture.build.json") (Join-Path $mergeRoot "artifacts\cli\win-$architecture.build.json") -Force
-        }
-        $before = @(Get-ChildItem (Join-Path $mergeRoot 'artifacts') -File -Recurse | Get-FileHash)
-        $result = Invoke-BuildFixture $mergeRoot -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true } -PesterVersion ''
-
-        $result.ExitCode | Should -Be 0 -Because $result.Output
-        foreach ($file in $before) {
-            (Get-FileHash $file.Path).Hash | Should -BeExactly $file.Hash
-        }
-        $result.Trace | Should -Not -Match 'dotnet |(?m)^npm |pester|stand-down|generate-llm-docs'
-        $result.Trace | Should -Match 'package-npm 1.2.3-fixture.17 Stable=False'
-        $result.Trace | Should -Match 'package-nuget 1.2.3-fixture.17 Stable=False'
-        $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=False fixture'
-        foreach ($id in $script:PackageIds) {
-            Join-Path $mergeRoot "artifacts\nuget\$id.1.2.3-fixture.17.nupkg" | Should -Exist
-        }
-        Join-Path $mergeRoot 'src\winapp-CLI\TestResults\stale.trx' | Should -Exist
-        Join-Path $mergeRoot 'TestResults\stale.trx' | Should -Exist
-        $result.Output | Should -Match 'awaiting validation'
-    }
-
-    It 'packages stable provenance without rebaking or republishing' {
-        foreach ($id in $script:PackageIds) {
-            Remove-Item (Join-Path $root "artifacts\nuget\$id.9.8.7-prerelease.42.nupkg")
-        }
-        foreach ($architecture in @('x64', 'arm64')) {
-            $path = Join-Path $root "artifacts\cli\win-$architecture.build.json"
-            $provenance = Get-Content $path -Raw | ConvertFrom-Json
-            $provenance.fullVersion = '1.2.3'
-            $provenance | ConvertTo-Json | Set-Content $path
-        }
-        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true; Stable = $true }
-
-        $result.ExitCode | Should -Be 0 -Because $result.Output
-        $result.Trace | Should -Not -Match 'dotnet |(?m)^npm |generate-llm-docs'
-        $result.Trace | Should -Match 'package-npm 1.2.3 Stable=True'
-        $result.Trace | Should -Match 'package-nuget 1.2.3 Stable=True'
-        $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=True'
-    }
-
-    It 'rejects packaging with missing <Path> before any package creation or cleanup' -ForEach @(
-        @{ Path = 'win-x64\winapp.exe' }
-        @{ Path = 'win-arm64\winapp.exe' }
-        @{ Path = 'win-x64.build.json' }
-        @{ Path = 'win-arm64.build.json' }
-    ) {
-        Remove-Item (Join-Path $root "artifacts\cli\$Path")
-        $before = Get-ArtifactSnapshot $root
-        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true }
-
-        $result.ExitCode | Should -Not -Be 0
-        $result.Trace | Should -Not -Match 'package-npm|package-nuget|package-msix|dotnet |(?m)^npm '
-        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
-        Join-Path $root 'artifacts\TestResults\stale.trx' | Should -Exist
-    }
-
-    It 'rejects <Case> packaging inputs with no mutations' -ForEach @(
-        @{ Case = 'x64 binary in ARM64 folder'; RuntimeId = 'win-arm64'; Change = 'machine' }
-        @{ Case = 'ARM64 binary in x64 folder'; RuntimeId = 'win-x64'; Change = 'machine' }
-        @{ Case = 'placeholder executable'; RuntimeId = 'win-arm64'; Change = 'placeholder' }
-        @{ Case = 'invalid PE signature'; RuntimeId = 'win-arm64'; Change = 'signature' }
-        @{ Case = 'invalid PE offset'; RuntimeId = 'win-arm64'; Change = 'offset' }
-        @{ Case = 'truncated PE header'; RuntimeId = 'win-arm64'; Change = 'truncated' }
-        @{ Case = 'modified executable'; RuntimeId = 'win-arm64'; Change = 'hash' }
-        @{ Case = 'different source commit'; RuntimeId = 'win-arm64'; Change = 'sourceCommit' }
-        @{ Case = 'different package version'; RuntimeId = 'win-arm64'; Change = 'fullVersion' }
-        @{ Case = 'different assembly version'; RuntimeId = 'win-x64'; Change = 'assemblyVersion' }
-        @{ Case = 'different provenance architecture'; RuntimeId = 'win-arm64'; Change = 'runtimeId' }
-        @{ Case = 'unsupported provenance schema'; RuntimeId = 'win-arm64'; Change = 'schemaVersion' }
-        @{ Case = 'invalid provenance JSON'; RuntimeId = 'win-arm64'; Change = 'json' }
-    ) {
-        $cli = Join-Path $root "artifacts\cli\$RuntimeId\winapp.exe"
-        $metadata = Join-Path $root "artifacts\cli\$RuntimeId.build.json"
-        if ($Change -in @('machine', 'placeholder', 'signature', 'offset', 'truncated', 'hash')) {
-            $bytes = [System.IO.File]::ReadAllBytes($cli)
-            switch ($Change) {
-                'machine' { $bytes[0x45] = if ($RuntimeId -eq 'win-x64') { 0xAA } else { 0x86 } }
-                'placeholder' { $bytes = [System.Text.Encoding]::UTF8.GetBytes('placeholder') }
-                'signature' { $bytes[0x40] = 0 }
-                'offset' { $bytes[0x3C] = 0xFF }
-                'truncated' { $bytes = $bytes[0..65] }
-                'hash' { $bytes[127] = 1 }
-            }
-            [System.IO.File]::WriteAllBytes($cli, $bytes)
-        } elseif ($Change -eq 'json') {
-            Set-Content $metadata '{invalid'
-        } else {
-            $provenance = Get-Content $metadata -Raw | ConvertFrom-Json
-            $provenance.$Change = 'different'
-            $provenance | ConvertTo-Json | Set-Content $metadata
-        }
-        $before = Get-ArtifactSnapshot $root
-        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true }
-
-        $result.ExitCode | Should -Not -Be 0
-        $result.Trace | Should -Not -Match 'package-npm|package-nuget|package-msix|dotnet |(?m)^npm '
-        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
-        Join-Path $root 'artifacts\TestResults\stale.trx' | Should -Exist
-        if ($Change -eq 'machine') { $result.Output | Should -Match 'PE Machine' }
-        if ($Change -eq 'hash') { $result.Output | Should -Match 'hash does not match' }
     }
 
     It 'runs only the UI Automation lane without Node, analyzer or Pester setup' {
@@ -678,17 +514,6 @@ Describe 'build-cli.ps1 control flow' {
 
     It 'rejects <Case> before changing inputs' -ForEach @(
         @{ Case = 'reuse without OnlyTests'; Flags = @{ UseExistingArtifacts = $true } }
-        @{ Case = 'architecture without SkipAll'; Flags = @{ Architecture = 'x64' } }
-        @{ Case = 'architecture while packaging'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; Architecture = 'x64' } }
-        @{ Case = 'unknown architecture'; Flags = @{ SkipAll = $true; Architecture = 'x86' } }
-        @{ Case = 'OnlyPackage without reuse'; Flags = @{ OnlyPackage = $true } }
-        @{ Case = 'OnlyPackage plus OnlyTests'; Flags = @{ OnlyPackage = $true; OnlyTests = $true; UseExistingArtifacts = $true } }
-        @{ Case = 'OnlyPackage with Clean'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; Clean = $true } }
-        @{ Case = 'OnlyPackage with Bake'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; Bake = $true } }
-        @{ Case = 'OnlyPackage skipping npm'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; SkipNpm = $true } }
-        @{ Case = 'OnlyPackage skipping NuGet'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; SkipNuGet = $true } }
-        @{ Case = 'OnlyPackage skipping MSIX'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; SkipMsix = $true } }
-        @{ Case = 'OnlyPackage with a test suite'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; TestSuite = 'Cli' } }
         @{ Case = 'shard outside Cli'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; CliShard = 1 } }
         @{ Case = 'shard without reuse'; Flags = @{ OnlyTests = $true; TestSuite = 'Cli'; CliShard = 1 } }
         @{ Case = 'unknown shard'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli'; CliShard = 3 } }
@@ -871,22 +696,4 @@ Describe 'build-cli.ps1 control flow' {
         $result.Output | Should -Not -Match '\[SUCCESS\]|awaiting validation|Ready for distribution'
     }
 
-    It 'propagates <Step> failure in packaging-only mode without mutating CLI inputs' -ForEach @(
-        @{ Step = 'package-npm' }
-        @{ Step = 'package-nuget' }
-        @{ Step = 'package-msix' }
-    ) {
-        foreach ($id in $script:PackageIds) {
-            Remove-Item (Join-Path $root "artifacts\nuget\$id.9.8.7-prerelease.42.nupkg")
-        }
-        $before = @(Get-ChildItem (Join-Path $root 'artifacts\cli') -File -Recurse | Get-FileHash)
-        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true } -Fail $Step
-
-        $result.ExitCode | Should -Not -Be 0
-        $result.Calls.Name | Should -Contain $Step
-        $result.Output | Should -Not -Match '\[SUCCESS\]|awaiting validation|Ready for distribution'
-        foreach ($file in $before) {
-            (Get-FileHash $file.Path).Hash | Should -BeExactly $file.Hash
-        }
-    }
 }

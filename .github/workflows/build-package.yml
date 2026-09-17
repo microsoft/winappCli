@@ -17,36 +17,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  publish-cli:
-    strategy:
-      fail-fast: false
-      matrix:
-        architecture: [x64, arm64]
-    runs-on: windows-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        fetch-depth: 0
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-      with:
-        dotnet-version: 10.0.x
-
-    - name: Publish one architecture (awaiting validation)
-      run: .\scripts\build-cli.ps1 -SkipAll -Architecture ${{ matrix.architecture }}
-
-    # Includes provenance beside the RID folder; only the packaging job consumes it.
-    - name: Upload architecture for packaging
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      with:
-        name: cli-publish-${{ matrix.architecture }}
-        path: artifacts/cli/
-        if-no-files-found: error
-
   build-artifacts:
-    needs: publish-cli
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -64,31 +35,17 @@ jobs:
       with:
         node-version: '24'
     
-    - name: Download x64 publish
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-      with:
-        name: cli-publish-x64
-        path: artifacts/cli
-
-    - name: Download ARM64 publish
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-      with:
-        name: cli-publish-arm64
-        path: artifacts/cli
-
-    # Validate both actual PE architectures, versions and same-commit provenance;
-    # package the downloaded files without cleaning them or publishing again.
-    - name: Package existing publishes (awaiting validation)
-      run: .\scripts\build-cli.ps1 -OnlyPackage -UseExistingArtifacts
+    # Build both architectures and packages together; validation consumes these
+    # same-run artifacts on separate runners without republishing.
+    - name: Build and package (awaiting validation)
+      run: .\scripts\build-cli.ps1 -SkipTests -SkipDocs
     
     - name: Upload CLI binaries
       id: cli
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: cli-binaries
-        path: |
-          artifacts/cli/win-x64/
-          artifacts/cli/win-arm64/
+        path: artifacts/cli/
         if-no-files-found: error
     
     - name: Upload npm package
@@ -379,7 +336,7 @@ jobs:
   # Retain the original required check, but only turn it green after every lane.
   build-and-package:
     if: always()
-    needs: [publish-cli, build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
+    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs

@@ -22,12 +22,6 @@
     Skip documentation schema generation, plugin manifest version synchronization, and npm API docs
 .PARAMETER SkipAll
     Skip NuGet, MSIX, npm, tests, and docs (only builds the CLI)
-.PARAMETER Architecture
-    With -SkipAll, publish only x64 or arm64. Upload artifacts\cli, including the
-    win-<architecture>.build.json provenance file, for a later packaging-only run.
-.PARAMETER OnlyPackage
-    With -UseExistingArtifacts, package both downloaded CLI architectures without cleanup,
-    republishing, tests, or docs. Requires publish provenance from the same commit and version.
 .PARAMETER OnlyDocs
     Skip NuGet, MSIX, npm, and tests (builds the CLI and generates docs). Alias: DocsOnly
 .PARAMETER OnlyTests
@@ -36,8 +30,7 @@
     With -OnlyTests, validate artifacts\cli\win-x64\winapp.exe, artifacts\cli\win-arm64\winapp.exe,
     and all four same-version packages in artifacts\nuget, then run every test suite without
     publishing or packaging again. All, Core, and Auxiliary require Pester 5+.
-    With -OnlyPackage, validate both CLI PE architectures and their publish provenance before packaging.
-    Cannot be combined with -Clean or -Bake. Test reuse also rejects -Stable, -SkipTests,
+    Cannot be combined with -Clean, -Bake, -Stable, -SkipTests,
     and -FailOnTestFailure:$false.
 .PARAMETER TestSuite
     With -OnlyTests -UseExistingArtifacts, run All (default), Core (CLI, Node, analyzer,
@@ -68,10 +61,6 @@
 .EXAMPLE
     .\scripts\build-cli.ps1 -SkipAll
 .EXAMPLE
-    .\scripts\build-cli.ps1 -SkipAll -Architecture x64
-.EXAMPLE
-    .\scripts\build-cli.ps1 -OnlyPackage -UseExistingArtifacts
-.EXAMPLE
     .\scripts\build-cli.ps1 -OnlyDocs
 .EXAMPLE
     .\scripts\build-cli.ps1 -DocsOnly
@@ -98,9 +87,6 @@ param(
     [switch]$SkipMsix = $false,
     [switch]$SkipDocs = $false,
     [switch]$SkipAll = $false,
-    [ValidateSet('x64', 'arm64')]
-    [string]$Architecture,
-    [switch]$OnlyPackage = $false,
     [Alias("DocsOnly")]
     [switch]$OnlyDocs = $false,
     [Alias("TestsOnly")]
@@ -116,24 +102,15 @@ param(
 )
 
 # Validate compound flag usage
-$CompoundFlagsCount = @($SkipAll, $OnlyDocs, $OnlyTests, $OnlyPackage) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
+$CompoundFlagsCount = @($SkipAll, $OnlyDocs, $OnlyTests) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
 if ($CompoundFlagsCount -gt 1) {
-    Write-Error "Only one of -SkipAll, -OnlyDocs/-DocsOnly, -OnlyTests/-TestsOnly, or -OnlyPackage can be specified."
+    Write-Error "Only one of -SkipAll, -OnlyDocs/-DocsOnly, or -OnlyTests/-TestsOnly can be specified."
     exit 1
 }
 if ($UseExistingArtifacts -and (
-    (-not ($OnlyTests -or $OnlyPackage)) -or $Clean -or $Bake -or
-    ($OnlyTests -and ($Stable -or $SkipTests -or (-not $FailOnTestFailure)))
+    (-not $OnlyTests) -or $Clean -or $Bake -or $Stable -or $SkipTests -or (-not $FailOnTestFailure)
 )) {
-    Write-Error "-UseExistingArtifacts requires -OnlyTests or -OnlyPackage and rejects -Clean and -Bake. Test reuse also rejects -Stable, -SkipTests, and -FailOnTestFailure:`$false."
-    exit 1
-}
-if ($OnlyPackage -and ((-not $UseExistingArtifacts) -or $SkipNpm -or $SkipNuGet -or $SkipMsix)) {
-    Write-Error "-OnlyPackage requires -UseExistingArtifacts and cannot skip npm, NuGet, or MSIX packaging."
-    exit 1
-}
-if ($Architecture -and -not $SkipAll) {
-    Write-Error "-Architecture requires -SkipAll."
+    Write-Error "-UseExistingArtifacts requires -OnlyTests and rejects -Clean, -Bake, -Stable, -SkipTests, and -FailOnTestFailure:`$false."
     exit 1
 }
 if ($TestSuite -ne 'All' -and -not ($OnlyTests -and $UseExistingArtifacts)) {
@@ -147,33 +124,6 @@ if ($PSBoundParameters.ContainsKey('CliShard') -and -not ($OnlyTests -and $UseEx
 $RunCliTests = $TestSuite -in @('All', 'Core', 'Cli')
 $RunAuxiliaryTests = $TestSuite -in @('All', 'Core', 'Auxiliary')
 $RunUiAutomationTests = $TestSuite -in @('All', 'UIAutomation')
-
-function Assert-CliArchitecture {
-    param([string]$Path, [string]$RuntimeId)
-
-    $reader = [System.IO.BinaryReader]::new([System.IO.File]::OpenRead($Path))
-    try {
-        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
-            throw "CLI artifact is not a PE executable: $Path"
-        }
-        $reader.BaseStream.Position = 0x3C
-        $peOffset = $reader.ReadInt32()
-        if ($peOffset -lt 64 -or $peOffset -gt ($reader.BaseStream.Length - 24)) {
-            throw "CLI artifact has an invalid PE header offset: $Path"
-        }
-        $reader.BaseStream.Position = $peOffset
-        if ($reader.ReadUInt32() -ne 0x00004550) {
-            throw "CLI artifact has an invalid PE signature: $Path"
-        }
-        $machine = $reader.ReadUInt16()
-        $expectedMachine = if ($RuntimeId -eq 'win-x64') { 0x8664 } else { 0xAA64 }
-        if ($machine -ne $expectedMachine) {
-            throw "CLI artifact '$Path' has PE Machine 0x$($machine.ToString('X4')); expected $RuntimeId (0x$($expectedMachine.ToString('X4')))."
-        }
-    } finally {
-        $reader.Dispose()
-    }
-}
 
 function Assert-NuGetPackages {
     param([string]$Path)
@@ -222,9 +172,6 @@ if ($SkipAll) {
     $SkipMsix = $true
     $SkipNpm = $true
     $SkipDocs = $true
-} elseif ($OnlyPackage) {
-    $SkipTests = $true
-    $SkipDocs = $true
 }
 
 # Ensure we're running from the project root
@@ -259,10 +206,8 @@ try
                 throw "Required CLI artifact missing or empty: $CliArtifact. Download cli-binaries to artifacts\cli first."
             }
         }
-        if ($OnlyTests) {
-            $FullVersion = Assert-NuGetPackages -Path $NuGetOutput
-        }
-        if ($OnlyTests -and $RunAuxiliaryTests) {
+        $FullVersion = Assert-NuGetPackages -Path $NuGetOutput
+        if ($RunAuxiliaryTests) {
             $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
             if (-not $pesterMod) {
                 throw "Pester 5+ is required with -UseExistingArtifacts; install it before running validation."
@@ -281,9 +226,7 @@ try
 
     Write-Host "[*] Starting Windows SDK build process..." -ForegroundColor Green
     Write-Host "Project root: $ProjectRoot" -ForegroundColor Gray
-    if ($OnlyPackage) {
-        Write-Host "Build mode: PACKAGE EXISTING CLI ARTIFACTS" -ForegroundColor Cyan
-    } elseif ($UseExistingArtifacts) {
+    if ($UseExistingArtifacts) {
         Write-Host "Build mode: VALIDATE EXISTING ARTIFACTS ($FullVersion)" -ForegroundColor Cyan
     } elseif ($Stable) {
         Write-Host "Build mode: STABLE (no prerelease suffix)" -ForegroundColor Cyan
@@ -291,15 +234,13 @@ try
         Write-Host "Build mode: PRERELEASE (with prerelease suffix)" -ForegroundColor Cyan
     }
 
-    if (-not $OnlyPackage) {
-        Write-Host "[CLEAN] Cleaning $(if ($UseExistingArtifacts) { 'test results only' } else { 'artifacts and test results' })..." -ForegroundColor Yellow
-        if (-not $UseExistingArtifacts -and (Test-Path $ArtifactsPath)) {
-            Remove-Item $ArtifactsPath -Recurse -Force
-        }
-        foreach ($ResultsDirectory in @($TestResultsPath, "$ArtifactsPath\TestResults", "$CliSolutionDir\TestResults")) {
-            if (Test-Path $ResultsDirectory) {
-                Remove-Item $ResultsDirectory -Recurse -Force
-            }
+    Write-Host "[CLEAN] Cleaning $(if ($UseExistingArtifacts) { 'test results only' } else { 'artifacts and test results' })..." -ForegroundColor Yellow
+    if (-not $UseExistingArtifacts -and (Test-Path $ArtifactsPath)) {
+        Remove-Item $ArtifactsPath -Recurse -Force
+    }
+    foreach ($ResultsDirectory in @($TestResultsPath, "$ArtifactsPath\TestResults", "$CliSolutionDir\TestResults")) {
+        if (Test-Path $ResultsDirectory) {
+            Remove-Item $ResultsDirectory -Recurse -Force
         }
     }
 
@@ -308,7 +249,7 @@ try
     New-Item -ItemType Directory -Path $ArtifactsPath -Force | Out-Null
 
     # Step 1: Calculate version only when producing artifacts.
-    if (-not $UseExistingArtifacts -or $OnlyPackage) {
+    if (-not $UseExistingArtifacts) {
         Write-Host "[VERSION] Calculating package version..." -ForegroundColor Blue
 
         # Read base version from version.json
@@ -364,33 +305,6 @@ try
         $InformationalVersion = $FullVersion
     }
 
-    if ($Architecture -or $OnlyPackage) {
-        $SourceCommit = & git rev-parse HEAD
-        if ($LASTEXITCODE -ne 0 -or $SourceCommit -notmatch '^[0-9a-f]{40,64}$') {
-            throw "Cannot determine the source commit for CLI publish provenance."
-        }
-    }
-    if ($OnlyPackage) {
-        foreach ($RuntimeId in @('win-x64', 'win-arm64')) {
-            $CliArtifact = Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId\winapp.exe"
-            Assert-CliArchitecture -Path $CliArtifact -RuntimeId $RuntimeId
-            $ProvenancePath = Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId.build.json"
-            if (-not (Test-Path $ProvenancePath -PathType Leaf)) {
-                throw "CLI publish provenance missing: $ProvenancePath. Download the complete artifacts\cli output from both architecture publishes."
-            }
-            $Provenance = Get-Content $ProvenancePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            if ($Provenance.schemaVersion -ne 1 -or $Provenance.runtimeId -cne $RuntimeId -or
-                $Provenance.sourceCommit -cne $SourceCommit -or $Provenance.fullVersion -cne $FullVersion -or
-                $Provenance.assemblyVersion -cne $AssemblyVersion) {
-                throw "CLI publish provenance mismatch for $RuntimeId. Expected commit $SourceCommit, version $FullVersion ($AssemblyVersion). Use both publishes from the same checkout, full history, and build environment."
-            }
-            if ($Provenance.cliSha256 -ne (Get-FileHash $CliArtifact -Algorithm SHA256 -ErrorAction Stop).Hash) {
-                throw "CLI executable hash does not match publish provenance for $RuntimeId."
-            }
-        }
-        Write-Host "[VALIDATE] Both CLI architectures match this source commit and package version." -ForegroundColor Green
-    }
-
     # Step 1b: Refresh the find-ui corpus baked into the binary.
     #
     # The snapshot is an EmbeddedResource, so it must be regenerated BEFORE the publish
@@ -410,7 +324,7 @@ try
     # find-ui is non-functional offline, the exact regression the embedded snapshot exists
     # to prevent (issue #704).
     $SnapshotDataPath = "$CliSolutionDir\WinApp.Cli\Services\Controls\Data"
-    $ShouldBake = (-not $OnlyPackage) -and ($Stable -or $Bake) -and (-not $SkipBake)
+    $ShouldBake = ($Stable -or $Bake) -and (-not $SkipBake)
 
     if ($ShouldBake) {
         Write-Host "[BAKE] Refreshing find-ui corpus from GitHub..." -ForegroundColor Blue
@@ -507,7 +421,7 @@ try
                 }
             }
         }
-    } elseif ($Stable -and -not $OnlyPackage) {
+    } elseif ($Stable) {
         Write-Warning "[BAKE] Skipped (-SkipBake); shipping the committed find-ui corpus as-is. It may be several releases behind upstream."
     }
 
@@ -519,7 +433,7 @@ try
     # "no embedded corpus" -- silently reinstating issue #704 in a shipped build. So the
     # blobs are actually decompressed and parsed here, and cross-checked against the
     # manifest that the CLI, the drift job and the release all read.
-    if ($Stable -and -not $OnlyPackage) {
+    if ($Stable) {
         $RequiredSnapshots = @("snapshot-manifest.json", "snapshot-gallery.json.br", "snapshot-toolkit.json.br", "snapshot-reactor.json.br")
         $MissingSnapshots = @(
             $RequiredSnapshots | Where-Object {
@@ -582,8 +496,7 @@ try
 
     # Step 2: Publish CLI (implicitly builds the CLI project).
     if (-not $UseExistingArtifacts) {
-        $PublishArchitectures = if ($Architecture) { @($Architecture.ToLowerInvariant()) } else { @('x64', 'arm64') }
-        foreach ($PublishArchitecture in $PublishArchitectures) {
+        foreach ($PublishArchitecture in @('x64', 'arm64')) {
             $RuntimeId = "win-$PublishArchitecture"
             Write-Host "[PUBLISH] Publishing CLI for $PublishArchitecture..." -ForegroundColor Blue
             dotnet publish $CliProjectPath -c Release -r $RuntimeId --self-contained -o "$ArtifactsPath\cli\$RuntimeId" `
@@ -595,18 +508,6 @@ try
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Failed to publish CLI for $PublishArchitecture"
                 exit 1
-            }
-            if ($Architecture) {
-                $CliArtifact = Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId\winapp.exe"
-                Assert-CliArchitecture -Path $CliArtifact -RuntimeId $RuntimeId
-                @{
-                    schemaVersion = 1
-                    runtimeId = $RuntimeId
-                    sourceCommit = $SourceCommit
-                    fullVersion = $FullVersion
-                    assemblyVersion = $AssemblyVersion
-                    cliSha256 = (Get-FileHash $CliArtifact -Algorithm SHA256 -ErrorAction Stop).Hash
-                } | ConvertTo-Json | Set-Content (Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId.build.json") -ErrorAction Stop
             }
         }
     }
@@ -1000,7 +901,7 @@ try
     # Build process complete - all artifacts are ready
 
     # Copy install-dev script into artifacts so the folder is self-contained
-    if (-not $UseExistingArtifacts -or $OnlyPackage) {
+    if (-not $UseExistingArtifacts) {
         Write-Host ""
         Write-Host "[INSTALL] Copying setup-winapprun.ps1 to artifacts..." -ForegroundColor Blue
         $InstallDevScript = Join-Path $PSScriptRoot "setup-winapprun.ps1"
