@@ -43,7 +43,15 @@ runs:
     - name: Parse test results
       shell: pwsh
       run: |
-        $trxFiles = Get-ChildItem "${{ inputs.artifacts-path }}/TestResults/*.trx" -ErrorAction SilentlyContinue
+        $resultsPath = "${{ inputs.artifacts-path }}/TestResults"
+        # Both suites must have reported before publishing combined metrics. An
+        # empty or partial download must not become a green zero-test report.
+        foreach ($name in @('WinApp.Cli.Tests.trx', 'WinApp.UIAutomation.Tests.trx')) {
+          if (-not (Test-Path "$resultsPath/$name")) {
+            throw "Missing test report: $name. Metrics require the validation job's test-results artifact."
+          }
+        }
+        $trxFiles = Get-ChildItem "$resultsPath/*.trx"
         $totalTests = 0; $passed = 0; $failed = 0; $skipped = 0; $durationMs = 0
 
         foreach ($trx in $trxFiles) {
@@ -51,12 +59,13 @@ runs:
           $ns = @{ t = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010" }
 
           $counters = $xml | Select-Xml "//t:ResultSummary/t:Counters" -Namespace $ns | Select-Object -First 1
-          if ($counters) {
-            $totalTests += [int]$counters.Node.total
-            $passed += [int]$counters.Node.passed
-            $failed += [int]$counters.Node.failed
-            $skipped += [int]$counters.Node.total - [int]$counters.Node.executed
+          if (-not $counters -or [int]$counters.Node.total -eq 0) {
+            throw "Missing or empty test counters in $($trx.Name)"
           }
+          $totalTests += [int]$counters.Node.total
+          $passed += [int]$counters.Node.passed
+          $failed += [int]$counters.Node.failed
+          $skipped += [int]$counters.Node.total - [int]$counters.Node.executed
 
           $times = $xml | Select-Xml "//t:Times" -Namespace $ns | Select-Object -First 1
           if ($times -and $times.Node.finish -and $times.Node.start) {
@@ -255,7 +264,9 @@ runs:
 
         if ($tests -and $tests.total -gt 0) {
           $durSec = [math]::Round(([double]$tests.durationMs) / 1000, 1)
-          $md.Add('### Test Results')
+          $md.Add('### .NET Test Results (TRX reports)')
+          $md.Add('')
+          $md.Add('Other suites and overall validation are reported by the workflow checks.')
           $md.Add('')
           $md.Add('| Total | Passed | Failed | Skipped | Duration |')
           $md.Add('| --- | --- | --- | --- | --- |')
