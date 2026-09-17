@@ -288,6 +288,52 @@ extends:
                 Copy-Item "$(System.DefaultWorkingDirectory)/scripts/mslearn-doc-lib.ps1" "$staging/scripts/" -Force
                 Copy-Item "$(System.DefaultWorkingDirectory)/docs" "$staging/docs" -Recurse -Force
                 Copy-Item "$(System.DefaultWorkingDirectory)/version.json" "$staging/" -Force
+          # Code Sign Validation scans .ps1 as well as binaries, and flags these four as
+          # CodeSign.MissingSigningCert once they land in the artifact. Excluding them is not an
+          # option: 1ES PT allows additionalTargetsGlobPattern and per-job CSV settings everywhere
+          # EXCEPT production release jobs, and update_mslearn_docs is one - there `policyFile` is
+          # the only setting it accepts. Filtering them out of the artifact download instead would
+          # just break the job, which invokes them from that path.
+          #
+          # So sign them, which is the documented answer. A script's signature block is appended
+          # text, so it survives the artifact round-trip - but only if signing happens before
+          # 1ES.PublishPipelineArtifact@1 below, not after.
+          - ${{ if and(parameters.DoEsrp, startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v')) }}:
+            - task: EsrpCodeSigning@6
+              displayName: Code Sign ESRP - MS Learn scripts
+              inputs:
+                ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                AppRegistrationClientId: ${{ parameters.signingIdentity.appId }}
+                AppRegistrationTenantId: ${{ parameters.signingIdentity.tenantId }}
+                AuthAKVName: ${{ parameters.signingIdentity.akvName }}
+                AuthCertName: ${{ parameters.signingIdentity.authCertName }}
+                AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
+                FolderPath: '$(Build.ArtifactStagingDirectory)/mslearn-source/scripts/'
+                Pattern: '*.ps1'
+                UseMinimatch: true
+                signConfigType: inlineSignParams
+                inlineOperation: |
+                  [
+                      {
+                          "KeyCode": "CP-230012",
+                          "OperationCode": "SigntoolSign",
+                          "Parameters": {
+                              "OpusName": "Microsoft Windows Developer SDK CLI",
+                              "OpusInfo": "https://github.com/Microsoft/WinAppCli",
+                              "FileDigest": "/fd \"SHA256\"",
+                              "TimeStamp": "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+                          },
+                          "ToolName": "sign",
+                          "ToolVersion": "1.0"
+                      },
+                      {
+                          "KeyCode": "CP-230012",
+                          "OperationCode": "SigntoolVerify",
+                          "Parameters": {},
+                          "ToolName": "sign",
+                          "ToolVersion": "1.0"
+                      }
+                  ]
           - task: 1ES.PublishPipelineArtifact@1
             displayName: Upload Artifact - MS Learn Source
             inputs:
