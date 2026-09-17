@@ -6,6 +6,7 @@ BeforeAll {
     $script:sampleWorkflow = Get-Content (Join-Path $repoRoot '.github\workflows\test-samples.yml') -Raw
     $script:collectAction = Get-Content (Join-Path $repoRoot '.github\actions\collect-metrics\action.yml') -Raw
     $script:npmPackaging = Get-Content (Join-Path $repoRoot 'scripts\package-npm.ps1') -Raw
+    $script:testReportWorkflow = Get-Content (Join-Path $repoRoot '.github\workflows\test-report.yml') -Raw
 
     # Extract the real inline PowerShell rather than testing a copy of the gates.
     function Get-JobText([string]$Workflow, [string]$Name) {
@@ -110,6 +111,13 @@ Describe 'Artifact-first workflow dependencies' {
     It 'cancels only superseded PR runs' {
         $buildWorkflow | Should -Match ([regex]::Escape('group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}'))
         $buildWorkflow | Should -Match ([regex]::Escape("cancel-in-progress: `${{ github.event_name == 'pull_request' }}"))
+    }
+
+    It 'does not report missing test artifacts for canceled runs but still reports failures' {
+        $report = Get-JobText $testReportWorkflow 'report'
+        $report | Should -Match ([regex]::Escape("if: github.event.workflow_run.conclusion != 'cancelled'"))
+        $report | Should -Not -Match "conclusion == 'success'"
+        $report | Should -Match 'artifact: test-results'
     }
 
     It 'joins package and test artifacts before collecting and reporting metrics' {
