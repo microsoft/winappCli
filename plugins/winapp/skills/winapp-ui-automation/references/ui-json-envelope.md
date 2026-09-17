@@ -1,8 +1,8 @@
-# `winapp ui --json` envelope (v0.3.1+)
+# `winapp ui --json` envelopes
 
-The `--json` output for the `winapp ui` command group was reshaped in v0.3.1.
-Generate parsers against these shapes — pre-0.3.1 parsers will silently break
-because most fields were renamed, removed, or moved into envelopes.
+The `--json` output for the `winapp ui` command group uses the envelopes below.
+The inspect, search, wait-for, and get-focused envelopes were reshaped in
+v0.3.1; the DPI context and typed get-property element are available in v0.6.3+.
 
 ## `ui inspect --json`
 
@@ -16,16 +16,26 @@ Top-level shape (elements are now nested under `windows[]`, not flat):
   "hideOffscreen": false,
   "windows": [
     {
-      "hwnd": "0x...",
+      "hwnd": 123456,
       "title": "...",
       "className": "...",
+      "windowDpi": 144,
+      "scale": 1.5,
+      "dpiAwareness": "per-monitor-aware",
+      "coordinateSpace": "physical-screen-pixels",
       "elementCount": 0,
       "elements": [
         {
-          "selector": "...",
-          "name": "...",
-          "controlType": "...",
-          "children": [ ... ]
+          "selector": "btn-save-c3d4",
+          "name": "Save",
+          "type": "Button",
+          "isEnabled": true,
+          "isOffscreen": false,
+          "x": 100,
+          "y": 200,
+          "width": 120,
+          "height": 32,
+          "isInvokable": true
         }
       ]
     }
@@ -36,6 +46,24 @@ Top-level shape (elements are now nested under `windows[]`, not flat):
 Pre-0.3.1 the shape was `{ "elements": [...] }`. Per-element `id`,
 `parentSelector`, and `windowHandle` fields have been **removed** —
 `selector` is the public handle.
+
+`windowDpi` is the target window's effective DPI from `GetDpiForWindow(hwnd)`,
+not unconditional monitor DPI. `scale` is `windowDpi / 96`.
+`dpiAwareness` is `unaware`, `system-aware`, or `per-monitor-aware`:
+`GetDpiForWindow` reports 96 for an unaware window, system DPI for a
+system-aware window, and the current monitor DPI for a per-monitor-aware
+window. If the HWND or DPI context cannot be read, the command fails with an
+error instead of substituting 96.
+
+The selected target window remains fail-fast. If a later popup or secondary
+window disappears after its UIA tree was collected, that window entry remains
+in `windows[]` with a `dpiError` message and without the four DPI context fields;
+the other window trees remain available.
+
+Element `x`, `y`, `width`, and `height` values are numbers in physical screen
+pixels. `0,0,0,0` is UI Automation's empty/no-displayed-UI rectangle in this
+projection. `isOffscreen` is independent: an offscreen element can still have
+nonzero bounds.
 
 ## `ui inspect --ancestors --json`
 
@@ -57,34 +85,149 @@ Always emits an envelope (never a bare value):
 
 Pre-0.3.1 emitted bare `null` when nothing was focused.
 
-## `ui search --json` / `ui wait-for --json`
+## `ui search --json`
 
-Both commands return matching elements using the same element shape as
-`ui inspect` (so `selector`, `name`, `controlType`, `children`, etc.).
-Each match may also include an `invokableAncestor` field — itself an
+Search returns an envelope, not a bare array:
+
+```json
+{
+  "matchCount": 1,
+  "hasMore": false,
+  "matches": [
+    {
+      "selector": "txt-save-label-a1b2",
+      "name": "Save",
+      "type": "Text",
+      "isEnabled": true,
+      "isOffscreen": false,
+      "x": 100,
+      "y": 200,
+      "width": 80,
+      "height": 24,
+      "isInvokable": false,
+      "invokableAncestor": {
+        "selector": "btn-save-c3d4",
+        "name": "Save button",
+        "type": "Button",
+        "isEnabled": false,
+        "isOffscreen": false,
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "isInvokable": true
+      }
+    }
+  ]
+}
+```
+
+Each match may include an `invokableAncestor` field — itself an
 element-shaped object — pointing to the nearest parent that supports
 `InvokePattern` (useful when a search hits a non-invokable element
 like a label inside a button).
 
+## `ui wait-for --json`
+
+When the condition succeeds:
+
 ```json
-[
-  {
-    "selector": "txt-save-label-a1b2",
-    "name": "Save",
-    "controlType": "Text",
-    "children": [ ... ],
-    "invokableAncestor": {
-      "selector": "btn-save-c3d4",
-      "name": "Save button",
-      "controlType": "Button"
-    }
-  }
-]
+{
+  "found": true,
+  "waitedMs": 125,
+  "element": {
+    "selector": "txt-status-a1b2",
+    "name": "Ready",
+    "type": "Text",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "x": 100,
+    "y": 200,
+    "width": 80,
+    "height": 24,
+    "isInvokable": false
+  },
+  "timedOut": false
+}
 ```
 
+On timeout, stdout still contains a parseable result and the process exits 1:
+
+```json
+{
+  "found": false,
+  "waitedMs": 5000,
+  "timedOut": true
+}
+```
+
+With `--gone`, success after the element disappears is:
+
+```json
+{
+  "found": false,
+  "waitedMs": 125,
+  "timedOut": false
+}
+```
+
+## `ui get-property --json`
+
+`elementId` and the string-valued `properties` map remain available. The
+additive `element` field contains the same scrubbed typed element projection
+used by search and wait-for:
+
+```json
+{
+  "elementId": "btn-save-c3d4",
+  "element": {
+    "selector": "btn-save-c3d4",
+    "name": "Save",
+    "type": "Button",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "x": 100,
+    "y": 200,
+    "width": 80,
+    "height": 24,
+    "isInvokable": true
+  },
+  "properties": {
+    "Name": "Save",
+    "IsEnabled": "True",
+    "BoundingRectangle": "100,200,80,24"
+  }
+}
+```
+
+The typed `element` object is the canonical way to consume geometry and boolean
+state. The existing `properties` values intentionally remain strings for
+backward compatibility.
+
+## `ui status --json`
+
+The resolved target also reports its window DPI context:
+
+```json
+{
+  "processId": 1234,
+  "processName": "MyApp",
+  "windowTitle": "My App",
+  "hwnd": 123456,
+  "windowDpi": 144,
+  "scale": 1.5,
+  "dpiAwareness": "per-monitor-aware",
+  "coordinateSpace": "physical-screen-pixels"
+}
+```
+
+If a process resolves before it has a top-level window, `hwnd` remains `0` and
+the four DPI fields are omitted. A failed DPI read for a nonzero HWND is an
+error rather than a silent 96-DPI fallback.
+
 The internal `id`, `parentSelector`, and `windowHandle` fields are
-**scrubbed** from results — both at the top level and inside any nested
-`invokableAncestor`. Don't depend on them; use `selector` as the handle.
+**scrubbed** from typed element results — both at the top level and inside any
+nested `invokableAncestor`. Don't depend on them; use `selector` as the handle.
 
 ## `ui invoke --json`
 

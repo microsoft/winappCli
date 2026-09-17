@@ -621,6 +621,14 @@ public sealed class UiaTestFixture : IDisposable
                     Width = 160,
                     Height = 30,
                 });
+                var ownedMenu = new MenuStrip { Name = "ownedMenu" };
+                ownedMenu.Items.Add(new ToolStripMenuItem
+                {
+                    Name = "mnuOwnedWindowless",
+                    Text = "Windowless Owned Item",
+                    AccessibleName = "Windowless Owned Item",
+                });
+                _ownedWindow.Controls.Add(ownedMenu);
                 _ownedWindow.Show();
             }
 

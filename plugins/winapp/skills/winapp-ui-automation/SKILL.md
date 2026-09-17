@@ -371,13 +371,17 @@ winapp ui invoke btn-open-e6f7 -w <dialog-hwnd>
 ```
 Note: The filename input in standard file dialogs typically has AutomationId `1148`. Use `inspect -w <dialog-hwnd> --interactive` to discover the actual slugs.
 
-## JSON output envelopes (v0.3.1+)
+## JSON output envelopes
 
-The `--json` envelope for `ui inspect`, `ui get-focused`, `ui search`, and `ui wait-for` was reshaped in v0.3.1. Pre-0.3.1 parsers will silently break — most fields were renamed, removed, or moved into envelopes. Highlights:
+The `--json` envelope for `ui inspect`, `ui get-focused`, `ui search`, and `ui wait-for` was reshaped in v0.3.1. The DPI context and typed `get-property` element are available in v0.6.3+. Highlights:
 
 - `ui inspect --json` now nests elements under `windows[].elements[]` (was a flat `elements[]`).
+- Each inspected window and the `ui status --json` target reports `windowDpi`, `scale`, `dpiAwareness`, and `coordinateSpace: "physical-screen-pixels"`. This is the target window's DPI context. The selected target fails fast on an unreadable DPI instead of defaulting to 96; a secondary window that disappears mid-walk carries `dpiError` and omits the four context fields.
 - `ui get-focused --json` always emits an envelope — `{ "hasFocus": false }` or `{ "hasFocus": true, "element": {...} }` (was bare `null`).
-- `ui search --json` / `ui wait-for --json` may include an `invokableAncestor` field (element-shaped) on each match.
+- `ui search --json` returns `{ "matchCount", "hasMore", "matches" }`; `ui wait-for --json` returns `{ "found", "waitedMs", "element"?, "timedOut" }`.
+- `ui get-property --json` preserves `elementId` and its string-valued `properties` map, and adds a typed, scrubbed `element`.
+- Typed elements use `type` (not `controlType`) and numeric `x`, `y`, `width`, and `height` in physical screen pixels. `0,0,0,0` is UIA's empty/no-displayed-UI rectangle; `isOffscreen` remains independent.
+- Search and wait-for elements may include an `invokableAncestor` field (element-shaped).
 - Per-element `id`, `parentSelector`, and `windowHandle` are **removed** — use `selector` as the public handle.
 
 Full schemas with examples: `references/ui-json-envelope.md`.
