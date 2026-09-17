@@ -89,13 +89,19 @@ internal class UiGetPropertyCommand : Command, IShortDescription
 
                 if (json)
                 {
-                    // Convert to string values for JSON serialization (source-gen can't handle object?)
                     var stringProps = new Dictionary<string, string?>();
                     foreach (var kvp in props)
                     {
                         stringProps[kvp.Key] = kvp.Value?.ToString();
                     }
-                    var result = new UiPropertyResult { ElementId = (element.Selector ?? element.Id ?? ""), Properties = stringProps };
+                    var elementId = element.Selector ?? element.Id ?? "";
+                    UiElementScrubber.Scrub(element);
+                    var result = new UiPropertyResult
+                    {
+                        ElementId = elementId,
+                        Element = element,
+                        Properties = stringProps,
+                    };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiPropertyResult));
                 }

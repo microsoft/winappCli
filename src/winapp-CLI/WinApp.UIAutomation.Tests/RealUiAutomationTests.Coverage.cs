@@ -256,19 +256,179 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    public async Task InspectAsync_NonExplicitSessionSkipsElementsAlreadyInMainTree()
+    public async Task InspectAsync_NonExplicitSessionSeparatesEnumeratedWindowAlreadyInMainTree()
     {
         using var fx = new UiaTestFixture();
-        var logger = new CapturingLogger<UiAutomationService>();
-        var svc = new UiAutomationService(logger, new UiSelectorParser());
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var (ownedHwnd, ownedTitle) = fx.OpenOwnedWindow(
+            "SeparatedOwned_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (ownedHwnd, fx.ProcessId, ownedTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnOwned"),
+            "the separately enumerated HWND must not remain duplicated in the main tree");
+        Assert.AreEqual("btnOwned", elements.Single(e => e.AutomationId == "btnOwned").Selector,
+            "a separated window must preserve its stable AutomationId selector");
+        Assert.IsTrue(elements.Any(e => e.Type == "---" && e.WindowHandle == ownedHwnd),
+            "the nested HWND must receive its own window group and context");
+    }
+
+    [TestMethod]
+    public async Task PromotedOwnedWindowSelectorResolvesWithOwnedWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (ownedHwnd, ownedTitle) = fx.OpenOwnedWindow(
+            "SelectorRoundTrip_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (ownedHwnd, fx.ProcessId, ownedTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+        var inspected = elements.Single(element => element.AutomationId == "btnOwned");
+        Assert.AreEqual("btnOwned", inspected.Selector);
+
+        var resolved = await svc.FindSingleElementAsync(
+            uiTarget,
+            new UiSelector { Query = inspected.Selector },
+            CancellationToken.None);
+
+        Assert.IsNotNull(resolved);
+        Assert.AreEqual(ownedHwnd, resolved.WindowHandle,
+            "a selector emitted for an owned window must resolve back to that HWND");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_DuplicateAutomationIdsAcrossWindowsRemainSlugs()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        fx.OnUiThread(() => fx.InvokeButton.Name = "btnOwned");
+        var (ownedHwnd, ownedTitle) = fx.OpenOwnedWindow(
+            "DuplicateAid_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (ownedHwnd, fx.ProcessId, ownedTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        var duplicates = elements.Where(element => element.AutomationId == "btnOwned").ToArray();
+        Assert.AreEqual(2, duplicates.Length);
+        Assert.IsTrue(duplicates.All(element => element.Selector != "btnOwned"),
+            "an AutomationId shared by distinct windows must not become an unscoped selector");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_IndependentWindowAutomationIdRemainsSlug()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (windowHwnd, windowTitle) = fx.OpenOwnedWindow(
+            "IndependentAid_" + Guid.NewGuid().ToString("N")[..6]);
+        var uiTarget = NonExplicitSession(fx);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (windowHwnd, fx.ProcessId, windowTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        var independentButton = elements.Single(element => element.AutomationId == "btnOwned");
+        Assert.AreNotEqual("btnOwned", independentButton.Selector,
+            "an independent-window AutomationId must keep a slug for precise unscoped resolution");
+        StringAssert.StartsWith(independentButton.Selector, "btn-btnowned-");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_PidOnlySessionDoesNotDuplicateRecoveredWindowInsideOwnerTree()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (selectedHwnd, selectedTitle) = fx.OpenOwnedWindow(
+            "SelectedOwned_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+        uiTarget.WindowHandle = 0;
+        uiTarget.WindowTitle = selectedTitle;
+        UiAutomationService.s_getRootElement = (service, _) =>
+            UiAutomationService.s_elementFromHandle(service, selectedHwnd);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(selectedHwnd, fx.ProcessId, selectedTitle), (fx.Hwnd, fx.ProcessId, fx.Title)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnOwned"),
+            "the selected HWND must not be repeated inside its separately emitted owner tree");
+        Assert.AreEqual(2, elements.Count(e => e.Type == "---"),
+            "both selected and owner HWNDs must retain distinct window groups");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_UnresolvableSeparateWindowRemainsInMainTree()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
         var uiTarget = NonExplicitSession(fx);
         var childHwnd = fx.OnUiThread(() => (nint)fx.InvokeButton.Handle);
-        UiAutomationService.s_getAllAppWindows = (_, _) => [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
+        UiAutomationService.s_getRootElementForHwnd = (_, _) => null;
 
         var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
 
-        Assert.IsTrue(elements.Any(e => e.AutomationId == "btnInvoke"));
-        Assert.IsTrue(logger.Has(Microsoft.Extensions.Logging.LogLevel.Debug, "already in main window tree"));
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnInvoke"),
+            "a window that cannot be re-rooted must remain available through the main UIA tree");
+        Assert.IsFalse(elements.Any(e => e.Type == "---"),
+            "an unresolvable window must not create an empty separate group");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_LateRootRefreshFailureUsesInitiallyResolvedWindow()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var childHwnd = fx.OnUiThread(() => (nint)fx.InvokeButton.Handle);
+        var calls = 0;
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
+        UiAutomationService.s_getRootElementForHwnd = (service, hwnd) =>
+            hwnd == childHwnd && ++calls == 1
+                ? UiAutomationService.s_elementFromHandle(service, hwnd)
+                : null;
+
+        var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
+
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnInvoke"),
+            "a transient refresh failure must not lose the already-pruned window subtree");
+        Assert.IsTrue(elements.Any(e => e.Type == "---" && e.WindowHandle == childHwnd));
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_StaleInitialPopupRootDoesNotAbortMainTree()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var staleHwnd = fx.Hwnd + 1000;
+        var staleRoot = ComProxy<IUIAutomationElement>((_, _) =>
+            throw new COMException("window closed", unchecked((int)0x80040201)));
+        var calls = 0;
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (staleHwnd, fx.ProcessId, "closed")];
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) =>
+            hwnd == staleHwnd && ++calls == 1 ? staleRoot : null;
+
+        var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
+
+        Assert.IsTrue(elements.Any(e => e.AutomationId == "txtValue"),
+            "a stale secondary window must not discard the selected window tree");
+        Assert.IsFalse(elements.Any(e => e.Type == "---" && e.WindowHandle == staleHwnd),
+            "a stale secondary window must not leave an empty group");
     }
 
     [TestMethod]
@@ -283,7 +443,30 @@ public partial class RealUiAutomationTests
         var elements = await svc.InspectAsync(uiTarget, null, 0, CancellationToken.None);
 
         Assert.IsTrue(elements.Length > 0);
-        Assert.IsTrue(elements.Any(e => e.Name == fx.Title), "PID-only largest fallback should inspect the fixture window tree");
+        Assert.AreEqual(1, elements.Count(e => e.Name == fx.Title),
+            "PID-only largest fallback should inspect the fixture window tree once");
+        Assert.IsFalse(elements.Any(e => e.Type == "---" && e.WindowHandle == 0),
+            "the resolved root HWND must replace the PID-only target's initial zero handle");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_StaleStoredHwndUsesRecoveredRootHwnd()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var staleHwnd = fx.Hwnd + 1000;
+        var uiTarget = NonExplicitSession(fx);
+        uiTarget.WindowHandle = staleHwnd;
+        UiAutomationService.s_getRootElement = (service, _) =>
+            UiAutomationService.s_elementFromHandle(service, fx.Hwnd);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
+
+        Assert.IsTrue(elements.Length > 0);
+        Assert.IsTrue(elements.All(element => element.WindowHandle == fx.Hwnd),
+            "a recovered live root must replace a stale nonzero session HWND");
     }
 
     [TestMethod]

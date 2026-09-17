@@ -192,6 +192,23 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task InspectAsync_ScopedOwnedElementUsesOwnedWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (ownedHwnd, _) = fx.OpenOwnedWindow(
+            "ScopedOwned_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+
+        var tree = await svc.InspectAsync(uiTarget, "Windowless Owned Item", 0, CancellationToken.None);
+
+        var ownedItem = tree.Single(element => element.Name == "Windowless Owned Item");
+        Assert.AreEqual(ownedHwnd, ownedItem.WindowHandle,
+            "a windowless scoped element must inherit its owned top-level HWND for DPI context");
+    }
+
+    [TestMethod]
     public async Task InspectAncestorsAsync_ReturnsRootToTargetChain()
     {
         using var fx = new UiaTestFixture();
@@ -204,6 +221,21 @@ public partial class RealUiAutomationTests
         Assert.IsTrue(chain.Length >= 2, "expected at least the window and the button");
         Assert.AreEqual("btnInvoke", chain[^1].AutomationId, "target should be last (deepest) in the chain");
         Assert.IsTrue(chain.Any(e => e.Type == "Window"), "the window ancestor should be present");
+    }
+
+    [TestMethod]
+    public async Task InspectAncestorsAsync_PidOnlyTargetSetsResolvedWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = PidOnlySession(fx);
+        await ResolveAsync(svc, uiTarget, "btnInvoke");
+
+        var chain = await svc.InspectAncestorsAsync(uiTarget, "btnInvoke", CancellationToken.None);
+
+        Assert.IsTrue(chain.Length >= 2);
+        Assert.IsTrue(chain.All(element => element.WindowHandle == fx.Hwnd),
+            "ancestor JSON must use the target element's real top-level HWND");
     }
 
     [TestMethod]
