@@ -132,7 +132,7 @@ public sealed partial class UiaTestFixture : IDisposable
 
     private Form BuildForm()
     {
-        var form = _nonActivating ? new NonActivatingForm() : new Form();
+        Form form = _nonActivating ? new NonActivatingForm() : new NonActivatingTestForm();
         form.Text = Title;
         form.Name = "fixtureForm";
         form.Width = 960;
@@ -572,7 +572,7 @@ public sealed partial class UiaTestFixture : IDisposable
         {
             if (_ownedWindow is null || _ownedWindow.IsDisposed)
             {
-                _ownedWindow = new Form
+                _ownedWindow = new NonActivatingTestForm
                 {
                     Text = title,
                     Name = "ownedForm",

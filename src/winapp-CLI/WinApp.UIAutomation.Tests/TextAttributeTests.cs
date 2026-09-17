@@ -75,7 +75,7 @@ public class TextAttributeTests
     [TestMethod]
     public async Task GetProperties_AllWithoutLiveElement_PreservesCachedBasics()
     {
-        UiAutomationService.s_getRootElement = (_, _) => null;
+        UiAutomationService.s_getRootElement = (_, _, _) => null;
         var service = new UiAutomationService(NullLogger<UiAutomationService>.Instance, new UiSelectorParser());
         var model = new UiElement { Name = "Cached document" };
         var all = await service.GetPropertiesAsync(new UiTarget(), model, null, CancellationToken.None);
@@ -182,7 +182,7 @@ public class TextAttributeTests
     {
         var element = Proxy<IUIAutomationElement>(handler);
         var root = Proxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? element : throw new COMException());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         return new UiAutomationService(NullLogger<UiAutomationService>.Instance, new UiSelectorParser());
     }
 
