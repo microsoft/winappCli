@@ -283,7 +283,7 @@ public partial class RealUiAutomationTests
         var root = ComProxy<IUIAutomationElement>((method, args) =>
             method.Name == "FindFirst" ? null : method.Invoke(realRoot, args));
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
         UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
         {
