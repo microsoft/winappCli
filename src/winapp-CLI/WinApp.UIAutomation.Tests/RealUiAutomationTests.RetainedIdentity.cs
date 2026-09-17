@@ -224,6 +224,103 @@ public partial class RealUiAutomationTests
         Assert.AreEqual(0, fx.ClickCount);
     }
 
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow(0L)]
+    public async Task ExplicitAction_NoActivateExternalAppIdentity_RejectsCrossWindowDuplicates(long? sourceHwnd)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false);
+        fx.ShowOwnedButton(false);
+        var svc = NewService();
+        var element = new UiElement { AutomationId = "save", Selector = "save", WindowHandle = sourceHwnd };
+
+        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => svc.InvokeAsync(fx.AppTarget, element, UiInvokeAction.Invoke, CancellationToken.None));
+        StringAssert.Contains(error.Message, "no longer unique");
+        Assert.AreEqual(0, fx.ClickCount);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitAction_NoActivateExternalAppIdentity_UniqueSecondaryIgnoresSubstrings(bool ownedByMain)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false, primaryAutomationId: "save-main");
+        fx.ShowOwnedButton(ownedByMain);
+        var svc = NewService();
+        var element = new UiElement { AutomationId = "save", Selector = "save" };
+
+        Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+            await svc.InvokeAsync(fx.AppTarget, element, UiInvokeAction.Invoke, CancellationToken.None));
+        await WaitForAsync(() => Task.FromResult(fx.SecondaryClicks == 1), "The unique secondary identity was not invoked.");
+        Assert.AreEqual(1, fx.ClickCount);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitAction_NoActivateExternalAppIdentity_MissingExactIdNeverUsesSubstring(bool nameMatch)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false, primaryAutomationId: "save-main");
+        var svc = NewService();
+        var aid = nameMatch ? "Primary Save" : "save";
+        var element = new UiElement { AutomationId = aid, Selector = aid };
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => svc.InvokeAsync(fx.AppTarget, element, UiInvokeAction.Invoke, CancellationToken.None));
+        Assert.AreEqual(0, fx.ClickCount);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task ExplicitAction_NoActivateExternalIdentity_SpecificWindowRestrictsScope(bool recordedSource, bool secondary)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false);
+        var otherHwnd = fx.ShowOwnedButton(false);
+        var hwnd = secondary ? otherHwnd : fx.Target.WindowHandle;
+        var target = recordedSource ? fx.AppTarget : new UiTarget
+        {
+            ProcessId = fx.Target.ProcessId, WindowHandle = hwnd, IsExplicitWindow = true,
+        };
+        var element = new UiElement
+        {
+            AutomationId = "save", Selector = "save", WindowHandle = recordedSource ? hwnd : null,
+        };
+        var svc = NewService();
+        UiAutomationService.s_getAllAppWindows = (_, _) => throw new AssertFailedException("A specific window must not enumerate siblings.");
+
+        Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+            await svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
+        await WaitForAsync(() => Task.FromResult(fx.ClickCount == 1), "The specific window identity was not invoked.");
+        Assert.AreEqual(secondary ? 1 : 0, fx.SecondaryClicks);
+    }
+
+    [TestMethod]
+    public async Task ExplicitAction_NoActivateExternalIdentity_ClosedRecordedPrimaryNeverUsesLiveSibling()
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false);
+        fx.ShowOwnedButton(false);
+        var svc = NewService();
+        var bind = UiAutomationService.s_elementFromHandle;
+        UiAutomationService.s_elementFromHandle = (service, hwnd) => hwnd == fx.Target.WindowHandle
+            ? throw new System.Runtime.InteropServices.COMException("Window closed", unchecked((int)0x80040201))
+            : bind(service, hwnd);
+        UiAutomationService.s_getAllAppWindows = (_, _) => throw new AssertFailedException("A closed source must not enumerate siblings.");
+        UiAutomationService.s_getRootElement = (_, _) => throw new AssertFailedException("A closed source must not recover.");
+        var element = new UiElement
+        {
+            AutomationId = "save", Selector = "save", WindowHandle = fx.Target.WindowHandle,
+        };
+
+        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => svc.InvokeAsync(fx.AppTarget, element, UiInvokeAction.Invoke, CancellationToken.None));
+        StringAssert.Contains(error.Message, "stale");
+        Assert.AreEqual(0, fx.ClickCount);
+    }
+
     // Separate from UiaTestFixture: these tests must not activate a window on the shared desktop.
     private sealed class ExplicitIdentityFixture : IDisposable
     {

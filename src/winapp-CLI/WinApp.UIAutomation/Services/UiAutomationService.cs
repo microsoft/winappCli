@@ -579,23 +579,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             : GetRootElement(uiTarget);
         if (root is null) { return Task.FromResult<UiElement?>(null); }
 
-        var exactMatches = new List<(IUIAutomationElement Element, long Hwnd)>();
-        var substringMatches = new List<(IUIAutomationElement Element, long Hwnd)>();
-        CollectQueryMatches(root, uiTarget.WindowHandle);
-        if (!uiTarget.IsExplicitWindow)
-        {
-            foreach (var (hwnd, _, _) in GetAllAppWindows(uiTarget))
-            {
-                ct.ThrowIfCancellationRequested();
-                if (hwnd == uiTarget.WindowHandle) { continue; }
-                var windowRoot = s_elementFromHandle(this, hwnd)
-                    ?? throw new InvalidOperationException(
-                        $"Cannot verify selector uniqueness because HWND {hwnd} could not be read. Re-run 'inspect' or 'search'.");
-                CollectQueryMatches(windowRoot, hwnd);
-            }
-        }
-        ct.ThrowIfCancellationRequested();
-        var matches = exactMatches.Count > 0 ? exactMatches : substringMatches;
+        var matches = CollectExplicitMatches(root, uiTarget, selector.Query, allowSubstring: true, ct);
         if (matches.Count == 0) { return Task.FromResult<UiElement?>(null); }
         if (matches.Count > 1)
         {
@@ -615,6 +599,28 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var result = ToUiElement(matches[0].Element, "", ref id);
         SetResolvedWindowHandle(result, matches[0].Element, matches[0].Hwnd);
         return Task.FromResult<UiElement?>(result);
+    }
+
+    private List<(IUIAutomationElement Element, long Hwnd)> CollectExplicitMatches(
+        IUIAutomationElement root, UiTarget? uiTarget, string query, bool allowSubstring, CancellationToken ct)
+    {
+        var exactMatches = new List<(IUIAutomationElement Element, long Hwnd)>();
+        var substringMatches = new List<(IUIAutomationElement Element, long Hwnd)>();
+        CollectQueryMatches(root, uiTarget?.WindowHandle ?? 0);
+        if (uiTarget is { IsExplicitWindow: false })
+        {
+            foreach (var (hwnd, _, _) in GetAllAppWindows(uiTarget))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (hwnd == uiTarget.WindowHandle) { continue; }
+                var windowRoot = s_elementFromHandle(this, hwnd)
+                    ?? throw new InvalidOperationException(
+                        $"Cannot verify selector uniqueness because HWND {hwnd} could not be read. Re-run 'inspect' or 'search'.");
+                CollectQueryMatches(windowRoot, hwnd);
+            }
+        }
+        ct.ThrowIfCancellationRequested();
+        return exactMatches.Count > 0 ? exactMatches : substringMatches;
 
         void CollectQueryMatches(IUIAutomationElement windowRoot, long hwnd)
         {
@@ -622,10 +628,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
             {
                 // Failed identity reads must not turn a partial traversal into a unique match.
                 var automationId = candidate.get_CurrentAutomationId().ToString() ?? string.Empty;
-                var name = candidate.get_CurrentName().ToString() ?? string.Empty;
-                var destination = automationId == selector.Query ? exactMatches
-                    : automationId.Contains(selector.Query, StringComparison.OrdinalIgnoreCase) ||
-                      name.Contains(selector.Query, StringComparison.OrdinalIgnoreCase) ? substringMatches : null;
+                var name = allowSubstring ? candidate.get_CurrentName().ToString() ?? string.Empty : string.Empty;
+                var destination = automationId == query ? exactMatches
+                    : allowSubstring && (automationId.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                      name.Contains(query, StringComparison.OrdinalIgnoreCase)) ? substringMatches : null;
                 if (destination is null) { continue; }
 
                 // An owned provider can appear in both the main ControlView and its own HWND.
@@ -1548,7 +1554,9 @@ return Task.FromResult<UiElement?>(null);
             }
             if (strictIdentity)
             {
-                return FindUniqueExplicitAutomationId(root, element.AutomationId, ct);
+                // Without a recorded source HWND, an app target commits to app-wide uniqueness.
+                var appTarget = element.WindowHandle is null or 0 && !uiTarget.IsExplicitWindow ? uiTarget : null;
+                return FindUniqueExplicitAutomationId(root, element.AutomationId, appTarget, ct);
             }
             var condition = _automation.CreatePropertyCondition(
                 UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
@@ -1597,28 +1605,21 @@ return Task.FromResult<UiElement?>(null);
         return null;
     }
 
-    private IUIAutomationElement? FindUniqueExplicitAutomationId(IUIAutomationElement root, string automationId, CancellationToken ct = default)
+    private IUIAutomationElement? FindUniqueExplicitAutomationId(
+        IUIAutomationElement root, string automationId, UiTarget? appTarget, CancellationToken ct)
     {
         // FindAll can return a nonempty but incomplete result across provider boundaries.
         // A bounded/best-effort search cannot prove uniqueness either. Walk the entire ControlView
         // iteratively, and never return a candidate after a traversal or property-read failure.
         try
         {
-            IUIAutomationElement? match = null;
-            foreach (var child in EnumerateExplicitControlView(root, ct))
+            var matches = CollectExplicitMatches(root, appTarget, automationId, allowSubstring: false, ct);
+            if (matches.Count > 1)
             {
-                // Do not use SafeGetBstr: a failed identity read leaves uniqueness unknown.
-                if (child.get_CurrentAutomationId().ToString() == automationId)
-                {
-                    if (match is not null)
-                    {
-                        throw new InvalidOperationException(
-                            $"AutomationId '{automationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
-                    }
-                    match = child;
-                }
+                throw new InvalidOperationException(
+                    $"AutomationId '{automationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
             }
-            return match;
+            return matches.Count == 0 ? null : matches[0].Element;
         }
         catch (COMException ex) when (ex.HResult != unchecked((int)0x80040201)) // UIA_E_ELEMENTNOTAVAILABLE remains stale.
         {

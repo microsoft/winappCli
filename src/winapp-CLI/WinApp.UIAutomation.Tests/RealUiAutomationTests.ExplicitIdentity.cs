@@ -38,10 +38,13 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    [DataRow("enumeration")]
-    [DataRow("provider")]
-    [DataRow("missing")]
-    public async Task ExplicitSelection_AppScopeFailure_AfterMainMatchFailsClosed(string failure)
+    [DataRow("enumeration", false)]
+    [DataRow("provider", false)]
+    [DataRow("missing", false)]
+    [DataRow("enumeration", true)]
+    [DataRow("provider", true)]
+    [DataRow("missing", true)]
+    public async Task ExplicitSelection_AppScopeFailure_AfterMainMatchFailsClosed(string failure, bool externalIdentity)
     {
         var calls = new List<string>();
         ConfigureExplicitIdentityTree(calls, 1, false, 0);
@@ -51,7 +54,12 @@ public partial class RealUiAutomationTests
             ? null : throw new COMException("Other provider failed.");
         var svc = NewService();
         var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
-        if (failure == "missing")
+        if (externalIdentity)
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => svc.InvokeAsync(target,
+                new UiElement { AutomationId = "save", Selector = "save" }, UiInvokeAction.Invoke, CancellationToken.None));
+        }
+        else if (failure == "missing")
         {
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => svc.FindSingleElementAsync(target, new UiSelector { Query = "save" }, requireUnique: true, CancellationToken.None));
