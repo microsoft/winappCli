@@ -243,13 +243,31 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 
 ### CI integration
 
-`Build and Package` uploads packages in `build-artifacts`, then starts the full
+`Build and Package` publishes x64 and ARM64 on separate runners with
+`-SkipAll -Architecture x64` (or `arm64`). Each publish carries its version,
+commit, and CLI executable hash alongside its runtime folder. The packaging runner
+downloads both to `artifacts\cli` and uses `-OnlyPackage -UseExistingArtifacts`,
+which validates the actual PE architectures and matching provenance without
+cleaning or republishing the inputs. Preserve full git history in all three
+jobs so they calculate the same build number.
+
+The workflow uploads packages in `build-artifacts`, then starts the full
 test suite, documentation validation, UI E2E, and (on PRs) sample tests as
 independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
 not republish or delete the downloaded CLI and NuGet packages.
-CI runs `-TestSuite Core` and `-TestSuite UIAutomation` on separate runners,
-never concurrently in one workspace. Together they cover the default `All`
-suite; both results feed the required check and combined `test-results` artifact.
+CI runs `-TestSuite Cli -CliShard 1`, `-TestSuite Cli -CliShard 2`,
+`-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
+concurrently in one workspace. Together they cover the default `All` suite.
+Auxiliary owns Node unit tests, analyzer tests/stand-down, and both Pester suites.
+Both CLI shards prepare the Node CLI needed by integration tests, but do not
+rerun Node unit tests.
+
+`scripts\test-cli-shard.ps1` partitions the CLI suite using a class predicate and
+its exact complement: package-command tests versus all remaining tests. New tests
+always enter one shard. Each invocation checks discovery counts, the minimum
+expected test count, and its unique TRX/coverage outputs. Keep the combined
+`test-results` artifact and union source-line coverage across reports; do not
+average shard percentages or double-count shared source lines.
 
 Sample & guide tests use the reusable `.github/workflows/test-samples.yml`
 matrix with `npm-package` and `nuget-packages` from the same run. Manual sample

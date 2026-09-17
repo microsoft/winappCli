@@ -44,8 +44,8 @@ AfterAll {
 Describe 'Artifact-first workflow dependencies' {
     It 'publishes packages without tests and keeps the original check as a strict aggregate' {
         $producer = Get-JobText $buildWorkflow 'build-artifacts'
-        $producer | Should -Match 'build-cli\.ps1 -SkipTests -SkipDocs'
-        $producer | Should -Not -Match '(?m)^\s+needs:'
+        $producer | Should -Match 'build-cli\.ps1 -OnlyPackage -UseExistingArtifacts'
+        $producer | Should -Match '(?m)^\s+needs: publish-cli'
         $producer | Should -Not -Match 'collect-metrics|test-results'
         $producer | Should -Match 'Downloads - awaiting validation'
         foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages')) {
@@ -54,7 +54,23 @@ Describe 'Artifact-first workflow dependencies' {
 
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
-        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics\]'
+        $gate | Should -Match 'needs: \[publish-cli, build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics\]'
+    }
+
+    It 'publishes both architectures on separate runners and packages their same-run outputs' {
+        $publish = Get-JobText $buildWorkflow 'publish-cli'
+        $publish | Should -Match 'architecture: \[x64, arm64\]'
+        $publish | Should -Match 'fail-fast: false'
+        $publish | Should -Match 'runs-on: windows-latest'
+        $publish | Should -Match 'fetch-depth: 0'
+        $publish | Should -Match 'build-cli\.ps1 -SkipAll -Architecture \$\{\{ matrix.architecture \}\}'
+        $publish | Should -Match 'name: cli-publish-\$\{\{ matrix.architecture \}\}'
+        $producer = Get-JobText $buildWorkflow 'build-artifacts'
+        foreach ($arch in @('x64', 'arm64')) {
+            $producer | Should -Match "name: cli-publish-$arch"
+            $producer | Should -Match "artifacts/cli/win-$arch/"
+        }
+        $producer | Should -Not -Match 'dotnet publish|run-id:'
     }
 
     It 'keeps formatting, lint and compilation gates on freshly generated npm commands' {
@@ -75,17 +91,23 @@ Describe 'Artifact-first workflow dependencies' {
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
         }
         (Get-JobText $buildWorkflow 'validate-tests') |
-            Should -Match 'build-cli\.ps1 -OnlyTests -UseExistingArtifacts -TestSuite \$\{\{ matrix.suite \}\}'
+            Should -Match ([regex]::Escape('$testArgs.CliShard = [int]$env:CLI_SHARD'))
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-e2e-winui-ui\.ps1'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
     }
 
-    It 'runs both validation lanes on isolated runners and never cancels the other on failure' {
+    It 'runs both CLI shards, auxiliary suites once, and UI Automation on isolated runners' {
         $validation = Get-JobText $buildWorkflow 'validate-tests'
-        $validation | Should -Match 'suite: \[Core, UIAutomation\]'
+        foreach ($lane in @('Cli-1', 'Cli-2', 'Auxiliary', 'UIAutomation')) {
+            ([regex]::Matches($validation, "(?m)^\s+- lane: $lane\r?$")).Count | Should -Be 1
+        }
+        ([regex]::Matches($validation, '(?m)^\s+suite: Cli\r?$')).Count | Should -Be 2
+        ([regex]::Matches($validation, '(?m)^\s+suite: Auxiliary\r?$')).Count | Should -Be 1
+        $validation | Should -Match 'shard: 1'
+        $validation | Should -Match 'shard: 2'
         $validation | Should -Match 'fail-fast: false'
         $validation | Should -Match 'runs-on: windows-latest'
-        $validation | Should -Match 'name: validation-results-\$\{\{ matrix.suite \}\}'
+        $validation | Should -Match 'name: validation-results-\$\{\{ matrix.lane \}\}'
     }
 
     It 'reuses same-run packages safely on PRs and still builds for manual sample runs' {
@@ -124,7 +146,7 @@ Describe 'Artifact-first workflow dependencies' {
         $metrics = Get-JobText $buildWorkflow 'metrics'
         $metrics | Should -Match 'needs: \[build-artifacts, validate-tests\]'
         $metrics | Should -Match ([regex]::Escape("needs.validate-tests.result == 'success' || (github.event_name == 'pull_request' && needs.validate-tests.result == 'failure')"))
-        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Core', 'validation-results-UIAutomation', 'test-results')) {
+        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Cli-1', 'validation-results-Cli-2', 'validation-results-Auxiliary', 'validation-results-UIAutomation', 'test-results')) {
             $metrics | Should -Match "(?m)^\s+name: $artifact\r?$"
         }
         $metrics.IndexOf('name: test-results') | Should -BeLessThan $metrics.IndexOf('uses: ./.github/actions/collect-metrics')
@@ -135,7 +157,7 @@ Describe 'Artifact-first workflow dependencies' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
+        foreach ($job in @('publish-cli', 'build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
             $results[$job] = @{ result = 'success' }
         }
         $env:IS_PR = 'true'
@@ -239,8 +261,8 @@ Describe 'Metrics consume actual validation reports' {
         Join-Path $metricsRoot 'test-summary.json' | Should -Not -Exist
     }
 
-    It 'combines both reports, including failures, without double-counting' {
-        foreach ($name in @('WinApp.Cli.Tests', 'WinApp.UIAutomation.Tests')) {
+    It 'combines all three reports, including failures, without double-counting' {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests')) {
             @'
 <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
   <Times start="2026-09-17T00:00:00Z" finish="2026-09-17T00:00:01Z" />
@@ -250,18 +272,55 @@ Describe 'Metrics consume actual validation reports' {
         }
         & $parseMetrics
         $summary = Get-Content (Join-Path $metricsRoot 'test-summary.json') -Raw | ConvertFrom-Json
-        $summary.total | Should -Be 10
-        $summary.passed | Should -Be 6
-        $summary.failed | Should -Be 2
-        $summary.skipped | Should -Be 2
-        $summary.durationMs | Should -Be 2000
+        $summary.total | Should -Be 15
+        $summary.passed | Should -Be 9
+        $summary.failed | Should -Be 3
+        $summary.skipped | Should -Be 3
+        $summary.durationMs | Should -Be 3000
     }
 
     It 'rejects partial or malformed reports instead of declaring success' {
-        '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.Cli.Tests.trx')
+        '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.Cli.Tests.shard-1.trx')
         { & $parseMetrics } | Should -Throw -ExpectedMessage '*Missing test report*'
+        '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.Cli.Tests.shard-2.trx')
         '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.UIAutomation.Tests.trx')
         { & $parseMetrics } | Should -Throw -ExpectedMessage '*Missing or empty test counters*'
         Join-Path $metricsRoot 'test-summary.json' | Should -Not -Exist
+    }
+
+    It 'rejects an extra unsharded report rather than double-counting the CLI suite' {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests', 'WinApp.Cli.Tests')) {
+            '<TestRun />' | Set-Content (Join-Path $metricsRoot "TestResults\$name.trx")
+        }
+        { & $parseMetrics } | Should -Throw -ExpectedMessage '*Expected exactly three test reports*'
+    }
+
+    It 'unions overlapping CLI shard coverage instead of counting shared source lines twice' {
+        foreach ($shard in @(1, 2)) {
+            $firstHits = if ($shard -eq 1) { 1 } else { 0 }
+            $secondHits = if ($shard -eq 2) { 1 } else { 0 }
+            $firstCondition = $firstHits * 100
+            $secondCondition = $secondHits * 100
+            @"
+<coverage><packages><package name="CLI"><classes><class filename="shared.cs"><lines>
+<line number="1" hits="$firstHits" condition-coverage="50% (1/2)"><conditions>
+<condition number="0" coverage="$firstCondition%" />
+<condition number="1" coverage="$secondCondition%" />
+</conditions></line>
+<line number="2" hits="$secondHits" />
+</lines></class></classes></package></packages></coverage>
+"@ | Set-Content (Join-Path $metricsRoot "TestResults\WinApp.Cli.Tests.shard-$shard.cobertura.xml")
+        }
+        @'
+<coverage><packages><package name="UI"><classes><class filename="ui.cs"><lines>
+<line number="1" hits="1" />
+<line number="2" hits="0" />
+</lines></class></classes></package></packages></coverage>
+'@ | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.UIAutomation.Tests.cobertura.xml')
+        $source = (Get-RunScript $collectAction 'Parse coverage results').Replace('${{ inputs.artifacts-path }}', $metricsRoot)
+        & ([scriptblock]::Create($source))
+        $coverage = Get-Content (Join-Path $metricsRoot 'coverage-summary.json') -Raw | ConvertFrom-Json
+        $coverage.lineCoverage | Should -Be 75
+        $coverage.branchCoverage | Should -Be 100
     }
 }

@@ -44,14 +44,17 @@ runs:
       shell: pwsh
       run: |
         $resultsPath = "${{ inputs.artifacts-path }}/TestResults"
-        # Both suites must have reported before publishing combined metrics. An
+        # Both CLI shards and UI Automation must have reported before publishing combined metrics. An
         # empty or partial download must not become a green zero-test report.
-        foreach ($name in @('WinApp.Cli.Tests.trx', 'WinApp.UIAutomation.Tests.trx')) {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1.trx', 'WinApp.Cli.Tests.shard-2.trx', 'WinApp.UIAutomation.Tests.trx')) {
           if (-not (Test-Path "$resultsPath/$name")) {
             throw "Missing test report: $name. Metrics require the validation job's test-results artifact."
           }
         }
         $trxFiles = Get-ChildItem "$resultsPath/*.trx"
+        if ($trxFiles.Count -ne 3) {
+          throw "Expected exactly three test reports (two CLI shards and UI Automation); found $($trxFiles.Count)."
+        }
         $totalTests = 0; $passed = 0; $failed = 0; $skipped = 0; $durationMs = 0
 
         foreach ($trx in $trxFiles) {

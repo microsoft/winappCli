@@ -17,7 +17,36 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  publish-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, arm64]
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Publish one architecture (awaiting validation)
+      run: .\scripts\build-cli.ps1 -SkipAll -Architecture ${{ matrix.architecture }}
+
+    # Includes provenance beside the RID folder; only the packaging job consumes it.
+    - name: Upload architecture for packaging
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: cli-publish-${{ matrix.architecture }}
+        path: artifacts/cli/
+        if-no-files-found: error
+
   build-artifacts:
+    needs: publish-cli
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -35,17 +64,31 @@ jobs:
       with:
         node-version: '24'
     
-    # Package checks (including npm format/lint/compile) still run here. Tests and
-    # doc drift checks use these exact artifacts on separate runners.
-    - name: Build and package (awaiting validation)
-      run: .\scripts\build-cli.ps1 -SkipTests -SkipDocs
+    - name: Download x64 publish
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-publish-x64
+        path: artifacts/cli
+
+    - name: Download ARM64 publish
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-publish-arm64
+        path: artifacts/cli
+
+    # Validate both actual PE architectures, versions and same-commit provenance;
+    # package the downloaded files without cleaning them or publishing again.
+    - name: Package existing publishes (awaiting validation)
+      run: .\scripts\build-cli.ps1 -OnlyPackage -UseExistingArtifacts
     
     - name: Upload CLI binaries
       id: cli
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: cli-binaries
-        path: artifacts/cli/
+        path: |
+          artifacts/cli/win-x64/
+          artifacts/cli/win-arm64/
         if-no-files-found: error
     
     - name: Upload npm package
@@ -99,7 +142,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [Core, UIAutomation]
+        include:
+        - lane: Cli-1
+          suite: Cli
+          shard: 1
+        - lane: Cli-2
+          suite: Cli
+          shard: 2
+        - lane: Auxiliary
+          suite: Auxiliary
+          shard: 0
+        - lane: UIAutomation
+          suite: UIAutomation
+          shard: 0
+    name: validate-tests (${{ matrix.lane }})
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -113,7 +169,7 @@ jobs:
         dotnet-version: 10.0.x
 
     - name: Setup Node.js
-      if: matrix.suite == 'Core'
+      if: matrix.suite != 'UIAutomation'
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '24'
@@ -131,13 +187,19 @@ jobs:
         path: artifacts/nuget
 
     - name: Run validation without republishing
-      run: .\scripts\build-cli.ps1 -OnlyTests -UseExistingArtifacts -TestSuite ${{ matrix.suite }}
+      env:
+        TEST_SUITE: ${{ matrix.suite }}
+        CLI_SHARD: ${{ matrix.shard }}
+      run: |
+        $testArgs = @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = $env:TEST_SUITE }
+        if ($env:TEST_SUITE -eq 'Cli') { $testArgs.CliShard = [int]$env:CLI_SHARD }
+        .\scripts\build-cli.ps1 @testArgs
 
     - name: Upload test results
       if: ${{ !cancelled() }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: validation-results-${{ matrix.suite }}
+        name: validation-results-${{ matrix.lane }}
         path: artifacts/TestResults/
         if-no-files-found: error
 
@@ -217,10 +279,24 @@ jobs:
         name: nuget-packages
         path: artifacts/nuget
 
-    - name: Download core test results
+    - name: Download CLI shard 1 results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: validation-results-Core
+        name: validation-results-Cli-1
+        path: artifacts/TestResults
+
+    - name: Download CLI shard 2 results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-Cli-2
+        path: artifacts/TestResults
+
+    - name: Download auxiliary test results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-Auxiliary
         path: artifacts/TestResults
 
     - name: Download UI Automation test results
@@ -303,7 +379,7 @@ jobs:
   # Retain the original required check, but only turn it green after every lane.
   build-and-package:
     if: always()
-    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
+    needs: [publish-cli, build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs

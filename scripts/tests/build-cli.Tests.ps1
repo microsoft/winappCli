@@ -28,7 +28,23 @@ BeforeAll {
         Set-Content (Join-Path $root 'scripts\setup-winapprun.ps1') '# Fixture installer'
         Set-Content (Join-Path $root 'artifacts\keep.txt') 'unrelated artifact'
         foreach ($arch in @('win-x64', 'win-arm64')) {
-            Set-Content (Join-Path $root "artifacts\cli\$arch\winapp.exe") "downloaded $arch"
+            $pe = [byte[]]::new(128)
+            $pe[0] = 0x4D
+            $pe[1] = 0x5A
+            $pe[0x3C] = 0x40
+            $pe[0x40] = 0x50
+            $pe[0x41] = 0x45
+            $pe[0x44] = 0x64
+            $pe[0x45] = if ($arch -eq 'win-x64') { 0x86 } else { 0xAA }
+            $cliPath = Join-Path $root "artifacts\cli\$arch\winapp.exe"
+            [System.IO.File]::WriteAllBytes($cliPath, $pe)
+            Copy-Item $cliPath (Join-Path $root "fake-$arch.exe")
+            Set-Content (Join-Path $root "artifacts\cli\$arch\winapp.pdb") 'normal PDB output'
+            @{
+                schemaVersion = 1; runtimeId = $arch; sourceCommit = ('1' * 40)
+                fullVersion = '1.2.3-fixture.17'; assemblyVersion = '1.2.3.17'
+                cliSha256 = (Get-FileHash $cliPath).Hash
+            } | ConvertTo-Json | Set-Content (Join-Path $root "artifacts\cli\$arch.build.json")
             Set-Content (Join-Path $root "src\winapp-npm\bin\$arch\winapp.exe") 'stale npm binary'
         }
         foreach ($id in $script:PackageIds) {
@@ -83,6 +99,18 @@ $global:LASTEXITCODE = if ($fixture.Fail -eq $name) { 23 } else { 0 }
 Add-Trace 'stand-down'
 $global:LASTEXITCODE = if ($fixture.Fail -eq 'stand-down') { 19 } else { 0 }
 '@
+        Set-Content (Join-Path $root 'scripts\test-cli-shard.ps1') @'
+param([int]$Shard, [string]$TestProjectPath, [string]$ResultsDirectory, [string]$CoverageSettings)
+Add-Trace 'cli-shard' @($Shard, $TestProjectPath, $ResultsDirectory, $CoverageSettings)
+New-Item -ItemType Directory $ResultsDirectory -Force | Out-Null
+if ($fixture.Fail -ne 'shard-no-reports') {
+    Set-Content (Join-Path $ResultsDirectory "WinApp.Cli.Tests.shard-$Shard.trx") '<TestRun/>'
+    Set-Content (Join-Path $ResultsDirectory "WinApp.Cli.Tests.shard-$Shard.cobertura.xml") '<coverage/>'
+    Set-Content (Join-Path $ResultsDirectory "cli-shard-$Shard.json") '{"expectedTests":1}'
+}
+if ($fixture.Fail -eq 'shard-throw') { throw 'Shard report assertion failed' }
+$global:LASTEXITCODE = if ($fixture.Fail -eq 'cli-shard') { 29 } else { 0 }
+'@
 
         # A separate PowerShell process preserves exit semantics. All build/package/test
         # entry points are fakes; even the nested Pester calls cannot recurse into this suite.
@@ -97,6 +125,20 @@ function Add-Trace {
     [pscustomobject]@{ Name = $Name; Arguments = @($Arguments) } |
         ConvertTo-Json -Depth 10 -Compress | Add-Content "$PSScriptRoot\trace.jsonl"
 }
+function git {
+    if (($args -join ' ') -ne 'rev-parse HEAD') { throw "Unexpected git operation: $args" }
+    Add-Trace 'source-commit'
+    $global:LASTEXITCODE = if ($fixture.Fail -eq 'git') { 1 } else { 0 }
+    return ('1' * 40)
+}
+foreach ($arch in @('win-x64', 'win-arm64')) {
+    $path = Join-Path $PSScriptRoot "artifacts\cli\$arch\winapp.exe"
+    Set-Item -LiteralPath "Function:\$path" -Value {
+        Add-Trace 'published-schema' (@($MyInvocation.MyCommand.Name) + @($args))
+        if ($fixture.Fail -eq 'invalid-schema') { '{invalid' } else { '{"source":"current-cli"}' }
+        $global:LASTEXITCODE = if ($fixture.Fail -eq 'schema') { 17 } else { 0 }
+    }
+}
 function dotnet {
     $arguments = @($args)
     Add-Trace 'dotnet' $arguments
@@ -107,7 +149,9 @@ function dotnet {
     } elseif ($step -eq 'publish') {
         $output = $arguments[[array]::IndexOf($arguments, '-o') + 1]
         New-Item -ItemType Directory -Path $output -Force | Out-Null
-        Set-Content (Join-Path $output 'winapp.exe') 'published'
+        $runtimeId = $arguments[[array]::IndexOf($arguments, '-r') + 1]
+        Copy-Item (Join-Path $PSScriptRoot "fake-$runtimeId.exe") (Join-Path $output 'winapp.exe')
+        if ($fixture.Fail -eq 'publish-placeholder') { Set-Content (Join-Path $output 'winapp.exe') 'placeholder' }
     } elseif ($step -eq 'run' -or $step -eq 'test') {
         $project = $arguments[[array]::IndexOf($arguments, '--project') + 1]
         if ($step -eq 'test') {
@@ -119,7 +163,7 @@ function dotnet {
         } elseif ($project -match 'SnapshotBaker') {
             $step = 'bake'
         }
-        if ($arguments -contains '--report-trx-filename') {
+        if ($arguments -contains '--report-trx-filename' -and $fixture.Fail -ne 'no-reports') {
             $output = $arguments[[array]::IndexOf($arguments, '--results-directory') + 1]
             New-Item -ItemType Directory -Path $output -Force | Out-Null
             $trx = $arguments[[array]::IndexOf($arguments, '--report-trx-filename') + 1]
@@ -195,6 +239,8 @@ try {
             Flags = $Flags; Fail = $Fail; PesterVersion = $PesterVersion
             FailureKind = $FailureKind; PackageIds = $script:PackageIds
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $Root 'fixture.json')
+        $tracePath = Join-Path $Root 'trace.jsonl'
+        if (Test-Path $tracePath) { Remove-Item $tracePath }
         $output = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File (Join-Path $Root 'run.ps1') 2>&1
         $exitCode = $LASTEXITCODE
         $calls = @(if (Test-Path (Join-Path $Root 'trace.jsonl')) {
@@ -234,7 +280,7 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'dotnet build src\\winapp-CLI\\winapp.sln -c Debug -p:\s*TreatWarningsAsErrors=true'
         $result.Trace | Should -Match 'WinApp.Cli.csproj -c Debug --no-build --cli-schema'
         $result.Trace | Should -Match 'npm ci --ignore-scripts'
-        $result.Trace | Should -Match 'npm run generate-commands --schema .*artifacts\\TestResults\\cli-schema.json'
+        $result.Trace | Should -Match 'npm run generate-commands --schema .*artifacts\\TestResults\\cli-schema-All.json'
         $result.Trace | Should -Match 'npm run compile'
         $result.Trace | Should -Match 'npm test'
         $result.Trace | Should -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build'
@@ -275,6 +321,148 @@ Describe 'build-cli.ps1 control flow' {
         $result.Output | Should -Not -Match 'Ready for distribution'
     }
 
+    It 'publishes only <Architecture> with the existing AOT version arguments and provenance' -ForEach @(
+        @{ Architecture = 'x64' }
+        @{ Architecture = 'arm64' }
+    ) {
+        $result = Invoke-BuildFixture $root -Flags @{ SkipAll = $true; Architecture = $Architecture }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $publishes = @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' })
+        $publishes.Count | Should -Be 1
+        $result.Trace | Should -Match "-c Release -r win-$Architecture --self-contained"
+        $result.Trace | Should -Match '/p:Version=1.2.3.17 /p:AssemblyVersion=1.2.3.17 /p:FileVersion=1.2.3.17 /p:InformationalVersion=1.2.3-fixture.17 /p:IncludeSourceRevisionInInformationalVersion=false'
+        $result.Trace | Should -Not -Match 'dotnet build|dotnet run|dotnet test|(?m)^npm |package-npm|package-nuget|package-msix|pester|generate-llm-docs'
+        $other = if ($Architecture -eq 'x64') { 'arm64' } else { 'x64' }
+        Join-Path $root "artifacts\cli\win-$other" | Should -Not -Exist
+        $provenance = Get-Content (Join-Path $root "artifacts\cli\win-$Architecture.build.json") -Raw | ConvertFrom-Json
+        $provenance.runtimeId | Should -BeExactly "win-$Architecture"
+        $provenance.sourceCommit | Should -BeExactly ('1' * 40)
+        $provenance.fullVersion | Should -BeExactly '1.2.3-fixture.17'
+        $provenance.assemblyVersion | Should -BeExactly '1.2.3.17'
+        $provenance.cliSha256 | Should -BeExactly (Get-FileHash (Join-Path $root "artifacts\cli\win-$Architecture\winapp.exe")).Hash
+    }
+
+    It 'refuses a successful publish that leaves a placeholder instead of a PE executable' {
+        $result = Invoke-BuildFixture $root -Flags @{ SkipAll = $true; Architecture = 'arm64' } -Fail 'publish-placeholder'
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'not a PE executable'
+        Join-Path $root 'artifacts\cli\win-arm64.build.json' | Should -Not -Exist
+    }
+
+    It 'packages merged architecture publish outputs without changing downloaded files or stale results' {
+        $mergeRoot = New-BuildFixture
+        foreach ($id in $script:PackageIds) {
+            Remove-Item (Join-Path $mergeRoot "artifacts\nuget\$id.9.8.7-prerelease.42.nupkg")
+        }
+        foreach ($architecture in @('x64', 'arm64')) {
+            $publishRoot = New-BuildFixture
+            $published = Invoke-BuildFixture $publishRoot -Flags @{ SkipAll = $true; Architecture = $architecture }
+            $published.ExitCode | Should -Be 0 -Because $published.Output
+            Copy-Item (Join-Path $publishRoot "artifacts\cli\win-$architecture\winapp.exe") (Join-Path $mergeRoot "artifacts\cli\win-$architecture\winapp.exe") -Force
+            Copy-Item (Join-Path $publishRoot "artifacts\cli\win-$architecture.build.json") (Join-Path $mergeRoot "artifacts\cli\win-$architecture.build.json") -Force
+        }
+        $before = @(Get-ChildItem (Join-Path $mergeRoot 'artifacts') -File -Recurse | Get-FileHash)
+        $result = Invoke-BuildFixture $mergeRoot -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true } -PesterVersion ''
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        foreach ($file in $before) {
+            (Get-FileHash $file.Path).Hash | Should -BeExactly $file.Hash
+        }
+        $result.Trace | Should -Not -Match 'dotnet |(?m)^npm |pester|stand-down|generate-llm-docs'
+        $result.Trace | Should -Match 'package-npm 1.2.3-fixture.17 Stable=False'
+        $result.Trace | Should -Match 'package-nuget 1.2.3-fixture.17 Stable=False'
+        $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=False fixture'
+        foreach ($id in $script:PackageIds) {
+            Join-Path $mergeRoot "artifacts\nuget\$id.1.2.3-fixture.17.nupkg" | Should -Exist
+        }
+        Join-Path $mergeRoot 'src\winapp-CLI\TestResults\stale.trx' | Should -Exist
+        Join-Path $mergeRoot 'TestResults\stale.trx' | Should -Exist
+        $result.Output | Should -Match 'awaiting validation'
+    }
+
+    It 'packages stable provenance without rebaking or republishing' {
+        foreach ($id in $script:PackageIds) {
+            Remove-Item (Join-Path $root "artifacts\nuget\$id.9.8.7-prerelease.42.nupkg")
+        }
+        foreach ($architecture in @('x64', 'arm64')) {
+            $path = Join-Path $root "artifacts\cli\win-$architecture.build.json"
+            $provenance = Get-Content $path -Raw | ConvertFrom-Json
+            $provenance.fullVersion = '1.2.3'
+            $provenance | ConvertTo-Json | Set-Content $path
+        }
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true; Stable = $true }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $result.Trace | Should -Not -Match 'dotnet |(?m)^npm |generate-llm-docs'
+        $result.Trace | Should -Match 'package-npm 1.2.3 Stable=True'
+        $result.Trace | Should -Match 'package-nuget 1.2.3 Stable=True'
+        $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=True'
+    }
+
+    It 'rejects packaging with missing <Path> before any package creation or cleanup' -ForEach @(
+        @{ Path = 'win-x64\winapp.exe' }
+        @{ Path = 'win-arm64\winapp.exe' }
+        @{ Path = 'win-x64.build.json' }
+        @{ Path = 'win-arm64.build.json' }
+    ) {
+        Remove-Item (Join-Path $root "artifacts\cli\$Path")
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true }
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Trace | Should -Not -Match 'package-npm|package-nuget|package-msix|dotnet |(?m)^npm '
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+        Join-Path $root 'artifacts\TestResults\stale.trx' | Should -Exist
+    }
+
+    It 'rejects <Case> packaging inputs with no mutations' -ForEach @(
+        @{ Case = 'x64 binary in ARM64 folder'; RuntimeId = 'win-arm64'; Change = 'machine' }
+        @{ Case = 'ARM64 binary in x64 folder'; RuntimeId = 'win-x64'; Change = 'machine' }
+        @{ Case = 'placeholder executable'; RuntimeId = 'win-arm64'; Change = 'placeholder' }
+        @{ Case = 'invalid PE signature'; RuntimeId = 'win-arm64'; Change = 'signature' }
+        @{ Case = 'invalid PE offset'; RuntimeId = 'win-arm64'; Change = 'offset' }
+        @{ Case = 'truncated PE header'; RuntimeId = 'win-arm64'; Change = 'truncated' }
+        @{ Case = 'modified executable'; RuntimeId = 'win-arm64'; Change = 'hash' }
+        @{ Case = 'different source commit'; RuntimeId = 'win-arm64'; Change = 'sourceCommit' }
+        @{ Case = 'different package version'; RuntimeId = 'win-arm64'; Change = 'fullVersion' }
+        @{ Case = 'different assembly version'; RuntimeId = 'win-x64'; Change = 'assemblyVersion' }
+        @{ Case = 'different provenance architecture'; RuntimeId = 'win-arm64'; Change = 'runtimeId' }
+        @{ Case = 'unsupported provenance schema'; RuntimeId = 'win-arm64'; Change = 'schemaVersion' }
+        @{ Case = 'invalid provenance JSON'; RuntimeId = 'win-arm64'; Change = 'json' }
+    ) {
+        $cli = Join-Path $root "artifacts\cli\$RuntimeId\winapp.exe"
+        $metadata = Join-Path $root "artifacts\cli\$RuntimeId.build.json"
+        if ($Change -in @('machine', 'placeholder', 'signature', 'offset', 'truncated', 'hash')) {
+            $bytes = [System.IO.File]::ReadAllBytes($cli)
+            switch ($Change) {
+                'machine' { $bytes[0x45] = if ($RuntimeId -eq 'win-x64') { 0xAA } else { 0x86 } }
+                'placeholder' { $bytes = [System.Text.Encoding]::UTF8.GetBytes('placeholder') }
+                'signature' { $bytes[0x40] = 0 }
+                'offset' { $bytes[0x3C] = 0xFF }
+                'truncated' { $bytes = $bytes[0..65] }
+                'hash' { $bytes[127] = 1 }
+            }
+            [System.IO.File]::WriteAllBytes($cli, $bytes)
+        } elseif ($Change -eq 'json') {
+            Set-Content $metadata '{invalid'
+        } else {
+            $provenance = Get-Content $metadata -Raw | ConvertFrom-Json
+            $provenance.$Change = 'different'
+            $provenance | ConvertTo-Json | Set-Content $metadata
+        }
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true }
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Trace | Should -Not -Match 'package-npm|package-nuget|package-msix|dotnet |(?m)^npm '
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+        Join-Path $root 'artifacts\TestResults\stale.trx' | Should -Exist
+        if ($Change -eq 'machine') { $result.Output | Should -Match 'PE Machine' }
+        if ($Change -eq 'hash') { $result.Output | Should -Match 'hash does not match' }
+    }
+
     It 'runs only the UI Automation lane without Node, analyzer or Pester setup' {
         $before = Get-ArtifactSnapshot $root
         $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'UIAutomation' } -PesterVersion ''
@@ -286,7 +474,7 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Not -Match 'dotnet publish|winapp.sln|(?m)^npm |schema|WinApp.Cli.Tests.csproj|dotnet test|stand-down|nuget-pester|scripts-pester'
         Join-Path $root 'artifacts\TestResults\WinApp.UIAutomation.Tests.trx' | Should -Exist
         Join-Path $root 'artifacts\TestResults\WinApp.Cli.Tests.trx' | Should -Not -Exist
-        $result.Output | Should -Match 'the other suite must also pass'
+        $result.Output | Should -Match 'all other required suites and shards must also pass'
     }
 
     It 'runs every other suite in the Core lane without rerunning UI Automation tests' {
@@ -306,10 +494,10 @@ Describe 'build-cli.ps1 control flow' {
         Join-Path $root 'artifacts\TestResults\WinApp.UIAutomation.Tests.trx' | Should -Not -Exist
     }
 
-    It 'covers All exactly once across Core and UIAutomation, including report names' {
+    It 'covers All exactly once across Cli, Auxiliary and UIAutomation and the legacy Core partition' {
         $suiteCalls = @{}
         $suiteReports = @{}
-        foreach ($suite in @('All', 'Core', 'UIAutomation')) {
+        foreach ($suite in @('All', 'Core', 'UIAutomation', 'Cli', 'Auxiliary')) {
             $fixtureRoot = New-BuildFixture
             $result = Invoke-BuildFixture $fixtureRoot -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = $suite }
             $result.ExitCode | Should -Be 0 -Because $result.Output
@@ -335,6 +523,109 @@ Describe 'build-cli.ps1 control flow' {
             Should -BeExactly ($suiteCalls.All -join ',')
         (($suiteReports.Core + $suiteReports.UIAutomation | Sort-Object) -join ',') |
             Should -BeExactly ($suiteReports.All -join ',')
+        (($suiteCalls.Cli + $suiteCalls.Auxiliary + $suiteCalls.UIAutomation | Sort-Object) -join ',') |
+            Should -BeExactly ($suiteCalls.All -join ',')
+        (($suiteReports.Cli + $suiteReports.Auxiliary + $suiteReports.UIAutomation | Sort-Object) -join ',') |
+            Should -BeExactly ($suiteReports.All -join ',')
+    }
+
+    It 'builds just the CLI test project and Node in the Cli lane without auxiliary gates' {
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli' } -PesterVersion ''
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $result.Trace | Should -Match 'dotnet build src\\winapp-CLI\\WinApp.Cli.Tests\\WinApp.Cli.Tests.csproj -c Debug -p:\s*TreatWarningsAsErrors=true'
+        $result.Trace | Should -Match 'npm run generate-commands --schema '
+        $result.Trace | Should -Match 'npm run compile'
+        $result.Trace | Should -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build'
+        $result.Trace | Should -Not -Match 'winapp.sln|npm test|dotnet test|stand-down|nuget-pester|scripts-pester|WinApp.UIAutomation.Tests'
+    }
+
+    It 'runs auxiliary gates once using published schema without a Debug CLI or test-solution build' {
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Auxiliary' }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $result.Trace | Should -Not -Match 'dotnet build|dotnet run|winapp.sln|WinApp.Cli.Tests|WinApp.UIAutomation.Tests'
+        $result.Trace | Should -Match 'published-schema .*artifacts\\cli\\win-(x64|arm64)\\winapp.exe --cli-schema'
+        $result.Trace | Should -Match 'npm run generate-commands --schema '
+        $result.Trace | Should -Match 'npm run compile'
+        $result.Trace | Should -Match 'npm test'
+        foreach ($name in @('stand-down', 'nuget-pester', 'scripts-pester')) {
+            @($result.Calls | Where-Object Name -EQ $name).Count | Should -Be 1
+        }
+        $reports = @(Get-ChildItem (Join-Path $root 'artifacts\TestResults') -File)
+        @($reports | Where-Object Extension -EQ '.trx').Count | Should -Be 0
+        (($reports | Where-Object Extension -EQ '.xml' | Sort-Object Name).Name -join ',') |
+            Should -BeExactly 'nuget-pester.xml,scripts-pester.xml'
+        $reports.Name | Should -Contain 'cli-schema-Auxiliary.json'
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+    }
+
+    It 'runs CLI shard <Shard> through the helper and collects uniquely named reports' -ForEach @(
+        @{ Shard = 1 }
+        @{ Shard = 2 }
+    ) {
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli'; CliShard = $Shard }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $result.Trace | Should -Match "cli-shard $Shard .*WinApp.Cli.Tests.csproj .*src\\winapp-CLI\\TestResults .*coverage.runsettings"
+        @($result.Calls | Where-Object Name -EQ 'cli-shard').Count | Should -Be 1
+        $result.Trace | Should -Not -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build|npm test|dotnet test|stand-down|pester|winapp.sln'
+        foreach ($name in @("WinApp.Cli.Tests.shard-$Shard.trx", "WinApp.Cli.Tests.shard-$Shard.cobertura.xml", "cli-shard-$Shard.json")) {
+            Join-Path $root "artifacts\TestResults\$name" | Should -Exist
+        }
+        Join-Path $root "artifacts\TestResults\cli-schema-Cli-$Shard.json" | Should -Exist
+        Join-Path $root 'artifacts\TestResults\WinApp.Cli.Tests.trx' | Should -Not -Exist
+    }
+
+    It 'merges the four validation lanes without filename collisions and with exactly three TRX reports' {
+        $files = @(
+            foreach ($lane in @(
+                @{ TestSuite = 'Cli'; CliShard = 1 },
+                @{ TestSuite = 'Cli'; CliShard = 2 },
+                @{ TestSuite = 'Auxiliary' },
+                @{ TestSuite = 'UIAutomation' }
+            )) {
+                $laneRoot = New-BuildFixture
+                $flags = @{ OnlyTests = $true; UseExistingArtifacts = $true } + $lane
+                $result = Invoke-BuildFixture $laneRoot -Flags $flags
+                $result.ExitCode | Should -Be 0 -Because $result.Output
+                Get-ChildItem (Join-Path $laneRoot 'artifacts\TestResults') -File
+            }
+        )
+        @($files | Group-Object Name | Where-Object Count -GT 1).Count | Should -Be 0
+        (($files | Where-Object Extension -EQ '.trx' | Sort-Object Name).Name -join ',') |
+            Should -BeExactly 'WinApp.Cli.Tests.shard-1.trx,WinApp.Cli.Tests.shard-2.trx,WinApp.UIAutomation.Tests.trx'
+        (($files | Where-Object Name -Like 'cli-schema-*' | Sort-Object Name).Name -join ',') |
+            Should -BeExactly 'cli-schema-Auxiliary.json,cli-schema-Cli-1.json,cli-schema-Cli-2.json'
+    }
+
+    It 'fails shard validation for <Step> and preserves any produced reports' -ForEach @(
+        @{ Step = 'cli-shard' }
+        @{ Step = 'shard-throw' }
+        @{ Step = 'shard-no-reports' }
+    ) {
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli'; CliShard = 1 } -Fail $Step
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Not -Match '\[SUCCESS\]|validation passed'
+        if ($Step -ne 'shard-no-reports') {
+            Join-Path $root 'artifacts\TestResults\WinApp.Cli.Tests.shard-1.trx' | Should -Exist
+        } else {
+            $result.Output | Should -Match 'Required test report missing or empty'
+        }
+    }
+
+    It 'rejects no-report success in the <Suite> lane' -ForEach @(
+        @{ Suite = 'All' }
+        @{ Suite = 'Core' }
+        @{ Suite = 'Cli' }
+        @{ Suite = 'UIAutomation' }
+    ) {
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = $Suite } -Fail 'no-reports'
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'Required test report missing or empty'
     }
 
     It 'keeps <Suite> lane failure nonzero and preserves its reports' -ForEach @(
@@ -386,6 +677,20 @@ Describe 'build-cli.ps1 control flow' {
 
     It 'rejects <Case> before changing inputs' -ForEach @(
         @{ Case = 'reuse without OnlyTests'; Flags = @{ UseExistingArtifacts = $true } }
+        @{ Case = 'architecture without SkipAll'; Flags = @{ Architecture = 'x64' } }
+        @{ Case = 'architecture while packaging'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; Architecture = 'x64' } }
+        @{ Case = 'unknown architecture'; Flags = @{ SkipAll = $true; Architecture = 'x86' } }
+        @{ Case = 'OnlyPackage without reuse'; Flags = @{ OnlyPackage = $true } }
+        @{ Case = 'OnlyPackage plus OnlyTests'; Flags = @{ OnlyPackage = $true; OnlyTests = $true; UseExistingArtifacts = $true } }
+        @{ Case = 'OnlyPackage with Clean'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; Clean = $true } }
+        @{ Case = 'OnlyPackage with Bake'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; Bake = $true } }
+        @{ Case = 'OnlyPackage skipping npm'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; SkipNpm = $true } }
+        @{ Case = 'OnlyPackage skipping NuGet'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; SkipNuGet = $true } }
+        @{ Case = 'OnlyPackage skipping MSIX'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; SkipMsix = $true } }
+        @{ Case = 'OnlyPackage with a test suite'; Flags = @{ OnlyPackage = $true; UseExistingArtifacts = $true; TestSuite = 'Cli' } }
+        @{ Case = 'shard outside Cli'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; CliShard = 1 } }
+        @{ Case = 'shard without reuse'; Flags = @{ OnlyTests = $true; TestSuite = 'Cli'; CliShard = 1 } }
+        @{ Case = 'unknown shard'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli'; CliShard = 3 } }
         @{ Case = 'suite without reuse'; Flags = @{ OnlyTests = $true; TestSuite = 'Core' } }
         @{ Case = 'unknown suite'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Typo' } }
         @{ Case = 'Clean'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; Clean = $true } }
@@ -413,6 +718,7 @@ Describe 'build-cli.ps1 control flow' {
         @{ Path = 'artifacts\nuget\Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording.9.8.7-prerelease.42.nupkg' }
         @{ Path = 'artifacts\nuget\Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer.9.8.7-prerelease.42.nupkg' }
         @{ Path = 'src\winapp-NuGet\tests\NuGet.Tests.ps1' }
+        @{ Path = 'src\winapp-Analyzer\tests\Test-StandDownContract.ps1' }
         @{ Path = 'scripts\tests' }
     ) {
         Remove-Item (Join-Path $root $Path) -Recurse -Force
@@ -456,6 +762,43 @@ Describe 'build-cli.ps1 control flow' {
         $result.Calls.Count | Should -Be 0
         (Get-ArtifactSnapshot $root) | Should -BeExactly $before
         Join-Path $root 'artifacts\TestResults\stale.trx' | Should -Exist
+    }
+
+    It 'requires the shard helper before clearing any test reports' {
+        Remove-Item (Join-Path $root 'scripts\test-cli-shard.ps1')
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli'; CliShard = 1 }
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'Required CLI shard helper missing'
+        $result.Calls.Count | Should -Be 0
+        Join-Path $root 'artifacts\TestResults\stale.trx' | Should -Exist
+    }
+
+    It 'requires Pester for Auxiliary rather than silently skipping its gates' {
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Auxiliary' } -PesterVersion ''
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'Pester 5\+ is required'
+        $result.Calls.Count | Should -Be 0
+        Join-Path $root 'artifacts\TestResults\stale.trx' | Should -Exist
+    }
+
+    It 'propagates <Step> in the new Auxiliary lane' -ForEach @(
+        @{ Step = 'schema' }
+        @{ Step = 'invalid-schema' }
+        @{ Step = 'npm-ci' }
+        @{ Step = 'npm-generate-commands' }
+        @{ Step = 'npm-compile' }
+        @{ Step = 'npm-test' }
+        @{ Step = 'analyzer-tests' }
+        @{ Step = 'stand-down' }
+        @{ Step = 'nuget-pester' }
+        @{ Step = 'scripts-pester' }
+    ) {
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Auxiliary' } -Fail $Step
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Not -Match '\[SUCCESS\]|validation passed'
     }
 
     It 'fails artifact validation on <Step> failure' -ForEach @(
@@ -525,5 +868,24 @@ Describe 'build-cli.ps1 control flow' {
 
         $result.ExitCode | Should -Not -Be 0
         $result.Output | Should -Not -Match '\[SUCCESS\]|awaiting validation|Ready for distribution'
+    }
+
+    It 'propagates <Step> failure in packaging-only mode without mutating CLI inputs' -ForEach @(
+        @{ Step = 'package-npm' }
+        @{ Step = 'package-nuget' }
+        @{ Step = 'package-msix' }
+    ) {
+        foreach ($id in $script:PackageIds) {
+            Remove-Item (Join-Path $root "artifacts\nuget\$id.9.8.7-prerelease.42.nupkg")
+        }
+        $before = @(Get-ChildItem (Join-Path $root 'artifacts\cli') -File -Recurse | Get-FileHash)
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyPackage = $true; UseExistingArtifacts = $true } -Fail $Step
+
+        $result.ExitCode | Should -Not -Be 0
+        $result.Calls.Name | Should -Contain $Step
+        $result.Output | Should -Not -Match '\[SUCCESS\]|awaiting validation|Ready for distribution'
+        foreach ($file in $before) {
+            (Get-FileHash $file.Path).Hash | Should -BeExactly $file.Hash
+        }
     }
 }

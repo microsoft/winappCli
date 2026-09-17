@@ -22,6 +22,12 @@
     Skip documentation schema generation, plugin manifest version synchronization, and npm API docs
 .PARAMETER SkipAll
     Skip NuGet, MSIX, npm, tests, and docs (only builds the CLI)
+.PARAMETER Architecture
+    With -SkipAll, publish only x64 or arm64. Upload artifacts\cli, including the
+    win-<architecture>.build.json provenance file, for a later packaging-only run.
+.PARAMETER OnlyPackage
+    With -UseExistingArtifacts, package both downloaded CLI architectures without cleanup,
+    republishing, tests, or docs. Requires publish provenance from the same commit and version.
 .PARAMETER OnlyDocs
     Skip NuGet, MSIX, npm, and tests (builds the CLI and generates docs). Alias: DocsOnly
 .PARAMETER OnlyTests
@@ -29,11 +35,17 @@
 .PARAMETER UseExistingArtifacts
     With -OnlyTests, validate artifacts\cli\win-x64\winapp.exe, artifacts\cli\win-arm64\winapp.exe,
     and all four same-version packages in artifacts\nuget, then run every test suite without
-    publishing or packaging again. All and Core require Pester 5+. Download both artifact folders first.
-    Cannot be combined with -Clean, -Stable, -Bake, -SkipTests, or -FailOnTestFailure:$false.
+    publishing or packaging again. All, Core, and Auxiliary require Pester 5+.
+    With -OnlyPackage, validate both CLI PE architectures and their publish provenance before packaging.
+    Cannot be combined with -Clean or -Bake. Test reuse also rejects -Stable, -SkipTests,
+    and -FailOnTestFailure:$false.
 .PARAMETER TestSuite
     With -OnlyTests -UseExistingArtifacts, run All (default), Core (CLI, Node, analyzer,
-    and Pester suites), or UIAutomation. Use separate workspaces when running suites concurrently.
+    and Pester suites), UIAutomation, Cli, or Auxiliary (Node, analyzer, and Pester suites).
+    Use separate workspaces when running suites concurrently.
+.PARAMETER CliShard
+    With -OnlyTests -UseExistingArtifacts -TestSuite Cli, run shard 1 or 2 via test-cli-shard.ps1.
+    Both shards must pass. Without this switch, Cli runs the complete CLI suite.
 .PARAMETER Stable
     Use stable build configuration (default: false, uses prerelease config)
 .PARAMETER SkipBake
@@ -55,6 +67,10 @@
     .\scripts\build-cli.ps1 -SkipMsix
 .EXAMPLE
     .\scripts\build-cli.ps1 -SkipAll
+.EXAMPLE
+    .\scripts\build-cli.ps1 -SkipAll -Architecture x64
+.EXAMPLE
+    .\scripts\build-cli.ps1 -OnlyPackage -UseExistingArtifacts
 .EXAMPLE
     .\scripts\build-cli.ps1 -OnlyDocs
 .EXAMPLE
@@ -82,36 +98,82 @@ param(
     [switch]$SkipMsix = $false,
     [switch]$SkipDocs = $false,
     [switch]$SkipAll = $false,
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture,
+    [switch]$OnlyPackage = $false,
     [Alias("DocsOnly")]
     [switch]$OnlyDocs = $false,
     [Alias("TestsOnly")]
     [switch]$OnlyTests = $false,
     [switch]$UseExistingArtifacts = $false,
-    [ValidateSet('All', 'Core', 'UIAutomation')]
+    [ValidateSet('All', 'Core', 'UIAutomation', 'Cli', 'Auxiliary')]
     [string]$TestSuite = 'All',
+    [ValidateSet(1, 2)]
+    [int]$CliShard,
     [switch]$Stable = $false,
     [switch]$SkipBake = $false,
     [switch]$Bake = $false
 )
 
 # Validate compound flag usage
-$CompoundFlagsCount = @($SkipAll, $OnlyDocs, $OnlyTests) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
+$CompoundFlagsCount = @($SkipAll, $OnlyDocs, $OnlyTests, $OnlyPackage) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
 if ($CompoundFlagsCount -gt 1) {
-    Write-Error "Only one of -SkipAll, -OnlyDocs/-DocsOnly, or -OnlyTests/-TestsOnly can be specified."
+    Write-Error "Only one of -SkipAll, -OnlyDocs/-DocsOnly, -OnlyTests/-TestsOnly, or -OnlyPackage can be specified."
     exit 1
 }
 if ($UseExistingArtifacts -and (
-    (-not $OnlyTests) -or $Clean -or $Stable -or $Bake -or $SkipTests -or (-not $FailOnTestFailure)
+    (-not ($OnlyTests -or $OnlyPackage)) -or $Clean -or $Bake -or
+    ($OnlyTests -and ($Stable -or $SkipTests -or (-not $FailOnTestFailure)))
 )) {
-    Write-Error "-UseExistingArtifacts requires -OnlyTests and cannot be combined with -Clean, -Stable, -Bake, -SkipTests, or -FailOnTestFailure:`$false."
+    Write-Error "-UseExistingArtifacts requires -OnlyTests or -OnlyPackage and rejects -Clean and -Bake. Test reuse also rejects -Stable, -SkipTests, and -FailOnTestFailure:`$false."
     exit 1
 }
-if ($TestSuite -ne 'All' -and -not $UseExistingArtifacts) {
+if ($OnlyPackage -and ((-not $UseExistingArtifacts) -or $SkipNpm -or $SkipNuGet -or $SkipMsix)) {
+    Write-Error "-OnlyPackage requires -UseExistingArtifacts and cannot skip npm, NuGet, or MSIX packaging."
+    exit 1
+}
+if ($Architecture -and -not $SkipAll) {
+    Write-Error "-Architecture requires -SkipAll."
+    exit 1
+}
+if ($TestSuite -ne 'All' -and -not ($OnlyTests -and $UseExistingArtifacts)) {
     Write-Error "-TestSuite requires -OnlyTests -UseExistingArtifacts."
     exit 1
 }
-$RunCoreTests = $TestSuite -ne 'UIAutomation'
-$RunUiAutomationTests = $TestSuite -ne 'Core'
+if ($PSBoundParameters.ContainsKey('CliShard') -and -not ($OnlyTests -and $UseExistingArtifacts -and $TestSuite -eq 'Cli')) {
+    Write-Error "-CliShard requires -OnlyTests -UseExistingArtifacts -TestSuite Cli."
+    exit 1
+}
+$RunCliTests = $TestSuite -in @('All', 'Core', 'Cli')
+$RunAuxiliaryTests = $TestSuite -in @('All', 'Core', 'Auxiliary')
+$RunUiAutomationTests = $TestSuite -in @('All', 'UIAutomation')
+
+function Assert-CliArchitecture {
+    param([string]$Path, [string]$RuntimeId)
+
+    $reader = [System.IO.BinaryReader]::new([System.IO.File]::OpenRead($Path))
+    try {
+        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
+            throw "CLI artifact is not a PE executable: $Path"
+        }
+        $reader.BaseStream.Position = 0x3C
+        $peOffset = $reader.ReadInt32()
+        if ($peOffset -lt 64 -or $peOffset -gt ($reader.BaseStream.Length - 24)) {
+            throw "CLI artifact has an invalid PE header offset: $Path"
+        }
+        $reader.BaseStream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550) {
+            throw "CLI artifact has an invalid PE signature: $Path"
+        }
+        $machine = $reader.ReadUInt16()
+        $expectedMachine = if ($RuntimeId -eq 'win-x64') { 0x8664 } else { 0xAA64 }
+        if ($machine -ne $expectedMachine) {
+            throw "CLI artifact '$Path' has PE Machine 0x$($machine.ToString('X4')); expected $RuntimeId (0x$($expectedMachine.ToString('X4')))."
+        }
+    } finally {
+        $reader.Dispose()
+    }
+}
 
 function Assert-NuGetPackages {
     param([string]$Path)
@@ -160,6 +222,9 @@ if ($SkipAll) {
     $SkipMsix = $true
     $SkipNpm = $true
     $SkipDocs = $true
+} elseif ($OnlyPackage) {
+    $SkipTests = $true
+    $SkipDocs = $true
 }
 
 # Ensure we're running from the project root
@@ -175,6 +240,7 @@ try
     $CliProjectPath = "$CliSolutionDir\WinApp.Cli\WinApp.Cli.csproj"
     $CliTestsProjectPath = "$CliSolutionDir\WinApp.Cli.Tests\WinApp.Cli.Tests.csproj"
     $AnalyzerTestsProjectPath = "$ProjectRoot\src\winapp-Analyzer\Microsoft.WindowsAppSDK.Analyzers.Tests\Microsoft.WindowsAppSDK.Analyzers.Tests.csproj"
+    $StandDownContractPath = "$ProjectRoot\src\winapp-Analyzer\tests\Test-StandDownContract.ps1"
     $UiAutomationTestsProjectPath = "$CliSolutionDir\WinApp.UIAutomation.Tests\WinApp.UIAutomation.Tests.csproj"
     # Build-time only, never shipped: regenerates the embedded find-ui corpus.
     $SnapshotBakerProjectPath = "$CliSolutionDir\WinApp.Cli.SnapshotBaker\WinApp.Cli.SnapshotBaker.csproj"
@@ -183,33 +249,41 @@ try
     $NuGetOutput = Join-Path $ProjectRoot "$ArtifactsPath\nuget"
     $NuGetTestsPath = Join-Path $ProjectRoot "src\winapp-NuGet\tests\NuGet.Tests.ps1"
     $ScriptsTestsPath = Join-Path $ProjectRoot "scripts\tests"
+    $CliShardScript = Join-Path $PSScriptRoot "test-cli-shard.ps1"
 
     # Validate inputs before deleting test outputs or starting any build.
     if ($UseExistingArtifacts) {
-        foreach ($Architecture in @('win-x64', 'win-arm64')) {
-            $CliArtifact = Join-Path $ProjectRoot "$ArtifactsPath\cli\$Architecture\winapp.exe"
+        foreach ($RuntimeId in @('win-x64', 'win-arm64')) {
+            $CliArtifact = Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId\winapp.exe"
             if (-not (Test-Path $CliArtifact -PathType Leaf) -or (Get-Item $CliArtifact).Length -eq 0) {
                 throw "Required CLI artifact missing or empty: $CliArtifact. Download cli-binaries to artifacts\cli first."
             }
         }
-        $FullVersion = Assert-NuGetPackages -Path $NuGetOutput
-        if ($RunCoreTests) {
+        if ($OnlyTests) {
+            $FullVersion = Assert-NuGetPackages -Path $NuGetOutput
+        }
+        if ($OnlyTests -and $RunAuxiliaryTests) {
             $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
             if (-not $pesterMod) {
                 throw "Pester 5+ is required with -UseExistingArtifacts; install it before running validation."
             }
-            foreach ($RequiredTestsPath in @($NuGetTestsPath, $ScriptsTestsPath)) {
+            foreach ($RequiredTestsPath in @($NuGetTestsPath, $ScriptsTestsPath, $StandDownContractPath)) {
                 if (-not (Test-Path $RequiredTestsPath)) {
                     throw "Required test suite missing: $RequiredTestsPath"
                 }
             }
             Import-Module $pesterMod -Force -ErrorAction Stop
         }
+        if ($CliShard -and -not (Test-Path $CliShardScript -PathType Leaf)) {
+            throw "Required CLI shard helper missing: $CliShardScript"
+        }
     }
 
     Write-Host "[*] Starting Windows SDK build process..." -ForegroundColor Green
     Write-Host "Project root: $ProjectRoot" -ForegroundColor Gray
-    if ($UseExistingArtifacts) {
+    if ($OnlyPackage) {
+        Write-Host "Build mode: PACKAGE EXISTING CLI ARTIFACTS" -ForegroundColor Cyan
+    } elseif ($UseExistingArtifacts) {
         Write-Host "Build mode: VALIDATE EXISTING ARTIFACTS ($FullVersion)" -ForegroundColor Cyan
     } elseif ($Stable) {
         Write-Host "Build mode: STABLE (no prerelease suffix)" -ForegroundColor Cyan
@@ -217,13 +291,15 @@ try
         Write-Host "Build mode: PRERELEASE (with prerelease suffix)" -ForegroundColor Cyan
     }
 
-    Write-Host "[CLEAN] Cleaning $(if ($UseExistingArtifacts) { 'test results only' } else { 'artifacts and test results' })..." -ForegroundColor Yellow
-    if (-not $UseExistingArtifacts -and (Test-Path $ArtifactsPath)) {
-        Remove-Item $ArtifactsPath -Recurse -Force
-    }
-    foreach ($ResultsDirectory in @($TestResultsPath, "$ArtifactsPath\TestResults", "$CliSolutionDir\TestResults")) {
-        if (Test-Path $ResultsDirectory) {
-            Remove-Item $ResultsDirectory -Recurse -Force
+    if (-not $OnlyPackage) {
+        Write-Host "[CLEAN] Cleaning $(if ($UseExistingArtifacts) { 'test results only' } else { 'artifacts and test results' })..." -ForegroundColor Yellow
+        if (-not $UseExistingArtifacts -and (Test-Path $ArtifactsPath)) {
+            Remove-Item $ArtifactsPath -Recurse -Force
+        }
+        foreach ($ResultsDirectory in @($TestResultsPath, "$ArtifactsPath\TestResults", "$CliSolutionDir\TestResults")) {
+            if (Test-Path $ResultsDirectory) {
+                Remove-Item $ResultsDirectory -Recurse -Force
+            }
         }
     }
 
@@ -232,7 +308,7 @@ try
     New-Item -ItemType Directory -Path $ArtifactsPath -Force | Out-Null
 
     # Step 1: Calculate version only when producing artifacts.
-    if (-not $UseExistingArtifacts) {
+    if (-not $UseExistingArtifacts -or $OnlyPackage) {
         Write-Host "[VERSION] Calculating package version..." -ForegroundColor Blue
 
         # Read base version from version.json
@@ -256,6 +332,9 @@ try
         # - main and rel/* branches use "prerelease" (default)
         # - all other branches use a sanitized branch name (e.g., dev/my-feature -> dev-my-feature)
         $PrereleaseLabel = & "$PSScriptRoot\get-prerelease-label.ps1"
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($PrereleaseLabel)) {
+            throw "Failed to get prerelease label"
+        }
         Write-Host "[VERSION] Prerelease label: $PrereleaseLabel" -ForegroundColor Gray
 
         # Construct full version based on Stable flag
@@ -285,6 +364,33 @@ try
         $InformationalVersion = $FullVersion
     }
 
+    if ($Architecture -or $OnlyPackage) {
+        $SourceCommit = & git rev-parse HEAD
+        if ($LASTEXITCODE -ne 0 -or $SourceCommit -notmatch '^[0-9a-f]{40,64}$') {
+            throw "Cannot determine the source commit for CLI publish provenance."
+        }
+    }
+    if ($OnlyPackage) {
+        foreach ($RuntimeId in @('win-x64', 'win-arm64')) {
+            $CliArtifact = Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId\winapp.exe"
+            Assert-CliArchitecture -Path $CliArtifact -RuntimeId $RuntimeId
+            $ProvenancePath = Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId.build.json"
+            if (-not (Test-Path $ProvenancePath -PathType Leaf)) {
+                throw "CLI publish provenance missing: $ProvenancePath. Download the complete artifacts\cli output from both architecture publishes."
+            }
+            $Provenance = Get-Content $ProvenancePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($Provenance.schemaVersion -ne 1 -or $Provenance.runtimeId -cne $RuntimeId -or
+                $Provenance.sourceCommit -cne $SourceCommit -or $Provenance.fullVersion -cne $FullVersion -or
+                $Provenance.assemblyVersion -cne $AssemblyVersion) {
+                throw "CLI publish provenance mismatch for $RuntimeId. Expected commit $SourceCommit, version $FullVersion ($AssemblyVersion). Use both publishes from the same checkout, full history, and build environment."
+            }
+            if ($Provenance.cliSha256 -ne (Get-FileHash $CliArtifact -Algorithm SHA256 -ErrorAction Stop).Hash) {
+                throw "CLI executable hash does not match publish provenance for $RuntimeId."
+            }
+        }
+        Write-Host "[VALIDATE] Both CLI architectures match this source commit and package version." -ForegroundColor Green
+    }
+
     # Step 1b: Refresh the find-ui corpus baked into the binary.
     #
     # The snapshot is an EmbeddedResource, so it must be regenerated BEFORE the publish
@@ -304,7 +410,7 @@ try
     # find-ui is non-functional offline, the exact regression the embedded snapshot exists
     # to prevent (issue #704).
     $SnapshotDataPath = "$CliSolutionDir\WinApp.Cli\Services\Controls\Data"
-    $ShouldBake = ($Stable -or $Bake) -and (-not $SkipBake)
+    $ShouldBake = (-not $OnlyPackage) -and ($Stable -or $Bake) -and (-not $SkipBake)
 
     if ($ShouldBake) {
         Write-Host "[BAKE] Refreshing find-ui corpus from GitHub..." -ForegroundColor Blue
@@ -401,7 +507,7 @@ try
                 }
             }
         }
-    } elseif ($Stable) {
+    } elseif ($Stable -and -not $OnlyPackage) {
         Write-Warning "[BAKE] Skipped (-SkipBake); shipping the committed find-ui corpus as-is. It may be several releases behind upstream."
     }
 
@@ -413,7 +519,7 @@ try
     # "no embedded corpus" -- silently reinstating issue #704 in a shipped build. So the
     # blobs are actually decompressed and parsed here, and cross-checked against the
     # manifest that the CLI, the drift job and the release all read.
-    if ($Stable) {
+    if ($Stable -and -not $OnlyPackage) {
         $RequiredSnapshots = @("snapshot-manifest.json", "snapshot-gallery.json.br", "snapshot-toolkit.json.br", "snapshot-reactor.json.br")
         $MissingSnapshots = @(
             $RequiredSnapshots | Where-Object {
@@ -474,30 +580,34 @@ try
         }
     }
 
-    # Step 2: Publish CLI for x64 and arm64 (implicitly builds the CLI project)
+    # Step 2: Publish CLI (implicitly builds the CLI project).
     if (-not $UseExistingArtifacts) {
-        Write-Host "[PUBLISH] Publishing CLI for x64..." -ForegroundColor Blue
-        dotnet publish $CliProjectPath -c Release -r win-x64 --self-contained -o "$ArtifactsPath\cli\win-x64" `
-            /p:Version=$AssemblyVersion `
-            /p:AssemblyVersion=$AssemblyVersion `
-            /p:FileVersion=$AssemblyVersion `
-            /p:InformationalVersion=$InformationalVersion `
-            /p:IncludeSourceRevisionInInformationalVersion=false
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to publish CLI for x64"
-            exit 1
-        }
-
-        Write-Host "[PUBLISH] Publishing CLI for arm64..." -ForegroundColor Blue
-        dotnet publish $CliProjectPath -c Release -r win-arm64 --self-contained -o "$ArtifactsPath\cli\win-arm64" `
-            /p:Version=$AssemblyVersion `
-            /p:AssemblyVersion=$AssemblyVersion `
-            /p:FileVersion=$AssemblyVersion `
-            /p:InformationalVersion=$InformationalVersion `
-            /p:IncludeSourceRevisionInInformationalVersion=false
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to publish CLI for arm64"
-            exit 1
+        $PublishArchitectures = if ($Architecture) { @($Architecture.ToLowerInvariant()) } else { @('x64', 'arm64') }
+        foreach ($PublishArchitecture in $PublishArchitectures) {
+            $RuntimeId = "win-$PublishArchitecture"
+            Write-Host "[PUBLISH] Publishing CLI for $PublishArchitecture..." -ForegroundColor Blue
+            dotnet publish $CliProjectPath -c Release -r $RuntimeId --self-contained -o "$ArtifactsPath\cli\$RuntimeId" `
+                /p:Version=$AssemblyVersion `
+                /p:AssemblyVersion=$AssemblyVersion `
+                /p:FileVersion=$AssemblyVersion `
+                /p:InformationalVersion=$InformationalVersion `
+                /p:IncludeSourceRevisionInInformationalVersion=false
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Failed to publish CLI for $PublishArchitecture"
+                exit 1
+            }
+            if ($Architecture) {
+                $CliArtifact = Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId\winapp.exe"
+                Assert-CliArchitecture -Path $CliArtifact -RuntimeId $RuntimeId
+                @{
+                    schemaVersion = 1
+                    runtimeId = $RuntimeId
+                    sourceCommit = $SourceCommit
+                    fullVersion = $FullVersion
+                    assemblyVersion = $AssemblyVersion
+                    cliSha256 = (Get-FileHash $CliArtifact -Algorithm SHA256 -ErrorAction Stop).Hash
+                } | ConvertTo-Json | Set-Content (Join-Path $ProjectRoot "$ArtifactsPath\cli\$RuntimeId.build.json") -ErrorAction Stop
+            }
         }
     }
 
@@ -507,19 +617,23 @@ try
     # above; this Debug build exists only to run the test suite. See issue #630.
     # TreatWarningsAsErrors is Release-only (Directory.Build.props), so pass it explicitly here
     # to keep the warning-as-error quality gate the previous Release test build provided.
-    if (-not $SkipTests) {
-        $TestBuildPath = if ($TestSuite -eq 'UIAutomation') { $UiAutomationTestsProjectPath } else { $CliSolutionPath }
+    if (-not $SkipTests -and $TestSuite -ne 'Auxiliary') {
+        $TestBuildPath = switch ($TestSuite) {
+            'UIAutomation' { $UiAutomationTestsProjectPath }
+            'Cli' { $CliTestsProjectPath }
+            default { $CliSolutionPath }
+        }
         Write-Host "[BUILD] Building $TestBuildPath (Debug, for tests + coverage)..." -ForegroundColor Blue
         dotnet build $TestBuildPath -c Debug -p:TreatWarningsAsErrors=true
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to build CLI solution"
+            Write-Error "Failed to build $TestBuildPath"
             exit 1
         }
     }
 
     # Step 4: Build Node CLI so E2E tests that invoke node cli.js can run
     # Package-only builds leave installation, lint, format, and compilation to package-npm.ps1.
-    if (-not $SkipTests -and $RunCoreTests) {
+    if (-not $SkipTests -and ($RunCliTests -or $RunAuxiliaryTests)) {
         Write-Host "[BUILD] Building Node CLI (for tests)..." -ForegroundColor Blue
         Push-Location (Join-Path $ProjectRoot "src\winapp-npm")
         try {
@@ -529,10 +643,17 @@ try
                 exit 1
             }
 
-            # Use the just-built CLI, not a stale npm bin or checked-in documentation fallback.
-            $NodeSchemaPath = Join-Path $ProjectRoot "$ArtifactsPath\TestResults\cli-schema.json"
+            # Never use a stale npm bin or checked-in documentation fallback.
+            $SchemaLane = if ($CliShard) { "$TestSuite-$CliShard" } else { $TestSuite }
+            $NodeSchemaPath = Join-Path $ProjectRoot "$ArtifactsPath\TestResults\cli-schema-$SchemaLane.json"
             New-Item -ItemType Directory -Path (Split-Path $NodeSchemaPath -Parent) -Force | Out-Null
-            $SchemaLines = dotnet run --project (Join-Path $ProjectRoot $CliProjectPath) -c Debug --no-build -- --cli-schema
+            if ($TestSuite -eq 'Auxiliary') {
+                $SchemaArchitecture = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+                $SchemaCli = Join-Path $ProjectRoot "$ArtifactsPath\cli\win-$SchemaArchitecture\winapp.exe"
+                $SchemaLines = & $SchemaCli --cli-schema
+            } else {
+                $SchemaLines = dotnet run --project (Join-Path $ProjectRoot $CliProjectPath) -c Debug --no-build -- --cli-schema
+            }
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Failed to extract CLI schema for Node tests"
                 exit 1
@@ -552,18 +673,20 @@ try
             }
             Write-Host "[BUILD] Node CLI built successfully" -ForegroundColor Green
 
-            Write-Host "[TEST] Running npm unit tests..." -ForegroundColor Blue
-            npm test
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning "npm unit tests failed with exit code $LASTEXITCODE"
-                if ($FailOnTestFailure) {
-                    Write-Error "Stopping build due to npm unit test failures (FailOnTestFailure flag set)"
-                    exit 1
+            if ($RunAuxiliaryTests) {
+                Write-Host "[TEST] Running npm unit tests..." -ForegroundColor Blue
+                npm test
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "npm unit tests failed with exit code $LASTEXITCODE"
+                    if ($FailOnTestFailure) {
+                        Write-Error "Stopping build due to npm unit test failures (FailOnTestFailure flag set)"
+                        exit 1
+                    } else {
+                        Write-Host "[TEST] Continuing build despite npm unit test failures..." -ForegroundColor Yellow
+                    }
                 } else {
-                    Write-Host "[TEST] Continuing build despite npm unit test failures..." -ForegroundColor Yellow
+                    Write-Host "[TEST] npm unit tests passed!" -ForegroundColor Green
                 }
-            } else {
-                Write-Host "[TEST] npm unit tests passed!" -ForegroundColor Green
             }
         } finally {
             Pop-Location
@@ -592,24 +715,40 @@ try
         # Every test project runs. WinApp.UIAutomation.Tests covers the automation engine, which now
         # lives in its own assembly -- running only WinApp.Cli.Tests would leave it untested in CI.
         $TestExitCode = 0
+        $RequiredReports = @()
         $TestProjects = @(
-            if ($RunCoreTests) { $CliTestsProjectPath }
+            if ($RunCliTests) { $CliTestsProjectPath }
             if ($RunUiAutomationTests) { $UiAutomationTestsProjectPath }
         )
         foreach ($TestProject in $TestProjects) {
             $TestProjectName = [System.IO.Path]::GetFileNameWithoutExtension($TestProject)
             Write-Host "[TEST] Running $TestProjectName..." -ForegroundColor Blue
-            dotnet run --project $TestProject -c Debug --no-build --results-directory $CliSolutionDir\TestResults --report-trx --report-trx-filename "$TestProjectName.trx" --coverage --coverage-settings $CoverageSettings --coverage-output-format cobertura --coverage-output "$TestProjectName.cobertura.xml"
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning "$TestProjectName failed with exit code $LASTEXITCODE"
-                $TestExitCode = $LASTEXITCODE
+            if ($CliShard -and $TestProject -eq $CliTestsProjectPath) {
+                $TestProjectName = "$TestProjectName.shard-$CliShard"
+                try {
+                    & $CliShardScript -Shard $CliShard -TestProjectPath (Join-Path $ProjectRoot $TestProject) `
+                        -ResultsDirectory (Join-Path $ProjectRoot "$CliSolutionDir\TestResults") -CoverageSettings $CoverageSettings
+                    $ProjectExitCode = $LASTEXITCODE
+                } catch {
+                    # Preserve any reports the helper produced before a discovery/report assertion failed.
+                    Write-Warning "CLI shard $CliShard failed: $($_.Exception.Message)"
+                    $ProjectExitCode = 1
+                }
+            } else {
+                dotnet run --project $TestProject -c Debug --no-build --results-directory $CliSolutionDir\TestResults --report-trx --report-trx-filename "$TestProjectName.trx" --coverage --coverage-settings $CoverageSettings --coverage-output-format cobertura --coverage-output "$TestProjectName.cobertura.xml"
+                $ProjectExitCode = $LASTEXITCODE
+            }
+            $RequiredReports += @("$TestProjectName.trx", "$TestProjectName.cobertura.xml")
+            if ($ProjectExitCode -ne 0) {
+                Write-Warning "$TestProjectName failed with exit code $ProjectExitCode"
+                $TestExitCode = $ProjectExitCode
             }
         }
 
         # Run the WinUI analyzer test suite (separate solution folder, src\winapp-Analyzer). These
         # xUnit tests validate the analyzer rules themselves; fold their result into $TestExitCode so a
         # regression fails the build the same way the CLI suite does. See issue #634.
-        if ($RunCoreTests) {
+        if ($RunAuxiliaryTests) {
             Write-Host "[TEST] Running WinUI analyzer tests..." -ForegroundColor Blue
             dotnet test $AnalyzerTestsProjectPath -c Debug --results-directory $CliSolutionDir\TestResults
             if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
@@ -620,7 +759,7 @@ try
             # stand-down when WindowsAppSDKProvidesWinUIAnalyzer=true). The xUnit suite runs
             # Roslyn in-memory and can't cover MSBuild targets, so this guards it separately.
             Write-Host "[TEST] Verifying WinUI analyzer stand-down contract..." -ForegroundColor Blue
-            & "$ProjectRoot\src\winapp-Analyzer\tests\Test-StandDownContract.ps1"
+            & $StandDownContractPath
             if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
                 $TestExitCode = $LASTEXITCODE
             }
@@ -636,7 +775,7 @@ try
                 Write-Host "[TEST] Copied: $($trxFile.Name)" -ForegroundColor Gray
             }
             Write-Host "[TEST] Test results copied successfully ($($TrxFiles.Count) file(s))" -ForegroundColor Green
-        } else {
+        } elseif ($RequiredReports.Count -gt 0) {
             Write-Warning "No TRX test result files found in $CliSolutionDir"
         }
 
@@ -648,8 +787,21 @@ try
                 Write-Host "[TEST] Copied coverage: $($coverageFile.Name)" -ForegroundColor Gray
             }
             Write-Host "[TEST] Coverage results copied successfully ($($CoverageFiles.Count) file(s))" -ForegroundColor Green
-        } else {
+        } elseif ($RequiredReports.Count -gt 0) {
             Write-Warning "No coverage XML files found in $CliSolutionDir"
+        }
+        if ($CliShard) {
+            $ShardManifest = Join-Path $ProjectRoot "$CliSolutionDir\TestResults\cli-shard-$CliShard.json"
+            if (Test-Path $ShardManifest -PathType Leaf) {
+                Copy-Item $ShardManifest "$ArtifactsPath\TestResults\" -Force
+            }
+        }
+        foreach ($Report in $RequiredReports) {
+            $ReportPath = Join-Path $ProjectRoot "$ArtifactsPath\TestResults\$Report"
+            if (-not (Test-Path $ReportPath -PathType Leaf) -or (Get-Item $ReportPath).Length -eq 0) {
+                Write-Warning "Required test report missing or empty: $ReportPath"
+                $TestExitCode = 1
+            }
         }
 
         # Now check test results and decide whether to exit
@@ -747,7 +899,7 @@ try
     }
 
     # OnlyTests normally skips packaging; artifact reuse must still validate the downloaded packages.
-    if (-not $SkipTests -and $RunCoreTests -and ((-not $SkipNuGet) -or $UseExistingArtifacts)) {
+    if (-not $SkipTests -and $RunAuxiliaryTests -and ((-not $SkipNuGet) -or $UseExistingArtifacts)) {
         if (Test-Path $NuGetTestsPath) {
             $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
             if ($pesterMod) {
@@ -780,7 +932,7 @@ try
     # Run the scripts/tests Pester suite (MS Learn docs validator + shared test helpers).
     # These gate the release doc-porting job and the sample test harness, so keep them green.
     # Skipped with -SkipTests.
-    if (-not $SkipTests -and $RunCoreTests) {
+    if (-not $SkipTests -and $RunAuxiliaryTests) {
         if (Test-Path $ScriptsTestsPath) {
             $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
             if ($pesterMod) {
@@ -848,7 +1000,7 @@ try
     # Build process complete - all artifacts are ready
 
     # Copy install-dev script into artifacts so the folder is self-contained
-    if (-not $UseExistingArtifacts) {
+    if (-not $UseExistingArtifacts -or $OnlyPackage) {
         Write-Host ""
         Write-Host "[INSTALL] Copying setup-winapprun.ps1 to artifacts..." -ForegroundColor Blue
         $InstallDevScript = Join-Path $PSScriptRoot "setup-winapprun.ps1"
@@ -865,7 +1017,7 @@ try
     Write-Host "[SUCCESS] Build completed successfully!" -ForegroundColor Green
     Write-Host ""
     Write-Host "[VERSION] Package version: $FullVersion" -ForegroundColor Cyan
-    Write-Host "[INFO] Artifacts $(if ($UseExistingArtifacts) { 'validated' } else { 'created' }) in: $ArtifactsPath" -ForegroundColor Cyan
+    Write-Host "[INFO] Artifacts $(if ($UseExistingArtifacts -and $OnlyTests) { 'validated' } else { 'created' }) in: $ArtifactsPath" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Contents:" -ForegroundColor White
     Get-ChildItem $ArtifactsPath | ForEach-Object {
@@ -874,13 +1026,15 @@ try
     }
 
     Write-Host ""
-    if ($SkipTests) {
+    if ($SkipAll) {
+        Write-Host "[DONE] CLI publish completed; packaging and validation were skipped." -ForegroundColor Yellow
+    } elseif ($SkipTests) {
         Write-Host "[DONE] Packages built; awaiting validation (tests skipped)." -ForegroundColor Yellow
     } elseif ($UseExistingArtifacts) {
         if ($TestSuite -eq 'All') {
             Write-Host "[DONE] Existing artifacts validated successfully!" -ForegroundColor Green
         } else {
-            Write-Host "[DONE] $TestSuite validation passed; the other suite must also pass." -ForegroundColor Green
+            Write-Host "[DONE] $TestSuite validation passed; all other required suites and shards must also pass." -ForegroundColor Green
         }
     } else {
         Write-Host "[DONE] Ready for distribution!" -ForegroundColor Green
