@@ -71,7 +71,8 @@ internal sealed partial class UiAutomationService
             (queryRoot, hwnd) = roots[0];
         }
 
-        var matches = QueryWindow(queryRoot, selector, maxResults, ct, out _);
+        var includeWindow = selector.IsSlug && selector.Root is null;
+        var matches = QueryWindow(queryRoot, selector, maxResults, ct, out _, includeRoot: includeWindow);
         var nextId = 0;
         var results = new List<UiElement>();
         AddMatches(matches, queryRoot, hwnd);
@@ -86,7 +87,7 @@ internal sealed partial class UiAutomationService
                 if (window.Hwnd == (nint)target.WindowHandle) { continue; }
                 var otherRoot = GetRootElementForHwnd(window.Hwnd, requireCurrentIdentity: true);
                 if (otherRoot is null) { continue; }
-                AddMatches(QueryWindow(otherRoot, selector, maxResults - results.Count, ct, out _),
+                AddMatches(QueryWindow(otherRoot, selector, maxResults - results.Count, ct, out _, includeRoot: includeWindow),
                     otherRoot, (long)window.Hwnd);
                 if (results.Count >= maxResults) { break; }
             }

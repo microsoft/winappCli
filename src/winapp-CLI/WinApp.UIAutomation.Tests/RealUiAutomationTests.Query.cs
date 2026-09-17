@@ -173,9 +173,11 @@ public partial class RealUiAutomationTests
         var target = SessionFor(fx);
         var element = await svc.FindSingleElementAsync(target,
             new UiSelector { Query = "txtValue", ControlType = constrained ? "Edit" : null }, default);
-        Assert.IsNotNull(element?.Context);
+        Assert.IsNotNull(element);
+        var context = element.Context;
+        Assert.IsNotNull(context);
         fx.OnUiThread(() => fx.ValueBox.Text = "NOT-READY");
-        var provider = element.Context.AutomationElement;
+        var provider = context.AutomationElement;
         var failure = new COMException("Value getter failed.", unchecked((int)0x80004005));
         var getterCalls = 0;
         element.Context = new UiElementContext(ComProxy<IUIAutomationElement>((method, args) =>
@@ -225,11 +227,13 @@ public partial class RealUiAutomationTests
         var target = SessionFor(fx);
         var query = new UiSelector { Root = new() { Query = "fixtureForm" }, Query = "txtValue", ControlType = "Edit" };
         var element = await svc.FindSingleElementAsync(target, query, CancellationToken.None);
-        Assert.IsNotNull(element?.Context);
+        Assert.IsNotNull(element);
+        var context = element.Context;
+        Assert.IsNotNull(context);
         var failure = new COMException("Retained provider disappeared.", unchecked((int)0x80040201));
         if (patternRace)
         {
-            var provider = element.Context.AutomationElement;
+            var provider = context.AutomationElement;
             element.Context = new UiElementContext(ComProxy<IUIAutomationElement>((method, args) =>
                 method.Name == "GetCurrentPattern" ? throw failure : method.Invoke(provider, args)));
         }
@@ -237,7 +241,9 @@ public partial class RealUiAutomationTests
         {
             UiAutomationService.s_getElementProcessId = _ => throw failure;
         }
-        var retained = element.Context.AutomationElement;
+        var retainedContext = element.Context;
+        Assert.IsNotNull(retainedContext);
+        var retained = retainedContext.AutomationElement;
 
         var actual = await Assert.ThrowsExactlyAsync<COMException>(async () =>
         {
@@ -246,8 +252,99 @@ public partial class RealUiAutomationTests
         });
 
         Assert.AreSame(failure, actual);
+        Assert.IsNotNull(element.Context);
         Assert.AreSame(retained, element.Context.AutomationElement);
         Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task Query_PatternAcquisitionFailureCannotReturnCachedRead(bool property, bool constrained)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var element = await svc.FindSingleElementAsync(target,
+            new UiSelector { Query = "txtValue", ControlType = constrained ? "Edit" : null }, default);
+        Assert.IsNotNull(element);
+        var context = element.Context;
+        Assert.IsNotNull(context);
+        var failure = new COMException("Pattern acquisition failed.", unchecked((int)0x80004005));
+        element.Context = new UiElementContext(ComProxy<IUIAutomationElement>((method, args) =>
+            method.Name == "GetCurrentPattern" ? throw failure : method.Invoke(context.AutomationElement, args)));
+
+        async Task<string?> Read() => property
+            ? (string?)(await svc.GetPropertiesAsync(target, element, "Value", default))["Value"]
+            : await svc.GetTextAsync(target, element, default);
+
+        if (constrained)
+        {
+            Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<COMException>(Read));
+        }
+        else
+        {
+            Assert.AreEqual(property ? element.Value : element.Name, await Read());
+        }
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow(false, "unsupported")]
+    [DataRow(true, "unsupported")]
+    [DataRow(false, "null")]
+    [DataRow(true, "null")]
+    [DataRow(false, "cast")]
+    [DataRow(true, "cast")]
+    public async Task Query_AbsentPatternsRetainFallback(bool property, string absence)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var element = await svc.FindSingleElementAsync(target,
+            new UiSelector { Query = "txtValue", ControlType = "Edit" }, default);
+        Assert.IsNotNull(element);
+        var context = element.Context;
+        Assert.IsNotNull(context);
+        element.Context = new UiElementContext(ComProxy<IUIAutomationElement>((method, args) =>
+            method.Name != "GetCurrentPattern" ? method.Invoke(context.AutomationElement, args) : absence switch
+            {
+                "unsupported" => throw new COMException("Pattern unsupported.", unchecked((int)0x80040204)),
+                "cast" => new object(),
+                _ => null,
+            }));
+
+        var actual = property
+            ? (string?)(await svc.GetPropertiesAsync(target, element, "Value", default))["Value"]
+            : await svc.GetTextAsync(target, element, default);
+        Assert.AreEqual(property ? element.Value : element.Name, actual);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Query_TypedWindowSlugIncludesWindowUnlessExplicitlyRooted(bool explicitWindow)
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx, explicitWindow);
+        var window = (await svc.InspectAsync(target, null, 0, default))[0];
+        var query = new UiSelector { Slug = window.Selector, ControlType = "Window" };
+
+        Assert.HasCount(1, await svc.SearchAsync(target, query, 2, default));
+        var element = await svc.FindSingleElementAsync(target, query, default);
+        Assert.IsNotNull(element, "A typed window slug must not signal absence to wait-for --gone.");
+        Assert.AreEqual(window.Selector, element.Selector);
+        Assert.AreEqual(fx.Title, await svc.GetTextAsync(target, element, default));
+        Assert.AreEqual(fx.Title, (await svc.GetPropertiesAsync(target, element, "Name", default))["Name"]);
+        Assert.IsEmpty(await svc.SearchAsync(target,
+            query with { Root = new() { Slug = window.Selector } }, 2, default),
+            "An explicit root still searches descendants only.");
+        Assert.IsEmpty(await svc.SearchAsync(target,
+            new UiSelector { Query = "fixtureForm", ControlType = "Window" }, 2, default),
+            "General string queries must not start including the window.");
     }
 
     [TestMethod]

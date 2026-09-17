@@ -1399,7 +1399,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
     private static bool IsScopedReadFailure(UiElement element, Exception exception, bool patternAcquired) =>
         element.RequiresCurrentIdentity
-        && (patternAcquired || exception is System.Runtime.InteropServices.COMException { HResult: UiaElementNotAvailable });
+        && (patternAcquired || exception is not (ArgumentNullException or InvalidCastException
+            or System.Runtime.InteropServices.COMException { HResult: unchecked((int)0x80040204) }));
 
     /// <summary>
     /// Uses the provider element retained when the model was created. Touching ProcessId before
