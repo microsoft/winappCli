@@ -45,6 +45,9 @@ DBG_EXCEPTION_NOT_HANDLED
 GetShortPathName
 GetFullPathName
 GetForegroundWindow
+GetDpiForWindow
+GetWindowDpiAwarenessContext
+GetAwarenessFromDpiAwarenessContext
 SetForegroundWindow
 GetCurrentThreadId
 SetWindowPos

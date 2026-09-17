@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Reflection;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.Accessibility;
@@ -84,7 +85,7 @@ public partial class RealUiAutomationTests
         using var fx = new UiaTestFixture();
         var svc = NewService();
         var uiTarget = SessionFor(fx);
-        UiAutomationService.s_manualTreeSearch = (_, root, query, maxResults) =>
+        UiAutomationService.s_manualTreeSearch = (_, root, query, maxResults, _) =>
         {
             Assert.AreEqual("manual-only", query);
             Assert.IsTrue(maxResults > 0);
@@ -100,6 +101,351 @@ public partial class RealUiAutomationTests
         Assert.IsNotNull(results[0].InvokableAncestor);
         Assert.IsNotNull(single);
         Assert.AreEqual("Window", single!.Type);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_PartialNonzeroBulkResult_MergesOmittedManualMatches()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var beforeBoundary = FindByAutomationId(automation, root, "btnInvoke");
+        var afterBoundary = FindByAutomationId(automation, root, "txtValue");
+        var findAllCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(beforeBoundary);
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
+        {
+            Assert.AreEqual("provider-boundary", query);
+            Assert.AreEqual(int.MaxValue, maxResults);
+            return [beforeBoundary, afterBoundary];
+        };
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "provider-boundary" },
+            10,
+            CancellationToken.None);
+
+        Assert.AreEqual(2, results.Length);
+        Assert.IsTrue(results.Any(result => result.AutomationId == "btnInvoke"));
+        Assert.IsTrue(results.Any(result => result.AutomationId == "txtValue"));
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_RuntimeIdsDeduplicateWithoutPairwiseComComparisons()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var first = FindByAutomationId(automation, root, "btnInvoke");
+        var second = FindByAutomationId(automation, root, "txtValue");
+        var findAllCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(first, second);
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [first, second];
+        UiAutomationService.s_compareElements = (_, _, _) =>
+            throw new AssertFailedException("Elements with runtime IDs must not use pairwise COM comparison.");
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "provider-boundary" },
+            10,
+            CancellationToken.None);
+
+        Assert.AreEqual(2, results.Length);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_ExactBulkMiss_UsesOneCompletedSubstringWalkAndPreservesExactPrecedence()
+    {
+        using var fx = new UiaTestFixture();
+        fx.OnUiThread(() => fx.TextLabel.AccessibleName = "btnInvoke");
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var nameMatch = FindByAutomationId(automation, root, "lblText");
+        var findAllCalls = 0;
+        var walkCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(nameMatch);
+        UiAutomationService.s_getControlViewWalker = _ =>
+        {
+            walkCalls++;
+            return automation.get_ControlViewWalker();
+        };
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "btnInvoke" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("btnInvoke", results[0].AutomationId);
+        Assert.AreEqual(2, findAllCalls, "The exact bulk miss must fall through to the substring bulk query.");
+        Assert.AreEqual(1, walkCalls, "Only the completed substring query should walk Control View.");
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_PopupExactBulkMiss_RecoversExactIdPastFilledSubstringCap()
+    {
+        using var fx = new UiaTestFixture();
+        fx.OnUiThread(() => fx.TextLabel.AccessibleName = "btnInvoke");
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var nameMatch = FindByAutomationId(automation, root, "lblText");
+        var exactMatch = FindByAutomationId(automation, root, "btnInvoke");
+        var findAllCalls = 0;
+        var manualCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getAllAppWindows = (_, _) => [(9876, fx.ProcessId, "Popup")];
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == 9876 ? root : null;
+        UiAutomationService.s_findAllDescendants = (_, _) => ++findAllCalls switch
+        {
+            1 or 2 or 3 => ElementArray(),
+            4 => ElementArray(nameMatch),
+            _ => throw new AssertFailedException("Unexpected bulk query."),
+        };
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
+        {
+            Assert.AreEqual("btnInvoke", query);
+            Assert.AreEqual(int.MaxValue, maxResults);
+            return ++manualCalls == 1 ? [] : [nameMatch, exactMatch];
+        };
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "btnInvoke" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("btnInvoke", results[0].AutomationId);
+        Assert.AreEqual(9876, results[0].WindowHandle);
+        Assert.AreEqual(2, manualCalls, "Main and popup substring searches should each complete once.");
+    }
+
+    [TestMethod]
+    public async Task FindSingleElementAsync_ExactMissAcrossMainAndPopup_UsesOneWalkPerWindow()
+    {
+        using var fx = new UiaTestFixture();
+        var (popupHwnd, popupTitle) = fx.OpenOwnedWindow("Substring Popup");
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var mainRoot = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var popupRoot = automation.ElementFromHandle(new HWND(popupHwnd));
+        var walkCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => mainRoot;
+        UiAutomationService.s_getAllAppWindows = (_, _) => [(popupHwnd, fx.ProcessId, popupTitle)];
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == popupHwnd ? popupRoot : null;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+        UiAutomationService.s_getControlViewWalker = _ =>
+        {
+            walkCalls++;
+            return automation.get_ControlViewWalker();
+        };
+
+        var result = await svc.FindSingleElementAsync(
+            uiTarget,
+            new UiSelector { Query = "OwnedOnly" },
+            CancellationToken.None);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("btnOwnedOnly", result.AutomationId);
+        Assert.AreEqual(2, walkCalls, "The main window and popup should each run only their substring completion walk.");
+    }
+
+    [TestMethod]
+    public async Task FindSingleElementAsync_RecoveredExactId_UsesLiveWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var realRoot = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var exactMatch = FindByAutomationId(automation, realRoot, "btnInvoke");
+        var root = ComProxy<IUIAutomationElement>((method, args) =>
+            method.Name == "FindFirst" ? null : method.Invoke(realRoot, args));
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
+        {
+            Assert.AreEqual("btnInvoke", query);
+            Assert.AreEqual(int.MaxValue, maxResults);
+            return [exactMatch];
+        };
+
+        foreach (var fallbackHwnd in new[] { 0L, (long)fx.Hwnd + 1000 })
+        {
+            var result = await svc.FindSingleElementAsync(
+                new UiTarget
+                {
+                    ProcessId = fx.ProcessId,
+                    ProcessName = "WinApp.Cli.Tests",
+                    WindowHandle = fallbackHwnd,
+                    WindowTitle = fx.Title,
+                    IsExplicitWindow = false,
+                },
+                new UiSelector { Query = "btnInvoke" },
+                CancellationToken.None);
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual(fx.Hwnd, result.WindowHandle,
+                "the recovered element's live top-level HWND must replace a missing or stale target HWND");
+        }
+    }
+
+    [TestMethod]
+    public async Task FindSingleElementAsync_PartialNonzeroBulkResult_UsesCompleteSetForDisambiguation()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var nonInvokableBeforeBoundary = FindByAutomationId(automation, root, "lblShared");
+        var invokableAfterBoundary = FindByAutomationId(automation, root, "btnShared");
+        var findAllCalls = 0;
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(nonInvokableBeforeBoundary);
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
+        {
+            Assert.AreEqual("provider-boundary", query);
+            Assert.AreEqual(int.MaxValue, maxResults);
+            return [nonInvokableBeforeBoundary, invokableAfterBoundary];
+        };
+
+        var result = await svc.FindSingleElementAsync(
+            uiTarget,
+            new UiSelector { Query = "provider-boundary" },
+            CancellationToken.None);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("btnShared", result.AutomationId);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_ExactBulkResultFillsCap_SkipsManualTraversal()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = SessionFor(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var bulkMatch = FindByAutomationId(automation, root, "btnInvoke");
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(bulkMatch);
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) =>
+            throw new AssertFailedException("A bulk result that fills maxResults must stay on the fast path.");
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "btnInvoke" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("btnInvoke", results[0].AutomationId);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_ManualTraversalFindsMatchDeeperThanFormerDepthLimit()
+    {
+        const int deepestIndex = 30;
+        var svc = NewService();
+        var uiTarget = new UiTarget
+        {
+            ProcessId = Environment.ProcessId,
+            ProcessName = "deep-tree",
+            WindowHandle = 123,
+            IsExplicitWindow = true,
+        };
+        var nodes = Enumerable.Range(0, deepestIndex + 1)
+            .Select(index => AutomationElement(
+                index == deepestIndex ? "deep-target" : $"node-{index}",
+                index == deepestIndex ? "Deep Target" : $"Node {index}"))
+            .ToArray();
+        var children = Enumerable.Range(0, deepestIndex)
+            .ToDictionary(index => nodes[index], index => nodes[index + 1]);
+        var walker = ComProxy<IUIAutomationTreeWalker>((method, args) => method.Name switch
+        {
+            "GetFirstChildElement" => children.GetValueOrDefault((IUIAutomationElement)args![0]!),
+            "GetNextSiblingElement" => null,
+            _ => ThrowCom(),
+        });
+
+        UiAutomationService.s_getRootElement = (_, _) => nodes[0];
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+        UiAutomationService.s_getControlViewWalker = _ => walker;
+        UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
+
+        var results = await svc.SearchAsync(
+            uiTarget,
+            new UiSelector { Query = "deep-target" },
+            1,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, results.Length);
+        Assert.AreEqual("deep-target", results[0].AutomationId);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_CancellationStopsManualTraversalAfterItStarts()
+    {
+        var svc = NewService();
+        var uiTarget = new UiTarget
+        {
+            ProcessId = Environment.ProcessId,
+            ProcessName = "cancelled-tree",
+            WindowHandle = 123,
+            IsExplicitWindow = true,
+        };
+        var root = AutomationElement("root", "Root");
+        var child = AutomationElement("target", "Target");
+        using var cts = new CancellationTokenSource();
+        var walker = ComProxy<IUIAutomationTreeWalker>((method, args) => method.Name switch
+        {
+            "GetFirstChildElement" when ReferenceEquals(args![0], root) => CancelAndReturn(),
+            "GetFirstChildElement" => null,
+            "GetNextSiblingElement" => null,
+            _ => ThrowCom(),
+        });
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+        UiAutomationService.s_getControlViewWalker = _ => walker;
+
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(
+            () => svc.SearchAsync(
+                uiTarget,
+                new UiSelector { Query = "target" },
+                1,
+                cts.Token));
+
+        IUIAutomationElement CancelAndReturn()
+        {
+            cts.Cancel();
+            return child;
+        }
     }
 
     [TestMethod]
@@ -197,7 +543,7 @@ public partial class RealUiAutomationTests
         var explicitSession = SessionFor(fx);
         var nonExplicit = NonExplicitSession(fx);
         var expected = new UiElement { Id = "other", Type = "Button", Name = "Other" };
-        UiAutomationService.s_findElementOnOtherWindows = (_, _, selector) =>
+        UiAutomationService.s_findElementOnOtherWindows = (_, _, selector, _) =>
             selector.IsSlug ? expected : null;
 
         var empty = await svc.FindSingleElementAsync(explicitSession, new UiSelector(), CancellationToken.None);
@@ -256,19 +602,179 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    public async Task InspectAsync_NonExplicitSessionSkipsElementsAlreadyInMainTree()
+    public async Task InspectAsync_NonExplicitSessionSeparatesEnumeratedWindowAlreadyInMainTree()
     {
         using var fx = new UiaTestFixture();
-        var logger = new CapturingLogger<UiAutomationService>();
-        var svc = new UiAutomationService(logger, new UiSelectorParser());
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var (ownedHwnd, ownedTitle) = fx.OpenOwnedWindow(
+            "SeparatedOwned_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (ownedHwnd, fx.ProcessId, ownedTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnOwned"),
+            "the separately enumerated HWND must not remain duplicated in the main tree");
+        Assert.AreEqual("btnOwned", elements.Single(e => e.AutomationId == "btnOwned").Selector,
+            "a separated window must preserve its stable AutomationId selector");
+        Assert.IsTrue(elements.Any(e => e.Type == "---" && e.WindowHandle == ownedHwnd),
+            "the nested HWND must receive its own window group and context");
+    }
+
+    [TestMethod]
+    public async Task PromotedOwnedWindowSelectorResolvesWithOwnedWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (ownedHwnd, ownedTitle) = fx.OpenOwnedWindow(
+            "SelectorRoundTrip_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (ownedHwnd, fx.ProcessId, ownedTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+        var inspected = elements.Single(element => element.AutomationId == "btnOwned");
+        Assert.AreEqual("btnOwned", inspected.Selector);
+
+        var resolved = await svc.FindSingleElementAsync(
+            uiTarget,
+            new UiSelector { Query = inspected.Selector },
+            CancellationToken.None);
+
+        Assert.IsNotNull(resolved);
+        Assert.AreEqual(ownedHwnd, resolved.WindowHandle,
+            "a selector emitted for an owned window must resolve back to that HWND");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_DuplicateAutomationIdsAcrossWindowsRemainSlugs()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        fx.OnUiThread(() => fx.InvokeButton.Name = "btnOwned");
+        var (ownedHwnd, ownedTitle) = fx.OpenOwnedWindow(
+            "DuplicateAid_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (ownedHwnd, fx.ProcessId, ownedTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        var duplicates = elements.Where(element => element.AutomationId == "btnOwned").ToArray();
+        Assert.AreEqual(2, duplicates.Length);
+        Assert.IsTrue(duplicates.All(element => element.Selector != "btnOwned"),
+            "an AutomationId shared by distinct windows must not become an unscoped selector");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_IndependentWindowAutomationIdRemainsSlug()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (windowHwnd, windowTitle) = fx.OpenOwnedWindow(
+            "IndependentAid_" + Guid.NewGuid().ToString("N")[..6]);
+        var uiTarget = NonExplicitSession(fx);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (windowHwnd, fx.ProcessId, windowTitle)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        var independentButton = elements.Single(element => element.AutomationId == "btnOwned");
+        Assert.AreNotEqual("btnOwned", independentButton.Selector,
+            "an independent-window AutomationId must keep a slug for precise unscoped resolution");
+        StringAssert.StartsWith(independentButton.Selector, "btn-btnowned-");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_PidOnlySessionDoesNotDuplicateRecoveredWindowInsideOwnerTree()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var (selectedHwnd, selectedTitle) = fx.OpenOwnedWindow(
+            "SelectedOwned_" + Guid.NewGuid().ToString("N")[..6],
+            ownedByMain: true);
+        var uiTarget = NonExplicitSession(fx);
+        uiTarget.WindowHandle = 0;
+        uiTarget.WindowTitle = selectedTitle;
+        UiAutomationService.s_getRootElement = (service, _) =>
+            UiAutomationService.s_elementFromHandle(service, selectedHwnd);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(selectedHwnd, fx.ProcessId, selectedTitle), (fx.Hwnd, fx.ProcessId, fx.Title)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 3, CancellationToken.None);
+
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnOwned"),
+            "the selected HWND must not be repeated inside its separately emitted owner tree");
+        Assert.AreEqual(2, elements.Count(e => e.Type == "---"),
+            "both selected and owner HWNDs must retain distinct window groups");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_UnresolvableSeparateWindowRemainsInMainTree()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
         var uiTarget = NonExplicitSession(fx);
         var childHwnd = fx.OnUiThread(() => (nint)fx.InvokeButton.Handle);
-        UiAutomationService.s_getAllAppWindows = (_, _) => [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
+        UiAutomationService.s_getRootElementForHwnd = (_, _) => null;
 
         var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
 
-        Assert.IsTrue(elements.Any(e => e.AutomationId == "btnInvoke"));
-        Assert.IsTrue(logger.Has(Microsoft.Extensions.Logging.LogLevel.Debug, "already in main window tree"));
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnInvoke"),
+            "a window that cannot be re-rooted must remain available through the main UIA tree");
+        Assert.IsFalse(elements.Any(e => e.Type == "---"),
+            "an unresolvable window must not create an empty separate group");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_LateRootRefreshFailureUsesInitiallyResolvedWindow()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var childHwnd = fx.OnUiThread(() => (nint)fx.InvokeButton.Handle);
+        var calls = 0;
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
+        UiAutomationService.s_getRootElementForHwnd = (service, hwnd) =>
+            hwnd == childHwnd && ++calls == 1
+                ? UiAutomationService.s_elementFromHandle(service, hwnd)
+                : null;
+
+        var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
+
+        Assert.AreEqual(1, elements.Count(e => e.AutomationId == "btnInvoke"),
+            "a transient refresh failure must not lose the already-pruned window subtree");
+        Assert.IsTrue(elements.Any(e => e.Type == "---" && e.WindowHandle == childHwnd));
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_StaleInitialPopupRootDoesNotAbortMainTree()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var staleHwnd = fx.Hwnd + 1000;
+        var staleRoot = ComProxy<IUIAutomationElement>((_, _) =>
+            throw new COMException("window closed", unchecked((int)0x80040201)));
+        var calls = 0;
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (staleHwnd, fx.ProcessId, "closed")];
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) =>
+            hwnd == staleHwnd && ++calls == 1 ? staleRoot : null;
+
+        var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
+
+        Assert.IsTrue(elements.Any(e => e.AutomationId == "txtValue"),
+            "a stale secondary window must not discard the selected window tree");
+        Assert.IsFalse(elements.Any(e => e.Type == "---" && e.WindowHandle == staleHwnd),
+            "a stale secondary window must not leave an empty group");
     }
 
     [TestMethod]
@@ -283,7 +789,30 @@ public partial class RealUiAutomationTests
         var elements = await svc.InspectAsync(uiTarget, null, 0, CancellationToken.None);
 
         Assert.IsTrue(elements.Length > 0);
-        Assert.IsTrue(elements.Any(e => e.Name == fx.Title), "PID-only largest fallback should inspect the fixture window tree");
+        Assert.AreEqual(1, elements.Count(e => e.Name == fx.Title),
+            "PID-only largest fallback should inspect the fixture window tree once");
+        Assert.IsFalse(elements.Any(e => e.Type == "---" && e.WindowHandle == 0),
+            "the resolved root HWND must replace the PID-only target's initial zero handle");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_StaleStoredHwndUsesRecoveredRootHwnd()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var staleHwnd = fx.Hwnd + 1000;
+        var uiTarget = NonExplicitSession(fx);
+        uiTarget.WindowHandle = staleHwnd;
+        UiAutomationService.s_getRootElement = (service, _) =>
+            UiAutomationService.s_elementFromHandle(service, fx.Hwnd);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title)];
+
+        var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
+
+        Assert.IsTrue(elements.Length > 0);
+        Assert.IsTrue(elements.All(element => element.WindowHandle == fx.Hwnd),
+            "a recovered live root must replace a stale nonzero session HWND");
     }
 
     [TestMethod]
@@ -545,6 +1074,8 @@ public partial class RealUiAutomationTests
             _ => ThrowCom(),
         });
         UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => matches;
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
 
         var ex = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(uiTarget, new UiSelector { Query = "Ambiguous" }, CancellationToken.None));
@@ -619,6 +1150,8 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
+        UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
 
         var results = await svc.SearchAsync(uiTarget, new UiSelector { Query = "proxyAid" }, 5, CancellationToken.None);
 
@@ -665,6 +1198,8 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
+        UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
 
         var results = await svc.SearchAsync(uiTarget, new UiSelector { Query = "promoteAid" }, 5, CancellationToken.None);
 
@@ -971,6 +1506,42 @@ public partial class RealUiAutomationTests
     private static unsafe BSTR EmptyBstr() => new((char*)Marshal.StringToBSTR(string.Empty));
 
     private static unsafe BSTR StringBstr(string value) => new((char*)Marshal.StringToBSTR(value));
+
+    private static IUIAutomationElement FindByAutomationId(
+        IUIAutomation automation,
+        IUIAutomationElement root,
+        string automationId)
+    {
+        var condition = automation.CreatePropertyCondition(
+            UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
+            ComVariant.Create(automationId));
+        return root.FindFirst(TreeScope.TreeScope_Descendants, condition)
+            ?? throw new AssertFailedException($"Fixture element '{automationId}' was not found.");
+    }
+
+    private static IUIAutomationElementArray ElementArray(params IUIAutomationElement[] elements)
+        => ComProxy<IUIAutomationElementArray>((method, args) => method.Name switch
+        {
+            "get_Length" => elements.Length,
+            "GetElement" => elements[(int)args![0]!],
+            _ => ThrowCom(),
+        });
+
+    private static IUIAutomationElement AutomationElement(string automationId, string name)
+        => ComProxy<IUIAutomationElement>((method, _) => method.Name switch
+        {
+            "FindAll" => ElementArray(),
+            "get_CurrentAutomationId" => StringBstr(automationId),
+            "get_CurrentName" => StringBstr(name),
+            "get_CurrentClassName" => EmptyBstr(),
+            "get_CurrentControlType" => UIA_CONTROLTYPE_ID.UIA_TextControlTypeId,
+            "get_CurrentBoundingRectangle" => new RECT { left = 1, top = 2, right = 11, bottom = 12 },
+            "get_CurrentIsEnabled" => new BOOL(true),
+            "get_CurrentIsOffscreen" => new BOOL(false),
+            "GetCurrentPattern" => null,
+            "GetRuntimeId" => ThrowCom(),
+            _ => ThrowCom(),
+        });
 
     private static T ComProxy<T>(Func<MethodInfo, object?[]?, object?> handler)
         where T : class
