@@ -530,7 +530,7 @@ internal static class PathSafety
         }
         catch
         {
-            return false;
+            return true; // Bias to unsafe: if the drive type cannot be determined, refuse to probe it.
         }
     }
 

@@ -142,6 +142,27 @@ internal partial class PackageCommand
             var noRestore = parseResult.GetValue(NoRestoreOption);
             var properties = parseResult.GetValue(PropertyOption) ?? [];
 
+            // Validate -p BEFORE anything derives meaning from it (e.g. the lone-RuntimeIdentifier exact-RID
+            // extraction below). Otherwise a packed/malformed value such as `-p RuntimeIdentifier=win-x64,Other=1`
+            // would fail as an "unsupported RID" instead of reporting the actual packed-property violation.
+            //
+            // Reject a valueless -p/--property first. The option uses ZeroOrMore arity so a bare '-p' (no
+            // Name=Value) parses without a value instead of raising a System.CommandLine arity error; detect
+            // it from the raw result (more identifier tokens than captured values means at least one '-p' had
+            // no argument) and reject it the same way `winapp run` does.
+            if (parseResult.GetResult(PropertyOption) is OptionResult propertyResult &&
+                propertyResult.IdentifierTokenCount > propertyResult.Tokens.Count)
+            {
+                return Fail("A --property/-p option was provided without a value. Expected Name=Value (for example: -p WindowsPackageType=None).");
+            }
+
+            // Reject malformed -p values (missing '=', or ';'/',' packing that would smuggle a dedicated-flag
+            // property past the name-only ForwardableProperties filter) using the same validator winapp run uses.
+            if (MsBuildPropertyValidator.Validate(properties) is { } propertyError)
+            {
+                return Fail(propertyError);
+            }
+
             // Packaging options (reused as-is by the MSIX pipeline).
             var output = parseResult.GetValue(OutputOption);
             var name = parseResult.GetValue(NameOption);
@@ -220,23 +241,6 @@ internal partial class PackageCommand
             // Resolve the explicit effective framework once (--framework > bare -p:TargetFramework) so the
             // build and evaluation share the same TFM.
             var framework = ProjectRunService.ResolveExplicitFramework(parseResult.GetValue(FrameworkOption), properties);
-
-            // Reject a valueless -p/--property. The option uses ZeroOrMore arity so a bare '-p' (no
-            // Name=Value) parses without a value instead of raising a System.CommandLine arity error;
-            // detect it from the raw result (more identifier tokens than captured values means at least
-            // one '-p' had no argument) and reject it the same way `winapp run` does.
-            if (parseResult.GetResult(PropertyOption) is OptionResult propertyResult &&
-                propertyResult.IdentifierTokenCount > propertyResult.Tokens.Count)
-            {
-                return Fail("A --property/-p option was provided without a value. Expected Name=Value (for example: -p WindowsPackageType=None).");
-            }
-
-            // Reject malformed -p values (missing '=', or ';'/',' packing that would smuggle a dedicated-flag
-            // property past the name-only ForwardableProperties filter) using the same validator winapp run uses.
-            if (MsBuildPropertyValidator.Validate(properties) is { } propertyError)
-            {
-                return Fail(propertyError);
-            }
 
             // AppxPackageDir is winapp's internal package-staging location; the public destination selector
             // is --output. Reject a competing -p AppxPackageDir rather than silently overriding it.

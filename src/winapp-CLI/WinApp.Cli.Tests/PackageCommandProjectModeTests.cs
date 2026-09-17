@@ -245,6 +245,26 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_PackedRuntimeIdentifierProperty_ReportsPackingViolation()
+    {
+        // A packed -p (';'/',' packing) that begins with RuntimeIdentifier must be reported as the packing
+        // violation, not a misleading "unsupported RID" error — property validation runs before the lone-RID
+        // exact-RID extraction.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-p", "RuntimeIdentifier=win-x64,Other=1"]);
+
+        Assert.AreEqual(1, exitCode);
+        var errorText = ConsoleStdErr.ToString();
+        StringAssert.Contains(errorText, "cannot pack multiple properties");
+        Assert.IsFalse(errorText.Contains("not a supported Windows runtime identifier"),
+            "the packing violation must be reported, not a misleading unsupported-RID error");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count);
+    }
+
+    [TestMethod]
     public async Task ProjectMode_RejectsAppxPackageDirProperty()
     {
         // AppxPackageDir is winapp's internal staging location; the public selector is --output.
