@@ -1597,18 +1597,26 @@ internal sealed partial class UiAutomationService : IUiAutomation
         }
         // Strict identity must not recover a closed source or target HWND onto a sibling window.
         IUIAutomationElement? root;
-        if (element.WindowHandle is { } elHwnd && elHwnd != 0 && (strictIdentity || elHwnd != uiTarget.WindowHandle))
+        try
         {
-            root = GetRootElementForHwnd((nint)elHwnd, requireCurrentIdentity);
-            _logger.LogDebug("Resolving element on source HWND {Hwnd}", elHwnd);
+            if (element.WindowHandle is { } elHwnd && elHwnd != 0 && (strictIdentity || elHwnd != uiTarget.WindowHandle))
+            {
+                root = GetRootElementForHwnd((nint)elHwnd, strictIdentity || requireCurrentIdentity);
+                _logger.LogDebug("Resolving element on source HWND {Hwnd}", elHwnd);
+            }
+            else if (strictIdentity && uiTarget.WindowHandle != 0)
+            {
+                root = GetRootElementForHwnd((nint)uiTarget.WindowHandle, requireCurrentIdentity: true);
+            }
+            else
+            {
+                root = GetRootElement(uiTarget, requireCurrentIdentity);
+            }
         }
-        else if (strictIdentity && uiTarget.WindowHandle != 0)
+        catch (COMException ex) when (strictIdentity && !requireCurrentIdentity && ex.HResult == UiaElementNotAvailable &&
+            (element.WindowHandle is not null and not 0 || uiTarget.WindowHandle != 0))
         {
-            root = GetRootElementForHwnd((nint)uiTarget.WindowHandle);
-        }
-        else
-        {
-            root = GetRootElement(uiTarget, requireCurrentIdentity);
+            return null;
         }
 
         if (root is null)

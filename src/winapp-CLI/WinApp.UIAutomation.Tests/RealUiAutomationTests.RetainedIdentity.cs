@@ -6,6 +6,51 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    [DataRow(123L, false)]
+    [DataRow(456L, false)]
+    [DataRow(null, false)]
+    [DataRow(0L, false)]
+    [DataRow(123L, true)]
+    [DataRow(456L, true)]
+    [DataRow(null, true)]
+    [DataRow(0L, true)]
+    public async Task ExplicitAction_HwndBindingFailure_PreservesErrorWithoutRecovery(long? sourceHwnd, bool stale)
+    {
+        var calls = new List<string>();
+        ConfigureExplicitIdentityTree(calls, 1, false, 1);
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = 123 };
+        var element = new UiElement { AutomationId = "save", Selector = "save", WindowHandle = sourceHwnd };
+        var failure = new System.Runtime.InteropServices.COMException(
+            stale ? "Window closed" : "Access denied", unchecked((int)(stale ? 0x80040201 : 0x80070005)));
+        var boundHandles = new List<nint>();
+        UiAutomationService.s_elementFromHandle = (_, hwnd) =>
+        {
+            boundHandles.Add(hwnd);
+            throw failure;
+        };
+        UiAutomationService.s_getRootElement = (_, _, _) =>
+            throw new AssertFailedException("Strict HWND binding must not recover onto another root.");
+
+        if (stale)
+        {
+            var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
+            StringAssert.Contains(error.Message, "stale");
+        }
+        else
+        {
+            var error = await Assert.ThrowsExactlyAsync<System.Runtime.InteropServices.COMException>(
+                () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
+            Assert.AreSame(failure, error);
+        }
+
+        CollectionAssert.AreEqual(new[] { (nint)(sourceHwnd is null or 0 ? 123 : sourceHwnd.Value) }, boundHandles.ToArray());
+        Assert.IsFalse(calls.Contains("invoke"));
+        Assert.IsFalse(calls.Contains("pattern"));
+    }
+
+    [TestMethod]
     [DataRow(true, 123L, 123L, 123L)]
     [DataRow(true, 456L, 123L, 456L)]
     [DataRow(true, null, 123L, 123L)]
