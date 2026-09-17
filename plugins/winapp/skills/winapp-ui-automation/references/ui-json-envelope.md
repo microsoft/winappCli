@@ -251,6 +251,8 @@ An already-correct `toggle-on` or `toggle-off` returns `"none"` without toggling
 `pattern` still identifies the pattern used to read the state.
 `elementId` identifies the element acted on; automatic mode can report an
 ancestor, while explicit mode never acts on an ancestor.
+`hwnd` identifies that element's source window, which can differ from the main
+window when an app-scoped command selects a control in a secondary window.
 Failures emit the error envelope below on stderr, with a nonzero exit code and
 no success result. See the [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
 for action semantics and recovery.

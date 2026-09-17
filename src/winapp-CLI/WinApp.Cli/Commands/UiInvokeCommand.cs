@@ -178,7 +178,7 @@ internal class UiInvokeCommand : Command, IShortDescription
                         Pattern = pattern,
                         RequestedAction = requestedAction ?? "auto",
                         PerformedAction = performedAction,
-                        Hwnd = uiTarget.WindowHandle
+                        Hwnd = invokedElement.WindowHandle ?? uiTarget.WindowHandle
                     };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiInvokeResult));

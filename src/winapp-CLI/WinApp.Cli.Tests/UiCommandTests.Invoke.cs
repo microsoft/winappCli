@@ -10,6 +10,27 @@ namespace WinApp.Cli.Tests;
 public partial class UiCommandTests
 {
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Invoke_Json_ReportsInvokedElementsSourceWindow(bool explicitAction)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 1234;
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "secondary", Selector = "secondary", WindowHandle = 5678
+        };
+        _fakeUia.ExplicitInvokeResult = new UiInvokeActionResult("InvokePattern", "invoke");
+        var args = new List<string> { "secondary", "-a", "TestApp", "--json" };
+        if (explicitAction) { args.AddRange(["--action", "invoke"]); }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(), args.ToArray());
+
+        Assert.AreEqual(0, exitCode);
+        using var json = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual(5678, json.RootElement.GetProperty("hwnd").GetInt64());
+    }
+
+    [TestMethod]
     [DataRow("invoke", UiInvokeAction.Invoke, "InvokePattern", "invoke")]
     [DataRow("select", UiInvokeAction.Select, "SelectionItemPattern", "select")]
     [DataRow("toggle", UiInvokeAction.Toggle, "TogglePattern", "toggle")]
