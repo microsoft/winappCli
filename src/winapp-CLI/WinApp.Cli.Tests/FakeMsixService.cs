@@ -14,6 +14,7 @@ internal class FakeMsixService : IMsixService
 {
     public MsixIdentityResult FakeIdentityResult { get; set; } = new("TestPackage", "CN=TestPublisher", "TestApp");
     public List<(string ManifestPath, bool Clean)> AddLooseLayoutCalls { get; } = [];
+    public List<(string InputDirectory, string OutputDirectory)> AddLooseLayoutDirectoryCalls { get; } = [];
     public List<(string? RuntimeArch, string? ProjectFile, string? Framework, bool NoRestore)> AddLooseLayoutRuntimeCalls { get; } = [];
 
     /// <summary>Records the <c>selfContained</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
@@ -27,6 +28,7 @@ internal class FakeMsixService : IMsixService
 
     /// <summary>Records the RID passed alongside the assets file to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<string?> AddLooseLayoutRuntimeIdentifierCalls { get; } = [];
+    public List<string?> AddLooseLayoutRecipeCalls { get; } = [];
 
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
     public List<string?> EnsureRuntimeInstalledAssetsFileCalls { get; } = [];
@@ -61,7 +63,9 @@ internal class FakeMsixService : IMsixService
         bool SelfContained,
         bool RuntimeAlreadyBundled,
         FileInfo? ManifestPath,
-        PackageGraphSource? PackageGraph = null);
+        PackageGraphSource? PackageGraph = null,
+        bool AutoSign = false,
+        string? TimestampUrl = null);
 
     /// <summary>The most recent <see cref="CreateMsixPackageAsync"/> call's captured arguments, or null.</summary>
     public CreatePackageArgs? LastCreatePackageArgs { get; private set; }
@@ -94,6 +98,7 @@ internal class FakeMsixService : IMsixService
         DirectoryInfo inputDirectory,
         DirectoryInfo outputAppXDirectory,
         TaskContext taskContext,
+        LayoutReconciliation reconciliation,
         bool clean = false,
         string? executable = null,
         string? runtimeArch = null,
@@ -103,15 +108,19 @@ internal class FakeMsixService : IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default)
     {
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
+        AddLooseLayoutDirectoryCalls.Add((inputDirectory.FullName, outputAppXDirectory.FullName));
+        LayoutReconciliations.Add(reconciliation);
         AddLooseLayoutRuntimeCalls.Add((runtimeArch, projectFile?.FullName, framework, noRestore));
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
         AddLooseLayoutEnsureAliasCalls.Add(ensureExecutionAlias);
         AddLooseLayoutAssetsFileCalls.Add(packageGraph?.AssetsFile.FullName);
         AddLooseLayoutRuntimeIdentifierCalls.Add(packageGraph?.RuntimeIdentifier);
+        AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);
         if (ExceptionToThrow != null)
         {
             throw ExceptionToThrow;
@@ -120,7 +129,43 @@ internal class FakeMsixService : IMsixService
         return Task.FromResult(FakeIdentityResult);
     }
 
+    /// <summary>
+    /// The ownership each loose-layout call was made with, in order. This is how a caller says
+    /// whether the directory is winapp's to prune, so it is worth asserting on.
+    /// </summary>
+    public List<LayoutReconciliation> LayoutReconciliations { get; } = [];
+
     public bool EnsureRuntimeInstalledResult { get; set; } = true;
+
+    /// <summary>Records each <see cref="MaterializeLooseLayoutAsync"/> call's manifest and output folder.</summary>
+    public List<(string Manifest, string OutputDirectory)> MaterializeLooseLayoutCalls { get; } = [];
+
+    /// <inheritdoc/>
+    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(
+        FileInfo appxManifestPath,
+        DirectoryInfo inputDirectory,
+        DirectoryInfo outputAppXDirectory,
+        TaskContext taskContext,
+        LayoutReconciliation reconciliation,
+        string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        bool selfContained = false,
+        bool ensureExecutionAlias = false,
+        PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
+        CancellationToken cancellationToken = default)
+    {
+        MaterializeLooseLayoutCalls.Add((appxManifestPath.FullName, outputAppXDirectory.FullName));
+        LayoutReconciliations.Add(reconciliation);
+        AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);
+        if (ExceptionToThrow != null)
+        {
+            throw ExceptionToThrow;
+        }
+        return Task.FromResult(FakeIdentityResult);
+    }
 
     public Task<bool> EnsureWindowsAppRuntimeInstalledAsync(
         FileInfo? projectFile,
@@ -214,16 +259,77 @@ internal class FakeMsixService : IMsixService
         PackageGraphSource? packageGraph = null,
         string? targetArch = null,
         bool runtimeAlreadyBundled = false,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default)
     {
         CreatePackageCalls.Add(inputFolder);
         LastCreatePackageArgs = new CreatePackageArgs(
-            inputFolder, projectFile, framework, noRestore, targetArch, selfContained, runtimeAlreadyBundled, manifestPath, packageGraph);
+            inputFolder, projectFile, framework, noRestore, targetArch, selfContained, runtimeAlreadyBundled, manifestPath, packageGraph, autoSign, timestampUrl);
         if (PackageExceptionToThrow != null)
         {
             throw PackageExceptionToThrow;
         }
         return Task.FromResult(new CreateMsixPackageResult(new FileInfo("fake.msix"), PackageSigned));
+    }
+
+    /// <summary>Captured arguments of the most recent <see cref="DeliverNativeMsixAsync"/> call.</summary>
+    public sealed record DeliverNativeArgs(FileInfo ProducedMsix, FileInfo? Output, string? Name, bool AutoSign, FileInfo? CertPath, string? Publisher);
+
+    public List<DeliverNativeArgs> DeliverNativeMsixCalls { get; } = [];
+
+    public Task<CreateMsixPackageResult> DeliverNativeMsixAsync(
+        FileInfo producedMsix,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        string? timestampUrl = null,
+        CancellationToken cancellationToken = default)
+    {
+        DeliverNativeMsixCalls.Add(new DeliverNativeArgs(producedMsix, output, name, autoSign, certPath, publisher));
+        if (PackageExceptionToThrow != null)
+        {
+            throw PackageExceptionToThrow;
+        }
+        var delivered = output is { } o && string.Equals(o.Extension, ".msix", StringComparison.OrdinalIgnoreCase)
+            ? o
+            : new FileInfo(Path.Combine(output?.FullName ?? Directory.GetCurrentDirectory(), name is { Length: > 0 } ? $"{name}.msix" : producedMsix.Name));
+        return Task.FromResult(new CreateMsixPackageResult(delivered, autoSign && PackageSigned));
+    }
+
+    /// <summary>Captured arguments of the most recent <see cref="CreateBundleFromPackagesAsync"/> call.</summary>
+    public sealed record BundleFromPackagesArgs(IReadOnlyList<FileInfo> Slices, FileInfo? Output, string? Name, bool AutoSign);
+
+    public List<BundleFromPackagesArgs> CreateBundleFromPackagesCalls { get; } = [];
+
+    public Task<CreateMsixBundleResult> CreateBundleFromPackagesAsync(
+        IReadOnlyList<FileInfo> sliceMsixFiles,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        string? timestampUrl = null,
+        CancellationToken cancellationToken = default)
+    {
+        CreateBundleFromPackagesCalls.Add(new BundleFromPackagesArgs(sliceMsixFiles, output, name, autoSign));
+        if (PackageExceptionToThrow != null)
+        {
+            throw PackageExceptionToThrow;
+        }
+        var bundle = output is { } o && string.Equals(o.Extension, ".msixbundle", StringComparison.OrdinalIgnoreCase)
+            ? o
+            : new FileInfo(Path.Combine(output?.FullName ?? Directory.GetCurrentDirectory(), $"{name ?? "App"}.msixbundle"));
+        return Task.FromResult(new CreateMsixBundleResult(bundle, autoSign && PackageSigned, []));
     }
 
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(

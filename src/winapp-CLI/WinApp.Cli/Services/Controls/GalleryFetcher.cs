@@ -4,6 +4,7 @@
 namespace WinApp.Cli.Services.Controls;
 
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -41,9 +42,6 @@ internal static partial class GalleryFetcher
     [GeneratedRegex(@"^\s*---\s*(header|xaml|c#)\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex SampleSectionRegex();
 
-    [GeneratedRegex(@"\$\([^)]+\)")]
-    private static partial Regex SubstitutionRegex();
-
     [GeneratedRegex(@"ms-appx:///Assets/SampleMedia/[^""'\s]+")]
     private static partial Regex SampleMediaRegex();
 
@@ -56,19 +54,25 @@ internal static partial class GalleryFetcher
     [GeneratedRegex(@"SamplePage\d+")]
     private static partial Regex SamplePageNameRegex();
 
-    /// <summary>Fetch fresh scenarios + tags from GitHub. Applies curated
-    /// overrides and injects hand-maintained controls missing from the upstream
-    /// Gallery data.</summary>
+    /// <summary>Fetch fresh scenarios + tags from GitHub.</summary>
+    /// <remarks>
+    /// Which samples exist, and what each one demonstrates, is upstream's to decide. winapp
+    /// adds no scenarios of its own to this corpus and applies no per-sample rewrites of
+    /// upstream's implementation, because everything here is presented to users as Gallery's
+    /// (<c>Scenario.Source</c> becomes the <c>[gallery]</c> tag and the <c>gallery-</c> id
+    /// prefix in <c>find-ui</c> output). Content winapp considers missing or misleading
+    /// belongs upstream in WinUI-Gallery, or in <see cref="Notes"/> as attributed guidance —
+    /// not silently merged into their data under their name. See #703.
+    ///
+    /// This is not a claim that snippets are byte-identical to upstream's files. Extraction
+    /// is uniform and mechanical, and deliberately lossy: content is cleaned
+    /// (<see cref="CleanGalleryContent"/>), C# is compressed, both languages are truncated,
+    /// and event handlers with no emitted code-behind are stripped so the snippet compiles
+    /// on paste. Those transforms apply to every sample by the same rule; what is gone is
+    /// the bespoke, sample-specific editorializing.
+    /// </remarks>
     internal static async Task<(Scenario[] scenarios, Dictionary<string, string[]> tags)> FetchAsync(CancellationToken cancellationToken = default)
-    {
-        var (scenarios, tags) = await FetchFromGitHub(cancellationToken);
-        if (scenarios.Length > 0)
-        {
-            ApplyOverrides(scenarios);
-            scenarios = InjectMissing(scenarios);
-        }
-        return (scenarios, tags);
-    }
+        => await FetchFromGitHub(cancellationToken);
 
     private static async Task<(Scenario[], Dictionary<string, string[]>)> FetchFromGitHub(CancellationToken cancellationToken)
     {
@@ -299,10 +303,12 @@ internal static partial class GalleryFetcher
     /// <summary>
     /// Fetch and parse a new-format SampleDefinition .txt bundle. Splits it into the
     /// "--- header" / "--- xaml" / "--- c#" sections and returns cleaned xaml/c# ready for
-    /// truncation. XAML keeps the existing $(...) → "..." flattening (stray placeholders there
-    /// are cosmetic). A c# section containing $(...) live-substitution tokens is dropped, because
-    /// flattening them yields non-compileable code (e.g. `new Vector3(..., ..., ...)`) — the same
-    /// "no misleading C#" rule the inline extractor already applied.
+    /// truncation. A XAML $(...) token is resolved by position in <see cref="CleanGalleryContent"/>
+    /// (value-position attribute dropped so the property falls back to its own default,
+    /// content-position commented), never flattened to "...". A c# section containing $(...)
+    /// live-substitution tokens is dropped, because flattening them yields non-compileable code
+    /// (e.g. `new Vector3(..., ..., ...)`) — the same "no misleading C#" rule the inline
+    /// extractor already applied.
     /// </summary>
     private static async Task<(string header, string? xaml, string? csharp)> FetchSampleDefinition(string sampleDef, CancellationToken cancellationToken)
     {
@@ -320,7 +326,7 @@ internal static partial class GalleryFetcher
         }
 
         string? csharp = null;
-        if (!string.IsNullOrWhiteSpace(rawCsharp) && !rawCsharp.Contains("$("))
+        if (!string.IsNullOrWhiteSpace(rawCsharp) && !SampleSubstitutionPlaceholder.Contains(rawCsharp))
         {
             csharp = CompressCSharp(CleanGalleryContent(rawCsharp.Trim()));
             if (string.IsNullOrWhiteSpace(csharp)) csharp = null;
@@ -483,18 +489,19 @@ internal static partial class GalleryFetcher
         if (!match.Success) return null;
 
         var code = UnescapeXml(match.Groups[1].Value).Trim();
-        if (code.Contains("$("))
+        if (tagName == "CSharp" && SampleSubstitutionPlaceholder.Contains(code))
         {
             // C# inline templates with $(VarName) substitutions are bound to live UI
             // controls. Replacing with "..." produces literals like `Title = "..."`
             // and `Resize(new SizeInt32(..., ...))` that mislead agents into compiling
             // them. The code-behind extractor is the right path for C#; if it failed
             // (no .xaml.cs or no event/x:Bind/x:Name seeds), surface no csharp at all.
-            if (tagName == "CSharp") return null;
-            // For XAML, the placeholder substitution is generally cosmetic (color, size)
-            // and the surrounding markup is still useful — keep the existing behavior.
-            code = SubstitutionRegex().Replace(code, "...");
+            return null;
         }
+        // A XAML token is deliberately NOT flattened here: CleanGalleryContent resolves each
+        // one by the position it occupies (value-position attribute dropped, content-position
+        // commented), which keeps the markup pasteable. Flattening to "..." first would
+        // pre-empt that and bake in a non-compiling `Prop="..."`.
         code = CleanGalleryContent(code);
         return string.IsNullOrWhiteSpace(code) ? null : code;
     }
@@ -539,14 +546,142 @@ internal static partial class GalleryFetcher
         });
         code = string.Join('\n', lines);
 
-        // Clean substitution placeholders: replace known $(...) or "..." with defaults
+        // Clean substitution placeholders. The two known-value rewrites run first: they give an
+        // attribute its intended value, and the position-aware pass below would otherwise drop the
+        // attribute outright — an InfoBar that loses IsOpen defaults to collapsed and the sample
+        // renders as nothing. NormalizeMarkupSubstitutions then handles every remaining token by
+        // position; see its summary. The final flattening is a safety net for a token in some
+        // position the pass does not model, and should normally find nothing left to do.
         code = Regex.Replace(code, @"IsOpen=""(\$\(IsOpen\)|\.\.\.?)""", @"IsOpen=""True""");
         code = Regex.Replace(code, @"Severity=""(\$\(Severity\)|\.\.\.?)""", @"Severity=""Informational""");
-        code = SubstitutionRegex().Replace(code, "...");
+        code = NormalizeMarkupSubstitutions(code);
+        code = SampleSubstitutionPlaceholder.ReplaceAll(code, "...");
 
         code = Regex.Replace(code, @"\n\s*\n\s*\n", "\n\n");
         return code.Trim();
     }
+
+    /// <summary>
+    /// Normalizes the <c>$(Name)</c> substitution tokens the Gallery expands at runtime, by the
+    /// position they occupy. Both cases below break if they are flattened to <c>"..."</c> the way
+    /// a value-position token is:
+    /// <list type="bullet">
+    /// <item><description><b>Attribute position</b> — a bare token in an element's attribute list,
+    /// e.g. <c>&lt;Button Content="Go" Click="Button_Click" $(IsEnabled)/&gt;</c>. It stands in for
+    /// a whole attribute, so it is removed. Flattening yields <c>Click="Button_Click" .../&gt;</c>,
+    /// which is not well-formed, so <see cref="ScenarioSanitizer.XamlIsWellFormed"/> discards the
+    /// snippet and the control serves a fetchable result with no code in it at all. That hit
+    /// Button, ToggleButton, RepeatButton, HyperlinkButton, ProgressRing, CommandBar, AnimatedIcon,
+    /// PersonPicture and EasingFunction.</description></item>
+    /// <item><description><b>Element content</b> — a token between elements, e.g.
+    /// <c>&lt;/AppBarButton&gt;$(MultipleButtonsSecondaryCommands)</c>. Every one upstream ships
+    /// injects markup (extra items, a Layout, a DataTemplate) into a property element, never text,
+    /// so it becomes a comment. Flattening stays well-formed but assigns the literal string "..."
+    /// as a collection's content, which does not compile when pasted.</description></item>
+    /// </list>
+    /// A token inside an attribute value (<c>Value="$(DeterminateProgressValue)"</c>) removes the
+    /// whole attribute, so the property falls back to its own default. Flattening that one to
+    /// <c>Value="..."</c> keeps the markup well-formed but does not compile: most of the
+    /// properties these tokens sit on are typed, and <c>"..."</c> is not a double, an enum member
+    /// or a bool. A bake of the Gallery corpus carried 156 such attributes — StrokeThickness,
+    /// Height, Width, Orientation, SelectionMode, PaneDisplayMode and friends — every one of them
+    /// a compile error on paste.
+    /// </summary>
+    internal static string NormalizeMarkupSubstitutions(string code)
+    {
+        if (!SampleSubstitutionPlaceholder.Contains(code)) return code;
+
+        var sb = new StringBuilder(code.Length);
+        var inTag = false;
+        var quote = '\0';
+
+        for (var i = 0; i < code.Length; i++)
+        {
+            var c = code[i];
+
+            if (quote != '\0')
+            {
+                if (c == quote) quote = '\0';
+                sb.Append(c);
+                continue;
+            }
+
+            // Copy comments verbatim: a '>' inside one would otherwise desynchronize the
+            // in-tag state and misclassify every token that follows.
+            if (c == '<' && string.CompareOrdinal(code, i, "<!--", 0, 4) == 0)
+            {
+                var end = code.IndexOf("-->", i + 4, StringComparison.Ordinal);
+                if (end < 0) end = code.Length - 3;
+                sb.Append(code, i, end + 3 - i);
+                i = end + 2;
+                continue;
+            }
+
+            if (inTag && (c == '"' || c == '\''))
+            {
+                // Value position. Look at the whole value before committing to it: a token
+                // anywhere inside means the attribute cannot be salvaged, so the attribute goes
+                // rather than the token, exactly as in attribute position below.
+                var valueEnd = code.IndexOf(c, i + 1);
+                if (valueEnd > 0 && SampleSubstitutionPlaceholder.Contains(code[(i + 1)..valueEnd]))
+                {
+                    RemoveTrailingAttributeName(sb);
+                    i = valueEnd;
+                    continue;
+                }
+
+                quote = c;
+                sb.Append(c);
+                continue;
+            }
+            if (c == '<') { inTag = true; sb.Append(c); continue; }
+            if (c == '>') { inTag = false; sb.Append(c); continue; }
+
+            if (SampleSubstitutionPlaceholder.TryMatchAt(code, i, out var tokenLength))
+            {
+                i += tokenLength - 1;
+                if (inTag)
+                {
+                    // Drop the whitespace that separated the token from the previous
+                    // attribute too, so the tag doesn't keep a dangling gap before "/>".
+                    while (sb.Length > 0 && char.IsWhiteSpace(sb[^1])) sb.Length--;
+                }
+                else
+                {
+                    sb.Append("<!-- ... -->");
+                }
+
+                continue;
+            }
+
+            sb.Append(c);
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Rewinds <paramref name="sb"/> over the <c>Name=</c> just written, and the whitespace in
+    /// front of it, so the caller can drop an attribute whose value it has decided not to keep.
+    /// Taking the whitespace from the front is what keeps the tag tidy: an attribute written on
+    /// its own line takes that line with it, and the last attribute in a tag does not strand the
+    /// closing <c>/&gt;</c>.
+    /// </summary>
+    private static void RemoveTrailingAttributeName(StringBuilder sb)
+    {
+        var cut = sb.Length;
+
+        while (cut > 0 && char.IsWhiteSpace(sb[cut - 1])) cut--;
+        if (cut > 0 && sb[cut - 1] == '=') cut--;
+        while (cut > 0 && char.IsWhiteSpace(sb[cut - 1])) cut--;
+        while (cut > 0 && IsAttributeNameChar(sb[cut - 1])) cut--;
+        while (cut > 0 && char.IsWhiteSpace(sb[cut - 1])) cut--;
+
+        sb.Length = cut;
+    }
+
+    private static bool IsAttributeNameChar(char c)
+        => char.IsLetterOrDigit(c) || c == '.' || c == ':' || c == '_' || c == '-';
 
     private static string UnescapeXml(string s)
     {
@@ -594,158 +729,4 @@ internal static partial class GalleryFetcher
         code = Regex.Replace(code, @"\n[\t ]*\n[\t ]*\n+", "\n\n");
         return code.Trim();
     }
-
-    /// <summary>
-    /// Override Gallery demo code with production-quality snippets where the
-    /// original is known to mislead agents (e.g., TabView using Frame instead of direct content).
-    /// </summary>
-    private static void ApplyOverrides(Scenario[] scenarios)
-    {
-        foreach (var s in scenarios)
-        {
-            if (s.Id == "tabview-1" && s.CSharp != null && s.CSharp.Contains("Frame"))
-            {
-                s.CSharp = """
-                    private void TabView_AddButtonClick(TabView sender, object args)
-                    {
-                        sender.TabItems.Add(CreateNewTab(sender.TabItems.Count));
-                    }
-
-                    private void TabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
-                    {
-                        sender.TabItems.Remove(args.Tab);
-                    }
-
-                    private TabViewItem CreateNewTab(int index)
-                    {
-                        TabViewItem newItem = new TabViewItem();
-                        newItem.Header = $"Document {index}";
-                        newItem.IconSource = new SymbolIconSource() { Symbol = Symbol.Document };
-                        newItem.IsClosable = true;
-
-                        // Content can be any UIElement — TextBox, Grid, UserControl, etc.
-                        var textBox = new TextBox
-                        {
-                            AcceptsReturn = true,
-                            TextWrapping = TextWrapping.Wrap,
-                            HorizontalAlignment = HorizontalAlignment.Stretch,
-                            VerticalAlignment = VerticalAlignment.Stretch,
-                            BorderThickness = new Thickness(0),
-                        };
-                        newItem.Content = textBox;
-
-                        return newItem;
-                    }
-                    """;
-            }
-        }
-    }
-
-    /// <summary>Inject scenarios for controls that have no ControlExample code in the Gallery.</summary>
-    private static Scenario[] InjectMissing(Scenario[] scenarios)
-    {
-        var ids = new HashSet<string>(scenarios.Select(s => s.ControlId));
-        var injected = new List<Scenario>(scenarios);
-
-        if (!ids.Contains("commandbar"))
-        {
-            injected.Add(new Scenario
-            {
-                Id = "commandbar-1",
-                ControlId = "commandbar",
-                ControlName = "CommandBar",
-                HeaderText = "Primary and secondary commands",
-                Xaml = """
-                    <CommandBar DefaultLabelPosition="Right">
-                        <AppBarButton Icon="Add" Label="Add" Click="AddButton_Click"/>
-                        <AppBarButton Icon="Edit" Label="Edit" Click="EditButton_Click"/>
-                        <AppBarButton Icon="Delete" Label="Delete" Click="DeleteButton_Click"/>
-                        <AppBarSeparator/>
-                        <AppBarButton Icon="Refresh" Label="Refresh" Click="RefreshButton_Click"/>
-                        <CommandBar.SecondaryCommands>
-                            <AppBarButton Icon="Setting" Label="Settings"/>
-                            <AppBarButton Icon="Help" Label="About"/>
-                        </CommandBar.SecondaryCommands>
-                    </CommandBar>
-                    """,
-                // Minimal code-behind so the wired Click handlers above resolve — the
-                // snippet must compile as pasted. Fill in each body with real logic.
-                CSharp = """
-                    private void AddButton_Click(object sender, RoutedEventArgs e) { }
-                    private void EditButton_Click(object sender, RoutedEventArgs e) { }
-                    private void DeleteButton_Click(object sender, RoutedEventArgs e) { }
-                    private void RefreshButton_Click(object sender, RoutedEventArgs e) { }
-                    """
-            });
-        }
-
-        // ItemsRepeater + UniformGridLayout for an image/photo grid is a very common
-        // need (media galleries, photo organizers) but every upstream UniformGridLayout
-        // sample in WinUI Gallery happens to demo something else (DataTemplateSelector,
-        // SelectorBar, connected animation, etc.) so the layout is buried in noise.
-        // Inject a clean canonical example so agents can copy it directly.
-        // Pick the next free {controlId}-N suffix so the ID stays consistent with
-        // the auto-numbered scenarios from the same control.
-        var nextRepeaterIdx = injected
-            .Where(s => s.ControlId == "itemsrepeater")
-            .Select(s =>
-            {
-                var dash = s.Id.LastIndexOf('-');
-                return (dash > 0 && int.TryParse(s.Id[(dash + 1)..], out var n)) ? n : 0;
-            })
-            .DefaultIfEmpty(0)
-            .Max() + 1;
-        injected.Add(new Scenario
-        {
-            Id = $"itemsrepeater-{nextRepeaterIdx}",
-            ControlId = "itemsrepeater",
-            ControlName = "ItemsRepeater",
-            HeaderText = "Photo gallery: image grid (UniformGridLayout)",
-            Description = "Canonical pattern for displaying a grid of images/thumbnails: ItemsRepeater + UniformGridLayout, wrapped in a ScrollView for scrolling. Use this instead of GridView+ItemsWrapGrid when you want the modern WinUI 3 collection layout.",
-            Xaml = """
-                <!--
-                  ItemsRepeater is a layout primitive: it has NO selection and NO scrolling.
-                  Wrap it in a ScrollView (or ScrollViewer) for scrolling.
-                  UniformGridLayout sizes every cell uniformly — set MinItemWidth/Height
-                  and the layout fills available width with as many columns as fit.
-                -->
-                <ScrollView>
-                    <ItemsRepeater ItemsSource="{x:Bind Items, Mode=OneWay}">
-                        <ItemsRepeater.Layout>
-                            <UniformGridLayout MinItemWidth="200"
-                                               MinItemHeight="200"
-                                               MinRowSpacing="8"
-                                               MinColumnSpacing="8"/>
-                        </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="local:PhotoItem">
-                                <Grid Width="200" Height="200"
-                                      Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                      CornerRadius="4">
-                                    <Image Source="{x:Bind Thumbnail}" Stretch="UniformToFill"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
-                </ScrollView>
-                """,
-            CSharp = """
-                public sealed partial class PhotoItem
-                {
-                    public string Thumbnail { get; set; } = "";
-                }
-
-                // Expose this collection on your page — the XAML binds to it directly
-                // as {x:Bind Items}:
-                // public ObservableCollection<PhotoItem> Items { get; } = new();
-                """,
-            Source = "gallery"
-        });
-
-        // CommunityToolkit controls now come from toolkit-scenarios.json
-        // Only CommandBar needs injection (no ControlExample in WinUI Gallery)
-
-        return injected.ToArray();
-    }
 }
-

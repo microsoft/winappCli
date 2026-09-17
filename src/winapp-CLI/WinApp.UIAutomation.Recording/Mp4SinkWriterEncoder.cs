@@ -294,18 +294,8 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
         PublishAtomic(tempPath, destPath);
     }
 
-    internal static void PublishAtomic(string tempPath, string destPath)
-    {
-        if (File.Exists(destPath))
-        {
-            // Preserve the existing file's ACL/attributes (File.Move would drop them to the directory default).
-            File.Replace(tempPath, destPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
-        }
-        else
-        {
-            File.Move(tempPath, destPath, overwrite: false);
-        }
-    }
+    internal static void PublishAtomic(string tempPath, string destPath) =>
+        RecordingArtifactPublisher.PublishVideo(tempPath, destPath);
 
     private static ulong PackU64(uint high, uint low) => ((ulong)high << 32) | low;
 

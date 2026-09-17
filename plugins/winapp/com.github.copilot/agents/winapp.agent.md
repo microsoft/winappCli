@@ -61,8 +61,15 @@ Does the project already have an appxmanifest.xml?
    │  │  └─ winapp sign <file> <cert>
    │  └─ With Azure Trusted Signing (cloud-managed identity, no local PFX)?
    │     └─ winapp az-sign <file>
-   └─ Need to run a Windows SDK tool directly (makeappx, signtool, makepri)?
-      └─ winapp tool <toolname> <args>
+   ├─ Need to run a Windows SDK tool directly (makeappx, signtool, makepri)?
+   │  └─ winapp tool <toolname> <args>
+   └─ Need to remove a development registration?
+      └─ winapp unregister  (add --on sandbox to remove it from the Sandbox instead)
+
+Need to run or automate the app somewhere other than the user's own desktop?
+├─ Yes → use the winapp-sandbox skill for run / ui / unregister --on sandbox,
+│        guest commands, file transfers, and whole-desktop evidence
+└─ No → the same commands without --on sandbox act on this machine
 
 Want to inspect or interact with a running app's UI?
 ├─ See element tree → winapp ui inspect -a <appname>
@@ -76,6 +83,7 @@ Want to inspect or interact with a running app's UI?
 ├─ Wait for UI state → winapp ui wait-for <selector> -a <appname> --timeout 5000
 ├─ Inject touch gestures (tap/swipe/pinch/long-press) → winapp ui touch <selector> -a <appname> --gesture swipe --direction right --distance 200
 ├─ Inject pen/stylus ink stroke or tap → winapp ui pen <selector> -a <appname> --path "10,10 200,200"
+├─ Do any of the above without taking over the user's desktop → add --on sandbox
 └─ List app windows → winapp ui list-windows -a <appname> [--show-hidden]
 
 Driving a UI while other workflows may be running?
@@ -98,9 +106,17 @@ Driving a UI while other workflows may be running?
    have used the desktop, so transient UI (menus, flyouts) is gone
 
 Building a WinUI 3 UI and need to find the right control or a working sample?
-└─ winapp find-ui "<what you want>"   (search WinUI 3 Gallery + Community Toolkit; Reactor is opt-in via --source reactor)
+└─ winapp find-ui "<what you want>"   (agent-first: fetch real gallery code instead of inventing XAML)
    ├─ Then fetch full code for a match → winapp find-ui --id <scenario-id>
+   ├─ Searches WinUI 3 Gallery + Community Toolkit; Reactor is opt-in via --source reactor
    └─ WinUI-only (not WPF/WinForms); distinct from `ui search`, which inspects a *running* app
+
+Need to know whether a Windows/WinRT API exists, or what a type/enum actually offers?
+└─ winapp find-api "<what you want>"   (agent-first: the project's real .winmd metadata — never guess an API)
+   ├─ List a type's properties/events/methods → winapp find-api members <Type> [<Type>...]
+   ├─ Check a property before writing XAML → winapp find-api check-property <Type> <Prop> [<Prop>...]
+   ├─ List an enum's values → winapp find-api enums <EnumType> [<EnumType>...]
+   └─ Batch subjects in ONE call; distinct from `find-ui`, which finds sample code rather than API surface
 ```
 
 ## Critical rules — always follow these
@@ -120,6 +136,10 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 7. **Prefer `winapp package --cert` over separate sign step.** The `package` command can generate the MSIX and sign it in one step with `--cert ./devcert.pfx`. Only use `winapp sign` separately when signing an already-packaged MSIX or a standalone executable.
 
 8. **Run `winapp --cli-schema` for the full CLI reference.** If you need exact option names, defaults, argument types, or details about any command, run `winapp --cli-schema` — it outputs the complete CLI structure as JSON. Use this whenever the information in this file isn't sufficient.
+
+9. **Use the `winapp-sandbox` skill before guest execution or automation.** Never drop `--on sandbox` to work around an error. Explain setup/elevation and possible brief focus changes; leave reboot and Sandbox-stop decisions to the user.
+
+10. **Sandbox does not isolate builds or guest workflows from each other.** Project evaluation, restore, and compilation run on the host. All apps inside the one Sandbox share a user and desktop; do not use it to build untrusted projects or separate mutually untrusted workflows.
 
 ## Complete command reference
 
@@ -172,11 +192,12 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `--output <path>` — output `.msix` or `.msixbundle` filename
 - `--self-contained` — bundle Windows App SDK runtime (arch-aware for bundles)
 - `--generate-cert` — auto-generate a certificate
+- `--no-sign` — deliver unsigned, overriding a project's signing configuration (for Store submission or external signing); cannot combine with `--cert`/`--generate-cert`
 - `--install-cert` — also install the certificate on the machine
 - `--skip-pri` — skip PRI resource file generation
 **Project mode (a single `.csproj` input):** builds the project, then packages its output.
   `winapp package ./MyApp.csproj -c Release --cert ./devcert.pfx`
-  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged.
+  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. These build options require a `.csproj`; they are rejected for folder/bundle/manifest inputs. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged. If the project configures signing, winapp honors it; use `--no-sign` to force an unsigned artifact.
 **Bundle usage:** Pass multiple folders to create a bundle:
   `winapp pack ./publish/x64 ./publish/arm64`
   Each folder's architecture is auto-detected from the executable PE header.
@@ -217,11 +238,28 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `-f, --framework <tfm>` — (project mode) target framework for multi-targeted projects. **Rejected in single-file mode** — declare `#:property TargetFramework=…` instead
 - `--project <name-or-path>` — (project mode) select which project to launch when a solution/directory has multiple runnable app projects (errors listing candidates if ambiguous). **Rejected in single-file mode** — the `.cs` file is the project
 - `--no-build` / `--no-restore` — (project + single-file mode) skip build / restore
+- `--aot` — (project mode) run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`, supports x64/ARM64, and cannot use `--no-build`. Use `-c Release` for a Release AOT run.
 - `-p, --property <Name=Value>` — (project + single-file mode) MSBuild property forwarded to build + evaluation; repeatable. Use `%3B` or `%2C` for a literal semicolon or comma in a value
 - `--debug-output` — capture `OutputDebugString` messages and first-chance exceptions (prevents other debuggers like VS/VS Code from attaching). For WinUI apps it also auto-runs a stowed-exception (`0xC000027B`) triage pass (`!xamlstowed`/`!xamltriage`) that recovers the originating HRESULT and native XAML dispatch stack. The first triage run downloads debugger components (engine bits from NuGet + `JsProvider.dll` from the WinDbg CDN) and caches them under `~\.winapp\dbgtools\`; if downloads are blocked, install Debugging Tools for Windows or point `WINAPP_DBGTOOLS_DIR` at a debugger directory containing `dbgeng.dll` and `JsProvider.dll`.
 - `--symbols` — with `--debug-output`, download Microsoft public symbols for richer native crash stacks (first run downloads and caches them)
 - `--output-appx-directory <path>` — custom output directory for the loose layout
+- `--on sandbox` — build on the host and run in the guest. Use `--detach` before follow-up UI commands; `--debug-output` requires a packaged app. See `winapp-sandbox` for runtime and app-lifetime limits.
 **Requires:** Folder mode — built app output directory + `appxmanifest.xml`. Project mode — a `.csproj`/`.sln`/`.slnx` (or directory containing one) + .NET SDK 8.0.100+. Single-file mode — a `.cs` file-based app + .NET SDK 10.0.300+ (no manifest needed).
+
+### `winapp unregister`
+**Purpose:** Remove a development package registration created by `winapp run` / `create-debug-identity`.
+**When to use:** To clean up a registration, or when a stale one is causing install/launch failures.
+**Key options:**
+- `--manifest <path>` — manifest identifying the package (default: auto-detect)
+- `--force` — skip the install-location check and unregister even if the package was registered from a different project tree
+- `--on sandbox` — remove a winapp-owned guest development registration; requires a manifest and does not support `--force`. See `winapp-sandbox` for cleanup.
+- `--json` — machine-readable output
+
+### `winapp target`
+Use the **winapp-sandbox** skill for guest setup (`exec`), file transfer (`push`/`pull`),
+readiness (`snapshot`), and whole-desktop evidence (`screenshot`/`record`). Start diagnosis
+with `winapp target snapshot sandbox`; it does not create a VM. Consult
+`winapp target <verb> --help` for syntax.
 
 ### `winapp cert generate`
 **Purpose:** Create a self-signed PFX certificate for local testing.
@@ -291,7 +329,33 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 **Purpose:** Generate a `CodeIntegrityExternal.cat` catalog file for sparse packages with `AllowExternalContent`.
 **When to use:** When your sparse package manifest uses `TrustedLaunch` and you need to catalog external executable files.
 
-### `winapp find-ui "<query>"` — WinUI control & sample search
+### `winapp find-api [query]` — API metadata discovery (agent-first)
+**Agent-first:** this command exists for *you*. It prevents the failure mode of confidently emitting a type, property, or enum value that does not exist. Ground every Windows/WinRT symbol you are not certain about here before writing it, and prefer it over recall or web search — it describes the exact metadata *this* project references. Use `--json` to gate codegen on the result.
+**Purpose:** Search a project's referenced WinRT/.NET API metadata (`.winmd`/`.dll` + XML docs) for types and members, and inspect them — without guessing API shapes. The index builds automatically after a restore; run `winapp find-api refresh` to (re)build it manually.
+**When to use:** When an AI agent or developer needs to confirm that a type/property/enum exists, discover the members of a control, or find the right API by intent (e.g. "acrylic brush") before writing WinUI/WinRT code. Add `--json` for machine-readable output.
+
+**Key subcommands:**
+- `find-api "<query>" ["<query>"...]` — lexical search for types/members by name or intent (bare form).
+- `find-api members <type> [<type>...]` — list properties, events, and methods of a type (accepts a short name like `NavigationView` or a fully-qualified name). An unfiltered listing shows declared members with signatures and summarizes inherited members by declaring type (names only), and omits dependency-property identifier statics and descriptions to save context; use `--filter <text>` or `--all` to reach the complete surface with full signatures.
+- `find-api check-property <type> <property> [<property>...]` — verify (dependency/attached) properties exist on a type; suggests near-matches when they don't, and flags read-only properties (`writable: false`) that exist but can't be assigned.
+- `find-api enums <type> [<type>...]` — list an enum's values (accepts a short or fully-qualified name).
+- `find-api packages` / `find-api stats` — show indexed packages / index statistics for the project.
+- `find-api refresh [--scan] [--project <name>]` — rebuild the API index for the project (forces a full re-index).
+
+Works in .NET/C++ projects (from `project.assets.json`) and in Electron or other non-MSBuild apps driven by `winapp.yaml` (from the `.winapp/winmds.lock.json` that `winapp restore` writes). Either way the project must be restored first.
+
+**Batch your lookups.** `search`, `members`, `enums`, and `check-property` each accept
+multiple subjects in one invocation. Cost is dominated by the number of calls, not the
+size of the answer, so verify everything you're unsure about in a single call
+(`find-api check-property InfoBar Severity IsOpen Message`) rather than one per turn.
+Batch at two moments: before writing code, and **after a build fails** — read the whole
+error list, collect every uncertain symbol from all of it, and verify them in one call
+before editing. Fixing compile errors one at a time costs a lookup, an edit, and a full
+rebuild per symbol. A single subject keeps the original payload shape; a batch returns
+`{ count, results: [...] }` and exits non-zero if *any* subject is missing.
+
+### `winapp find-ui "<query>"` — WinUI control & sample search (agent-first)
+**Agent-first:** this command exists for *you*. Before hand-writing XAML for a control you have not just looked at, fetch a real scenario here — the code comes from the shipping WinUI 3 Gallery and Windows Community Toolkit, so it compiles. Prefer it over recall or a blog post, and use `--json` for a parseable result on every path.
 **Purpose:** Lexically search **WinUI** controls and samples (WinUI 3 Gallery + Windows Community Toolkit, plus curated core patterns) for a working code example. The microsoft-ui-reactor ReactorGallery is an **opt-in** source, excluded from a normal search and searched only via `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app — Reactor/MVU projects only). WinUI-only — not WPF/WinForms.
 **When to use:** When building a WinUI 3 UI and you need to discover which control fits an intent and get a real code example (XAML and/or C# for Gallery/Toolkit; C#-only for Reactor), without leaving the CLI. Distinct from `winapp ui search`, which searches a *running app's* UI tree.
 **Workflow:** search compactly to find the control and its scenario ids, then fetch full code with `--id`.
@@ -319,7 +383,7 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `ui search <selector> -a <app> [--max N]` — find elements; output shows semantic slugs. Surfaces invokable ancestor for all non-invokable results
 - `ui get-property <selector> -a <app> [-p <prop>]` — read UIA properties (including ToggleState, Value, IsSelected, ExpandCollapseState)
 - `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window. **`--capture-screen` needs exactly one window** — it reads whatever is in front, and only one window can be. `-w <hwnd>` selects one: that window's screen region, including any dialog or overlay visibly on top of it. If `-a` matches several top-level or owned windows there is no such selection and it fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. If a capture reports `foreground_not_target`, the window could not be brought to the front — do the same thing: list the windows and target one with `-w <hwnd>`.
-- `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--capture-screen] [--json]` — record window or element region to an H.264 MP4 using Windows Graphics Capture + Media Foundation. Default is 0 — records until stopped (Ctrl+C interactively, or a newline/EOF on stdin for programmatic callers); use `--duration-sec N` for a timed run. Add `--frames` to retain timestamped JPEGs, `frames.ndjson`, and `manifest.json` under `<output-name>.frames`. JSON results include `elapsedMs`, `achievedFps`, `cadenceRatio`, `stopReason`, optional `frameArtifacts`, and the capture `mode` (`"wgc"`, `"screen"`, or `"printwindow"`).
+- `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--capture-screen] [--json]` — record a window or element to MP4. Prefer a positive CLI duration; npm helpers require `durationSec`. Use a fresh output path unless replacement is explicitly intended. See **winapp-ui-automation** for overwrite behavior, frame artifacts, and partial-output recovery.
 - `ui invoke <selector> -a <app>` — activate element by slug or text search. Auto-walks to invokable ancestor for non-invokable elements.
 - `ui hover <selector> -a <app> [--dwell-time <ms>]` — move mouse to element center to trigger tooltips, flyouts, and hover states. Use with `ui screenshot --capture-screen` to capture the result.
 - `ui drag <from> <to> -a <app> [--right]` — press the mouse button at one point, move to another, and release (reorder, resize, sliders, drag-and-drop). Each of `<from>`/`<to>` is an element selector (drags from/to its center) or screen coordinates `x,y` as reported by `ui inspect`.
@@ -334,6 +398,10 @@ Building a WinUI 3 UI and need to find the right control or a working sample?
 - `ui list-windows -a <app> [--show-hidden]` — list windows, popups, and dialogs with HWNDs (untitled zero-size windows hidden by default)
 - `ui get-focused -a <app>` — show the element with keyboard focus
 - `ui yield` — release this workflow's UI turn early instead of waiting out the 4s idle grace. Requires `WINAPP_UI_WORKFLOW_ID`; takes no app or selector. Idempotent, never releases another workflow's turn, and fails with `ui_turn_busy` if your own workflow still has a command running.
+
+**Guest UI:** use **winapp-sandbox** for `--on sandbox` targeting, workflow identity,
+client requirements, and host artifact delivery; use **winapp-ui-automation** for selectors
+and app interactions.
 
 ## Framework-specific guidance
 
@@ -430,6 +498,9 @@ winapp restore --quiet                     # Restore packages (non-interactive)
 winapp package ./dist --cert $CERT_PATH --cert-password $CERT_PWD --quiet
 ```
 
+### Run and automate in Windows Sandbox
+Follow the **winapp-sandbox** skill's launch → inspect → act → verify workflow.
+
 ## Error diagnosis
 
 When the user encounters an error, check these common causes:
@@ -444,6 +515,7 @@ When the user encounters an error, check these common causes:
 | "Certificate not trusted" | Dev cert not installed | Run `winapp cert install ./devcert.pfx` as admin |
 | "Build tools not found" | First run, tools not downloaded | winapp auto-downloads tools; ensure internet access |
 | Windows APIs fail at runtime | Debug identity not registered | Register debug identity after build and before launching: `winapp create-debug-identity <exe>` (or `npx winapp node add-electron-debug-identity` for Electron) — this is **mandatory** for any app using identity-requiring APIs |
+| Sandbox setup, runtime, input, capture, or version error | See the structured `error.code` and `userAction` | Follow **winapp-sandbox** recovery guidance; do not reboot, stop an instance, remove unrelated packages, or fall back to the host without consent |
 
 ## Key files and concepts
 

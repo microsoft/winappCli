@@ -24,6 +24,7 @@ internal sealed class FakeProjectRunService : IProjectRunService
 
     /// <summary>Returned from <see cref="BuildAndResolveAsync"/> when no exception is configured.</summary>
     public ProjectBuildOutcome? BuildOutcome { get; set; }
+    public ProjectBuildOutcome? AotOutcome { get; set; }
 
     /// <summary>When set, <see cref="BuildAndResolveAsync"/> throws it (simulates a guardrail violation).</summary>
     public ProjectRunException? BuildThrows { get; set; }
@@ -44,7 +45,10 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public List<string?> ResolveInputSelectors { get; } = [];
     public List<ProjectClassificationInputs?> ResolveInputClassificationInputs { get; } = [];
     public List<FileInfo> BuildAndResolveCalls { get; } = [];
+    public List<FileInfo> PublishAndResolveCalls { get; } = [];
+    public List<FileInfo> PublishNativeMsixCalls { get; } = [];
     public List<ProjectRunOptions> BuildOptions { get; } = [];
+    public List<ProjectRunOptions> AotOptions { get; } = [];
     public List<FileInfo> BuildAndResolveSingleFileCalls { get; } = [];
     public List<SingleFileRunOptions> SingleFileBuildOptions { get; } = [];
 
@@ -103,10 +107,73 @@ internal sealed class FakeProjectRunService : IProjectRunService
             ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured."));
     }
 
+    public Task<ProjectBuildOutcome> PublishAotAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        BuildAndResolveCalls.Add(csproj);
+        AotOptions.Add(options);
+        if (BuildThrows != null)
+        {
+            throw BuildThrows;
+        }
+
+        return Task.FromResult(AotOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.AotOutcome was not configured."));
+    }
+
+    /// <summary>Returned from <see cref="PublishNativeMsixAsync"/> when no exception is configured.</summary>
+    public NativeMsixPublishOutcome? NativeMsixOutcome { get; set; }
+
+    /// <summary>When set, <see cref="PublishNativeMsixAsync"/> throws it (simulates a guardrail violation).</summary>
+    public ProjectRunException? NativeMsixThrows { get; set; }
+
+    public Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(FileInfo csproj, ProjectRunOptions options, DirectoryInfo packageDir, CancellationToken cancellationToken)
+    {
+        PublishNativeMsixCalls.Add(csproj);
+        BuildOptions.Add(options);
+        if (NativeMsixThrows != null)
+        {
+            throw NativeMsixThrows;
+        }
+
+        return Task.FromResult(NativeMsixOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.NativeMsixOutcome was not configured."));
+    }
+
+    /// <summary>Returned from <see cref="IsNativeMsixProjectAsync"/>. Default false = generic publish-layout path.</summary>
+    public bool IsNativeMsixProject { get; set; }
+
+    /// <summary>Records each <see cref="IsNativeMsixProjectAsync"/> invocation.</summary>
+    public List<FileInfo> IsNativeMsixProjectCalls { get; } = [];
+
+    public Task<bool> IsNativeMsixProjectAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        IsNativeMsixProjectCalls.Add(csproj);
+        return Task.FromResult(IsNativeMsixProject);
+    }
+
+    /// <summary>Returned from <see cref="EvaluateProjectSigningAsync"/>. Default null = no project signing configuration.</summary>
+    public ProjectSigningProperties? ProjectSigning { get; set; }
+
+    public Task<ProjectSigningProperties?> EvaluateProjectSigningAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+        => Task.FromResult(ProjectSigning);
+
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         IsDefinitivelyUnpackagedCalls.Add(csproj);
         return Task.FromResult(DefinitivelyUnpackaged);
+    }
+
+    public Task<ProjectBuildOutcome> PublishAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        PublishAndResolveCalls.Add(csproj);
+        BuildOptions.Add(options);
+        if (BuildThrows != null)
+        {
+            throw BuildThrows;
+        }
+
+        return Task.FromResult(BuildOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured."));
     }
 
     public Task<SingleFileBuildOutcome> BuildAndResolveSingleFileAsync(FileInfo singleFile, SingleFileRunOptions options, CancellationToken cancellationToken)

@@ -27,7 +27,7 @@ internal sealed partial class ProjectRunService
         ProjectRunOptions options,
         string? verbosity = null)
     {
-        var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
+        var rid = options.EffectiveRuntimeIdentifier;
         var isSolution = IsSolutionFile(csproj);
         var tokens = new List<string>
         {
@@ -90,17 +90,35 @@ internal sealed partial class ProjectRunService
     /// no-<c>&lt;Platforms&gt;</c> reference would break (MSB3030/PRI252). <c>EnableDynamicPlatformResolution</c>
     /// is never injected. A user-supplied <c>-p:Platform</c> still flows through (and suppresses injection).
     /// </summary>
-    internal static string BuildBuildPassArguments(FileInfo csproj, ProjectRunOptions options, string verbosity, string? csWinRTMetadataFolder = null, bool nativeTerminal = false)
+    internal static string BuildBuildPassArguments(FileInfo csproj, ProjectRunOptions options, string verbosity, string? csWinRTMetadataFolder = null, bool nativeTerminal = false, bool publish = false)
     {
-        var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
+        var rid = options.EffectiveRuntimeIdentifier;
 
         var tokens = new List<string>
         {
-            "build",
+            // `winapp pack` publishes (the deployment payload); `winapp run` builds. `dotnet publish
+            // --no-build` still runs the publish targets/transforms — it only skips the managed Build — so
+            // a publish pass adds --no-build rather than skipping the pass the way build mode does.
+            publish ? "publish" : "build",
             csproj.FullName,
             "-c",
             options.Configuration,
         };
+
+        if (publish && options.NoBuild)
+        {
+            tokens.Add("--no-build");
+        }
+
+        if (publish)
+        {
+            // Native AOT (and other deployment transforms) replace the managed build output with the
+            // published payload. Without this the Windows SDK MSIX targets default the flag to false for
+            // AOT, so the generated .appxrecipe references the managed build and `winapp pack` would package
+            // the wrong payload. Match the Native AOT publisher and include publish items in the package
+            // output group. Harmless for a plain managed publish (build and publish payloads coincide).
+            tokens.Add("-p:IncludePublishItemsOutputGroup=true");
+        }
 
         if (!options.OmitRuntimeIdentifier)
         {
@@ -158,6 +176,152 @@ internal sealed partial class ProjectRunService
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
 
+    internal static IReadOnlyList<string> BuildAotPublishArguments(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        string verbosity,
+        string? csWinRTMetadataFolder = null)
+    {
+        var tokens = new List<string>
+        {
+            "publish",
+            csproj.FullName,
+            "-c",
+            options.Configuration,
+            "-r",
+            options.EffectiveRuntimeIdentifier,
+        };
+
+        if (options.NoRestore)
+        {
+            tokens.Add("--no-restore");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Framework))
+        {
+            tokens.Add("-f");
+            tokens.Add(options.Framework);
+        }
+
+        tokens.Add("-v");
+        tokens.Add(verbosity);
+        tokens.Add("-tl:off");
+
+        foreach (var property in ForwardableProperties(options.Properties))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Platform))
+        {
+            tokens.Add($"-p:Platform={options.Platform}");
+        }
+
+        AppendInferredPublishProfile(tokens, csproj, options);
+        AppendSolutionProperties(tokens, options);
+
+        if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
+        {
+            tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
+        }
+
+        tokens.Add("-p:IncludePublishItemsOutputGroup=true");
+        foreach (var name in RequestedProperties)
+        {
+            tokens.Add($"--getProperty:{name}");
+        }
+        return tokens;
+    }
+
+    /// <summary>
+    /// Builds the arguments for the NATIVE MSIX publish pass: <c>dotnet publish</c> that lets the Windows
+    /// App SDK MSIX targets produce the package during publish (<c>PublishAppxPackage=true</c>), then
+    /// reports the produced package path via <c>--getProperty:AppxPackageOutput</c>. This is the spec's
+    /// preferred path for MSIX-tooling (WinUI) projects: the SDK owns file selection, AOT native/managed
+    /// filtering, and layout, so winapp never repackages the output. <paramref name="packageDir"/> is a
+    /// per-invocation scratch directory winapp owns; the final artifact is delivered separately per
+    /// <c>--output</c> precedence. Packages are produced UNSIGNED; winapp signs the final artifact once.
+    /// </summary>
+    internal static IReadOnlyList<string> BuildNativeMsixPublishArguments(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        DirectoryInfo packageDir,
+        string verbosity,
+        string? csWinRTMetadataFolder = null)
+    {
+        var tokens = new List<string>
+        {
+            "publish",
+            csproj.FullName,
+            "-c",
+            options.Configuration,
+        };
+
+        // Suppress the injected RID when an effective Platform already conveys the architecture and the
+        // ProjectReference closure splits on RuntimeIdentifier — emitting both harvests duplicate outputs
+        // and fails packaging with APPX1101. Matches the restore/build/evaluate passes.
+        if (!options.OmitRuntimeIdentifier)
+        {
+            tokens.Add("-r");
+            tokens.Add(options.EffectiveRuntimeIdentifier);
+        }
+
+        if (options.NoBuild)
+        {
+            tokens.Add("--no-build");
+        }
+
+        if (options.NoRestore)
+        {
+            tokens.Add("--no-restore");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Framework))
+        {
+            tokens.Add("-f");
+            tokens.Add(options.Framework);
+        }
+
+        tokens.Add("-v");
+        tokens.Add(verbosity);
+        tokens.Add("-tl:off");
+
+        foreach (var property in ForwardableProperties(options.Properties))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Platform))
+        {
+            tokens.Add($"-p:Platform={options.Platform}");
+        }
+
+        AppendInferredPublishProfile(tokens, csproj, options);
+        AppendSolutionProperties(tokens, options);
+
+        if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
+        {
+            tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
+        }
+
+        // Trigger the SDK's publish-time MSIX packaging and keep the native (published) payload, not the
+        // managed build output. GenerateAppxPackageOnBuild=false avoids a separate build-time package;
+        // AppxBundle=Never keeps this a single package (bundles are composed separately); the package is
+        // produced unsigned because winapp signs the final artifact once. AppxPackageDir is winapp's scratch
+        // directory so the SDK's own output location never decides where the final artifact is delivered.
+        tokens.Add("-p:PublishAppxPackage=true");
+        tokens.Add("-p:GenerateAppxPackageOnBuild=false");
+        tokens.Add("-p:IncludePublishItemsOutputGroup=true");
+        tokens.Add("-p:AppxBundle=Never");
+        tokens.Add("-p:AppxPackageSigningEnabled=false");
+        tokens.Add($"-p:AppxPackageDir={Path.TrimEndingDirectorySeparator(packageDir.FullName)}{Path.DirectorySeparatorChar}");
+
+        // Post-target result: the execution-time package path. A plain evaluation query cannot recover it.
+        tokens.Add("--getProperty:AppxPackageOutput");
+
+        return tokens;
+    }
+
     /// <summary>
     /// Builds the arguments for the EVALUATE pass: a fast, side-effect-free <c>dotnet msbuild
     /// --getProperty</c> returning resolved output paths as JSON. Fed the SAME effective build inputs as
@@ -179,7 +343,7 @@ internal sealed partial class ProjectRunService
         bool includePlatform = true,
         bool includePublishProfile = true)
     {
-        var rid = RunArchHelper.ToRuntimeIdentifier(options.Architecture);
+        var rid = options.EffectiveRuntimeIdentifier;
 
         var tokens = new List<string>
         {

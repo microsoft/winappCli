@@ -37,7 +37,10 @@ internal sealed partial class ProjectRunService
     /// (no MSBuild round-trip); any ambiguity (unresolvable reference path, missing file, cycle-bounded
     /// overflow) resolves conservatively to "do not inject", preserving today's RID-only behavior.
     /// </summary>
-    internal static ProjectRunOptions ResolvePlatformInjection(FileInfo csproj, ProjectRunOptions options)
+    internal static ProjectRunOptions ResolvePlatformInjection(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        bool requireConcreteRid = false)
     {
         // A user -p:Platform is authoritative and forwarded as-is (WarnOnOverriddenFlags surfaces an
         // arch/Platform mismatch); never override it. It still conveys the architecture, so it counts when
@@ -63,8 +66,32 @@ internal sealed partial class ProjectRunService
         // failing with APPX1101 "two or more files with the same destination path". Drop the RID only for
         // that provable case; every other project keeps today's behavior, including a split closure with no
         // effective Platform, where the RID is the only thing conveying the architecture.
+        var ridSplit = ProjectReferenceClosureSplitsOnRuntimeIdentifier(csproj);
+        if (requireConcreteRid && ridSplit)
+        {
+            if (userPlatform)
+            {
+                throw new ProjectRunException(
+                    "Native AOT cannot combine an explicit Platform with a project graph that removes RuntimeIdentifier. Remove -p:Platform or stop removing RuntimeIdentifier from ProjectReference.");
+            }
+
+            token = null;
+        }
+
         var platformInEffect = userPlatform || token is not null;
-        var omitRid = platformInEffect && ProjectReferenceClosureSplitsOnRuntimeIdentifier(csproj);
+        var omitRid = !requireConcreteRid && platformInEffect && ridSplit;
+
+        // A lone -p RuntimeIdentifier (ExactRuntimeIdentifier) is an explicit exact-RID request. If this graph
+        // would otherwise drop the RID, honoring the request by forcing it back in reintroduces the APPX1101
+        // duplicate-output failure, and silently dropping it contradicts the request — so reject explicitly.
+        if (omitRid && !string.IsNullOrEmpty(options.ExactRuntimeIdentifier))
+        {
+            throw new ProjectRunException(
+                $"-p RuntimeIdentifier={options.ExactRuntimeIdentifier} cannot be honored for this project: its " +
+                "ProjectReference graph removes RuntimeIdentifier when a Platform is in effect, which would drop " +
+                "the requested RID. Select the architecture with --arch instead, or stop removing " +
+                "RuntimeIdentifier from the ProjectReference.");
+        }
 
         return options with
         {
@@ -222,7 +249,7 @@ internal sealed partial class ProjectRunService
                 continue;
             }
 
-            if (IsBuildOnlyReference(element))
+            if (ProjectReferenceMetadata.IsBuildOnly(element))
             {
                 continue;
             }
@@ -234,38 +261,6 @@ internal sealed partial class ProjectRunService
         }
 
         return includes;
-    }
-
-    /// <summary>
-    /// Returns <see langword="true"/> when a <c>&lt;ProjectReference&gt;</c> is a build-time-only reference —
-    /// an analyzer / source generator (<c>OutputItemType="Analyzer"</c>) or one whose output assembly is not
-    /// consumed at runtime (<c>ReferenceOutputAssembly="false"</c>). The marker may be an attribute or a
-    /// child element; matching is case-insensitive.
-    /// </summary>
-    private static bool IsBuildOnlyReference(XElement reference)
-    {
-        if (string.Equals(ReadMetadata(reference, "OutputItemType"), "Analyzer", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return string.Equals(ReadMetadata(reference, "ReferenceOutputAssembly"), "false", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Reads MSBuild item metadata that may be authored either as an attribute or a child element on the
-    /// item, namespace-agnostic; <see langword="null"/> when absent.
-    /// </summary>
-    private static string? ReadMetadata(XElement item, string name)
-    {
-        var attribute = item.Attribute(name)?.Value;
-        if (!string.IsNullOrWhiteSpace(attribute))
-        {
-            return attribute.Trim();
-        }
-
-        var child = item.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, name, StringComparison.OrdinalIgnoreCase));
-        return string.IsNullOrWhiteSpace(child?.Value) ? null : child.Value.Trim();
     }
 
     /// <summary>
@@ -375,13 +370,13 @@ internal sealed partial class ProjectRunService
         foreach (var element in doc.Descendants().Where(e => e.Name.LocalName == "ProjectReference"))
         {
             var include = element.Attribute("Include")?.Value;
-            if (string.IsNullOrWhiteSpace(include) || IsBuildOnlyReference(element))
+            if (string.IsNullOrWhiteSpace(include) || ProjectReferenceMetadata.IsBuildOnly(element))
             {
                 continue;
             }
 
             // GlobalPropertiesToRemove and UndefineProperties are equivalent spellings.
-            var removed = $"{ReadMetadata(element, "GlobalPropertiesToRemove")};{ReadMetadata(element, "UndefineProperties")}";
+            var removed = $"{ProjectReferenceMetadata.Read(element, "GlobalPropertiesToRemove")};{ProjectReferenceMetadata.Read(element, "UndefineProperties")}";
             var stripsRid = removed
                 .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Any(p => string.Equals(p, "RuntimeIdentifier", StringComparison.OrdinalIgnoreCase));

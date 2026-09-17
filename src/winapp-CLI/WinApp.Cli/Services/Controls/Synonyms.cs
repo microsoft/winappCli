@@ -67,6 +67,15 @@ internal static class Synonyms
         ["live region"]            = "liveregion",
         ["list view"]              = "listview",
         ["grid view"]              = "gridview",
+        // "image grid" / "image gallery" is the natural phrasing for a photo grid, but
+        // both words name controls of their own (Image, Grid), so a plain lexical match
+        // lands there. Merge the phrase into a token that routes to the collection
+        // controls — see the image-grid entries in Map.
+        ["image grid"]             = "photogrid",
+        ["image gallery"]          = "photogrid",
+        ["photo grid"]             = "photogrid",
+        ["picture grid"]           = "photogrid",
+        ["thumbnail grid"]         = "photogrid",
         ["web view"]               = "webview",
         ["map view"]               = "map",
         ["image view"]             = "image",
@@ -271,6 +280,19 @@ internal static class Synonyms
         ["wrap"]            = ["wrappanel", "wraplayout"],
         ["masonry"]         = ["staggeredpanel", "staggeredlayout"],
 
+        // ─── Image grids / galleries ───
+        // Upstream's own curated keywords already tag ItemsRepeater, GridView and ItemsView
+        // with "image"/"gallery"/"grid" (see Data/gallery-tags.json), but "Image" and "Grid"
+        // are controls in their own right, so an exact control-name match outranks those tags
+        // and a photo-grid query lands on the single-image and layout-panel samples instead.
+        // Routing the vocabulary here is what puts the collection controls in front of the
+        // ranker; the samples it reaches are upstream's.
+        ["photo"]           = ["itemsrepeater", "gridview", "itemsview"],
+        ["photos"]          = ["itemsrepeater", "gridview", "itemsview"],
+        ["gallery"]         = ["itemsrepeater", "gridview", "itemsview"],
+        ["uniformgrid"]     = ["itemsrepeater", "gridview", "itemsview"],
+        ["photogrid"]       = ["itemsrepeater", "gridview", "itemsview"],
+
         // ─── Scrolling / virtualization ───
         ["scrollview"]      = ["scrollviewer"],
         ["lazy"]            = ["listview", "itemsrepeater"],
@@ -299,7 +321,10 @@ internal static class Synonyms
         ["audio"]           = ["mediaplayerelement"],
         ["iframe"]          = ["webview2"],
         ["cropping"]        = ["imagecropper"],
-        ["thumbnail"]       = ["image"],
+        // A thumbnail is usually one cell of a grid, so keep Image but also offer the
+        // controls that lay them out — see the image-grid note above.
+        ["thumbnail"]       = ["image", "itemsrepeater", "gridview", "itemsview"],
+        ["thumbnails"]      = ["image", "itemsrepeater", "gridview", "itemsview"],
 
         // ─── Date / time / color ───
 

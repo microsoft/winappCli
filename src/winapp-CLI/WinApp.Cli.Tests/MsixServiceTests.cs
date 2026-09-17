@@ -1313,7 +1313,8 @@ public class MsixServiceTests
             true,
             null,
             CreateTestTaskContext(),
-            CancellationToken.None
+            CancellationToken.None,
+            null
         ]) as dynamic;
 
         Assert.IsNotNull(resultTask, "Reflection call did not return a Task");
@@ -1573,6 +1574,29 @@ public class MsixServiceTests
         Assert.AreEqual(1, fake.UnregisterByFullNameCalls.Count);
         Assert.AreEqual("MyApp_1.0.0.0_x64__abc", fake.UnregisterByFullNameCalls[0].PackageFullName);
         Assert.IsTrue(fake.UnregisterByFullNameCalls[0].PreserveAppData);
+    }
+
+    [TestMethod]
+    public async Task UnregisterExistingPackageAsync_WithPublisher_IgnoresSameNameFromAnotherPublisher()
+    {
+        var fake = new FakePackageRegistrationService
+        {
+            FakeDevPackages =
+            [
+                new("MyApp_1.0.0.0_x64__expected", "MyApp", "1.0.0.0", _tempDir.FullName, true, "CN=Expected"),
+                new("MyApp_1.0.0.0_x64__external", "MyApp", "1.0.0.0", @"C:\External", true, "CN=External"),
+            ],
+        };
+        var svc = CreateMsixServiceForUnregister(fake, _tempDir.FullName);
+
+        var result = await svc.UnregisterExistingPackageAsync(
+            "MyApp",
+            CreateTestTaskContext(),
+            publisher: "CN=Expected");
+
+        Assert.IsTrue(result);
+        Assert.HasCount(1, fake.UnregisterByFullNameCalls);
+        Assert.AreEqual("MyApp_1.0.0.0_x64__expected", fake.UnregisterByFullNameCalls[0].PackageFullName);
     }
 
     [TestMethod]

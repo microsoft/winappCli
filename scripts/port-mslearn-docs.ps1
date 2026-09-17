@@ -345,9 +345,12 @@ foreach ($entry in $FileMapping.GetEnumerator()) {
         return "%%CODEBLOCK_${idx}%%"
     })
 
-    # Protect inline code spans from placeholder escaping and URL rewriting
+    # Protect inline code spans from placeholder escaping and URL rewriting.
+    # The span rule lives in mslearn-doc-lib.ps1 so this generator and its tests
+    # cannot drift on it; see the comment there for why a naive single-backtick
+    # pattern silently swallows paragraphs.
     $inlineCode = [System.Collections.Generic.List[string]]::new()
-    $content = [regex]::Replace($content, '(`[^`]+`)', {
+    $content = [regex]::Replace($content, (Get-MsLearnInlineCodePattern), {
         param($match)
         $idx = $inlineCode.Count
         $inlineCode.Add($match.Value)
@@ -561,6 +564,7 @@ $TocLabels = [ordered]@{
     "usage.md"                                   = "Commands and usage"
     "debugging.md"                               = "Debugging with package identity"
     "ui-automation.md"                           = "UI Automation"
+    "sandbox-execution.md"                       = "Windows Sandbox execution"
     "security.md"                                = "Security guidance"
     "guides/index.md"                            = "Framework guides"
     "guides/dotnet.md"                           = ".NET / WPF / WinForms"
@@ -649,6 +653,7 @@ $tocTree = @(
     (New-TocNode "usage.md")
     (New-TocNode "debugging.md")
     (New-TocNode "ui-automation.md")
+    (New-TocNode "sandbox-execution.md")
     (New-TocNode "security.md")
     (New-TocNode "guides/index.md" @(
         (New-TocNode "guides/dotnet.md")

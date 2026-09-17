@@ -367,6 +367,67 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void BuildBuildPassArguments_Publish_UsesPublishVerbAndIncludesPublishItems()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var publishArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: true);
+        var buildArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: false);
+
+        StringAssert.StartsWith(publishArgs, "publish ");
+        // Native AOT / trimmed publish replaces the managed build output; the package output group must
+        // include published items or `winapp pack` packages the wrong (managed-build) payload.
+        StringAssert.Contains(publishArgs, "-p:IncludePublishItemsOutputGroup=true");
+        // The build pass (winapp run) must not set it — that path packages nothing.
+        Assert.IsFalse(buildArgs.Contains("IncludePublishItemsOutputGroup"), "build pass must not set the publish-items flag");
+    }
+
+    [TestMethod]
+    public void BuildNativeMsixPublishArguments_TriggersSdkPackagingAndCapturesOutput()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "arm64", null, NoBuild: false, NoRestore: false, Properties: []);
+        var pkgDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "pkgout"));
+
+        var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
+
+        StringAssert.StartsWith(args, "publish ");
+        StringAssert.Contains(args, "-r win-arm64");
+        // The SDK produces the package during publish, keeping the native (published) payload...
+        StringAssert.Contains(args, "-p:PublishAppxPackage=true");
+        StringAssert.Contains(args, "-p:IncludePublishItemsOutputGroup=true");
+        // ...exactly once (no separate build-time package), unsigned, single package, into winapp's scratch dir...
+        StringAssert.Contains(args, "-p:GenerateAppxPackageOnBuild=false");
+        StringAssert.Contains(args, "-p:AppxBundle=Never");
+        StringAssert.Contains(args, "-p:AppxPackageSigningEnabled=false");
+        StringAssert.Contains(args, $"-p:AppxPackageDir={pkgDir.FullName}{Path.DirectorySeparatorChar}");
+        // ...and reports the execution-time artifact path.
+        StringAssert.Contains(args, "--getProperty:AppxPackageOutput");
+    }
+
+    [TestMethod]
+    public void BuildNativeMsixPublishArguments_OmitRuntimeIdentifier_DropsRid()
+    {
+        // When an effective Platform conveys the arch and the ProjectReference closure splits on RID, the
+        // RID must be suppressed on the native path too, matching the build/restore/evaluate passes; emitting
+        // both -r and -p:Platform harvests duplicate outputs and fails packaging with APPX1101.
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "arm64", null, NoBuild: false, NoRestore: false, Properties: [])
+        {
+            Platform = "ARM64",
+            OmitRuntimeIdentifier = true,
+        };
+        var pkgDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "pkgout"));
+
+        var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
+
+        StringAssert.Contains(args, "-p:Platform=ARM64");
+        Assert.IsFalse(args.Contains("-r win-arm64"), "the RID must be omitted when OmitRuntimeIdentifier is set");
+        Assert.IsFalse(args.Contains(" -r "), "no bare -r token should be emitted");
+    }
+
+    [TestMethod]
     public void BuildBuildPassArguments_Arm64_UsesArmRid_NoForcedPlatform()
     {
         var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
@@ -2252,6 +2313,18 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void RidSplit_WithExactRuntimeIdentifier_ThrowsInsteadOfDroppingRid()
+    {
+        // A lone -p RuntimeIdentifier (exact-RID override) on a RID-splitting graph would otherwise be
+        // silently dropped; it must fail explicitly instead of building a different RID than requested.
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+        var options = PlatformOptions("arm64") with { ExactRuntimeIdentifier = "win10-arm64" };
+
+        var ex = Assert.Throws<ProjectRunException>(() => ProjectRunService.ResolvePlatformInjection(app, options));
+        StringAssert.Contains(ex.Message, "RuntimeIdentifier");
+    }
+
+    [TestMethod]
     public void RidSplit_NoStrippingEdge_KeepsRuntimeIdentifier()
     {
         var app = WriteRidSplitGraph(stripRidOnMiddleEdge: false);
@@ -2310,6 +2383,41 @@ public class ProjectRunServiceTests
 
         Assert.IsTrue(resolved.OmitRuntimeIdentifier);
         Assert.IsNull(resolved.Platform, "a user-supplied Platform is forwarded as-is, not re-injected");
+    }
+
+    [TestMethod]
+    public void RidSplit_ConcreteRidMode_UsesRidWithoutInjectedPlatform()
+    {
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+
+        var resolved = ProjectRunService.ResolvePlatformInjection(
+            app,
+            PlatformOptions("arm64"),
+            requireConcreteRid: true);
+
+        Assert.IsFalse(resolved.OmitRuntimeIdentifier);
+        Assert.IsNull(resolved.Platform);
+        var arguments = ProjectRunService.BuildAotPublishArguments(
+            app,
+            resolved,
+            "minimal");
+        CollectionAssert.Contains(arguments.ToList(), "win-arm64");
+        Assert.IsFalse(
+            arguments.Contains("-p:Platform=ARM64"));
+    }
+
+    [TestMethod]
+    public void RidSplit_ConcreteRidMode_RejectsExplicitPlatform()
+    {
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+
+        var error = Assert.ThrowsExactly<ProjectRunException>(() =>
+            ProjectRunService.ResolvePlatformInjection(
+                app,
+                PlatformOptions("arm64", "Platform=arm64"),
+                requireConcreteRid: true));
+
+        StringAssert.Contains(error.Message, "Remove -p:Platform");
     }
 
     [TestMethod]

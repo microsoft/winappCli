@@ -59,6 +59,32 @@ namespace WinApp.Cli.Services.Controls;
 ///          so ~44 scenarios shipped XAML wired to a missing handler (compile error
 ///          on paste). Method-aware: backed handlers (e.g. TabView's) are kept.
 ///          Regenerate so old caches drop the dangling handlers.
+///   "20" — GalleryFetcher no longer injects a hand-authored ItemsRepeater photo-grid
+///          scenario or rewrites tabview-1's C#; Gallery samples are now served as
+///          upstream publishes them. This is rule 3 above: same input, different
+///          output. Without the bump an existing cache still matches on "19" and keeps
+///          serving the winapp-authored sample under the [gallery] tag indefinitely —
+///          a re-bake alone never reaches a user who already has a cache.
+///   "21" — GalleryFetcher now drops $(Name) substitution tokens that stand in an
+///          element's attribute list instead of flattening them to "..." like a
+///          value-position token. Flattening produced `Click="X" .../>`, which fails
+///          structural validation, so ten upstream samples (Button, ToggleButton,
+///          RepeatButton, HyperlinkButton, ProgressRing x2, CommandBar, AnimatedIcon,
+///          PersonPicture, EasingFunction) were served with no XAML at all. Rule 3:
+///          same input, different output — an unbumped cache keeps serving the empty
+///          scenarios.
+///   "22" — Substitution placeholders are now handled on the index path too:
+///          SampleIndexParser suppresses an xaml or code block that still carries a
+///          $(Name) token rather than serving it as pasteable, and drops a sample left
+///          with neither. ScenarioSanitizer enforces the same rule on the way out.
+///          GalleryFetcher also stopped flattening a value-position token to "...":
+///          156 attributes in the previous bake were typed properties (StrokeThickness,
+///          Height, Width, Orientation, SelectionMode, PaneDisplayMode, IsChecked...)
+///          where "..." is a compile error on paste, so the attribute is now dropped and
+///          the property falls back to its own default. Rule 3 twice over: same input,
+///          different output. Without the bump an existing cache still matches on "21"
+///          and keeps serving both the placeholder-bearing blocks and the broken
+///          attributes that this change exists to remove.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -66,5 +92,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "19";
+    public const string Current = "22";
 }

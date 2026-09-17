@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Text.RegularExpressions;
 using WinApp.Cli.Services.Controls;
 
 namespace WinApp.Cli.Tests;
@@ -338,5 +339,81 @@ public class FindUiSearchTests
         {
             Assert.AreEqual(0, Synonyms.Stem(w).Count(), $"'{w}' must not be suffix-stripped");
         }
+    }
+
+    /// <summary>Image and Grid are controls in their own right, so a photo-grid query
+    /// competes with them on its literal words.</summary>
+    [TestMethod]
+    public void Preprocess_ImageGridPhrase_RoutesToCollectionControls()
+    {
+        // "image grid" is the plainest phrasing for a photo grid, but both of its words name
+        // other controls, so the literal tokens pull the query to Image and Grid — as does
+        // "photo grid", which lands on Grid and Image without this routing. Merging the
+        // phrase is what puts the collection controls in front of the ranker at all.
+        var expanded = Synonyms.Expand(BM25.Tokenize(Synonyms.Preprocess("image grid"))).ToList();
+
+        foreach (var control in new[] { "itemsrepeater", "gridview", "itemsview" })
+        {
+            CollectionAssert.Contains(expanded, control, $"'image grid' must reach {control}");
+        }
+    }
+
+    [TestMethod]
+    public void CleanGalleryContent_AttributePositionSubstitution_StaysWellFormed()
+    {
+        // Upstream writes an optional attribute as a bare $(Name) token inside the start tag
+        // (Button, ToggleButton, ProgressRing, CommandBar and six others do this). Flattening
+        // it to "..." like a value-position token produces `Click="Button_Click" .../>`, which
+        // the sanitizer rejects as malformed — so the control served a fetchable result with
+        // no code in it at all.
+        const string upstream = """<Button Content="Standard XAML button" Click="Button_Click" $(IsEnabled)/>""";
+
+        var cleaned = GalleryFetcher.CleanGalleryContent(upstream);
+
+        Assert.IsTrue(
+            ScenarioSanitizer.XamlIsWellFormed(cleaned),
+            $"flattened sample must survive structural validation, got: {cleaned}");
+        StringAssert.Contains(cleaned, "Content=\"Standard XAML button\"", "the real markup must survive");
+        Assert.IsFalse(cleaned.Contains("$("), "the substitution token must not be served raw");
+    }
+
+    [TestMethod]
+    public void CleanGalleryContent_ValuePositionSubstitution_DropsTheAttribute()
+    {
+        // Flattening a value-position token to "..." keeps the markup well-formed but not
+        // pasteable: a measured 140 attributes in the previous bake were typed properties
+        // (StrokeThickness, Height, Orientation, IsChecked...) where "..." is a compile
+        // error. Dropping the attribute lets the property fall back to its own default.
+        const string upstream = """<ProgressRing Value="$(DeterminateProgressValue)" $(Background)/>""";
+
+        var cleaned = GalleryFetcher.CleanGalleryContent(upstream);
+
+        Assert.IsTrue(ScenarioSanitizer.XamlIsWellFormed(cleaned), $"got: {cleaned}");
+        Assert.IsFalse(cleaned.Contains("\"...\""), $"the token must not be flattened, got: {cleaned}");
+        Assert.IsFalse(cleaned.Contains("Value="), $"the unresolvable attribute must be dropped, got: {cleaned}");
+        Assert.IsFalse(cleaned.Contains("$("), $"no token may be served raw, got: {cleaned}");
+    }
+
+    [TestMethod]
+    public void CleanGalleryContent_ContentPositionSubstitution_BecomesAComment()
+    {
+        // Every content-position token upstream ships injects markup into a property element,
+        // never text. Flattening it assigns the literal string "..." as the collection's
+        // content, which parses but does not compile when pasted.
+        const string upstream = """
+            <CommandBar>
+              <CommandBar.SecondaryCommands>
+                <AppBarButton Icon="Setting" Label="Settings"/>$(MultipleButtonsSecondaryCommands)
+              </CommandBar.SecondaryCommands>
+            </CommandBar>
+            """;
+
+        var cleaned = GalleryFetcher.CleanGalleryContent(upstream);
+
+        Assert.IsTrue(ScenarioSanitizer.XamlIsWellFormed(cleaned), $"got: {cleaned}");
+        StringAssert.Contains(cleaned, "<!-- ... -->", "the injection point must be marked, not stringified");
+        Assert.IsFalse(
+            Regex.IsMatch(cleaned, @">\s*\.\.\.\s*<"),
+            $"no bare '...' may sit in element content, got: {cleaned}");
     }
 }

@@ -32,6 +32,46 @@ public class PathSafetyTests
     // ---------------------------------------------------------------------
 
     [TestMethod]
+    public void IsNetworkDriveRoot_LocalPath_ReturnsFalse()
+    {
+        // A local fixed-drive path (the temp dir) must not be treated as a network drive, so legitimate
+        // local certificate paths are never wrongly rejected.
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(_tempDir.FullName));
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(Path.Combine(_tempDir.FullName, "dev.pfx")));
+    }
+
+    [TestMethod]
+    public void IsNetworkDriveRoot_UncOrEmpty_ReturnsFalse()
+    {
+        // UNC is handled by IsNetworkPath (not a drive letter), and an empty path is not a drive mapping.
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(@"\\server\share\dev.pfx"));
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(string.Empty));
+    }
+
+    [TestMethod]
+    [DataRow(@"GLOBALROOT\Device\Mup\host\share\dev.pfx")]
+    [DataRow(@"\GLOBALROOT\Device\Mup\host\share")]
+    [DataRow(@"Device\Mup\host\share\dev.pfx")]
+    [DataRow(@"UNC\host\share\dev.pfx")]
+    [DataRow(@"??\UNC\host\share")]
+    public void IsDeviceOrNtNamespaceTarget_NamespaceStrippedDeviceTargets_ReturnTrue(string target)
+    {
+        // LinkTarget strips the \\?\ prefix, so these device/NT-namespace forms must be treated as unsafe.
+        Assert.IsTrue(PathSafety.IsDeviceOrNtNamespaceTarget(target));
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\local\dev.pfx")]
+    [DataRow(@"..\sibling\dev.pfx")]
+    [DataRow(@"sub\dev.pfx")]
+    [DataRow("")]
+    public void IsDeviceOrNtNamespaceTarget_OrdinaryLocalTargets_ReturnFalse(string target)
+    {
+        // Ordinary drive-letter and relative junction/symlink targets must not be rejected.
+        Assert.IsFalse(PathSafety.IsDeviceOrNtNamespaceTarget(target));
+    }
+
+    [TestMethod]
     public void HasReparsePointOnPath_PathEqualsBoundary_ReturnsFalse()
     {
         // The boundary itself is a valid target — callers pass e.g. the
@@ -200,7 +240,445 @@ public class PathSafetyTests
         }
         finally
         {
-            try { Directory.Delete(junctionDir, recursive: false); } catch { /* ignore */ }
+            try { Directory.Delete(junctionDir, recursive: false); }
+            catch (IOException) { /* ignore */ }
+            catch (UnauthorizedAccessException) { /* ignore */ }
+        }
+    }
+
+    [TestMethod]
+    public void HasReparsePointOnExistingPath_ParentJunction_ReturnsTrue()
+    {
+        var real = Path.Join(_tempDir.FullName, "real-parent");
+        Directory.CreateDirectory(real);
+        var junction = Path.Join(_tempDir.FullName, "linked-parent");
+        if (!TryCreateJunction(junction, real))
+        {
+            Assert.Inconclusive("Could not create a junction (CI may lack the privilege).");
+            return;
+        }
+
+        try
+        {
+            var child = Path.Join(junction, "staging");
+            Assert.IsTrue(
+                PathSafety.HasReparsePointOnExistingPath(child),
+                "a junction in an existing parent segment must be refused");
+        }
+        finally
+        {
+            try { Directory.Delete(junction, recursive: false); }
+            catch (IOException) { /* ignore */ }
+            catch (UnauthorizedAccessException) { /* ignore */ }
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_OrdinaryLocalPath_ReturnsFalse()
+    {
+        string nested = Path.Combine(_tempDir.FullName, "packages", "lib");
+        Directory.CreateDirectory(nested);
+
+        Assert.IsFalse(PathSafety.RedirectsToNetwork(nested));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_UncPath_ReturnsTrue()
+    {
+        Assert.IsTrue(PathSafety.RedirectsToNetwork(@"\\server\share\packages"));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_JunctionToAnotherLocalDirectory_ReturnsFalse()
+    {
+        // Relocating a package cache with a junction is a normal developer setup. This
+        // check exists to stop a redirection leaving the machine, not to ban redirection,
+        // so a local target must stay allowed.
+        string real = Path.Combine(_tempDir.FullName, "RealCache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(Path.Combine(real, "pkg"));
+        if (!TryCreateJunction(link, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(Path.Combine(link, "pkg")));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_MissingPath_IsNotARedirection()
+    {
+        // A path that does not exist yet is not a redirection; callers still have to
+        // handle it being absent.
+        Assert.IsFalse(PathSafety.RedirectsToNetwork(Path.Combine(_tempDir.FullName, "nope", "still-nope")));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_InspectsOnlyImmediateTargets()
+    {
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        var inspected = new List<string>();
+        try
+        {
+            bool refused = PathSafety.RedirectsToNetwork(link, info =>
+            {
+                inspected.Add(info.FullName);
+                return info.LinkTarget;
+            });
+
+            Assert.IsFalse(refused, "An ordinary local cache relocation remains allowed.");
+            Assert.HasCount(1, inspected);
+            Assert.AreEqual(@"\\?\" + link, inspected[0], "The link itself is read without short-name expansion.");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_InspectsLinksInsideTargetPathBeforeProbingChildren()
+    {
+        string real = Path.Combine(_tempDir.FullName, "RealCache");
+        string middle = Path.Combine(_tempDir.FullName, "MiddleCache");
+        string first = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(Path.Combine(real, "pkg"));
+        if (!TryCreateJunction(middle, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        bool firstCreated = false;
+        var inspected = new List<string>();
+        try
+        {
+            firstCreated = TryCreateJunction(first, Path.Combine(middle, "pkg"));
+            if (!firstCreated)
+            {
+                Assert.Inconclusive("Could not create a junction on this machine.");
+            }
+
+            bool refused = PathSafety.RedirectsToNetwork(Path.Combine(first, "Api.winmd"), info =>
+            {
+                inspected.Add(info.FullName);
+                // Model a network destination without creating or accessing a network link.
+                return string.Equals(info.FullName, @"\\?\" + middle, StringComparison.OrdinalIgnoreCase)
+                    ? @"\\server\share\PKG~1"
+                    : info.LinkTarget;
+            });
+
+            Assert.IsTrue(refused, "The intermediate target link must be inspected before its child.");
+            string[] expected = [@"\\?\" + first, @"\\?\" + middle];
+            CollectionAssert.AreEqual(expected, inspected);
+        }
+        finally
+        {
+            if (firstCreated)
+            {
+                Directory.Delete(first);
+            }
+            Directory.Delete(middle);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_LinkWithUnknownTarget_IsRefused()
+    {
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(link, static _ => null));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(@"\\server\share")]
+    [DataRow(@"\\?\UNC\server\share")]
+    [DataRow(@"\\?\GLOBALROOT\Device\Mup\server\share")]
+    [DataRow(@"\\server\share\PKG~1")]
+    // Namespace-stripped forms that System.IO's LinkTarget actually returns at runtime for the
+    // corresponding \\?\ targets — these previously slipped past IsNetworkPath and were re-interpreted
+    // as relative local paths.
+    [DataRow(@"GLOBALROOT\Device\Mup\server\share\dev.pfx")]
+    [DataRow(@"Device\Mup\server\share\dev.pfx")]
+    [DataRow(@"UNC\server\share\dev.pfx")]
+    public void RedirectsToNetwork_RejectsImmediateNetworkTarget(string networkTarget)
+    {
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        int resolutions = 0;
+        try
+        {
+            // The on-disk link is local. Only the injected result names a share;
+            // the test must never resolve that result or probe its descendants.
+            bool refused = PathSafety.RedirectsToNetwork(Path.Combine(link, "Api.winmd"), _ =>
+            {
+                resolutions++;
+                return networkTarget;
+            });
+
+            Assert.IsTrue(refused);
+            Assert.AreEqual(1, resolutions);
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_LocalTargetChain_PreservesUnvisitedSuffix()
+    {
+        string real = Path.Combine(_tempDir.FullName, "Cache");
+        string first = Path.Combine(_tempDir.FullName, "First");
+        string second = Path.Combine(_tempDir.FullName, "Second");
+        string child = Path.Combine(real, "pkg");
+        Directory.CreateDirectory(child);
+        if (!TryCreateJunction(second, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        bool firstCreated = false;
+        bool childCreated = false;
+        var inspected = new List<string>();
+        try
+        {
+            firstCreated = TryCreateJunction(first, second);
+            childCreated = TryCreateJunction(Path.Combine(child, "nested"), real);
+            if (!firstCreated || !childCreated)
+            {
+                Assert.Inconclusive("Could not create a junction on this machine.");
+            }
+
+            bool refused = PathSafety.RedirectsToNetwork(Path.Combine(first, "pkg", "nested", "Api.winmd"), info =>
+            {
+                inspected.Add(info.FullName);
+                return info.LinkTarget;
+            });
+
+            Assert.IsFalse(refused, "Local chains and a missing final file are allowed.");
+            string[] expected = [@"\\?\" + first, @"\\?\" + second, @"\\?\" + Path.Combine(child, "nested")];
+            CollectionAssert.AreEqual(expected, inspected);
+        }
+        finally
+        {
+            if (firstCreated)
+            {
+                Directory.Delete(first);
+            }
+            if (childCreated)
+            {
+                Directory.Delete(Path.Combine(child, "nested"));
+            }
+            Directory.Delete(second);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_RedirectionCycle_IsRefused()
+    {
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string first = Path.Combine(_tempDir.FullName, "First");
+        string second = Path.Combine(_tempDir.FullName, "Second");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(first, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        bool secondCreated = false;
+        int resolutions = 0;
+        try
+        {
+            secondCreated = TryCreateJunction(second, target);
+            if (!secondCreated)
+            {
+                Assert.Inconclusive("Could not create a junction on this machine.");
+            }
+
+            bool refused = PathSafety.RedirectsToNetwork(Path.Combine(first, "Api.winmd"), info =>
+            {
+                resolutions++;
+                return string.Equals(info.FullName, @"\\?\" + first, StringComparison.OrdinalIgnoreCase) ? second : first;
+            });
+
+            Assert.IsTrue(refused);
+            Assert.AreEqual(2, resolutions, "Stop when the same unresolved path is encountered again.");
+        }
+        finally
+        {
+            Directory.Delete(first);
+            if (secondCreated)
+            {
+                Directory.Delete(second);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_ExpandingLinkChain_IsBounded()
+    {
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        int resolutions = 0;
+        try
+        {
+            bool refused = PathSafety.RedirectsToNetwork(link, _ =>
+            {
+                resolutions++;
+                return Path.Combine(link, "deeper");
+            });
+
+            Assert.IsTrue(refused);
+            Assert.AreEqual(64, resolutions, "An expanding suffix must not evade the traversal bound.");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RedirectsToNetwork_RelativeLocalSymbolicLink_IsAllowed(bool directory)
+    {
+        string target = Path.Combine(_tempDir.FullName, "Target");
+        string link = Path.Combine(_tempDir.FullName, "Linked");
+        if (directory)
+        {
+            Directory.CreateDirectory(target);
+        }
+        else
+        {
+            File.WriteAllText(target, "metadata");
+        }
+        try
+        {
+            if (directory)
+            {
+                Directory.CreateSymbolicLink(link, "Target");
+            }
+            else
+            {
+                File.CreateSymbolicLink(link, "Target");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"Could not create a symbolic link on this machine: {ex.Message}");
+        }
+
+        try
+        {
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(directory ? Path.Combine(link, "Api.winmd") : link));
+        }
+        finally
+        {
+            if (directory)
+            {
+                Directory.Delete(link);
+            }
+            else
+            {
+                File.Delete(link);
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\Cache\PKG~1\Api.winmd", @"\\?\C:\Cache\PKG~1\Api.winmd")]
+    [DataRow(@"C:\Cache\sub\..\PKG~1\Api.winmd", @"\\?\C:\Cache\PKG~1\Api.winmd")]
+    [DataRow(@"\\?\C:\Cache\sub\..\PKG~1\Api.winmd", @"\\?\C:\Cache\PKG~1\Api.winmd")]
+    [DataRow(@"C:\", @"\\?\C:\")]
+    [DataRow(@"\\?\Volume{00000000-0000-0000-0000-000000000001}\a\..\b", @"\\?\Volume{00000000-0000-0000-0000-000000000001}\b")]
+    public void NormalizeLocalPathWithoutProbing_PreservesShortNamesAndLocalRoots(string path, string expected)
+    {
+        Assert.AreEqual(expected, PathSafety.NormalizeLocalPathWithoutProbing(path));
+    }
+
+    [TestMethod]
+    [DataRow(@"\\server\share\PKG~1")]
+    [DataRow(@"\\?\UNC\server\share\PKG~1")]
+    [DataRow(@"\\?\GLOBALROOT\Device\Mup\server\share\PKG~1")]
+    [DataRow("")]
+    [DataRow("bad\0path")]
+    public void NormalizeLocalPathWithoutProbing_NetworkOrInvalidPath_IsRefused(string path)
+    {
+        Assert.IsNull(PathSafety.NormalizeLocalPathWithoutProbing(path));
+    }
+
+    [TestMethod]
+    public void NormalizeLocalPathWithoutProbing_RelativePath_UsesCurrentDirectory()
+    {
+        string expected = @"\\?\" + Path.Combine(Environment.CurrentDirectory, "PKG~1", "Api.winmd");
+        Assert.AreEqual(expected, PathSafety.NormalizeLocalPathWithoutProbing(@"PKG~1\Api.winmd"));
+    }
+
+    [TestMethod]
+    public void NormalizeLocalPathWithoutProbing_LongPath_ResizesBuffer()
+    {
+        string suffix = string.Join(Path.DirectorySeparatorChar, Enumerable.Repeat(new string('a', 100), 6));
+        string path = Path.Combine(@"C:\Cache", suffix, "PKG~1", "Api.winmd");
+        Assert.AreEqual(@"\\?\" + path, PathSafety.NormalizeLocalPathWithoutProbing(path));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_LocalNamesContainingTildes_AreAllowed()
+    {
+        string target = Path.Combine(_tempDir.FullName, "Cache~1");
+        string link = Path.Combine(_tempDir.FullName, "Link~1");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(Path.Combine(link, "Api.winmd")));
+        }
+        finally
+        {
+            Directory.Delete(link);
         }
     }
 
@@ -326,6 +804,28 @@ public class PathSafetyTests
     public void IsNetworkPath_Null_ReturnsFalse()
     {
         Assert.IsFalse(PathSafety.IsNetworkPath(null!));
+    }
+
+    [TestMethod]
+    public void IsNetworkPath_LocalDevicePaths_ReturnFalse()
+    {
+        // A drive letter or volume GUID behind the device prefix is local storage;
+        // refusing these would stop callers probing perfectly ordinary paths.
+        Assert.IsFalse(PathSafety.IsNetworkPath(@"\\?\C:\repo\App.csproj"));
+        Assert.IsFalse(PathSafety.IsNetworkPath(@"\\?\Volume{b75e2c83-0000-0000-0000-602f00000000}\repo\App.csproj"));
+    }
+
+    [TestMethod]
+    public void IsNetworkPath_DeviceNamespaceRoutesToSmb_ReturnsTrue()
+    {
+        // \\?\UNC\ is the obvious spelling, but the MUP and LanmanRedirector devices
+        // reach the same SMB redirector without the letters "UNC" appearing anywhere.
+        // A crafted solution or project asset file naming one of these turns a local,
+        // read-only query into an outbound authentication attempt.
+        Assert.IsTrue(PathSafety.IsNetworkPath(@"\\?\UNC\attacker.example\share\Evil.csproj"));
+        Assert.IsTrue(PathSafety.IsNetworkPath(@"\\?\GLOBALROOT\Device\Mup\attacker.example\share\Evil.csproj"));
+        Assert.IsTrue(PathSafety.IsNetworkPath(@"\\.\GLOBALROOT\Device\LanmanRedirector\attacker.example\share\Evil.csproj"));
+        Assert.IsTrue(PathSafety.IsNetworkPath(@"//?/GLOBALROOT/Device/Mup/attacker.example/share/Evil.csproj"));
     }
 
     [TestMethod]

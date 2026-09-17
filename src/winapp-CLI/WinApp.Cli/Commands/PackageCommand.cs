@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -23,6 +24,7 @@ internal partial class PackageCommand : Command, IShortDescription
     public static Option<FileInfo> CertOption { get; }
     public static Option<string> CertPasswordOption { get; }
     public static Option<bool> GenerateCertOption { get; }
+    public static Option<bool> NoSignOption { get; }
     public static Option<bool> InstallCertOption { get; }
     public static Option<string?> PublisherOption { get; }
     public static Option<FileInfo> ManifestOption { get; }
@@ -31,8 +33,7 @@ internal partial class PackageCommand : Command, IShortDescription
 
     // Project-mode options (mirrors winapp run; inert unless the input is a .csproj).
     public static Option<string> ConfigurationOption { get; }
-    public static Option<string?> ArchOption { get; }
-    public static Option<string?> RuntimeOption { get; }
+    public static Option<string[]> ArchOption { get; }
     public static Option<string?> FrameworkOption { get; }
     public static Option<bool> NoBuildOption { get; }
     public static Option<bool> NoRestoreOption { get; }
@@ -72,6 +73,10 @@ internal partial class PackageCommand : Command, IShortDescription
         {
             Description = "Generate a new development certificate"
         };
+        NoSignOption = new Option<bool>("--no-sign")
+        {
+            Description = "Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert."
+        };
         InstallCertOption = new Option<bool>("--install-cert")
         {
             Description = "Install certificate to machine"
@@ -97,41 +102,37 @@ internal partial class PackageCommand : Command, IShortDescription
 
         ConfigurationOption = new Option<string>("--configuration")
         {
-            Description = "Project mode: build configuration (e.g., Debug, Release). Ignored for folder/bundle/manifest inputs. Default: Debug.",
-            DefaultValueFactory = _ => "Debug",
+            Description = "Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release.",
+            DefaultValueFactory = _ => "Release",
         };
         ConfigurationOption.Aliases.Add("-c");
 
-        ArchOption = new Option<string?>("--arch")
+        ArchOption = new Option<string[]>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Ignored for folder/bundle/manifest inputs. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture.",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = false,
         };
-
-        RuntimeOption = new Option<string?>("--runtime")
-        {
-            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Uses only the RID's architecture, rejects non-Windows RIDs, and overrides --arch. Ignored for folder/bundle/manifest inputs."
-        };
-        RuntimeOption.Aliases.Add("-r");
 
         FrameworkOption = new Option<string?>("--framework")
         {
-            Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored for folder/bundle/manifest inputs."
+            Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs."
         };
         FrameworkOption.Aliases.Add("-f");
 
         NoBuildOption = new Option<bool>("--no-build")
         {
-            Description = "Project mode: skip building and package the existing build output (still evaluates output properties). Ignored for folder/bundle/manifest inputs."
+            Description = "Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs."
         };
 
         NoRestoreOption = new Option<bool>("--no-restore")
         {
-            Description = "Project mode: skip restoring the project before building. Ignored for folder/bundle/manifest inputs."
+            Description = "Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs."
         };
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p Configuration=Release). Ignored for folder/bundle/manifest inputs.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };
@@ -149,6 +150,7 @@ internal partial class PackageCommand : Command, IShortDescription
         Options.Add(CertOption);
         Options.Add(CertPasswordOption);
         Options.Add(GenerateCertOption);
+        Options.Add(NoSignOption);
         Options.Add(InstallCertOption);
         Options.Add(PublisherOption);
         Options.Add(ManifestOption);
@@ -156,7 +158,6 @@ internal partial class PackageCommand : Command, IShortDescription
         Options.Add(ExecutableOption);
         Options.Add(ConfigurationOption);
         Options.Add(ArchOption);
-        Options.Add(RuntimeOption);
         Options.Add(FrameworkOption);
         Options.Add(NoBuildOption);
         Options.Add(NoRestoreOption);
@@ -255,6 +256,7 @@ internal partial class PackageCommand : Command, IShortDescription
             var certPath = parseResult.GetValue(CertOption);
             var certPassword = parseResult.GetRequiredValue(CertPasswordOption);
             var generateCert = parseResult.GetValue(GenerateCertOption);
+            var noSign = parseResult.GetValue(NoSignOption);
             var installCert = parseResult.GetValue(InstallCertOption);
             var publisher = parseResult.GetValue(PublisherOption);
             var manifestPath = parseResult.GetValue(ManifestOption);
@@ -270,6 +272,42 @@ internal partial class PackageCommand : Command, IShortDescription
                 && !Directory.Exists(inputFolders[0].FullName))
             {
                 return await RunProjectModeAsync(parseResult, new FileInfo(inputFolders[0].FullName), cancellationToken);
+            }
+
+            // --no-sign forces an unsigned artifact for the remaining folder / sparse / bundle inputs and is
+            // mutually exclusive with an explicit signing request, matching project mode. (Project mode above
+            // performs its own equivalent check before returning.)
+            if (noSign && (certPath != null || generateCert))
+            {
+                return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
+                {
+                    return Task.FromResult((1, $"{UiSymbols.Error} --no-sign cannot be combined with --cert or --generate-cert."));
+                }, cancellationToken);
+            }
+
+            // The build/project options only apply when packaging a .csproj (project mode, handled above).
+            // For a folder / sparse-manifest / bundle input they cannot take effect, and accepting them
+            // silently mispackages — e.g. --arch on a pre-built folder does not restage the runtime for that
+            // architecture. Reject them explicitly instead.
+            var inapplicableProjectOptions = new (OptionResult? Result, string Name)[]
+            {
+                (parseResult.GetResult(ConfigurationOption), "--configuration"),
+                (parseResult.GetResult(ArchOption), "--arch"),
+                (parseResult.GetResult(FrameworkOption), "--framework"),
+                (parseResult.GetResult(NoBuildOption), "--no-build"),
+                (parseResult.GetResult(NoRestoreOption), "--no-restore"),
+                (parseResult.GetResult(PropertyOption), "--property"),
+            }
+            .Where(o => o.Result is { Implicit: false })
+            .Select(o => o.Name)
+            .ToList();
+            if (inapplicableProjectOptions.Count > 0)
+            {
+                var optionList = string.Join(", ", inapplicableProjectOptions);
+                return await statusService.ExecuteWithStatusAsync("Validating input...", (taskContext, _) =>
+                {
+                    return Task.FromResult((1, $"{UiSymbols.Error} These option(s) require a .csproj input (project mode) and do not apply to a folder, bundle, or manifest input: {optionList}. Remove them, or pass a .csproj to build and package."));
+                }, cancellationToken);
             }
 
             FileInfo? candidateManifest = null;
@@ -339,7 +377,7 @@ internal partial class PackageCommand : Command, IShortDescription
                     {
                         try
                         {
-                            var autoSign = certPath != null || generateCert;
+                            var autoSign = !noSign && (certPath != null || generateCert);
                             var result = await msixService.CreateSparseIdentityPackageAsync(candidateManifest, output, taskContext, autoSign, certPath, certPassword, generateCert, installCert, publisher, ct);
 
                             taskContext.AddStatusMessage($"{UiSymbols.Package} Identity package: {result.MsixPath}");
@@ -437,7 +475,7 @@ internal partial class PackageCommand : Command, IShortDescription
                 {
                     try
                     {
-                        var autoSign = certPath != null || generateCert;
+                        var autoSign = !noSign && (certPath != null || generateCert);
 
                         var result = await msixService.CreateMsixPackageAsync(inputFolder, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken: cancellationToken);
 
@@ -463,7 +501,7 @@ internal partial class PackageCommand : Command, IShortDescription
                 {
                     try
                     {
-                        var autoSign = certPath != null || generateCert;
+                        var autoSign = !noSign && (certPath != null || generateCert);
 
                         var result = await msixService.CreateMsixBundleAsync(inputFolders, output, taskContext, name, skipPri, autoSign, certPath, certPassword, generateCert, installCert, publisher, manifestPath, selfContained, executable, cancellationToken);
 

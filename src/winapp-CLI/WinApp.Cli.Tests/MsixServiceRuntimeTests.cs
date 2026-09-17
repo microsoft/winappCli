@@ -230,7 +230,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
     private async Task<string> InvokeAddThirdPartyExtensionsAsync(string manifest, DotNetPackageListJson? packageList)
     {
         return await (Task<string>)AddThirdPartyExtensionsMethod.Invoke(
-            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None])!;
+            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None, null])!;
     }
 
     private async Task InvokeAppendThirdPartyEntriesAsync(StringBuilder sb, DotNetPackageListJson? packageList)
@@ -695,7 +695,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => (Task)SignMsixMethod.Invoke(
             _msixService,
-            [outputFolder, "", true, false, "MyApp", "", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None])!);
+            [outputFolder, "", true, false, "MyApp", "", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
     }
 
     [TestMethod]
@@ -707,7 +707,46 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => (Task)SignMsixMethod.Invoke(
             _msixService,
-            [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None])!);
+            [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
+    }
+
+    // ---- CreateStagingSiblingPath -------------------------------------------------
+
+    [TestMethod]
+    public void CreateStagingSiblingPath_PreservesExtensionInSameDirectory()
+    {
+        var method = typeof(MsixService).GetMethod("CreateStagingSiblingPath", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        var final = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_x64.msix"));
+        var staging = (FileInfo)method.Invoke(null, [final])!;
+        // signtool recognizes an MSIX by extension and refuses a .tmp file, so staging must keep .msix.
+        Assert.AreEqual(".msix", staging.Extension, "staging must keep the .msix extension so signtool accepts it");
+        Assert.AreEqual(_tempDirectory.FullName, staging.Directory!.FullName, "staging must be a sibling for an atomic move");
+        Assert.AreNotEqual(final.FullName, staging.FullName, "staging must be a distinct path");
+
+        var bundle = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_x64_arm64.msixbundle"));
+        var bundleStaging = (FileInfo)method.Invoke(null, [bundle])!;
+        Assert.AreEqual(".msixbundle", bundleStaging.Extension, "staging must keep the .msixbundle extension");
+    }
+
+    // ---- ResolveNativeDeliveryPath ------------------------------------------------
+
+    [TestMethod]
+    public void ResolveNativeDeliveryPath_SanitizesNameToPreventDirectoryEscape()
+    {
+        var method = typeof(MsixService).GetMethod("ResolveNativeDeliveryPath", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var outDir = _tempDirectory.CreateSubdirectory("native-out");
+        // The produced package's name is only read for its filename/underscore suffix; it need not exist.
+        var produced = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_arm64.msix"));
+        // A directory --output (no .msix extension) hosts the file; --name only sets the filename prefix.
+        var outputArg = new FileInfo(outDir.FullName);
+
+        var result = (FileInfo)method.Invoke(_msixService, [produced, outputArg, @"..\..\evil"])!;
+
+        // A traversing --name must not redirect the artifact outside the requested output directory.
+        Assert.AreEqual(outDir.FullName, result.Directory!.FullName, "sanitized --name must stay inside the output directory");
+        StringAssert.EndsWith(result.Name, "_1.0.0.0_arm64.msix", "the SDK version/arch suffix must be preserved");
+        Assert.IsFalse(result.Name.Contains('\\') || result.Name.Contains('/'), "no path separators may survive in the filename");
     }
 
     // ---- PackSingleFolderToMsixAsync: self-contained end-to-end --------------------

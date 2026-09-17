@@ -27,6 +27,10 @@ public partial class RealUiAutomationTests
         var text = await svc.GetTextAsync(uiTarget, model, CancellationToken.None);
 
         Assert.AreEqual("initial", text);
+        Assert.AreEqual(
+            1,
+            svc.SerializedElementResolutionCount,
+            "A caller-provided serialized UiElement must retain the established tree-resolution fallback.");
     }
 
     [TestMethod]
