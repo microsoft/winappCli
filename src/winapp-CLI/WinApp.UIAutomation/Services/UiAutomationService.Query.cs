@@ -11,6 +11,34 @@ internal sealed partial class UiAutomationService
     private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults,
         bool requireUnique = false, CancellationToken ct = default)
     {
+        var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct);
+        var nextId = 0;
+        var results = new List<UiElement>();
+        foreach (var (element, boundary, sourceHwnd) in matches)
+        {
+            ct.ThrowIfCancellationRequested();
+            var model = ToUiElement(element, "", ref nextId, requireCurrentIdentity: true);
+            if (requireUnique) { SetResolvedWindowHandle(model, element, sourceHwnd); }
+            else { model.WindowHandle = sourceHwnd; }
+            if (!requireUnique && !IsInvokable(element))
+            {
+                var ancestor = FindInvokableAncestor(element, boundary);
+                if (ancestor is not null)
+                {
+                    model.InvokableAncestor = ToUiElement(ancestor, "", ref nextId, requireCurrentIdentity: true);
+                }
+            }
+            results.Add(model);
+        }
+        // Keep runtime-ID slugs: an AutomationId unique in this subtree may be duplicated
+        // elsewhere in the window. Subsequent GetText/GetProperties must read the same element.
+        return results.ToArray();
+    }
+
+    private List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)> QueryConstrained(
+        UiTarget target, UiSelector selector, int maxResults, bool requireUnique, CancellationToken ct,
+        IUIAutomationElement? windowRoot = null)
+    {
         if (selector.Root?.Root is not null)
         {
             throw new ArgumentException("Only one root level is supported; selector.Root.Root must be null.", nameof(selector));
@@ -27,7 +55,7 @@ internal sealed partial class UiAutomationService
         }
         if (maxResults <= 0) { return []; }
         // Explicit actions must not recover a missing HWND onto a different app window.
-        var windowRoot = requireUnique && target.WindowHandle != 0
+        windowRoot ??= requireUnique && target.WindowHandle != 0
             ? s_elementFromHandle(this, (nint)target.WindowHandle)
             : GetRootElement(target, requireCurrentIdentity: true);
         if (windowRoot is null) { return []; }
@@ -80,8 +108,7 @@ internal sealed partial class UiAutomationService
         var includeWindow = selector.IsSlug && selector.Root is null;
         var matches = QueryWindow(queryRoot, selector, maxResults, ct, out var hasExactId,
             includeRoot: includeWindow, requireUnique: requireUnique);
-        var nextId = 0;
-        var results = new List<UiElement>();
+        var results = new List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)>();
         AddMatches(matches, queryRoot, hwnd);
 
         // Retain the established main-window-first fallback only for unscoped queries.
@@ -107,9 +134,13 @@ internal sealed partial class UiAutomationService
                 if (!requireUnique && results.Count >= maxResults) { break; }
             }
         }
-        // Keep runtime-ID slugs: an AutomationId unique in this subtree may be duplicated
-        // elsewhere in the window. Subsequent GetText/GetProperties must read the same element.
-        return results.ToArray();
+        if (requireUnique && results.Count > 1)
+        {
+            throw new UiAmbiguousSelectorException(
+                $"Selector matched {results.Count} elements. " +
+                "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name.");
+        }
+        return results;
 
         IUIAutomationElement? GetWindowRoot(nint hwnd) => requireUnique
             ? s_elementFromHandle(this, hwnd) ?? throw new InvalidOperationException(
@@ -122,19 +153,8 @@ internal sealed partial class UiAutomationService
             {
                 ct.ThrowIfCancellationRequested();
                 if (requireUnique && results.Any(result =>
-                    s_compareElements(this, result.Context!.AutomationElement, element))) { continue; }
-                var model = ToUiElement(element, "", ref nextId, requireCurrentIdentity: true);
-                if (requireUnique) { SetResolvedWindowHandle(model, element, sourceHwnd); }
-                else { model.WindowHandle = sourceHwnd; }
-                if (!requireUnique && !IsInvokable(element))
-                {
-                    var ancestor = FindInvokableAncestor(element, boundary);
-                    if (ancestor is not null)
-                    {
-                        model.InvokableAncestor = ToUiElement(ancestor, "", ref nextId, requireCurrentIdentity: true);
-                    }
-                }
-                results.Add(model);
+                    s_compareElements(this, result.Element, element))) { continue; }
+                results.Add((element, boundary, sourceHwnd));
             }
         }
     }

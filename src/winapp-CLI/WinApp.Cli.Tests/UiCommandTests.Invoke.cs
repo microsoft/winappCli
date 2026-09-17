@@ -176,7 +176,8 @@ public partial class UiCommandTests
         {
             Id = "item", InvokableAncestor = new UiElement { Id = "parent" }
         };
-        _fakeUia.ExplicitInvokeThrow = FakeComException;
+        _fakeUia.ExplicitInvokeThrow = new System.Runtime.InteropServices.COMException(
+            "Element unavailable", unchecked((int)0x80040201));
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
             ["item", "-a", "TestApp", "--action", "select", "--json"]);
@@ -184,6 +185,26 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode(UiJsonError.CodeStaleElement);
         Assert.AreEqual(1, _fakeUia.ExplicitInvokeCalls);
+        Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Invoke_ExplicitProviderFailure_PreservesErrorInsteadOfReportingStale(bool duringSelection)
+    {
+        var failure = new System.Runtime.InteropServices.COMException(
+            "Provider denied access", unchecked((int)0x80070005));
+        _fakeUia.FindSingleResult = new UiElement { Id = "item" };
+        if (duringSelection) { _fakeUia.FindUniqueThrow = failure; }
+        else { _fakeUia.ExplicitInvokeThrow = failure; }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["item", "-a", "TestApp", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiJsonError.CodeInternalError);
+        StringAssert.Contains(ConsoleStdErr.ToString(), failure.Message);
         Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
     }
 

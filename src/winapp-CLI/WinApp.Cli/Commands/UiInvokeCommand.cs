@@ -209,6 +209,7 @@ internal class UiInvokeCommand : Command, IShortDescription
                 return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
+                when (action is null || comEx.HResult == unchecked((int)0x80040201))
             {
                 logger.LogDebug("COM error: {HResult} {StackTrace}", comEx.HResult, comEx.StackTrace);
                 UiErrors.StaleElement(logger, json, parseResult.InvocationConfiguration.Error);

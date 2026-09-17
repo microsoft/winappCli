@@ -575,12 +575,6 @@ internal sealed partial class UiAutomationService : IUiAutomation
         if (requireUnique && (selector.HasConstraints || selector.IsSlug))
         {
             var constrainedMatches = SearchConstrained(uiTarget, selector, 2, requireUnique: true, ct: ct);
-            if (constrainedMatches.Length > 1)
-            {
-                throw new UiAmbiguousSelectorException(
-                    $"Selector matched {constrainedMatches.Length} elements. " +
-                    "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name.");
-            }
             return Task.FromResult(constrainedMatches.FirstOrDefault());
         }
         if (!requireUnique)
@@ -1632,6 +1626,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
             {
                 throw new InvalidOperationException(
                     $"Element selector '{element.Selector}' is not an exact runtime slug or matching AutomationId. Re-run 'inspect' or 'search'.");
+            }
+            if (element.WindowHandle is null or 0 && !uiTarget.IsExplicitWindow)
+            {
+                // With no source boundary, prove uniqueness across the app before probing patterns.
+                return QueryConstrained(uiTarget, new UiSelector { Slug = element.Selector }, 2,
+                    requireUnique: true, ct: ct, windowRoot: root).FirstOrDefault().Element;
             }
             return FindElementBySlugWithCom(element.Selector, root, ct: ct, requireUnique: true).ComElement;
         }

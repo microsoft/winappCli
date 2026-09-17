@@ -321,6 +321,31 @@ public partial class RealUiAutomationTests
         Assert.AreEqual(0, fx.ClickCount);
     }
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitAction_NoActivateExternalAppSlug_ResolvesSecondaryProvider(bool ownedByMain)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false);
+        var hwnd = fx.ShowOwnedButton(ownedByMain);
+        var svc = NewService();
+        var secondaryTarget = new UiTarget
+        {
+            ProcessId = fx.Target.ProcessId, WindowHandle = hwnd, IsExplicitWindow = true,
+        };
+        var selected = await svc.FindSingleElementAsync(secondaryTarget,
+            new UiSelector { Query = "Owned Save" }, true, default);
+        Assert.IsNotNull(selected);
+        Assert.IsNotNull(SlugGenerator.ParseSlug(selected.Selector!));
+        var external = new UiElement { Selector = selected.Selector };
+
+        Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+            await svc.InvokeAsync(fx.AppTarget, external, UiInvokeAction.Invoke, default));
+        await WaitForAsync(() => Task.FromResult(fx.SecondaryClicks == 1), "The external secondary slug was not invoked.");
+        Assert.AreEqual(1, fx.ClickCount);
+        Assert.AreEqual(1, svc.SerializedElementResolutionCount);
+    }
+
     // Separate from UiaTestFixture: these tests must not activate a window on the shared desktop.
     private sealed class ExplicitIdentityFixture : IDisposable
     {

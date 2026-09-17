@@ -171,6 +171,193 @@ public partial class RealUiAutomationTests
         Assert.AreEqual(0, tree.PatternReads);
     }
 
+    [TestMethod]
+    [DataRow(null, false)]
+    [DataRow(0L, false)]
+    [DataRow(null, true)]
+    [DataRow(0L, true)]
+    public async Task SlugCollision_ExternalAppSlug_FindsSecondaryWithoutSource(long? sourceHwnd, bool nameless)
+    {
+        using var tree = new SlugCollisionTree(nameless);
+        tree.ConfigureAppWindows(mainMatch: false, collision: false);
+        var svc = NewService();
+
+        await svc.InvokeAsync(tree.AppTarget, new UiElement
+        {
+            Selector = tree.Slug, WindowHandle = sourceHwnd,
+        }, UiInvokeAction.Invoke, default);
+
+        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.AreEqual(1, tree.Invocations);
+        Assert.AreEqual(1, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task SlugCollision_AppWindows_RejectCollisionBeforePatterns(bool externalIdentity, bool nameless)
+    {
+        using var tree = new SlugCollisionTree(nameless);
+        tree.ConfigureAppWindows(mainMatch: true, collision: true);
+        var svc = NewService();
+        await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(() => externalIdentity
+            ? svc.InvokeAsync(tree.AppTarget, new UiElement { Selector = tree.Slug }, UiInvokeAction.Invoke, default)
+            : svc.FindSingleElementAsync(tree.AppTarget, new UiSelector { Slug = tree.Slug }, true, default));
+
+        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.AreEqual(0, tree.PatternReads);
+        Assert.AreEqual(0, tree.Invocations);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SlugCollision_AppWindows_DeduplicateOwnedProviderBeforePatterns(bool externalIdentity)
+    {
+        using var tree = new SlugCollisionTree();
+        tree.ConfigureAppWindows(mainMatch: true, collision: false);
+        var svc = NewService();
+        if (externalIdentity)
+        {
+            await svc.InvokeAsync(tree.AppTarget, new UiElement { Selector = tree.Slug }, UiInvokeAction.Invoke, default);
+        }
+        else
+        {
+            var selected = await svc.FindSingleElementAsync(tree.AppTarget,
+                new UiSelector { Slug = tree.Slug }, true, default);
+            Assert.IsNotNull(selected);
+            Assert.AreSame(tree.First, selected.Context!.AutomationElement);
+            await svc.InvokeAsync(tree.AppTarget, selected, UiInvokeAction.Invoke, default);
+        }
+
+        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.IsGreaterThan(0, tree.Comparisons);
+        Assert.AreEqual(1, tree.Invocations);
+        Assert.AreEqual(externalIdentity ? 1 : 0, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow(false, "found")]
+    [DataRow(true, "found")]
+    [DataRow(false, "missing")]
+    [DataRow(true, "missing")]
+    [DataRow(false, "closed")]
+    [DataRow(true, "closed")]
+    [DataRow(false, "failed")]
+    [DataRow(true, "failed")]
+    public async Task SlugCollision_ExternalAppSlug_WindowBoundaryNeverRecovers(bool recordedSource, string state)
+    {
+        using var tree = new SlugCollisionTree();
+        tree.ConfigureAppWindows(mainMatch: true, collision: true);
+        var hwnd = state switch { "found" => 42L, "missing" => 44L, "closed" => 45L, _ => 46L };
+        var target = recordedSource ? tree.AppTarget : new UiTarget
+        {
+            ProcessId = Environment.ProcessId, WindowHandle = hwnd, IsExplicitWindow = true,
+        };
+        var element = new UiElement { Selector = tree.Slug, WindowHandle = recordedSource ? hwnd : null };
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            throw new AssertFailedException("A source or explicit HWND must not search siblings.");
+        UiAutomationService.s_getRootElement = (_, _, _) =>
+            throw new AssertFailedException("A source or explicit HWND must not recover.");
+        var svc = NewService();
+        if (state == "found")
+        {
+            await svc.InvokeAsync(target, element, UiInvokeAction.Invoke, default);
+            Assert.AreEqual(1, tree.Invocations);
+        }
+        else
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                svc.InvokeAsync(target, element, UiInvokeAction.Invoke, default));
+            Assert.AreEqual(0, tree.PatternReads);
+            Assert.AreEqual(0, tree.Invocations);
+        }
+        CollectionAssert.AreEqual(new nint[] { (nint)hwnd }, tree.BoundHandles);
+    }
+
+    [TestMethod]
+    [DataRow(false, "provider")]
+    [DataRow(true, "provider")]
+    [DataRow(false, "missing")]
+    [DataRow(true, "missing")]
+    [DataRow(false, "cancel")]
+    [DataRow(true, "cancel")]
+    public async Task SlugCollision_AppWindows_LateFailureNeverInvokesFirstMatch(bool externalIdentity, string failure)
+    {
+        using var tree = new SlugCollisionTree();
+        tree.ConfigureAppWindows(mainMatch: true, collision: false);
+        using var cancellation = new CancellationTokenSource();
+        var bind = UiAutomationService.s_elementFromHandle;
+        var error = new COMException("Later app window failed.");
+        UiAutomationService.s_elementFromHandle = (service, hwnd) =>
+        {
+            var root = bind(service, hwnd);
+            if (hwnd != 44) { return root; }
+            if (failure == "provider") { throw error; }
+            if (failure == "missing") { return null; }
+            cancellation.Cancel();
+            cancellation.Token.ThrowIfCancellationRequested();
+            return root;
+        };
+        var svc = NewService();
+        Task Act() => externalIdentity
+            ? svc.InvokeAsync(tree.AppTarget, new UiElement { Selector = tree.Slug }, UiInvokeAction.Invoke, cancellation.Token)
+            : svc.FindSingleElementAsync(tree.AppTarget, new UiSelector { Slug = tree.Slug }, true, cancellation.Token);
+        if (failure == "provider")
+        {
+            Assert.AreSame(error, await Assert.ThrowsExactlyAsync<COMException>(Act));
+        }
+        else if (failure == "missing")
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(Act);
+        }
+        else
+        {
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(Act);
+        }
+        CollectionAssert.AreEqual(new nint[] { 42, 43, 44 }, tree.BoundHandles);
+        Assert.AreEqual(0, tree.PatternReads);
+        Assert.AreEqual(0, tree.Invocations);
+    }
+
+    [TestMethod]
+    public async Task SlugCollision_ExternalAppSlug_AutoKeepsFirstMatch()
+    {
+        using var tree = new SlugCollisionTree();
+        tree.ConfigureAppWindows(mainMatch: true, collision: true);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            throw new AssertFailedException("Auto must retain its main-window-first behavior.");
+        var svc = NewService();
+
+        Assert.AreEqual("InvokePattern",
+            await svc.InvokeAsync(tree.AppTarget, new UiElement { Selector = tree.Slug }, default));
+
+        Assert.AreEqual(1, tree.Invocations);
+        Assert.AreEqual(1, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    public async Task SlugCollision_RetainedSlug_DoesNotRebindAcrossAppWindows()
+    {
+        using var tree = new SlugCollisionTree();
+        var svc = NewService();
+        var selected = await svc.FindSingleElementAsync(tree.Target,
+            new UiSelector { Slug = tree.Slug, ClassName = "First" }, true, default);
+        Assert.IsNotNull(selected);
+        tree.ConfigureAppWindows(mainMatch: true, collision: true);
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            throw new AssertFailedException("A retained runtime slug must not enumerate windows.");
+        UiAutomationService.s_elementFromHandle = (_, _) =>
+            throw new AssertFailedException("A retained runtime slug must not rebind.");
+
+        await svc.InvokeAsync(tree.AppTarget, selected, UiInvokeAction.Invoke, default);
+
+        Assert.AreEqual(1, tree.Invocations);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+    }
+
     private sealed unsafe class SlugCollisionTree : IDisposable
     {
         private static readonly Type ElementProxyType = CreateElementProxyType();
@@ -183,6 +370,12 @@ public partial class RealUiAutomationTests
         public string Slug { get; }
         public int PatternReads { get; private set; }
         public int Invocations { get; private set; }
+        public int Comparisons { get; private set; }
+        public List<nint> BoundHandles { get; } = [];
+        public UiTarget AppTarget { get; } = new()
+        {
+            ProcessId = Environment.ProcessId, ProcessName = "fake", WindowHandle = 42,
+        };
         public UiTarget Target { get; } = new()
         {
             ProcessId = Environment.ProcessId, ProcessName = "fake", WindowHandle = 42, IsExplicitWindow = true,
@@ -215,6 +408,38 @@ public partial class RealUiAutomationTests
             UiAutomationService.s_getAllAppWindows = (_, _) => [];
             UiAutomationService.s_compareElements = (_, left, right) => ReferenceEquals(left, right);
             UiAutomationService.s_getElementProcessId = _ => Environment.ProcessId;
+        }
+
+        public void ConfigureAppWindows(bool mainMatch, bool collision)
+        {
+            var lastRoot = MakeElement("last", "Last", _firstId);
+            var walker = ComProxy<IUIAutomationTreeWalker>((method, args) => method.Name switch
+            {
+                "GetFirstChildElement" => ReferenceEquals(args![0], Root) ? (mainMatch ? First : null)
+                    : ReferenceEquals(args![0], Boundary) ? (collision ? Second : First) : null,
+                "GetNextSiblingElement" => null,
+                "GetParentElement" => ReferenceEquals(args![0], Root) ? null : Root,
+                _ => ThrowCom(),
+            });
+            UiAutomationService.s_getExplicitIdentityWalker = _ => walker;
+            UiAutomationService.s_getControlViewWalker = _ => walker;
+            UiAutomationService.s_getAllAppWindows = (_, _) =>
+                [(42, Environment.ProcessId, "Main"), (43, Environment.ProcessId, "Secondary"), (44, Environment.ProcessId, "Last")];
+            UiAutomationService.s_elementFromHandle = (_, hwnd) =>
+            {
+                BoundHandles.Add(hwnd);
+                if (hwnd == 44)
+                {
+                    Assert.AreEqual(0, PatternReads, "Complete the app scan before probing any candidate patterns.");
+                }
+                if (hwnd == 46) { throw new COMException("Window closed", unchecked((int)0x80040201)); }
+                return hwnd == 42 ? Root : hwnd == 43 ? Boundary : hwnd == 44 ? lastRoot : null;
+            };
+            UiAutomationService.s_compareElements = (_, left, right) =>
+            {
+                Comparisons++;
+                return ReferenceEquals(left, right);
+            };
         }
 
         private IUIAutomationElement MakeElement(string automationId, string className, SAFEARRAY* runtimeId)
