@@ -750,7 +750,7 @@ try
         # regression fails the build the same way the CLI suite does. See issue #634.
         if ($RunAuxiliaryTests) {
             Write-Host "[TEST] Running WinUI analyzer tests..." -ForegroundColor Blue
-            dotnet test $AnalyzerTestsProjectPath -c Debug --results-directory $CliSolutionDir\TestResults
+            dotnet test $AnalyzerTestsProjectPath -c Debug -p:TreatWarningsAsErrors=true --results-directory $CliSolutionDir\TestResults
             if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
                 $TestExitCode = $LASTEXITCODE
             }

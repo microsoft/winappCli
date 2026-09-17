@@ -547,6 +547,7 @@ Describe 'build-cli.ps1 control flow' {
         $result.ExitCode | Should -Be 0 -Because $result.Output
         $result.Trace | Should -Not -Match 'dotnet build|dotnet run|winapp.sln|WinApp.Cli.Tests|WinApp.UIAutomation.Tests'
         $result.Trace | Should -Match 'published-schema .*artifacts\\cli\\win-(x64|arm64)\\winapp.exe --cli-schema'
+        $result.Trace | Should -Match 'dotnet test .*Analyzers.Tests.csproj -c Debug -p:\s*TreatWarningsAsErrors=true'
         $result.Trace | Should -Match 'npm run generate-commands --schema '
         $result.Trace | Should -Match 'npm run compile'
         $result.Trace | Should -Match 'npm test'
