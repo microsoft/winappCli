@@ -503,6 +503,7 @@ internal partial class PackageCommand
                         targetArch: resolution.Architecture,
                         runtimeAlreadyBundled: runtimeAlreadyBundled,
                         timestampUrl: signing.TimestampUrl,
+                        appxRecipe: string.IsNullOrWhiteSpace(resolution.AppxRecipePath) ? null : new FileInfo(resolution.AppxRecipePath),
                         cancellationToken: ct);
 
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");

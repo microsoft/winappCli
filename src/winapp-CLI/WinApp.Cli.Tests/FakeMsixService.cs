@@ -65,7 +65,8 @@ internal class FakeMsixService : IMsixService
         FileInfo? ManifestPath,
         PackageGraphSource? PackageGraph = null,
         bool AutoSign = false,
-        string? TimestampUrl = null);
+        string? TimestampUrl = null,
+        FileInfo? AppxRecipe = null);
 
     /// <summary>The most recent <see cref="CreateMsixPackageAsync"/> call's captured arguments, or null.</summary>
     public CreatePackageArgs? LastCreatePackageArgs { get; private set; }
@@ -260,11 +261,12 @@ internal class FakeMsixService : IMsixService
         string? targetArch = null,
         bool runtimeAlreadyBundled = false,
         string? timestampUrl = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default)
     {
         CreatePackageCalls.Add(inputFolder);
         LastCreatePackageArgs = new CreatePackageArgs(
-            inputFolder, projectFile, framework, noRestore, targetArch, selfContained, runtimeAlreadyBundled, manifestPath, packageGraph, autoSign, timestampUrl);
+            inputFolder, projectFile, framework, noRestore, targetArch, selfContained, runtimeAlreadyBundled, manifestPath, packageGraph, autoSign, timestampUrl, appxRecipe);
         if (PackageExceptionToThrow != null)
         {
             throw PackageExceptionToThrow;

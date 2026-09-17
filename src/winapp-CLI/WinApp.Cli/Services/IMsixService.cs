@@ -30,6 +30,7 @@ internal interface IMsixService
         string? targetArch = null,
         bool runtimeAlreadyBundled = false,
         string? timestampUrl = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -121,6 +121,41 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_ThreadsEvaluatedAppxRecipePath()
+    {
+        // The evaluated AppxPackageRecipe can live outside the packaging output (e.g. under obj\). It must
+        // be threaded into packaging so the recipe (not a whole-folder copy) selects the package contents.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        var recipePath = Path.Join(_tempDirectory.FullName, "obj", "App.build.appxrecipe");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                AppxRecipePath: recipePath), 0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(recipePath, _fakeMsixService.LastCreatePackageArgs!.AppxRecipe!.FullName,
+            "The evaluated AppxPackageRecipe must be threaded into packaging, not rediscovered from targetDir");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_NoRecipePath_ThreadsNullAppxRecipe()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir); // resolution has no AppxRecipePath
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsNull(_fakeMsixService.LastCreatePackageArgs!.AppxRecipe,
+            "With no evaluated recipe, packaging must fall back to null (targetDir search)");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_NoAssetsFile_ThreadsNullPackageGraph()
     {
         var csproj = CreateCsproj();
