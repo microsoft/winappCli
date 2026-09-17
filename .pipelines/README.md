@@ -9,7 +9,7 @@
 Shared step templates live in [`templates/`](templates):
 
 - [`build-env.yaml`](templates/build-env.yaml) — agent setup (.NET, Node, internal NuGet/npm feeds and their auth). Shared by CI and release.
-- [`build.yaml`](templates/build.yaml) — the build, packaging, optional ESRP signing, and artifact publishing.
+- [`build.yaml`](templates/build.yaml) — the build, packaging, optional ESRP signing, signature verification, and artifact publishing.
 - [`release-assets.yaml`](templates/release-assets.yaml) — renames built packages to the unversioned asset names the release publishes. Used twice: as a preflight dry-run on a copy in the `Build` stage (where a checkout exists, so the result can be verified by a tested script), and for real in `Release_GitHub` (which has no checkout).
 
 > **Why templates and not scripts for release jobs.** 1ES release jobs
@@ -71,6 +71,7 @@ Exactly seven things, each gated:
 | Action | Gate |
 |---|---|
 | ESRP code signing | `DoEsrp` ANDed with the branch |
+| Shipped-binary signature verification | inside the ESRP block, so gated with it |
 | GitHub release | compile-time `${{ if }}` |
 | Symbol publication | whole stage omitted |
 | npm publish (ESRP Release) | whole stage omitted |
@@ -122,8 +123,14 @@ Everything else, for real:
 ### Limitations
 
 - **Signing is never exercised.** ESRP is off in a rehearsal, so a signing-side break still
-  surfaces only during a real release.
-- **Two connections cannot be verified at all.** `github-service-connection` is consumed only by
+  surfaces only during a real release. `Verify shipped binaries are signed` is gated with it and
+  is therefore also rehearsal-inert — see [Signing and Code Sign Validation](#signing-and-code-sign-validation).
+- **Code Sign Validation reports every first-party binary as unsigned.** Expected, and not
+  actionable: nothing was signed. See the same section before filing anything.
+- **Connection existence is not credential validity.** `github-service-connection` and
+  `NuGet-WinAppCLI` are checked for existence and readiness only; nothing authenticates the secret
+  inside them without publishing.
+  **Two connections cannot be verified at all.** `github-service-connection` is consumed only by
   `GitHubRelease@1`, whose every action mutates, and `NuGet-WinAppCLI` carries an API key that is
   only validated on push. There is deliberately no check for them — a metadata lookup would prove
   nothing about the credential, and it is better to say so than to fake coverage. They are covered
@@ -174,6 +181,7 @@ week is exactly when an external policy change slips in unnoticed.
 | `Verify ESRP signing connection (token only, signs nothing)` / `Verify symbol publishing connection (token only, publishes nothing)` | The federated identity behind that connection no longer works — rotated, expired, or de-authorized for this pipeline. A real release would fail at signing or symbol publishing. Nothing was signed or published by the check itself. Both steps run even if an earlier check failed, so treat their verdicts independently. |
 | WinGet (rehearsal path) | `wingetcreate`, the installer downloads, or the manifest schema changed. A real submission would fail the same way. |
 | MS Learn (rehearsal path) | A doc edit landed that the port or validation script rejects. |
+| `Verify shipped binaries are signed` | A binary is shipping unsigned. Read the failure line — it names each file, using `container!/path` for anything nested. See [Signing and Code Sign Validation](#signing-and-code-sign-validation). |
 
 ### Running it on demand
 
@@ -205,11 +213,98 @@ the pipeline steps above, so it needs no Azure access and runs fine offline.
 
 - `scripts/check-release-credentials.ps1` (+ tests in `scripts/tests/`)
 - `scripts/verify-release-assets.ps1` (+ tests in `scripts/tests/`)
+- `scripts/verify-signatures.ps1` (+ tests in `scripts/tests/`)
 - `.pipelines/templates/release-assets.yaml` — the renaming, shared with the real release
 
-Both test suites run as part of `scripts/build-cli.ps1`, and are deliberately **offline-only**:
+All three test suites run as part of `scripts/build-cli.ps1`, and are deliberately **offline-only**:
 that suite also runs during a real release build, so a test that reached `api.github.com` would let
 a GitHub outage block a release.
 
 > **Planned (phase 2):** a scheduled agent prompt that reads each weekly run and posts a summary to
 > the team.
+
+---
+
+## Signing and Code Sign Validation
+
+### What gets signed, and in what order
+
+Order is the whole story here. `package-msix.ps1`, `package-npm.ps1` and `package-nuget.ps1` all
+copy `winapp.exe` out of `artifacts/cli`, so a binary signed *after* those scripts run ships
+unsigned no matter how thoroughly the container around it is signed.
+
+`templates/build.yaml` therefore signs bottom-up:
+
+1. **CLI binaries** — everything matching `**/*.exe` and `**/*.dll` under `artifacts/cli`. A glob,
+   not a file list, because a native dependency dropped next to `winapp.exe` would otherwise ship
+   unsigned. Already-signed third-party binaries are re-signed rather than skipped, so compliance
+   does not rest on a publisher staying on Guardian's approved-policy list.
+2. **Managed libraries** — the assemblies the UI Automation and analyzer packages pack.
+3. **Repack NuGet packages** — `build-cli.ps1` packs the `.nupkg` files *before* any signing runs,
+   so the first copies embed unsigned binaries. This repacks them.
+4. **Containers** — the `.msix` packages and the `.nupkg` packages themselves.
+
+The MSIX and NuGet signatures are a second, independent signature on the container. They do not
+make the payload signed, and an MSIX will install happily with an unsigned `winapp.exe` inside it.
+
+### Why there is a verification step
+
+`Verify shipped binaries are signed` runs `scripts/verify-signatures.ps1` over `artifacts/cli`, the
+MSIX packages, the NuGet packages and the npm tarball, expanding every container — including nested
+ones — and asserting each `.exe`/`.dll` carries a valid Authenticode signature.
+
+It exists because Guardian's Code Sign Validation cannot catch a regression in step 3 or 4:
+
+- It runs in the **release jobs**, over downloaded artifacts, **after** the build reported success.
+- It runs in **audit mode**, so a finding is a warning on a green job.
+- It **does not open `.msix` or `.tgz`**. It expands `.nupkg` (the scan output shows `gdn-*.nupkg/`
+  folders) but a folder holding only `.msix` or `.tgz` yields zero targets — so the binaries users
+  actually install are never inspected.
+
+Release 0.6.0 shipped through that gap:
+`Microsoft.Windows.SDK.BuildTools.WinApp.0.6.0.nupkg` was published with an unsigned
+`tools/win-x64/winapp.exe`, reported as a CSV warning on a build that succeeded.
+
+The step is inside the `DoEsrp` block, which is ANDed with `rel/v*`, so it is inert in a rehearsal —
+a run that signs nothing would otherwise fail it every Monday.
+
+The script also runs locally against any build output or downloaded artifact:
+
+```powershell
+.\scripts\verify-signatures.ps1 -Path .\artifacts\cli,.\artifacts\msix-packages,.\artifacts\nuget,.\artifacts\*.tgz
+```
+
+A root that contains no binaries is a failure, not a pass — a gate that reports success after
+verifying nothing is worse than no gate.
+
+### Reading Code Sign Validation warnings
+
+CSV is injected automatically into every job that consumes a pipeline artifact, and today it only
+warns:
+
+```
+##[warning]Found CodeSign.MissingSigningCert error(s). [C+AI Security Sprint Wave 1] Code Sign
+Validation (CSV) is enabled in audit mode to collect telemetry for future enforcement.
+```
+
+Before treating one as a bug, **check the branch**. On a rehearsal (`main`) nothing was signed, so
+every first-party binary is reported `MissingSigningCert` and none of it is actionable. On a real
+release (`rel/v*`) the same line is a genuine finding.
+
+`CodeSign.MatchingPolicy` is a pass, not a warning — it means the file is signed by an approved
+publisher.
+
+1ES PT does not allow CSV to be narrowed in these jobs. `additionalTargetsGlobPattern` and per-job
+or per-stage CSV settings are supported everywhere *except* production release jobs
+(`isProduction: true`), where `policyFile` is the only accepted setting — and every artifact-
+consuming job here is one. So findings have to be fixed, not excluded.
+
+That is why the MS Learn scripts are signed rather than filtered. CSV's default target list
+includes `**\*.ps1`, so the four scripts staged into the `mslearn-source` artifact are flagged.
+Filtering them out of the artifact download would break the job that invokes them from that path,
+so `release.yml` ESRP-signs them in the Build stage instead. A script's signature block is appended
+text that survives the artifact round-trip — provided signing happens **before**
+`1ES.PublishPipelineArtifact@1`, not after.
+
+There is no published date for CSV leaving audit mode; 1ES PT commits to 90 days' notice. Questions
+go to `1escsv@microsoft.com`.

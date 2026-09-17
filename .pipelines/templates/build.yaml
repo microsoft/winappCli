@@ -34,9 +34,16 @@ steps:
       AuthCertName: ${{ parameters.signingIdentity.authCertName }}
       AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
       FolderPath: '$(System.DefaultWorkingDirectory)/artifacts/cli/'
+      # A glob, not a file list. Everything under artifacts/cli is copied verbatim into the
+      # portable zip, the MSIX, the npm package and the CLI tools NuGet package, and the zip
+      # carries no container signature at all - so a native dependency dropped next to winapp.exe
+      # would otherwise ship unsigned with nothing to catch it. Already-signed third-party
+      # binaries are re-signed rather than excluded, so compliance does not rest on a publisher
+      # staying on Guardian's approved-policy list. The "Verify shipped binaries are signed" step
+      # below is the backstop if this pattern ever stops matching something.
       Pattern: |
-        win-arm64/winapp.exe
-        win-x64/winapp.exe
+        **/*.exe
+        **/*.dll
       UseMinimatch: true
       signConfigType: inlineSignParams
       inlineOperation: |
@@ -159,6 +166,13 @@ steps:
                 },
                 "ToolName": "sign",
                 "ToolVersion": "1.0"
+            },
+            {
+                "KeyCode": "CP-230012",
+                "OperationCode": "SigntoolVerify",
+                "Parameters": {},
+                "ToolName": "sign",
+                "ToolVersion": "1.0"
             }
         ]
   - task: EsrpCodeSigning@6
@@ -191,6 +205,25 @@ steps:
                 "ToolVersion": "1.0"
             }
         ]
+  # Guardian's Code Sign Validation is the pipeline's other signing gate, but it cannot catch a
+  # regression here. It runs in the release jobs, over downloaded artifacts, in audit mode - so it
+  # reports a warning on a job that still succeeds - and it never opens .msix or .tgz, so the
+  # binaries users actually install are never inspected.
+  #
+  # Release 0.6.0 shipped through exactly that gap: build-cli.ps1 packs the .nupkg before any
+  # signing runs, so Microsoft.Windows.SDK.BuildTools.WinApp.0.6.0.nupkg went out with an unsigned
+  # tools/win-x64/winapp.exe. The repack step above removes the cause; this asserts the result, and
+  # covers the portable zip, whose binaries carry no container signature to fall back on.
+  #
+  # Inside the DoEsrp block on purpose. DoEsrp is ANDed with rel/v* in release.yml, so the weekly
+  # rehearsal on main signs nothing - asserting signatures there would fail every Monday by design.
+  - task: PowerShell@2
+    displayName: Verify shipped binaries are signed
+    inputs:
+      pwsh: true
+      errorActionPreference: stop
+      filePath: $(System.DefaultWorkingDirectory)\scripts\verify-signatures.ps1
+      arguments: '-Path "$(System.DefaultWorkingDirectory)/artifacts/cli","$(System.DefaultWorkingDirectory)/artifacts/msix-packages","$(System.DefaultWorkingDirectory)/artifacts/nuget","$(System.DefaultWorkingDirectory)/artifacts/*.tgz"'
 - task: CopyFiles@2
   displayName: Copy Artifacts - Test Results
   inputs:
