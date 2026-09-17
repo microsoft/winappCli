@@ -6,6 +6,49 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitSelection_NoActivateOtherWindowExactId_WinsOverMainSubstrings(bool duplicateMain)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicateMain, primaryAutomationId: "save-main");
+        var hwnd = fx.ShowOwnedButton(false, automationId: "Save");
+        var svc = NewService();
+        var target = fx.AppTarget;
+        var selected = await svc.FindSingleElementAsync(target, new UiSelector { Query = "Save" }, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        Assert.AreEqual("Owned Save", selected.Name);
+        Assert.AreEqual(hwnd, selected.WindowHandle);
+        Assert.IsNotNull(selected.Context);
+        await svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None);
+        await WaitForAsync(() => Task.FromResult(fx.SecondaryClicks == 1), "The other window's exact match was not invoked.");
+        Assert.AreEqual(1, fx.ClickCount);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
+    [DataRow("Primary Save")]
+    [DataRow("save")]
+    public async Task ExplicitSelection_NoActivateMatchesAcrossWindows_AmbiguousUnlessExplicitHwnd(string query)
+    {
+        using var fx = new ExplicitIdentityFixture(duplicate: false);
+        fx.ShowOwnedButton(false, name: "Primary Save");
+        var svc = NewService();
+        var selector = new UiSelector { Query = query };
+        var error = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
+            () => svc.FindSingleElementAsync(fx.AppTarget, selector, requireUnique: true, CancellationToken.None));
+        StringAssert.Contains(error.Message, "Selector matched 2 elements");
+        Assert.AreEqual(0, fx.ClickCount);
+
+        var selected = await svc.FindSingleElementAsync(fx.Target, selector, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        Assert.AreEqual(fx.Target.WindowHandle, selected.WindowHandle);
+        await svc.InvokeAsync(fx.Target, selected, UiInvokeAction.Invoke, CancellationToken.None);
+        await WaitForAsync(() => Task.FromResult(fx.ClickCount == 1), "The explicit HWND match was not invoked.");
+        Assert.AreEqual(0, fx.SecondaryClicks);
+        Assert.AreEqual(0, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
     public async Task ExplicitAction_NoActivateDuplicateInitialIdentity_RejectsCliEquivalentSelection()
     {
         using var fx = new ExplicitIdentityFixture(duplicate: true);
@@ -49,6 +92,20 @@ public partial class RealUiAutomationTests
         if (!ownedByMain)
         {
             Assert.IsNull(await svc.FindSingleElementAsync(fx.Target, selector, requireUnique: true, CancellationToken.None));
+        }
+        else
+        {
+            var throughMain = await svc.FindSingleElementAsync(fx.Target, selector, requireUnique: true, CancellationToken.None);
+            var throughOwned = await svc.FindSingleElementAsync(new UiTarget
+            {
+                ProcessId = fx.Target.ProcessId, ProcessName = fx.Target.ProcessName,
+                WindowHandle = hwnd, IsExplicitWindow = true,
+            }, selector, requireUnique: true, CancellationToken.None);
+            Assert.IsNotNull(throughMain);
+            Assert.IsNotNull(throughOwned);
+            Assert.IsTrue(UiAutomationService.s_compareElements(svc,
+                throughMain.Context!.AutomationElement, throughOwned.Context!.AutomationElement),
+                "The fixture must expose the same provider in both ControlViews.");
         }
         var target = new UiTarget
         {
@@ -132,10 +189,15 @@ public partial class RealUiAutomationTests
         private int _primaryClicks;
         private int _secondaryClicks;
         public UiTarget Target { get; private set; } = null!;
+        public UiTarget AppTarget => new()
+        {
+            ProcessId = Target.ProcessId, ProcessName = Target.ProcessName,
+            WindowHandle = Target.WindowHandle, IsExplicitWindow = false,
+        };
         public int ClickCount => Volatile.Read(ref _primaryClicks) + Volatile.Read(ref _secondaryClicks);
         public int SecondaryClicks => Volatile.Read(ref _secondaryClicks);
 
-        public ExplicitIdentityFixture(bool duplicate)
+        public ExplicitIdentityFixture(bool duplicate, string primaryAutomationId = "save")
         {
             _thread = new Thread(() =>
             {
@@ -144,6 +206,7 @@ public partial class RealUiAutomationTests
                     using var form = new IdentityForm();
                     _form = form;
                     _primary = MakeButton("Primary Save", 10, () => Interlocked.Increment(ref _primaryClicks));
+                    _primary.Name = primaryAutomationId;
                     form.Controls.Add(_primary);
                     if (duplicate)
                     {
@@ -182,11 +245,13 @@ public partial class RealUiAutomationTests
             _primary.CreateControl();
         });
 
-        public long ShowOwnedButton(bool ownedByMain) => (long)_form.Invoke(() =>
+        public long ShowOwnedButton(bool ownedByMain, string name = "Owned Save", string automationId = "save") => (long)_form.Invoke(() =>
         {
             var owned = new IdentityForm();
             _other = owned;
-            owned.Controls.Add(MakeButton("Owned Save", 10, () => Interlocked.Increment(ref _secondaryClicks)));
+            var button = MakeButton(name, 10, () => Interlocked.Increment(ref _secondaryClicks));
+            button.Name = automationId;
+            owned.Controls.Add(button);
             if (ownedByMain) { owned.Show(_form); }
             else { owned.Show(); }
             return (long)owned.Handle;

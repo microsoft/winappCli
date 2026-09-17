@@ -10,6 +10,62 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitAction_CanceledDuringIdentityWalk_StopsWithoutInvoking(bool retainedContext)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var calls = new List<string>();
+        var retained = ConfigureExplicitIdentityTree(calls, 1, false, 20, identityRead: index =>
+        {
+            if (index == 3) { cancellation.Cancel(); }
+        });
+        UiAutomationService.s_getElementProcessId = _ => Environment.ProcessId;
+        var svc = NewService();
+        var model = new UiElement
+        {
+            AutomationId = "save", Selector = "save",
+            Context = retainedContext ? new UiElementContext(retained) : null,
+        };
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(
+            () => svc.InvokeAsync(target, model, UiInvokeAction.Invoke, cancellation.Token));
+        Assert.IsTrue(calls.Contains("identity:3"), "Cancellation must occur after finding the candidate.");
+        Assert.IsFalse(calls.Contains("identity:4"), "Identity traversal must stop promptly.");
+        Assert.IsFalse(calls.Contains("child:3"));
+        Assert.IsFalse(calls.Contains("pattern"), "No pattern may be acquired after cancellation.");
+        Assert.IsFalse(calls.Contains("invoke"));
+    }
+
+    [TestMethod]
+    [DataRow("enumeration")]
+    [DataRow("provider")]
+    [DataRow("missing")]
+    public async Task ExplicitSelection_AppScopeFailure_AfterMainMatchFailsClosed(string failure)
+    {
+        var calls = new List<string>();
+        ConfigureExplicitIdentityTree(calls, 1, false, 0);
+        UiAutomationService.s_getAllAppWindows = (_, _) => failure == "enumeration"
+            ? throw new COMException("Window enumeration failed.") : [(42, Environment.ProcessId, "Other")];
+        UiAutomationService.s_elementFromHandle = (_, _) => failure == "missing"
+            ? null : throw new COMException("Other provider failed.");
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
+        if (failure == "missing")
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                () => svc.FindSingleElementAsync(target, new UiSelector { Query = "save" }, requireUnique: true, CancellationToken.None));
+        }
+        else
+        {
+            await Assert.ThrowsExactlyAsync<COMException>(
+                () => svc.FindSingleElementAsync(target, new UiSelector { Query = "save" }, requireUnique: true, CancellationToken.None));
+        }
+        Assert.IsTrue(calls.Contains("identity:0"));
+        Assert.IsFalse(calls.Contains("invoke"));
+    }
+
+    [TestMethod]
     [DataRow(0, "save", true, false, "save", true)]
     [DataRow(1, "save", true, false, "save", true)]
     [DataRow(0, "", false, true, "Primary", true)]
@@ -246,7 +302,7 @@ public partial class RealUiAutomationTests
     // a duplicate exists. A synthetic ControlView allows arbitrary depth and deterministic faults.
     private static IUIAutomationElement ConfigureExplicitIdentityTree(
         List<string> calls, int bulkCount, bool duplicate, int depth, string? failure = null,
-        string automationId = "save", bool sameName = false, bool lastInvokable = true)
+        string automationId = "save", bool sameName = false, bool lastInvokable = true, Action<int>? identityRead = null)
     {
         var invoke = ComProxy<IUIAutomationInvokePattern>((method, _) =>
         {
@@ -262,11 +318,13 @@ public partial class RealUiAutomationTests
             {
                 if (method.Name == "GetCurrentPattern")
                 {
+                    calls.Add("pattern");
                     return index == 0 || (index == nodes.Length - 1 && lastInvokable) ? invoke : null;
                 }
                 if (method.Name == "get_CurrentAutomationId")
                 {
                     calls.Add($"identity:{index}");
+                    identityRead?.Invoke(index);
                     if (failure == "identity" && index == nodes.Length - 1) { return ThrowCom(); }
                     return StringBstr(index == 0 || ((duplicate || automationId.Length == 0) && index == nodes.Length - 1)
                         ? automationId : "container");
@@ -321,6 +379,7 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getAllAppWindows = (_, _) => [];
         UiAutomationService.s_getExplicitIdentityWalker = _ => walker;
         return nodes[0];
     }

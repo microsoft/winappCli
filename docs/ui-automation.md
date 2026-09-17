@@ -801,6 +801,8 @@ UiInvokeActionResult result = await ui.InvokeAsync(target, selected, UiInvokeAct
 `requireUnique: true` rejects ambiguous text instead of choosing an invokable
 match. Exact AutomationId matches take precedence over name or AutomationId
 substrings; a unique name can still select a control whose AutomationId is shared.
+For an app-scoped target, that check covers all of its app/owned windows. Use
+`-w <HWND>` (or an explicit-window library target) to restrict the selection scope.
 
 It returns `Pattern` and `PerformedAction` with the same meanings as the
 [CLI action result](../plugins/winapp/skills/winapp-ui-automation/references/ui-json-envelope.md#ui-invoke---json).
