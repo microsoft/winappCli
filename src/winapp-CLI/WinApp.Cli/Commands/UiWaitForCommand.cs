@@ -94,6 +94,16 @@ internal class UiWaitForCommand : Command, IShortDescription
                 return 1;
             }
 
+            var propertyName = parseResult.GetValue(SharedUiOptions.PropertyOption);
+            if (propertyName is not null && !UiPropertyNames.IsSupported(propertyName))
+            {
+                var message = $"Unknown property '{propertyName}'. Property names are case-sensitive. Omit --property from get-property to list all properties.";
+                logger.LogError("{Message}", message);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message,
+                    errorOut: parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
+
             return UiQueryOptions.Validate(parseResult, logger, json);
         }
 

@@ -141,8 +141,13 @@ internal sealed partial class UiRecordingService
                 cropW, cropH, encoderWidth, encoderHeight, displayWidth, displayHeight);
             var srcRect = SKRect.Create(cropX, cropY, cropW, cropH);
             var dstRect = SKRect.Create(offsetX, offsetY, fitW, fitH);
-            using var paint = new SKPaint { FilterQuality = SKFilterQuality.Medium, IsAntialias = false };
-            canvas.DrawBitmap(srcBitmap, srcRect, dstRect, paint);
+
+            // SkiaSharp's own mapping for the SKFilterQuality.Medium this used to pass, so resample
+            // quality is unchanged.
+            var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+            using var paint = new SKPaint { IsAntialias = false };
+            using var srcImage = SKImage.FromBitmap(srcBitmap);
+            canvas.DrawImage(srcImage, srcRect, dstRect, sampling, paint);
         }
 
         var output = new byte[dstInfo.BytesSize];
