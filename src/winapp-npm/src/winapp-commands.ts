@@ -1392,7 +1392,7 @@ export interface UiGetPropertyOptions extends CommonOptions {
 }
 
 /**
- * Read UIA property values from an element. Specify --property for a single property or omit for all.
+ * Read UIA property values from an element. Specify --property for a single property or omit for all. Includes whole-document TextPattern formatting: FontWeight, FontName, FontSize, ForegroundColor, IsItalic, StrikethroughStyle.
  */
 export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-property'];

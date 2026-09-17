@@ -46,7 +46,7 @@ Console.WriteLine($"{result.Frames} frames, {result.Width}x{result.Height}, mode
 
 ## Why this is a separate package
 
-Recording needs SkiaSharp for frame scaling and JPEG output, whose native binary adds roughly 9 MB
+Recording needs SkiaSharp for frame scaling and JPEG output, whose native binary adds roughly 13 MB
 per architecture. Splitting it out keeps
 `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation` small for the many projects that only need to
 inspect and drive UI. Reference this package only when you actually want video.

@@ -665,7 +665,7 @@ With `--light-image`:
 - **Light theme targetsize variants** — `.targetsize-{size}_altform-lightunplated` (app icon)
 - **Light theme scale variants** — `.scale-{factor}_altform-colorful_theme-light` (tiles, store logo)
 
-**SVG support:** SVG files are fully supported as source images. They are rendered as vectors directly at each target size, producing pixel-perfect results at all resolutions.
+**SVG support:** SVG files are fully supported as source images. They are rendered as vectors directly at each target size, producing pixel-perfect results at all resolutions. The file must declare its own size, through either a `viewBox` or absolute `width` and `height` attributes; a percentage width with no `viewBox` describes no particular size. A source that declares neither is rejected with `SVG image has no usable dimensions` instead of producing blank assets.
 
 The command scales images proportionally while maintaining aspect ratio, centering them with transparent backgrounds when needed. Assets are saved to the `Assets` directory relative to the manifest location.
 

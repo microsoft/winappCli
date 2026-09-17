@@ -4098,7 +4098,7 @@
           }
         },
         "get-property": {
-          "description": "Read UIA property values from an element. Specify --property for a single property or omit for all.",
+          "description": "Read UIA property values from an element. Specify --property for a single property or omit for all. Includes whole-document TextPattern formatting: FontWeight, FontName, FontSize, ForegroundColor, IsItalic, StrikethroughStyle.",
           "hidden": false,
           "arguments": {
             "selector": {

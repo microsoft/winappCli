@@ -740,6 +740,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
     public Task<Dictionary<string, object?>> GetPropertiesAsync(UiTarget uiTarget, UiElement element, string? propertyName, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (propertyName is not null && !UiPropertyNames.IsSupported(propertyName))
+        {
+            throw new ArgumentException($"Unknown property '{propertyName}'. Property names are case-sensitive.", nameof(propertyName));
+        }
 
         // Basic properties from the UiElement model
         var props = new Dictionary<string, object?>
@@ -847,6 +851,11 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 props["VerticallyScrollable"] = pattern.get_CurrentVerticallyScrollable();
             }
             catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
+        }
+
+        if (propertyName is null || TextAttributes.Any(attribute => attribute.Name == propertyName))
+        {
+            AddTextAttributes(comElement, propertyName, props);
         }
 
         if (propertyName is not null)

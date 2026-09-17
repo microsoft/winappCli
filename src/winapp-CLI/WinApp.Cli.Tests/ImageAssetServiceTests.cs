@@ -130,6 +130,22 @@ public class ImageAssetServiceTests
         });
     }
 
+    [TestMethod]
+    public void ImageSource_FromViewBoxOnlySvg_UsesViewBoxDimensions()
+    {
+        // No width/height attributes, so the document reports "100%" for both. The viewBox is the
+        // only thing that declares a size, and it has to be enough on its own.
+        var path = Path_("viewbox-only.svg");
+        File.WriteAllText(path,
+            """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24"><rect width="48" height="24" fill="red"/></svg>""");
+
+        using var source = ImageSource.FromFile(new FileInfo(path));
+
+        Assert.IsTrue(source.IsSvg);
+        Assert.AreEqual(2f, source.AspectRatio, 0.01);
+        StringAssert.Contains(source.DimensionsLabel, "48x24");
+    }
+
     #endregion
 
     #region GenerateAssetsFromManifestAsync - workflows
