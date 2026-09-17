@@ -273,6 +273,46 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task FindSingleElementAsync_RecoveredExactId_UsesLiveWindowHandle()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var realRoot = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var exactMatch = FindByAutomationId(automation, realRoot, "btnInvoke");
+        var root = ComProxy<IUIAutomationElement>((method, args) =>
+            method.Name == "FindFirst" ? null : method.Invoke(realRoot, args));
+
+        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+        UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
+        {
+            Assert.AreEqual("btnInvoke", query);
+            Assert.AreEqual(int.MaxValue, maxResults);
+            return [exactMatch];
+        };
+
+        foreach (var fallbackHwnd in new[] { 0L, (long)fx.Hwnd + 1000 })
+        {
+            var result = await svc.FindSingleElementAsync(
+                new UiTarget
+                {
+                    ProcessId = fx.ProcessId,
+                    ProcessName = "WinApp.Cli.Tests",
+                    WindowHandle = fallbackHwnd,
+                    WindowTitle = fx.Title,
+                    IsExplicitWindow = false,
+                },
+                new UiSelector { Query = "btnInvoke" },
+                CancellationToken.None);
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual(fx.Hwnd, result.WindowHandle,
+                "the recovered element's live top-level HWND must replace a missing or stale target HWND");
+        }
+    }
+
+    [TestMethod]
     public async Task FindSingleElementAsync_PartialNonzeroBulkResult_UsesCompleteSetForDisambiguation()
     {
         using var fx = new UiaTestFixture();

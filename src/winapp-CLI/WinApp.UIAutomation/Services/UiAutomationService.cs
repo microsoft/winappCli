@@ -641,7 +641,7 @@ return Task.FromResult<UiElement?>(null);
         {
             var nextId = 0;
             var exactResult = ToUiElement(recoveredExactMatch, "", ref nextId);
-            exactResult.WindowHandle = uiTarget.WindowHandle;
+            SetResolvedWindowHandle(exactResult, recoveredExactMatch, uiTarget.WindowHandle);
             return Task.FromResult<UiElement?>(exactResult);
         }
 
