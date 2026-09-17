@@ -645,8 +645,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
             foreach (var candidate in EnumerateExplicitControlView(windowRoot, ct))
             {
                 // Failed identity reads must not turn a partial traversal into a unique match.
-                var automationId = candidate.get_CurrentAutomationId().ToString() ?? string.Empty;
-                var name = allowSubstring ? candidate.get_CurrentName().ToString() ?? string.Empty : string.Empty;
+                var automationId = GetBstr(() => candidate.get_CurrentAutomationId());
+                var name = allowSubstring ? GetBstr(() => candidate.get_CurrentName()) : string.Empty;
                 var destination = automationId == query ? exactMatches
                     : allowSubstring && (automationId.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                       name.Contains(query, StringComparison.OrdinalIgnoreCase)) ? substringMatches : null;
