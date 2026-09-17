@@ -77,6 +77,10 @@ internal sealed class UiStatusResult
     public string ProcessName { get; set; } = "";
     public string? WindowTitle { get; set; }
     public long Hwnd { get; set; }
+    public uint? WindowDpi { get; set; }
+    public double? Scale { get; set; }
+    public string? DpiAwareness { get; set; }
+    public string? CoordinateSpace { get; set; }
 }
 
 internal sealed class UiInspectResult
@@ -102,6 +106,11 @@ internal sealed class UiInspectWindowInfo
     public long Hwnd { get; set; }
     public string? Title { get; set; }
     public string? ClassName { get; set; }
+    public uint? WindowDpi { get; set; }
+    public double? Scale { get; set; }
+    public string? DpiAwareness { get; set; }
+    public string? CoordinateSpace { get; set; }
+    public string? DpiError { get; set; }
     /// <summary>Total real elements (counting nested children) belonging to this window.</summary>
     public int ElementCount { get; set; }
     /// <summary>Root elements for this window. Children are nested via <c>UiElement.Children</c>.</summary>
@@ -118,6 +127,7 @@ internal sealed class UiSearchResult
 internal sealed class UiPropertyResult
 {
     public string ElementId { get; set; } = "";
+    public UiElement Element { get; set; } = new();
     public Dictionary<string, string?> Properties { get; set; } = [];
 }
 
