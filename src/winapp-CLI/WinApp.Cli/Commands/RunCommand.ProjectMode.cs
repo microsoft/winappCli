@@ -161,6 +161,12 @@ internal partial class RunCommand
             // Resolve the target architecture: --runtime's arch beats --arch; else the process arch.
             if (!TryResolveArchitecture(archOption, runtimeOption, out var architecture, out var archError))
             {
+                if (aot)
+                {
+                    return Fail(
+                        $"Invalid Native AOT architecture. {archError} Native AOT supports only x64 and arm64.",
+                        isJson);
+                }
                 return Fail(archError!, isJson);
             }
 

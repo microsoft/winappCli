@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Xml.Linq;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
@@ -109,39 +110,43 @@ internal sealed partial class ProjectRunService
             writeLine = CreateSynchronizedRedactedLineWriter();
         }
 
-        var propertyJsonStarted = false;
-        string? pendingOpeningBrace = null;
+        List<string>? propertyCandidate = null;
         var outputLock = new object();
         void WritePublishOutput(string line)
         {
             lock (outputLock)
             {
-                if (propertyJsonStarted)
-                {
-                    return;
-                }
                 var trimmed = line.Trim();
-                if (pendingOpeningBrace is not null)
+                if (propertyCandidate is not null)
                 {
-                    if (trimmed.StartsWith("\"Properties\":", StringComparison.Ordinal))
+                    propertyCandidate.Add(line);
+                    if (propertyCandidate.Count == 2 &&
+                        !trimmed.StartsWith("\"Properties\":", StringComparison.Ordinal))
                     {
-                        pendingOpeningBrace = null;
-                        propertyJsonStarted = true;
+                        foreach (var bufferedLine in propertyCandidate)
+                        {
+                            writeLine(bufferedLine);
+                        }
+                        propertyCandidate = null;
                         return;
                     }
-                    writeLine(pendingOpeningBrace);
-                    pendingOpeningBrace = null;
+
+                    var candidateText = string.Join(Environment.NewLine, propertyCandidate);
+                    if (TryParseCompletePropertyEnvelope(candidateText))
+                    {
+                        propertyCandidate = null;
+                    }
+                    return;
                 }
-                // MSBuild ends stdout with its Properties envelope. A project message beginning
-                // with '{' is not enough evidence to hide it or any diagnostics that follow.
+
                 if (trimmed == "{")
                 {
-                    pendingOpeningBrace = line;
+                    propertyCandidate = [line];
                 }
-                else if (trimmed.StartsWith('{') &&
-                    trimmed[1..].TrimStart().StartsWith("\"Properties\":", StringComparison.Ordinal))
+                else if (trimmed.StartsWith('{') && TryParseCompletePropertyEnvelope(trimmed))
                 {
-                    propertyJsonStarted = true;
+                    // Suppress only a complete MSBuild property envelope. A target-emitted partial
+                    // Properties object is ordinary publish output and must remain visible.
                 }
                 else
                 {
@@ -164,11 +169,29 @@ internal sealed partial class ProjectRunService
         {
             lock (outputLock)
             {
-                if (pendingOpeningBrace is not null)
+                if (propertyCandidate is not null)
                 {
-                    writeLine(pendingOpeningBrace);
+                    foreach (var bufferedLine in propertyCandidate)
+                    {
+                        writeLine(bufferedLine);
+                    }
                 }
             }
+        }
+    }
+
+    private static bool TryParseCompletePropertyEnvelope(string text)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            return document.RootElement.TryGetProperty("Properties", out var properties) &&
+                properties.ValueKind == JsonValueKind.Object &&
+                RequestedProperties.All(name => properties.TryGetProperty(name, out _));
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
