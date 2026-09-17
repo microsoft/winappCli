@@ -29,8 +29,11 @@
 .PARAMETER UseExistingArtifacts
     With -OnlyTests, validate artifacts\cli\win-x64\winapp.exe, artifacts\cli\win-arm64\winapp.exe,
     and all four same-version packages in artifacts\nuget, then run every test suite without
-    publishing or packaging again. Requires Pester 5+. Download both artifact folders first.
+    publishing or packaging again. All and Core require Pester 5+. Download both artifact folders first.
     Cannot be combined with -Clean, -Stable, -Bake, -SkipTests, or -FailOnTestFailure:$false.
+.PARAMETER TestSuite
+    With -OnlyTests -UseExistingArtifacts, run All (default), Core (CLI, Node, analyzer,
+    and Pester suites), or UIAutomation. Use separate workspaces when running suites concurrently.
 .PARAMETER Stable
     Use stable build configuration (default: false, uses prerelease config)
 .PARAMETER SkipBake
@@ -84,6 +87,8 @@ param(
     [Alias("TestsOnly")]
     [switch]$OnlyTests = $false,
     [switch]$UseExistingArtifacts = $false,
+    [ValidateSet('All', 'Core', 'UIAutomation')]
+    [string]$TestSuite = 'All',
     [switch]$Stable = $false,
     [switch]$SkipBake = $false,
     [switch]$Bake = $false
@@ -101,6 +106,12 @@ if ($UseExistingArtifacts -and (
     Write-Error "-UseExistingArtifacts requires -OnlyTests and cannot be combined with -Clean, -Stable, -Bake, -SkipTests, or -FailOnTestFailure:`$false."
     exit 1
 }
+if ($TestSuite -ne 'All' -and -not $UseExistingArtifacts) {
+    Write-Error "-TestSuite requires -OnlyTests -UseExistingArtifacts."
+    exit 1
+}
+$RunCoreTests = $TestSuite -ne 'UIAutomation'
+$RunUiAutomationTests = $TestSuite -ne 'Core'
 
 function Assert-NuGetPackages {
     param([string]$Path)
@@ -182,16 +193,18 @@ try
             }
         }
         $FullVersion = Assert-NuGetPackages -Path $NuGetOutput
-        $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
-        if (-not $pesterMod) {
-            throw "Pester 5+ is required with -UseExistingArtifacts; install it before running validation."
-        }
-        foreach ($RequiredTestsPath in @($NuGetTestsPath, $ScriptsTestsPath)) {
-            if (-not (Test-Path $RequiredTestsPath)) {
-                throw "Required test suite missing: $RequiredTestsPath"
+        if ($RunCoreTests) {
+            $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
+            if (-not $pesterMod) {
+                throw "Pester 5+ is required with -UseExistingArtifacts; install it before running validation."
             }
+            foreach ($RequiredTestsPath in @($NuGetTestsPath, $ScriptsTestsPath)) {
+                if (-not (Test-Path $RequiredTestsPath)) {
+                    throw "Required test suite missing: $RequiredTestsPath"
+                }
+            }
+            Import-Module $pesterMod -Force -ErrorAction Stop
         }
-        Import-Module $pesterMod -Force -ErrorAction Stop
     }
 
     Write-Host "[*] Starting Windows SDK build process..." -ForegroundColor Green
@@ -495,8 +508,9 @@ try
     # TreatWarningsAsErrors is Release-only (Directory.Build.props), so pass it explicitly here
     # to keep the warning-as-error quality gate the previous Release test build provided.
     if (-not $SkipTests) {
-        Write-Host "[BUILD] Building CLI solution (Debug, for tests + coverage)..." -ForegroundColor Blue
-        dotnet build $CliSolutionPath -c Debug -p:TreatWarningsAsErrors=true
+        $TestBuildPath = if ($TestSuite -eq 'UIAutomation') { $UiAutomationTestsProjectPath } else { $CliSolutionPath }
+        Write-Host "[BUILD] Building $TestBuildPath (Debug, for tests + coverage)..." -ForegroundColor Blue
+        dotnet build $TestBuildPath -c Debug -p:TreatWarningsAsErrors=true
         if ($LASTEXITCODE -ne 0) {
             Write-Error "Failed to build CLI solution"
             exit 1
@@ -505,7 +519,7 @@ try
 
     # Step 4: Build Node CLI so E2E tests that invoke node cli.js can run
     # Package-only builds leave installation, lint, format, and compilation to package-npm.ps1.
-    if (-not $SkipTests) {
+    if (-not $SkipTests -and $RunCoreTests) {
         Write-Host "[BUILD] Building Node CLI (for tests)..." -ForegroundColor Blue
         Push-Location (Join-Path $ProjectRoot "src\winapp-npm")
         try {
@@ -578,7 +592,11 @@ try
         # Every test project runs. WinApp.UIAutomation.Tests covers the automation engine, which now
         # lives in its own assembly -- running only WinApp.Cli.Tests would leave it untested in CI.
         $TestExitCode = 0
-        foreach ($TestProject in @($CliTestsProjectPath, $UiAutomationTestsProjectPath)) {
+        $TestProjects = @(
+            if ($RunCoreTests) { $CliTestsProjectPath }
+            if ($RunUiAutomationTests) { $UiAutomationTestsProjectPath }
+        )
+        foreach ($TestProject in $TestProjects) {
             $TestProjectName = [System.IO.Path]::GetFileNameWithoutExtension($TestProject)
             Write-Host "[TEST] Running $TestProjectName..." -ForegroundColor Blue
             dotnet run --project $TestProject -c Debug --no-build --results-directory $CliSolutionDir\TestResults --report-trx --report-trx-filename "$TestProjectName.trx" --coverage --coverage-settings $CoverageSettings --coverage-output-format cobertura --coverage-output "$TestProjectName.cobertura.xml"
@@ -591,19 +609,21 @@ try
         # Run the WinUI analyzer test suite (separate solution folder, src\winapp-Analyzer). These
         # xUnit tests validate the analyzer rules themselves; fold their result into $TestExitCode so a
         # regression fails the build the same way the CLI suite does. See issue #634.
-        Write-Host "[TEST] Running WinUI analyzer tests..." -ForegroundColor Blue
-        dotnet test $AnalyzerTestsProjectPath -c Debug --results-directory $CliSolutionDir\TestResults
-        if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
-            $TestExitCode = $LASTEXITCODE
-        }
+        if ($RunCoreTests) {
+            Write-Host "[TEST] Running WinUI analyzer tests..." -ForegroundColor Blue
+            dotnet test $AnalyzerTestsProjectPath -c Debug --results-directory $CliSolutionDir\TestResults
+            if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
+                $TestExitCode = $LASTEXITCODE
+            }
 
-        # Verify the analyzer package's MSBuild self-deactivation contract (the .targets
-        # stand-down when WindowsAppSDKProvidesWinUIAnalyzer=true). The xUnit suite runs
-        # Roslyn in-memory and can't cover MSBuild targets, so this guards it separately.
-        Write-Host "[TEST] Verifying WinUI analyzer stand-down contract..." -ForegroundColor Blue
-        & "$ProjectRoot\src\winapp-Analyzer\tests\Test-StandDownContract.ps1"
-        if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
-            $TestExitCode = $LASTEXITCODE
+            # Verify the analyzer package's MSBuild self-deactivation contract (the .targets
+            # stand-down when WindowsAppSDKProvidesWinUIAnalyzer=true). The xUnit suite runs
+            # Roslyn in-memory and can't cover MSBuild targets, so this guards it separately.
+            Write-Host "[TEST] Verifying WinUI analyzer stand-down contract..." -ForegroundColor Blue
+            & "$ProjectRoot\src\winapp-Analyzer\tests\Test-StandDownContract.ps1"
+            if ($LASTEXITCODE -ne 0 -and $TestExitCode -eq 0) {
+                $TestExitCode = $LASTEXITCODE
+            }
         }
     
         # Copy test results to artifacts BEFORE checking for failure - find all TRX files
@@ -727,7 +747,7 @@ try
     }
 
     # OnlyTests normally skips packaging; artifact reuse must still validate the downloaded packages.
-    if (-not $SkipTests -and ((-not $SkipNuGet) -or $UseExistingArtifacts)) {
+    if (-not $SkipTests -and $RunCoreTests -and ((-not $SkipNuGet) -or $UseExistingArtifacts)) {
         if (Test-Path $NuGetTestsPath) {
             $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
             if ($pesterMod) {
@@ -760,7 +780,7 @@ try
     # Run the scripts/tests Pester suite (MS Learn docs validator + shared test helpers).
     # These gate the release doc-porting job and the sample test harness, so keep them green.
     # Skipped with -SkipTests.
-    if (-not $SkipTests) {
+    if (-not $SkipTests -and $RunCoreTests) {
         if (Test-Path $ScriptsTestsPath) {
             $pesterMod = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
             if ($pesterMod) {
@@ -857,7 +877,11 @@ try
     if ($SkipTests) {
         Write-Host "[DONE] Packages built; awaiting validation (tests skipped)." -ForegroundColor Yellow
     } elseif ($UseExistingArtifacts) {
-        Write-Host "[DONE] Existing artifacts validated successfully!" -ForegroundColor Green
+        if ($TestSuite -eq 'All') {
+            Write-Host "[DONE] Existing artifacts validated successfully!" -ForegroundColor Green
+        } else {
+            Write-Host "[DONE] $TestSuite validation passed; the other suite must also pass." -ForegroundColor Green
+        }
     } else {
         Write-Host "[DONE] Ready for distribution!" -ForegroundColor Green
     }

@@ -74,9 +74,17 @@ Describe 'Artifact-first workflow dependencies' {
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
         }
         (Get-JobText $buildWorkflow 'validate-tests') |
-            Should -Match 'build-cli\.ps1 -OnlyTests -UseExistingArtifacts'
+            Should -Match 'build-cli\.ps1 -OnlyTests -UseExistingArtifacts -TestSuite \$\{\{ matrix.suite \}\}'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-e2e-winui-ui\.ps1'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
+    }
+
+    It 'runs both validation lanes on isolated runners and never cancels the other on failure' {
+        $validation = Get-JobText $buildWorkflow 'validate-tests'
+        $validation | Should -Match 'suite: \[Core, UIAutomation\]'
+        $validation | Should -Match 'fail-fast: false'
+        $validation | Should -Match 'runs-on: windows-latest'
+        $validation | Should -Match 'name: validation-results-\$\{\{ matrix.suite \}\}'
     }
 
     It 'reuses same-run packages safely on PRs and still builds for manual sample runs' {
@@ -107,7 +115,7 @@ Describe 'Artifact-first workflow dependencies' {
     It 'joins package and test artifacts before collecting and reporting metrics' {
         $metrics = Get-JobText $buildWorkflow 'metrics'
         $metrics | Should -Match 'needs: \[build-artifacts, validate-tests\]'
-        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'test-results')) {
+        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Core', 'validation-results-UIAutomation', 'test-results')) {
             $metrics | Should -Match "(?m)^\s+name: $artifact\r?$"
         }
         $metrics.IndexOf('name: test-results') | Should -BeLessThan $metrics.IndexOf('uses: ./.github/actions/collect-metrics')

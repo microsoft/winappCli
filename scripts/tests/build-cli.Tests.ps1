@@ -275,6 +275,80 @@ Describe 'build-cli.ps1 control flow' {
         $result.Output | Should -Not -Match 'Ready for distribution'
     }
 
+    It 'runs only the UI Automation lane without Node, analyzer or Pester setup' {
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'UIAutomation' } -PesterVersion ''
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+        $result.Trace | Should -Match 'dotnet build src\\winapp-CLI\\WinApp.UIAutomation.Tests\\WinApp.UIAutomation.Tests.csproj -c Debug -p:\s*TreatWarningsAsErrors=true'
+        $result.Trace | Should -Match 'dotnet run --project src\\winapp-CLI\\WinApp.UIAutomation.Tests'
+        $result.Trace | Should -Not -Match 'dotnet publish|winapp.sln|(?m)^npm |schema|WinApp.Cli.Tests.csproj|dotnet test|stand-down|nuget-pester|scripts-pester'
+        Join-Path $root 'artifacts\TestResults\WinApp.UIAutomation.Tests.trx' | Should -Exist
+        Join-Path $root 'artifacts\TestResults\WinApp.Cli.Tests.trx' | Should -Not -Exist
+        $result.Output | Should -Match 'the other suite must also pass'
+    }
+
+    It 'runs every other suite in the Core lane without rerunning UI Automation tests' {
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Core' }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+        $result.Trace | Should -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build'
+        $result.Trace | Should -Match 'npm test'
+        $result.Trace | Should -Match 'dotnet test .*Microsoft.WindowsAppSDK.Analyzers.Tests.csproj'
+        foreach ($name in @('stand-down', 'nuget-pester', 'scripts-pester')) {
+            $result.Calls.Name | Should -Contain $name
+        }
+        $result.Trace | Should -Not -Match 'dotnet publish|WinApp.UIAutomation.Tests.csproj'
+        Join-Path $root 'artifacts\TestResults\WinApp.Cli.Tests.trx' | Should -Exist
+        Join-Path $root 'artifacts\TestResults\WinApp.UIAutomation.Tests.trx' | Should -Not -Exist
+    }
+
+    It 'covers All exactly once across Core and UIAutomation, including report names' {
+        $suiteCalls = @{}
+        $suiteReports = @{}
+        foreach ($suite in @('All', 'Core', 'UIAutomation')) {
+            $fixtureRoot = New-BuildFixture
+            $result = Invoke-BuildFixture $fixtureRoot -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = $suite }
+            $result.ExitCode | Should -Be 0 -Because $result.Output
+            $suiteCalls[$suite] = @($result.Calls | Where-Object {
+                $_.Name -in @('stand-down', 'nuget-pester', 'scripts-pester') -or
+                ($_.Name -eq 'npm' -and $_.Arguments[0] -eq 'test') -or
+                ($_.Name -eq 'dotnet' -and (
+                    $_.Arguments[0] -eq 'test' -or
+                    ($_.Arguments -contains '--report-trx-filename')))
+            } | ForEach-Object {
+                # Fixture paths differ; keep just the suite identity.
+                if ($_.Name -eq 'dotnet') {
+                    if ($_.Arguments[0] -eq 'test') { 'analyzer' } else {
+                        $_.Arguments[[array]::IndexOf($_.Arguments, '--report-trx-filename') + 1]
+                    }
+                } else { $_.Name }
+            } | Sort-Object)
+            $suiteReports[$suite] = @(Get-ChildItem (Join-Path $fixtureRoot 'artifacts\TestResults') -File |
+                Where-Object Extension -In @('.trx', '.xml') |
+                Select-Object -ExpandProperty Name | Sort-Object)
+        }
+        (($suiteCalls.Core + $suiteCalls.UIAutomation | Sort-Object) -join ',') |
+            Should -BeExactly ($suiteCalls.All -join ',')
+        (($suiteReports.Core + $suiteReports.UIAutomation | Sort-Object) -join ',') |
+            Should -BeExactly ($suiteReports.All -join ',')
+    }
+
+    It 'keeps <Suite> lane failure nonzero and preserves its reports' -ForEach @(
+        @{ Suite = 'Core'; Step = 'cli-tests'; Report = 'WinApp.Cli.Tests.trx' }
+        @{ Suite = 'UIAutomation'; Step = 'uia-tests'; Report = 'WinApp.UIAutomation.Tests.trx' }
+    ) {
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = $Suite } -Fail $Step
+
+        $result.ExitCode | Should -Not -Be 0
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+        Join-Path $root "artifacts\TestResults\$Report" | Should -Exist
+    }
+
     It 'keeps the default publish, test, docs, and package pipeline' {
         $result = Invoke-BuildFixture $root
 
@@ -312,6 +386,8 @@ Describe 'build-cli.ps1 control flow' {
 
     It 'rejects <Case> before changing inputs' -ForEach @(
         @{ Case = 'reuse without OnlyTests'; Flags = @{ UseExistingArtifacts = $true } }
+        @{ Case = 'suite without reuse'; Flags = @{ OnlyTests = $true; TestSuite = 'Core' } }
+        @{ Case = 'unknown suite'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Typo' } }
         @{ Case = 'Clean'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; Clean = $true } }
         @{ Case = 'Stable'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; Stable = $true } }
         @{ Case = 'Bake'; Flags = @{ OnlyTests = $true; UseExistingArtifacts = $true; Bake = $true } }

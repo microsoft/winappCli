@@ -247,6 +247,9 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 test suite, documentation validation, UI E2E, and (on PRs) sample tests as
 independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
 not republish or delete the downloaded CLI and NuGet packages.
+CI runs `-TestSuite Core` and `-TestSuite UIAutomation` on separate runners,
+never concurrently in one workspace. Together they cover the default `All`
+suite; both results feed the required check and combined `test-results` artifact.
 
 Sample & guide tests use the reusable `.github/workflows/test-samples.yml`
 matrix with `npm-package` and `nuget-packages` from the same run. Manual sample

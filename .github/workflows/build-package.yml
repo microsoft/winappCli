@@ -96,6 +96,10 @@ jobs:
 
   validate-tests:
     needs: build-artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [Core, UIAutomation]
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -109,6 +113,7 @@ jobs:
         dotnet-version: 10.0.x
 
     - name: Setup Node.js
+      if: matrix.suite == 'Core'
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '24'
@@ -125,14 +130,14 @@ jobs:
         name: nuget-packages
         path: artifacts/nuget
 
-    - name: Run full validation without republishing
-      run: .\scripts\build-cli.ps1 -OnlyTests -UseExistingArtifacts
+    - name: Run validation without republishing
+      run: .\scripts\build-cli.ps1 -OnlyTests -UseExistingArtifacts -TestSuite ${{ matrix.suite }}
 
     - name: Upload test results
       if: ${{ !cancelled() }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: test-results
+        name: validation-results-${{ matrix.suite }}
         path: artifacts/TestResults/
         if-no-files-found: error
 
@@ -212,11 +217,27 @@ jobs:
         name: nuget-packages
         path: artifacts/nuget
 
-    - name: Download test results
+    - name: Download core test results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-Core
+        path: artifacts/TestResults
+
+    - name: Download UI Automation test results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-UIAutomation
+        path: artifacts/TestResults
+
+    # Keep the public/reporting artifact name even if one lane failed before reporting.
+    - name: Upload combined test results
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: test-results
         path: artifacts/TestResults
+        if-no-files-found: error
 
     - name: Collect build metrics
       uses: ./.github/actions/collect-metrics
