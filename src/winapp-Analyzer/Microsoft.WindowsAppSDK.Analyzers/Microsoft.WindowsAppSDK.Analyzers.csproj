@@ -51,8 +51,8 @@
       (CS9057), so pinning 4.8.0 keeps .NET 8 users receiving diagnostics. The rules use only
       stable analyzer/SyntaxKind APIs, so 4.8 is sufficient.
     -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Package-root content (also satisfies NuGet's non-empty-package check, NU5017). -->
