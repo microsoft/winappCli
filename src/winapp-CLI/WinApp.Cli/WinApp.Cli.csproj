@@ -35,6 +35,14 @@
     <DebuggerSupport>false</DebuggerSupport>
     <EventSourceSupport>true</EventSourceSupport>
 
+    <!-- The UI Automation projects generate XML documentation because their NuGet packages ship
+         IntelliSense, and a ProjectReference copies that XML next to the consuming output. A
+         NativeAOT single-file exe can never read it, so it was ~260 KB of dead weight in every
+         channel that ships the CLI: the loose binaries, the MSIX, the npm package, and the tools
+         folder of the CLI NuGet package. Those packages still carry their own copy under lib/,
+         built from their own output, so consumer IntelliSense is unaffected. -->
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
+
     <!-- Allow test project to access internal types -->
     <InternalsVisibleTo>WinApp.Cli.Tests</InternalsVisibleTo>
     <InternalsVisibleTo>WinApp.Cli.SnapshotBaker</InternalsVisibleTo>
