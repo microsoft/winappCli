@@ -6,6 +6,56 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    [DataRow(true, 123L, 123L, 123L)]
+    [DataRow(true, 456L, 123L, 456L)]
+    [DataRow(true, null, 123L, 123L)]
+    [DataRow(true, 0L, 123L, 123L)]
+    [DataRow(true, null, 0L, 0L)]
+    [DataRow(false, 123L, 123L, 0L)]
+    [DataRow(false, 456L, 123L, 456L)]
+    [DataRow(false, null, 123L, 0L)]
+    public async Task SerializedWindowIdentity_ClosedHwnd_StrictBindingNeverUsesRecovery(
+        bool strictIdentity, long? sourceHwnd, long targetHwnd, long expectedBoundHwnd)
+    {
+        var svc = NewService();
+        var target = new UiTarget { ProcessId = Environment.ProcessId, WindowHandle = targetHwnd };
+        var element = new UiElement { Id = "save", AutomationId = "save", Selector = "save", WindowHandle = sourceHwnd };
+        var boundHandles = new List<nint>();
+        var recoveryCalls = 0;
+        UiAutomationService.s_elementFromHandle = (_, hwnd) =>
+        {
+            boundHandles.Add(hwnd);
+            throw new System.Runtime.InteropServices.COMException("Window closed", unchecked((int)0x80040201));
+        };
+        // Recovery can select a sibling window with the same AutomationId. It must not be
+        // reached for a strict action with a recorded source or target HWND.
+        UiAutomationService.s_getRootElement = (_, _) =>
+        {
+            recoveryCalls++;
+            return null;
+        };
+
+        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () =>
+        {
+            if (strictIdentity)
+            {
+                await svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None);
+            }
+            else
+            {
+                await svc.InvokeAsync(target, element, CancellationToken.None);
+            }
+        });
+
+        StringAssert.Contains(error.Message, "stale");
+        CollectionAssert.AreEqual(
+            expectedBoundHwnd == 0 ? Array.Empty<nint>() : new[] { (nint)expectedBoundHwnd },
+            boundHandles.ToArray());
+        Assert.AreEqual(expectedBoundHwnd == 0 ? 1 : 0, recoveryCalls);
+        Assert.AreEqual(1, svc.SerializedElementResolutionCount);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ExplicitSelection_NoActivateOtherWindowExactId_WinsOverMainSubstrings(bool duplicateMain)

@@ -1495,12 +1495,16 @@ return Task.FromResult<UiElement?>(null);
     {
         Interlocked.Increment(ref _serializedElementResolutionCount);
 
-        // Use the element's source HWND if it came from a different window (popup/dialog)
+        // Strict identity must not recover a closed source or target HWND onto a sibling window.
         IUIAutomationElement? root;
-        if (element.WindowHandle is { } elHwnd && elHwnd != 0 && elHwnd != uiTarget.WindowHandle)
+        if (element.WindowHandle is { } elHwnd && elHwnd != 0 && (strictIdentity || elHwnd != uiTarget.WindowHandle))
         {
             root = GetRootElementForHwnd((nint)elHwnd);
             _logger.LogDebug("Resolving element on source HWND {Hwnd}", elHwnd);
+        }
+        else if (strictIdentity && uiTarget.WindowHandle != 0)
+        {
+            root = GetRootElementForHwnd((nint)uiTarget.WindowHandle);
         }
         else
         {
