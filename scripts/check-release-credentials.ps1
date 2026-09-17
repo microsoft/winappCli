@@ -1,21 +1,28 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Read-only validation of the credentials and service connections a release depends on.
+    Read-only validation of the GitHub credentials a release depends on.
 
 .DESCRIPTION
-    Releases have been blocked more than once by a credential that was still configured but
-    no longer usable: an expired PAT, a token that lost push rights on a fork, a service
-    connection that was rotated or de-authorized. None of that is visible until the release
-    is already running.
+    Releases have been blocked more than once by a credential that was still configured but no
+    longer usable: an expired PAT, or a token that lost push rights on a fork. Neither is visible
+    until the release is already running.
 
-    This script checks all of it without publishing anything. It performs GET requests only:
-    it never syncs or pushes to a fork, never creates a GitHub release, and never signs.
+    This script checks those without publishing anything. It performs GET requests only: it never
+    syncs or pushes to a fork, and never creates a release.
 
-    Every check reports PASS, WARN, or FAIL. WARN means "could not determine" (usually a
-    permission gap in the checker itself, not the credential); FAIL means the credential is
-    definitively unusable and the next release would break. The exit code is non-zero only
-    when there is at least one FAIL.
+    Service connections are deliberately NOT checked here. Reading them over the REST API needs a
+    permission the build identity does not have and that nothing else needs - and an empty result
+    is indistinguishable from "deleted", which failed the weekly rehearsal for two weeks running
+    (builds 20260907.1 and 20260914.1). More importantly, metadata cannot tell you whether a
+    connection's credential still works. The two federated connections are instead exercised for
+    real in .pipelines/release.yml by acquiring a token, which proves exactly that. The GitHub and
+    NuGet connections cannot be exercised without publishing; see .pipelines/README.md.
+
+    Every check reports PASS, WARN, or FAIL. WARN means "could not determine" (usually a transient
+    or permission issue in the checker itself, not the credential); FAIL means the credential is
+    definitively unusable and the next release would break. The exit code is non-zero only when
+    there is at least one FAIL.
 
 .PARAMETER GitHubToken
     The PAT used by the release for release-notes generation, WinGet submission and the
@@ -26,19 +33,6 @@
 
 .PARAMETER MSLearnDocsFork
     owner/repo of the windows-dev-docs-pr fork the docs PR is pushed to.
-
-.PARAMETER AdoOrganizationUri
-    Collection URI, e.g. https://dev.azure.com/microsoft/. Falls back to
-    $env:SYSTEM_COLLECTIONURI. Skipped when absent (i.e. when running locally).
-
-.PARAMETER AdoProject
-    ADO project holding the service connections. Falls back to $env:SYSTEM_TEAMPROJECT.
-
-.PARAMETER AdoAccessToken
-    Token used to read service endpoints. Falls back to $env:SYSTEM_ACCESSTOKEN.
-
-.PARAMETER ServiceConnections
-    Names of the service connections the release requires.
 
 .PARAMETER MinimumTokenLifetimeDays
     Warn when the PAT expires within this many days. Default: 21, so a warning shows up at
@@ -53,10 +47,6 @@ param(
     [string]$GitHubToken = '',
     [string]$WingetPkgsFork = '',
     [string]$MSLearnDocsFork = '',
-    [string]$AdoOrganizationUri = '',
-    [string]$AdoProject = '',
-    [string]$AdoAccessToken = '',
-    [string[]]$ServiceConnections = @(),
     [int]$MinimumTokenLifetimeDays = 21
 )
 
@@ -327,104 +317,6 @@ function Test-RepoAccess {
 # not checked - the job checked it out minutes earlier, so a failure there is not reachable here.
 Test-RepoAccess -Repo $WingetPkgsFork -Label 'winget-pkgs fork push access' -RequirePush
 Test-RepoAccess -Repo $MSLearnDocsFork -Label 'MS Learn docs fork push access' -RequirePush
-
-# ---------------------------------------------------------------------------
-# ADO service connections
-# ---------------------------------------------------------------------------
-
-Write-Host ''
-Write-Host '=== Azure DevOps service connections ===' -ForegroundColor Cyan
-
-if (-not $AdoOrganizationUri) { $AdoOrganizationUri = $env:SYSTEM_COLLECTIONURI }
-if (-not $AdoProject) { $AdoProject = $env:SYSTEM_TEAMPROJECT }
-if (-not $AdoAccessToken) { $AdoAccessToken = $env:SYSTEM_ACCESSTOKEN }
-
-if (-not $ServiceConnections) {
-    Add-Result -Status 'WARN' -Check 'Service connections' -Detail 'No connection names supplied - skipping.'
-}
-elseif (-not $AdoOrganizationUri -or -not $AdoProject) {
-    Add-Result -Status 'WARN' -Check 'Service connections' -Detail 'Not running in Azure Pipelines (no collection URI/project) - skipping.'
-}
-elseif (-not $AdoAccessToken) {
-    Add-Result -Status 'WARN' -Check 'Service connections' -Detail 'SYSTEM_ACCESSTOKEN is not available. Map it into the step env to enable this check.'
-}
-else {
-    $encodedProject = [uri]::EscapeDataString($AdoProject)
-    $baseUri = "$($AdoOrganizationUri.TrimEnd('/'))/$encodedProject/_apis/serviceendpoint/endpoints"
-    $adoHeaders = @{
-        Authorization = "Bearer $AdoAccessToken"
-        Accept        = 'application/json'
-    }
-
-    # What this check can and cannot prove.
-    #
-    # Azure DevOps does NOT return 401/403 when the caller cannot see a service endpoint - it
-    # returns HTTP 200 with an empty list, which is byte-identical to "this connection does not
-    # exist". Worse, endpoint `Read` is granted PER CONNECTION, so being able to see one endpoint
-    # says nothing about being able to see another. Absence is therefore never provable from here.
-    #
-    # So: a visible connection yields a real verdict (present, and ready or not), and anything
-    # invisible is reported as inconclusive rather than missing. Build 20260914.1 failed the first
-    # weekly rehearsal with four "Not found" verdicts against four connections that all existed and
-    # were ready; that must not happen again, and a partial permission grant must not recreate it.
-    #
-    # One unfiltered call rather than one per name: the same response answers every name, and it
-    # also tells us whether the identity has any endpoint visibility at all.
-    #
-    # includeFailed=true is load-bearing. It defaults to FALSE, which omits endpoints with
-    # isReady:false - exactly the ones the readiness verdict below exists to catch. Without it a
-    # broken connection is invisible and gets downgraded to "not visible" (WARN) instead of FAIL.
-    # Verified against pde-oss: the default call returned 19 endpoints, all isReady:true, while
-    # includeFailed=true returned 21 - the two extras both isReady:false.
-    $visible = $null
-    $probeFailure = $null
-    try {
-        $all = Invoke-RestMethod -Uri "$baseUri`?includeFailed=true&api-version=7.1" -Headers $adoHeaders -Method Get
-        $visible = @()
-        if ($all.count -gt 0) { $visible = @($all.value) }
-    }
-    catch {
-        $probeStatus = 0
-        if ($_.Exception.PSObject.Properties.Name -contains 'Response' -and $_.Exception.Response) {
-            $probeStatus = [int]$_.Exception.Response.StatusCode
-        }
-        $probeFailure = "status $probeStatus"
-    }
-
-    if ($null -eq $visible) {
-        Add-Result -Status 'WARN' -Check 'Service connections' -Detail "Could not list service endpoints (the API returned $probeFailure), so none could be verified."
-    }
-    elseif ($visible.Count -eq 0) {
-        Add-Result -Status 'WARN' -Check 'Service connections' -Detail "The build identity cannot see any service endpoint in '$AdoProject', so none could be verified. Grant the build service 'Read' on the service connections to enable this check."
-    }
-    else {
-        foreach ($name in $ServiceConnections) {
-            if (-not $name) { continue }
-
-            $endpoint = $visible | Where-Object { $_.name -eq $name } | Select-Object -First 1
-
-            if (-not $endpoint) {
-                # Cannot distinguish "deleted" from "Read not granted on this one", because the
-                # grant is per connection. Reporting this as missing is what broke build 20260914.1.
-                Add-Result -Status 'WARN' -Check "Service connection '$name'" -Detail "Not visible to the build identity. It was renamed or deleted, or 'Read' was not granted on it specifically - this check cannot tell which."
-                continue
-            }
-
-            $isReady = $true
-            if ($endpoint.PSObject.Properties.Name -contains 'isReady') {
-                $isReady = [bool]$endpoint.isReady
-            }
-
-            if ($isReady) {
-                Add-Result -Status 'PASS' -Check "Service connection '$name'" -Detail "Present and ready (type: $($endpoint.type))."
-            }
-            else {
-                # Visible AND explicitly not ready: the one definitive bad verdict available here.
-                Add-Result -Status 'FAIL' -Check "Service connection '$name'" -Detail 'Present but not ready. It is likely mid-rotation or misconfigured.'
-            }
-        }
-    }
-}
 
 # ---------------------------------------------------------------------------
 # Summary
