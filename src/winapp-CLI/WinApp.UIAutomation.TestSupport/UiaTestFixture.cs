@@ -124,9 +124,9 @@ public sealed class UiaTestFixture : IDisposable
         }
     }
 
-    private Form BuildForm()
+    private NonActivatingTestForm BuildForm()
     {
-        var form = new Form
+        var form = new NonActivatingTestForm
         {
             Text = Title,
             Name = "fixtureForm",
@@ -568,7 +568,7 @@ public sealed class UiaTestFixture : IDisposable
         {
             if (_ownedWindow is null || _ownedWindow.IsDisposed)
             {
-                _ownedWindow = new Form
+                _ownedWindow = new NonActivatingTestForm
                 {
                     Text = title,
                     Name = "ownedForm",

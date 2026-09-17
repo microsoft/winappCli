@@ -1350,10 +1350,16 @@ export interface UiGetPropertyOptions extends CommonOptions {
   on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
+  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  className?: string;
   /** Format output as JSON */
   json?: boolean;
   /** Property name to read or filter on */
   property?: string;
+  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  root?: string;
+  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  type?: string;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
   window?: number;
 }
@@ -1367,8 +1373,11 @@ export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise
   if (options.selector) positionals.push(options.selector);
   if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
   if (options.property) args.push('--property', options.property);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1385,8 +1394,14 @@ export interface UiGetValueOptions extends CommonOptions {
   on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
+  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  className?: string;
   /** Format output as JSON */
   json?: boolean;
+  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  root?: string;
+  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  type?: string;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
   window?: number;
 }
@@ -1400,7 +1415,10 @@ export async function uiGetValue(options: UiGetValueOptions = {}): Promise<Winap
   if (options.selector) positionals.push(options.selector);
   if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1759,10 +1777,16 @@ export interface UiSearchOptions extends CommonOptions {
   on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
+  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  className?: string;
   /** Format output as JSON */
   json?: boolean;
   /** Maximum search results */
   max?: number;
+  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  root?: string;
+  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  type?: string;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
   window?: number;
 }
@@ -1776,8 +1800,11 @@ export async function uiSearch(options: UiSearchOptions = {}): Promise<WinappRes
   if (options.selector) positionals.push(options.selector);
   if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
   if (options.max !== undefined) args.push('--max', options.max.toString());
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1956,6 +1983,8 @@ export interface UiWaitForOptions extends CommonOptions {
   on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
+  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  className?: string;
   /** Use substring matching for --value instead of exact match */
   contains?: boolean;
   /** Wait for element to disappear instead of appear */
@@ -1964,8 +1993,12 @@ export interface UiWaitForOptions extends CommonOptions {
   json?: boolean;
   /** Property name to read or filter on */
   property?: string;
+  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  root?: string;
   /** Timeout in milliseconds */
   timeout?: number;
+  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  type?: string;
   /** Wait for element value to equal this string. Uses smart fallback (TextPattern -> ValuePattern -> Name). Combine with --property to check a specific property instead. */
   value?: string;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
@@ -1981,11 +2014,14 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
   if (options.selector) positionals.push(options.selector);
   if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.contains) args.push('--contains');
   if (options.gone) args.push('--gone');
   if (options.json) args.push('--json');
   if (options.property) args.push('--property', options.property);
+  if (options.root !== undefined) args.push('--root', options.root);
   if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.value) args.push('--value', options.value);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
