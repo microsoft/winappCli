@@ -53,7 +53,7 @@ Describe 'winui-app sample' {
 
     # Phase 1 exercises `winapp run` PROJECT MODE against a packaged WinUI app from a
     # clean directory: build + property resolution -> packaged detection -> loose-layout
-    # registration (identity) WITHOUT launching (deterministic, no GUI required).
+    # registration (identity), plus a Native AOT launch and window-liveness check.
     Context 'Phase 1: Project-mode run (from scratch)' {
 
         BeforeAll {
@@ -161,6 +161,110 @@ Describe 'winui-app sample' {
 
         It 'Finds the inferred-profile output with --no-build' -Skip:$script:skip {
             Invoke-WinappCommand -Arguments 'run . --no-build --no-launch'
+        }
+
+        It 'Publishes Native AOT and launches the staged recipe executable with a responsive window' -Skip:$script:skip {
+            # Keep PublishAot local to the app: a global -p would also reach the netstandard library.
+            $projectPath = Join-Path $script:tempDir 'winui-app.csproj'
+            $project = [System.Xml.Linq.XDocument]::Load($projectPath)
+            $project.Root.Add([System.Xml.Linq.XElement]::Parse(
+                '<PropertyGroup><PublishAot>true</PublishAot></PropertyGroup>'))
+            $project.Save($projectPath)
+
+            # run has no --no-register option. Use a unique identity and always unregister it.
+            $manifestPath = Join-Path $script:tempDir 'Package.appxmanifest'
+            $manifest = [System.Xml.Linq.XDocument]::Load($manifestPath)
+            $identityName = "winui-aot-test-$([guid]::NewGuid().ToString('N'))"
+            $manifest.Root.Element($manifest.Root.Name.Namespace + 'Identity').SetAttributeValue('Name', $identityName)
+            $manifest.Save($manifestPath)
+            $layoutDir = Join-Path $script:tempDir 'AotLayout'
+            $stagedExe = Join-Path $layoutDir 'winui-app.exe'
+            $appProcess = $null
+
+            try {
+                $output = Invoke-WinappCommand -Arguments "run . --aot --arch $($script:platform) --detach --json --output-appx-directory AotLayout"
+                $result = ($output -join "`n") | ConvertFrom-Json -ErrorAction Stop
+                $result.ProcessId | Should -BeGreaterThan 0
+                $candidate = Get-Process -Id $result.ProcessId -ErrorAction Stop
+                try {
+                    $candidate.Path | Should -Be $stagedExe
+                    # Retain the process handle so cleanup cannot target a reused PID.
+                    $null = $candidate.Handle
+                    $appProcess = $candidate
+                } finally {
+                    if ($null -eq $appProcess) { $candidate.Dispose() }
+                }
+
+                $deadline = [DateTime]::UtcNow.AddSeconds(30)
+                do {
+                    $appProcess.Refresh()
+                    $appProcess.HasExited | Should -BeFalse -Because 'the Native AOT app must survive startup'
+                    if ($appProcess.MainWindowHandle -ne [IntPtr]::Zero -and $appProcess.Responding) { break }
+                    Start-Sleep -Milliseconds 200
+                } while ([DateTime]::UtcNow -lt $deadline)
+                $appProcess.MainWindowHandle | Should -Not -Be ([IntPtr]::Zero) -Because 'a visible main window must appear within 30 seconds'
+                $appProcess.Responding | Should -BeTrue -Because 'the main window must respond within 30 seconds'
+                $appProcess.WaitForExit(5000) | Should -BeFalse -Because 'the Native AOT app must stay alive for five seconds after its window appears'
+                $appProcess.Refresh()
+                $appProcess.MainWindowHandle | Should -Not -Be ([IntPtr]::Zero)
+                $appProcess.Responding | Should -BeTrue
+
+                [xml]$stagedManifest = Get-Content (Join-Path $layoutDir 'appxmanifest.xml') -Raw
+                $stagedManifest.Package.Identity.Name | Should -Be $identityName
+                $stagedManifest.Package.Identity.ProcessorArchitecture | Should -Be $script:platform.ToLowerInvariant()
+                $stagedManifest.Package.Applications.Application.EntryPoint | Should -Be 'Windows.FullTrustApplication'
+                $executable = $stagedManifest.Package.Applications.Application.Executable
+                $executable | Should -Be 'winui-app.exe'
+                $stagedExe = Join-Path $layoutDir $executable
+                $stagedExe | Should -Exist
+
+                $recipes = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter '*.build.appxrecipe')
+                $recipes.Count | Should -Be 1
+                $recipe = [System.Xml.Linq.XDocument]::Load($recipes[0].FullName)
+                $entries = @($recipe.Descendants() | Where-Object {
+                    $_.Name.LocalName -eq 'AppxPackagedFile' -and
+                    $_.Element($_.Name.Namespace + 'PackagePath').Value -eq $executable
+                })
+                $entries.Count | Should -Be 1
+                $nativeExe = [System.IO.Path]::GetFullPath($entries[0].Attribute('Include').Value, $recipes[0].DirectoryName)
+                $nativeExe | Should -Exist
+                $published = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter $executable |
+                    Where-Object { $_.Directory.Name -eq 'publish' })
+                $published.Count | Should -Be 1
+                (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $nativeExe).Hash
+                (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $published[0].FullName).Hash
+
+                $stream = [System.IO.File]::OpenRead($stagedExe)
+                $pe = [System.Reflection.PortableExecutable.PEReader]::new($stream)
+                try {
+                    $pe.PEHeaders.CorHeader | Should -BeNullOrEmpty -Because 'the staged executable must be native, not a managed assembly'
+                    $expectedMachine = if ($script:rid -eq 'win-arm64') { 'Arm64' } else { 'Amd64' }
+                    $pe.PEHeaders.CoffHeader.Machine.ToString() | Should -Be $expectedMachine
+                } finally {
+                    $pe.Dispose()
+                    $stream.Dispose()
+                }
+            } finally {
+                try {
+                    # If launch succeeded but its JSON was invalid, find only this fixture's executable.
+                    $processes = if ($null -ne $appProcess) { @($appProcess) } else {
+                        @(Get-Process | Where-Object { $_.Path -eq $stagedExe })
+                    }
+                    foreach ($process in $processes) {
+                        try {
+                            if (-not $process.HasExited) {
+                                $process.Kill()
+                                $process.WaitForExit(10000) | Should -BeTrue -Because 'the test process must exit before unregistering its package'
+                            }
+                        } finally {
+                            $process.Dispose()
+                        }
+                    }
+                } finally {
+                    Get-AppxPackage -Name $identityName -ErrorAction Stop |
+                        ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -ErrorAction Stop }
+                }
+            }
         }
     }
 
