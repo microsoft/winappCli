@@ -169,6 +169,33 @@ Describe 'Required build check outcomes' {
 }
 
 Describe 'Required sample check outcomes' {
+    It 'keeps the sample report in the workspace when cleanup changes the working directory' {
+        $workspace = Join-Path $TestDrive 'sample-report-workspace'
+        $fixtureDir = Join-Path $workspace 'samples\fixture'
+        $null = New-Item -ItemType Directory -Path $fixtureDir -Force
+        @'
+param([string]$WinappPath)
+Describe 'Fixture sample' {
+    AfterAll { Set-Location $PSScriptRoot }
+    It 'runs successfully' { 1 | Should -Be 1 }
+}
+'@ | Set-Content (Join-Path $fixtureDir 'test.Tests.ps1')
+        $runScript = Get-RunScript (Get-JobText $sampleWorkflow 'test-sample') 'Run ${{ matrix.sample }} test'
+        $runScript = $runScript.Replace('${{ matrix.sample }}', 'fixture')
+        $runner = Join-Path $workspace 'run.ps1'
+        @"
+`$env:GITHUB_WORKSPACE = '$workspace'
+Set-Location '$workspace'
+Import-Module Pester -MinimumVersion 5.0
+$runScript
+"@ | Set-Content $runner
+        $output = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $runner 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        Join-Path $workspace 'test-results-fixture.xml' | Should -Exist
+        Join-Path $fixtureDir 'test-results-fixture.xml' | Should -Not -Exist
+        (Get-JobText $sampleWorkflow 'test-sample') | Should -Match 'if-no-files-found: error'
+    }
+
     It 'requires the expected build result and successful sample jobs for both entry points' {
         foreach ($reuse in @('true', 'false')) {
             $env:REUSE_ARTIFACTS = $reuse

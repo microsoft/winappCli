@@ -235,7 +235,7 @@ jobs:
         $config.Run.Exit = $true
         $config.Output.Verbosity = 'Detailed'
         $config.TestResult.Enabled = $true
-        $config.TestResult.OutputPath = "test-results-${{ matrix.sample }}.xml"
+        $config.TestResult.OutputPath = Join-Path $env:GITHUB_WORKSPACE "test-results-${{ matrix.sample }}.xml"
         $config.TestResult.OutputFormat = 'JUnitXml'
         Invoke-Pester -Configuration $config
 
@@ -245,7 +245,7 @@ jobs:
       with:
         name: test-results-${{ matrix.sample }}
         path: test-results-${{ matrix.sample }}.xml
-        if-no-files-found: ignore
+        if-no-files-found: error
 
   # Summary job to provide a single check status for branch protection
   test-samples-result:
