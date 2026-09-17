@@ -560,6 +560,9 @@ function generate(schema) {
         L('  }');
       } else if (tsType(opt.def.valueType) === 'number') {
         L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName}.toString());`);
+      } else if (['ui search', 'ui get-property', 'ui get-value', 'ui wait-for'].includes(cmdPathStr)
+        && ['root', 'type', 'className'].includes(opt.propName)) {
+        L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName});`);
       } else {
         L(`  if (options.${opt.propName}) args.push('${opt.cliName}', options.${opt.propName});`);
       }

@@ -15,6 +15,16 @@ updates:
   - package-ecosystem: "nuget"
     directory: "/src/winapp-CLI"
     groups:
+      # Svg.Skia is compiled against a specific SkiaSharp major but depends on it only by *minimum*
+      # version, so NuGet happily resolves a lone SkiaSharp bump: it restores, it compiles, and it
+      # then fails at runtime the first time an SVG is rasterized. Keep the two in one PR, and keep
+      # that PR separate from the general batch — a SkiaSharp major also needs obsolete-API
+      # migration by hand (SKFont, SKSamplingOptions) and output compared before and after.
+      # This must stay above the catch-all: a dependency joins the first group it matches.
+      skia:
+        patterns:
+          - "SkiaSharp*"
+          - "Svg.Skia"
       nuget:
         patterns: ["*"]
     schedule:

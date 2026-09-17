@@ -17,7 +17,7 @@ public partial class RealUiAutomationTests
     public async Task NullRootPaths_ReturnEmptyNullOrStaleErrors()
     {
         var svc = NewService();
-        UiAutomationService.s_getRootElement = (_, _) => null;
+        UiAutomationService.s_getRootElement = (_, _, _) => null;
         var uiTarget = new UiTarget { ProcessId = int.MaxValue, ProcessName = "missing", WindowTitle = "missing" };
         var element = new UiElement { Id = "dead", Type = "Text", Name = "Dead", AutomationId = "dead" };
 
@@ -115,7 +115,7 @@ public partial class RealUiAutomationTests
         var afterBoundary = FindByAutomationId(automation, root, "txtValue");
         var findAllCalls = 0;
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) =>
             ++findAllCalls == 1 ? ElementArray() : ElementArray(beforeBoundary);
         UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
@@ -148,7 +148,7 @@ public partial class RealUiAutomationTests
         var second = FindByAutomationId(automation, root, "txtValue");
         var findAllCalls = 0;
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) =>
             ++findAllCalls == 1 ? ElementArray() : ElementArray(first, second);
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [first, second];
@@ -177,7 +177,7 @@ public partial class RealUiAutomationTests
         var findAllCalls = 0;
         var walkCalls = 0;
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) =>
             ++findAllCalls == 1 ? ElementArray() : ElementArray(nameMatch);
         UiAutomationService.s_getControlViewWalker = _ =>
@@ -212,9 +212,9 @@ public partial class RealUiAutomationTests
         var findAllCalls = 0;
         var manualCalls = 0;
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_getAllAppWindows = (_, _) => [(9876, fx.ProcessId, "Popup")];
-        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == 9876 ? root : null;
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd, _) => hwnd == 9876 ? root : null;
         UiAutomationService.s_findAllDescendants = (_, _) => ++findAllCalls switch
         {
             1 or 2 or 3 => ElementArray(),
@@ -252,9 +252,9 @@ public partial class RealUiAutomationTests
         var popupRoot = automation.ElementFromHandle(new HWND(popupHwnd));
         var walkCalls = 0;
 
-        UiAutomationService.s_getRootElement = (_, _) => mainRoot;
+        UiAutomationService.s_getRootElement = (_, _, _) => mainRoot;
         UiAutomationService.s_getAllAppWindows = (_, _) => [(popupHwnd, fx.ProcessId, popupTitle)];
-        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) => hwnd == popupHwnd ? popupRoot : null;
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd, _) => hwnd == popupHwnd ? popupRoot : null;
         UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
         UiAutomationService.s_getControlViewWalker = _ =>
         {
@@ -283,7 +283,7 @@ public partial class RealUiAutomationTests
         var root = ComProxy<IUIAutomationElement>((method, args) =>
             method.Name == "FindFirst" ? null : method.Invoke(realRoot, args));
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
         UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
         {
@@ -324,7 +324,7 @@ public partial class RealUiAutomationTests
         var invokableAfterBoundary = FindByAutomationId(automation, root, "btnShared");
         var findAllCalls = 0;
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) =>
             ++findAllCalls == 1 ? ElementArray() : ElementArray(nonInvokableBeforeBoundary);
         UiAutomationService.s_manualTreeSearch = (_, _, query, maxResults, _) =>
@@ -352,7 +352,7 @@ public partial class RealUiAutomationTests
         var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
         var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
         var bulkMatch = FindByAutomationId(automation, root, "btnInvoke");
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) => ElementArray(bulkMatch);
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) =>
             throw new AssertFailedException("A bulk result that fills maxResults must stay on the fast path.");
@@ -393,7 +393,7 @@ public partial class RealUiAutomationTests
             _ => ThrowCom(),
         });
 
-        UiAutomationService.s_getRootElement = (_, _) => nodes[0];
+        UiAutomationService.s_getRootElement = (_, _, _) => nodes[0];
         UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
         UiAutomationService.s_getControlViewWalker = _ => walker;
         UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
@@ -430,7 +430,7 @@ public partial class RealUiAutomationTests
             _ => ThrowCom(),
         });
 
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
         UiAutomationService.s_getControlViewWalker = _ => walker;
 
@@ -558,19 +558,18 @@ public partial class RealUiAutomationTests
     [TestMethod]
     public async Task GetPropertiesAsync_PropertyNameFiltersPresentAndMissingValues()
     {
-        using var fx = new UiaTestFixture();
+        using var fx = new UiaTestFixture(nonActivating: true);
         var svc = NewService();
         var uiTarget = SessionFor(fx);
         var box = await ResolveAsync(svc, uiTarget, "txtValue");
 
         var present = await svc.GetPropertiesAsync(uiTarget, box, "Name", CancellationToken.None);
-        var missing = await svc.GetPropertiesAsync(uiTarget, box, "DefinitelyMissing", CancellationToken.None);
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            svc.GetPropertiesAsync(uiTarget, box, "DefinitelyMissing", CancellationToken.None));
 
         Assert.AreEqual(1, present.Count);
         Assert.IsTrue(present.ContainsKey("Name"));
         Assert.AreEqual("Value", present["Name"]);
-        Assert.IsTrue(missing.ContainsKey("DefinitelyMissing"));
-        Assert.IsNull(missing["DefinitelyMissing"]);
     }
 
     [TestMethod]
@@ -700,7 +699,7 @@ public partial class RealUiAutomationTests
         var uiTarget = NonExplicitSession(fx);
         uiTarget.WindowHandle = 0;
         uiTarget.WindowTitle = selectedTitle;
-        UiAutomationService.s_getRootElement = (service, _) =>
+        UiAutomationService.s_getRootElement = (service, _, _) =>
             UiAutomationService.s_elementFromHandle(service, selectedHwnd);
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(selectedHwnd, fx.ProcessId, selectedTitle), (fx.Hwnd, fx.ProcessId, fx.Title)];
@@ -722,7 +721,7 @@ public partial class RealUiAutomationTests
         var childHwnd = fx.OnUiThread(() => (nint)fx.InvokeButton.Handle);
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
-        UiAutomationService.s_getRootElementForHwnd = (_, _) => null;
+        UiAutomationService.s_getRootElementForHwnd = (_, _, _) => null;
 
         var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
 
@@ -742,7 +741,7 @@ public partial class RealUiAutomationTests
         var calls = 0;
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title), (childHwnd, fx.ProcessId, "child")];
-        UiAutomationService.s_getRootElementForHwnd = (service, hwnd) =>
+        UiAutomationService.s_getRootElementForHwnd = (service, hwnd, _) =>
             hwnd == childHwnd && ++calls == 1
                 ? UiAutomationService.s_elementFromHandle(service, hwnd)
                 : null;
@@ -766,7 +765,7 @@ public partial class RealUiAutomationTests
         var calls = 0;
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title), (staleHwnd, fx.ProcessId, "closed")];
-        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) =>
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd, _) =>
             hwnd == staleHwnd && ++calls == 1 ? staleRoot : null;
 
         var elements = await svc.InspectAsync(uiTarget, null, 1, CancellationToken.None);
@@ -803,7 +802,7 @@ public partial class RealUiAutomationTests
         var staleHwnd = fx.Hwnd + 1000;
         var uiTarget = NonExplicitSession(fx);
         uiTarget.WindowHandle = staleHwnd;
-        UiAutomationService.s_getRootElement = (service, _) =>
+        UiAutomationService.s_getRootElement = (service, _, _) =>
             UiAutomationService.s_elementFromHandle(service, fx.Hwnd);
         UiAutomationService.s_getAllAppWindows = (_, _) =>
             [(fx.Hwnd, fx.ProcessId, fx.Title)];
@@ -945,7 +944,7 @@ public partial class RealUiAutomationTests
             _ => ThrowCom(),
         });
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => svc.ScrollIntoViewAsync(uiTarget, model, CancellationToken.None));
@@ -977,7 +976,7 @@ public partial class RealUiAutomationTests
         var uiTarget = NonExplicitSession(fx);
         var otherHwnd = fx.Hwnd + 1000;
         UiAutomationService.s_getAllAppWindows = (_, _) => [(fx.Hwnd, fx.ProcessId, fx.Title), (otherHwnd, fx.ProcessId, "faulty")];
-        UiAutomationService.s_getRootElementForHwnd = (_, hwnd) =>
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd, _) =>
             hwnd == otherHwnd ? throw new COMException("simulated HWND failure") : null;
 
         var search = await svc.SearchAsync(uiTarget, new UiSelector { Query = "not-on-main-window" }, 5, CancellationToken.None);
@@ -1009,6 +1008,11 @@ public partial class RealUiAutomationTests
 
         var target = ComProxy<IUIAutomationElement>((method, args) =>
         {
+            if (method.Name == "GetCurrentPropertyValue" &&
+                (UIA_PROPERTY_ID)args![0]! == UIA_PROPERTY_ID.UIA_IsTextPatternAvailablePropertyId)
+            {
+                return System.Runtime.InteropServices.Marshalling.ComVariant.Create(false);
+            }
             if (method.Name == "GetCurrentPattern")
             {
                 var id = (UIA_PATTERN_ID)args![0]!;
@@ -1031,7 +1035,7 @@ public partial class RealUiAutomationTests
             };
         });
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         var invokePattern = await svc.InvokeAsync(uiTarget, model, CancellationToken.None);
         var props = await svc.GetPropertiesAsync(uiTarget, model, null, CancellationToken.None);
@@ -1040,6 +1044,10 @@ public partial class RealUiAutomationTests
         Assert.AreEqual("ExpandCollapsePattern", invokePattern);
         Assert.AreEqual("999", props["ToggleState"]);
         Assert.AreEqual("999", props["ExpandCollapseState"]);
+        foreach (var (name, _) in UiAutomationService.TextAttributes)
+        {
+            Assert.AreEqual("Unavailable", props[name]);
+        }
         Assert.IsTrue(logger.Has(Microsoft.Extensions.Logging.LogLevel.Warning, "Element position unchanged"));
     }
 
@@ -1073,14 +1081,20 @@ public partial class RealUiAutomationTests
             "FindAll" => matches,
             _ => ThrowCom(),
         });
-        UiAutomationService.s_getRootElement = (_, _) => root;
-        UiAutomationService.s_findAllDescendants = (_, _) => matches;
+        var findAllCalls = 0;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+        {
+            findAllCalls++;
+            return matches;
+        };
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
 
         var ex = await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
             () => svc.FindSingleElementAsync(uiTarget, new UiSelector { Query = "Ambiguous" }, CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "lbl[0]");
+        Assert.AreEqual(1, findAllCalls, "An exact FindFirst miss should flow directly into the completed substring query.");
     }
 
     [TestMethod]
@@ -1107,7 +1121,7 @@ public partial class RealUiAutomationTests
                 return method.Name == "FindFirst" ? null : ThrowCom();
             });
             var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
-            UiAutomationService.s_getRootElement = (_, _) => root;
+            UiAutomationService.s_getRootElement = (_, _, _) => root;
 
             var props = await svc.GetPropertiesAsync(uiTarget, model, "ExpandCollapseState", CancellationToken.None);
             Assert.AreEqual(expected, props["ExpandCollapseState"]);
@@ -1149,7 +1163,7 @@ public partial class RealUiAutomationTests
             }
             return ThrowCom();
         });
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
         UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
 
@@ -1197,7 +1211,7 @@ public partial class RealUiAutomationTests
             if (method.Name == "FindAll") { return ++findAllCalls == 1 ? exact : all; }
             return ThrowCom();
         });
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [];
         UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
 
@@ -1271,7 +1285,7 @@ public partial class RealUiAutomationTests
             _ => ThrowCom(),
         });
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         var props = await svc.GetPropertiesAsync(uiTarget, model, "IsSelected", CancellationToken.None);
 
@@ -1328,7 +1342,7 @@ public partial class RealUiAutomationTests
         });
 
         IUIAutomationElement? current = null;
-        UiAutomationService.s_getRootElement = (_, _) =>
+        UiAutomationService.s_getRootElement = (_, _, _) =>
             ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? current! : ThrowCom());
 
         current = MakeTarget(id => id == UIA_PATTERN_ID.UIA_TogglePatternId ? togglePattern : ThrowCom());
@@ -1384,7 +1398,7 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         var text = await svc.GetTextAsync(uiTarget, model, CancellationToken.None);
 
@@ -1431,7 +1445,7 @@ public partial class RealUiAutomationTests
             _ => ThrowCom(),
         });
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindAll" ? array : ThrowCom());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         var result = (await svc.SearchAsync(uiTarget, new UiSelector { Query = "stateAid" }, 1, CancellationToken.None)).Single();
 
@@ -1466,7 +1480,7 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         await svc.SetValueAsync(uiTarget, model, "42", CancellationToken.None);
 
@@ -1492,7 +1506,7 @@ public partial class RealUiAutomationTests
             return ThrowCom();
         });
         var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindFirst" ? target : ThrowCom());
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
 
         var ex = await Assert.ThrowsExactlyAsync<UiValueSetException>(
             () => svc.SetValueAsync(uiTarget, model, "hello", CancellationToken.None));

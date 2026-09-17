@@ -46,6 +46,64 @@ winapp ui invoke --on sandbox SubmitButton -a MyApp
 See [Windows Sandbox execution](sandbox-execution.md#automating-the-ui) for client
 requirements, brief setup/reconnect focus changes, workflow coordination, and host output delivery.
 
+## Scoped and typed queries
+
+```powershell
+winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-name TextBlock
+winapp ui get-value Subject -w 123456 --root MailRow --type TextBox
+winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Value
+winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
+```
+
+`search`, `get-property`, `get-value`, and `wait-for` accept these optional filters.
+The selector and every supplied filter must match the **same element**:
+
+- **`--root <selector>`** searches only descendants of one uniquely matching root,
+  never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
+  A root that matches multiple elements fails with `ambiguous_selector`, even if
+  one match is invokable. A missing root produces no matches. Once the root is
+  found, queries do not search unrelated popup windows, even when no descendant
+  matches. Queries are not limited by `inspect`'s display depth.
+- **`--type <control-type>`** matches a UIA control type, ignoring case. The only
+  aliases are `TextBox` → `Edit` and `TextBlock` → `Text`. Unknown names (including
+  numeric IDs and wildcard expressions) fail with `invalid_arguments`.
+- **`--class-name <literal>`** matches the provider's entire UIA `ClassName`,
+  ignoring case. It is not a substring, wildcard, or regular expression. Use
+  `get-property --property ClassName` to discover the provider's value; the class
+  name need not equal the UIA control type.
+
+Filtered queries use UIA's **Control View**, the same view shown by `inspect`.
+Provider nodes exposed only in Raw View are not returned; use `inspect` to find
+the containing control and its selector.
+
+All 41 official types are supported: `Button`, `Calendar`, `CheckBox`, `ComboBox`,
+`Edit`, `Hyperlink`, `Image`, `ListItem`, `List`, `Menu`, `MenuBar`, `MenuItem`,
+`ProgressBar`, `RadioButton`, `ScrollBar`, `Slider`, `Spinner`, `StatusBar`, `Tab`,
+`TabItem`, `Text`, `ToolBar`, `ToolTip`, `Tree`, `TreeItem`, `Custom`, `Group`,
+`Thumb`, `DataGrid`, `DataItem`, `Document`, `SplitButton`, `Window`, `Pane`,
+`Header`, `HeaderItem`, `Table`, `TitleBar`, `Separator`, `SemanticZoom`, `AppBar`.
+
+`wait-for` resolves the root selector again on **every poll**, so the root may
+appear after the command starts. With `--gone`, an absent root means there is no
+matching descendant; an ambiguous root is an error, not success.
+An interrupted lookup is not proof of disappearance: if an element is removed
+during lookup or replaced before a `--value` read, the next poll checks again;
+other lookup or read errors fail the command.
+`-w <HWND>` restricts root discovery to that window's UIA tree. With `-a`, root
+discovery can also find the app's popup windows. Exact root AutomationId matches
+take precedence over substring matches across all those windows; multiple exact
+matches still fail with `ambiguous_selector`.
+
+A root slug selects that element even when another window has the same
+AutomationId. If the selected root is replaced, its old slug no longer matches;
+use an AutomationId or name root when you want polling to follow a replacement.
+
+When filters are present, commands that read a single element fail with
+`ambiguous_selector` if more than one element remains; narrow the filters or use
+a unique slug. Exact AutomationId matches retain precedence over substring
+matches, within the filtered scope. Omitting all three options preserves the
+existing query behavior.
+
 ## Coordinating concurrent UI workflows
 
 Windows has only one foreground window, one keyboard focus, one cursor, and one input stream. When
@@ -260,7 +318,7 @@ Slugs use the format: `prefix-normalizedname-hash` where:
 - **normalizedname** — lowercase alphanumeric from AutomationId (preferred) or Name, max 15 chars
 - **hash** — 4-char hex hash of the element's RuntimeId (validates element identity)
 
-Slugs are shell-safe (no special characters), unique, and can be used directly as arguments. The hash provides staleness detection — if the element has been replaced, you get: "Element may have changed. Re-run inspect."
+Slugs are shell-safe (no special characters), unique, and can be used directly as arguments. Without query filters, the hash provides staleness detection — if the element has been replaced, you get: "Element may have changed. Re-run inspect." For filtered queries, see [Scoped and typed queries](#scoped-and-typed-queries).
 
 Elements with no name or AutomationId show only prefix + hash (e.g., `pn-c8a3`).
 
@@ -376,6 +434,54 @@ winapp ui get-property btn-submit-7a90 -a myapp              # all properties
 winapp ui get-property chk-checkbox-b2c3 -p ToggleState -a myapp   # checkbox state
 winapp ui get-property txt-textbox-a4b1 -p Value -a myapp          # current text value
 winapp ui get-property cmb-combobox-d5e6 -p ExpandCollapseState -a myapp  # expanded or collapsed
+winapp ui get-property Document -p FontWeight -a myapp --json     # document formatting
+```
+
+Property names are case-sensitive. An unknown name fails with `invalid_arguments`
+under `--json`; omit `--property` to list the properties, including all six text
+formatting attributes below. `wait-for --property` uses the same case-sensitive
+names and rejects unknown names before polling.
+
+#### Whole-document text formatting
+
+Formatting is read across the element's entire TextPattern document, not its
+current selection or caret. Reads do not change focus or selection.
+
+| Property | Uniform value (returned as a string) |
+|---|---|
+| `FontWeight` | Numeric weight, such as `"400"` (normal) or `"700"` (bold) |
+| `FontName` | Font family name, such as `"Courier New"` |
+| `FontSize` | Size in points, such as `"15.5"` |
+| `ForegroundColor` | Decimal Windows COLORREF (`0x00BBGGRR`), such as `"3678732"` for RGB(12, 34, 56) |
+| `IsItalic` | `"True"` or `"False"` |
+| `StrikethroughStyle` | Numeric UIA text-decoration style, such as `"0"` (none) or `"1"` (single) |
+
+Numbers use invariant formatting (a decimal point, regardless of your locale).
+Each attribute can instead return:
+
+| Value | Meaning and next step |
+|---|---|
+| `"Mixed"` | Formatting varies within the document. Do not treat it as a uniform value; this command does not query individual text ranges. |
+| `"NotSupported"` | The document's TextPattern provider does not report this attribute. Check the app's accessibility support. |
+| `"Unavailable"` | The element has no TextPattern. Use `inspect` or `search` to find its text/document element. |
+
+When listing all properties, cached basic properties remain available if no live
+element can be resolved, and a malformed formatting value is omitted without
+discarding other properties. These omissions are logged as warnings. Request a
+specific formatting property to get an error instead of an omission.
+
+Provider failures remain errors, not `"Unavailable"`. For `stale_element`, inspect
+the app again and retry with a current selector.
+
+The [JSON envelope](../plugins/winapp/skills/winapp-ui-automation/references/ui-json-envelope.md#ui-get-property---json)
+includes `elementId`, a typed `element`, and string-valued `properties`.
+Existing properties, including `BoundingRectangle`, keep their formats.
+For example, the formatting portion of `properties` is:
+
+```json
+{
+  "FontWeight": "700"
+}
 ```
 
 ### screenshot
@@ -756,6 +862,24 @@ var target = UiTarget.FromWindowHandle(myWindowHandle);
 var save = await ui.FindSingleElementAsync(target, new UiSelector { Query = "Save" }, default);
 await ui.InvokeAsync(target, save!, default);
 ```
+
+For scoped reads, set `UiSelector.Root` to another `UiSelector`, `ControlType` to a
+type name, and `ClassName` to the literal provider class. These use the same
+[query predicates](#scoped-and-typed-queries) as the CLI. Only one root level is
+supported: `selector.Root.Root` must be `null`. A nested root throws
+`ArgumentException` before looking up the target window. Use a unique root
+AutomationId or slug instead of nesting root selectors. `UiControlTypes.GetId(name)`
+resolves official type names and the two documented aliases, returning `0` for
+an invalid name. `UiControlTypes.GetName(id)` returns the canonical name, or
+`Unknown(id)` for an unrecognized ID.
+
+When passing a `UiElement` restored from JSON to `GetTextAsync` or
+`GetPropertiesAsync`, keep its `Selector` and `WindowHandle`. A slug selector
+must still identify the original element; if it no longer exists, these reads
+throw `UiElementNotFoundException` instead of selecting another element with
+the same AutomationId or name. Run the original query again to refresh the
+result. Scoped reads also propagate failures from general UIA property getters
+and acquired UIA patterns rather than returning null or a previously captured value.
 
 Recording is a separate package so that projects which only inspect and drive UI don't pull in
 SkiaSharp. The automation package targets both `net10.0-windows` and

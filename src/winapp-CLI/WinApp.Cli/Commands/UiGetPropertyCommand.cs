@@ -19,7 +19,8 @@ internal class UiGetPropertyCommand : Command, IShortDescription
     public string ShortDescription => "Read property values from an element";
 
     public UiGetPropertyCommand()
-        : base("get-property", "Read UIA property values from an element. Specify --property for a single property or omit for all.")
+        : base("get-property", "Read UIA property values from an element. Specify --property for a single property or omit for all. " +
+            "Includes whole-document TextPattern formatting: FontWeight, FontName, FontSize, ForegroundColor, IsItalic, StrikethroughStyle.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -27,6 +28,7 @@ internal class UiGetPropertyCommand : Command, IShortDescription
 
         Options.Add(WinAppRootCommand.JsonOption);
         Options.Add(SharedUiOptions.PropertyOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -61,7 +63,17 @@ internal class UiGetPropertyCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            var propertyName = parseResult.GetValue(SharedUiOptions.PropertyOption);
+            if (propertyName is not null && !UiPropertyNames.IsSupported(propertyName))
+            {
+                var message = $"Unknown property '{propertyName}'. Property names are case-sensitive. Omit --property to list all properties.";
+                logger.LogError("{Message}", message);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message,
+                    errorOut: parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
+
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -76,7 +88,7 @@ internal class UiGetPropertyCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
                 var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
@@ -122,15 +134,20 @@ internal class UiGetPropertyCommand : Command, IShortDescription
                 }
                 return 0;
             }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
             catch (System.Runtime.InteropServices.COMException comEx)
             {
                 logger.LogDebug("COM error: {HResult} {StackTrace}", comEx.HResult, comEx.StackTrace);
-                UiErrors.StaleElement(logger, json);
+                UiErrors.StaleElement(logger, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
             catch (Exception ex) when (!UiCoordinatedAction.IsCoordinationFault(ex))
             {
-                UiErrors.GenericError(logger, ex, json);
+                UiErrors.GenericError(logger, ex, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
         }

@@ -3990,7 +3990,7 @@
           }
         },
         "get-property": {
-          "description": "Read UIA property values from an element. Specify --property for a single property or omit for all.",
+          "description": "Read UIA property values from an element. Specify --property for a single property or omit for all. Includes whole-document TextPattern formatting: FontWeight, FontName, FontSize, ForegroundColor, IsItalic, StrikethroughStyle.",
           "hidden": false,
           "arguments": {
             "selector": {
@@ -4012,6 +4012,18 @@
               "aliases": [
                 "-a"
               ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4060,6 +4072,30 @@
               "defaultValue": false,
               "arity": {
                 "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
                 "maximum": 1
               },
               "required": false,
@@ -4130,6 +4166,18 @@
               "required": false,
               "recursive": false
             },
+            "--class-name": {
+              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--json": {
               "description": "Format output as JSON",
               "hidden": false,
@@ -4154,6 +4202,30 @@
               "defaultValue": false,
               "arity": {
                 "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
                 "maximum": 1
               },
               "required": false,
@@ -5398,6 +5470,18 @@
               "required": false,
               "recursive": false
             },
+            "--class-name": {
+              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--json": {
               "description": "Format output as JSON",
               "hidden": false,
@@ -5435,6 +5519,30 @@
               "defaultValue": false,
               "arity": {
                 "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
                 "maximum": 1
               },
               "required": false,
@@ -6035,6 +6143,18 @@
               "required": false,
               "recursive": false
             },
+            "--class-name": {
+              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--contains": {
               "description": "Use substring matching for --value instead of exact match",
               "hidden": false,
@@ -6105,6 +6225,18 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--timeout": {
               "description": "Timeout in milliseconds",
               "hidden": false,
@@ -6114,6 +6246,18 @@
               "valueType": "System.Int32",
               "hasDefaultValue": true,
               "defaultValue": 5000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
               "arity": {
                 "minimum": 1,
                 "maximum": 1

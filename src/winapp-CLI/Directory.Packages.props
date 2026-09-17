@@ -11,8 +11,13 @@
     <PackageVersion Include="System.CommandLine" Version="2.0.5" />
     <PackageVersion Include="System.Diagnostics.EventLog" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Telemetry.Inbox.Managed" Version="10.0.25148.1001-220626-1600.rs-fun-deploy-dev5" />
-    <PackageVersion Include="SkiaSharp" Version="2.88.9" />
-    <PackageVersion Include="Svg.Skia" Version="3.7.0" />
+    <!-- These two move together. Svg.Skia is compiled against a specific SkiaSharp major, and
+         SkiaSharp majors are binary-breaking, so lifting one alone leaves SVG rendering to fail at
+         runtime rather than at build. Svg.Skia 5.x requires SkiaSharp 4.148.0 or newer. Anything at
+         or above SkiaSharp 3.119.4 carries libexpat 2.7.5, which is what takes the CLI off
+         CVE-2025-59375. -->
+    <PackageVersion Include="SkiaSharp" Version="4.152.0" />
+    <PackageVersion Include="Svg.Skia" Version="5.2.3" />
     <PackageVersion Include="System.Drawing.Common" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Diagnostics.Runtime" Version="3.1.512801" />
     <PackageVersion Include="Microsoft.Diagnostics.Runtime.Utilities" Version="3.0.442202" />
