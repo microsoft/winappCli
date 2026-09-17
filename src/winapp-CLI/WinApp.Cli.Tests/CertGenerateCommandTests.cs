@@ -14,6 +14,22 @@ namespace WinApp.Cli.Tests;
 public class CertGenerateCommandTests : BaseCommandTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task EmptyPassword_ExistingOutputSkip_PreservesNoOp(bool json)
+    {
+        var path = Path.Join(_tempDirectory.FullName, "skip.pfx");
+        await File.WriteAllTextAsync(path, "existing certificate");
+        var args = new List<string> { "--output", path, "--if-exists", "skip", "--password", "" };
+        if (json) { args.Add("--json"); }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<CertGenerateCommand>(), args.ToArray());
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("existing certificate", await File.ReadAllTextAsync(path));
+    }
+
+    [TestMethod]
     public async Task EmptyPassword_NonJson_ReturnsError()
     {
         var command = GetRequiredService<CertGenerateCommand>();
