@@ -124,12 +124,14 @@ export interface AzSignOptions extends CommonOptions {
  */
 export async function azSign(options: AzSignOptions): Promise<WinappResult> {
   const args: string[] = ['az-sign'];
-  args.push(options.filePath);
+  const positionals: string[] = [];
+  positionals.push(options.filePath);
   if (options.account) args.push('--account', options.account);
   if (options.metadataFile) args.push('--metadata-file', options.metadataFile);
   if (options.profile) args.push('--profile', options.profile);
   if (options.resourceGroup) args.push('--resource-group', options.resourceGroup);
   if (options.subscription) args.push('--subscription', options.subscription);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -193,9 +195,11 @@ export interface CertInfoOptions extends CommonOptions {
  */
 export async function certInfo(options: CertInfoOptions): Promise<WinappResult> {
   const args: string[] = ['cert', 'info'];
-  args.push(options.certPath);
+  const positionals: string[] = [];
+  positionals.push(options.certPath);
   if (options.json) args.push('--json');
   if (options.password) args.push('--password', options.password);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -217,9 +221,11 @@ export interface CertInstallOptions extends CommonOptions {
  */
 export async function certInstall(options: CertInstallOptions): Promise<WinappResult> {
   const args: string[] = ['cert', 'install'];
-  args.push(options.certPath);
+  const positionals: string[] = [];
+  positionals.push(options.certPath);
   if (options.force) args.push('--force');
   if (options.password) args.push('--password', options.password);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -243,10 +249,12 @@ export interface CreateDebugIdentityOptions extends CommonOptions {
  */
 export async function createDebugIdentity(options: CreateDebugIdentityOptions = {}): Promise<WinappResult> {
   const args: string[] = ['create-debug-identity'];
-  if (options.entrypoint) args.push(options.entrypoint);
+  const positionals: string[] = [];
+  if (options.entrypoint) positionals.push(options.entrypoint);
   if (options.keepIdentity) args.push('--keep-identity');
   if (options.manifest) args.push('--manifest', options.manifest);
   if (options.noInstall) args.push('--no-install');
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -274,12 +282,14 @@ export interface CreateExternalCatalogOptions extends CommonOptions {
  */
 export async function createExternalCatalog(options: CreateExternalCatalogOptions): Promise<WinappResult> {
   const args: string[] = ['create-external-catalog'];
-  args.push(options.inputFolder);
+  const positionals: string[] = [];
+  positionals.push(options.inputFolder);
   if (options.computeFlatHashes) args.push('--compute-flat-hashes');
   if (options.ifExists) args.push('--if-exists', options.ifExists);
   if (options.output) args.push('--output', options.output);
   if (options.recursive) args.push('--recursive');
   if (options.usePageHashes) args.push('--use-page-hashes');
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -299,8 +309,10 @@ export interface EmbedIdentityOptions extends CommonOptions {
  */
 export async function embedIdentity(options: EmbedIdentityOptions): Promise<WinappResult> {
   const args: string[] = ['embed-identity'];
-  args.push(options.target);
+  const positionals: string[] = [];
+  positionals.push(options.target);
   if (options.manifest) args.push('--manifest', options.manifest);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -326,14 +338,16 @@ export interface FindApiOptions extends CommonOptions {
  */
 export async function findApi(options: FindApiOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api'];
+  const positionals: string[] = [];
   if (options.query) {
     const queryArr = Array.isArray(options.query) ? options.query : [options.query];
-    args.push(...queryArr);
+    positionals.push(...queryArr);
   }
   if (options.json) args.push('--json');
   if (options.max !== undefined) args.push('--max', options.max.toString());
   if (options.project) args.push('--project', options.project);
   if (options.projectDir) args.push('--project-dir', options.projectDir);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -359,14 +373,16 @@ export interface FindApiCheckPropertyOptions extends CommonOptions {
  */
 export async function findApiCheckProperty(options: FindApiCheckPropertyOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api', 'check-property'];
-  if (options.type) args.push(options.type);
+  const positionals: string[] = [];
+  if (options.type) positionals.push(options.type);
   if (options.property) {
     const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
-    args.push(...propertyArr);
+    positionals.push(...propertyArr);
   }
   if (options.json) args.push('--json');
   if (options.project) args.push('--project', options.project);
   if (options.projectDir) args.push('--project-dir', options.projectDir);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -392,14 +408,16 @@ export interface FindApiEnumsOptions extends CommonOptions {
  */
 export async function findApiEnums(options: FindApiEnumsOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api', 'enums'];
+  const positionals: string[] = [];
   if (options.type) {
     const typeArr = Array.isArray(options.type) ? options.type : [options.type];
-    args.push(...typeArr);
+    positionals.push(...typeArr);
   }
   if (options.filter) args.push('--filter', options.filter);
   if (options.json) args.push('--json');
   if (options.project) args.push('--project', options.project);
   if (options.projectDir) args.push('--project-dir', options.projectDir);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -427,15 +445,17 @@ export interface FindApiMembersOptions extends CommonOptions {
  */
 export async function findApiMembers(options: FindApiMembersOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api', 'members'];
+  const positionals: string[] = [];
   if (options.type) {
     const typeArr = Array.isArray(options.type) ? options.type : [options.type];
-    args.push(...typeArr);
+    positionals.push(...typeArr);
   }
   if (options.all) args.push('--all');
   if (options.filter) args.push('--filter', options.filter);
   if (options.json) args.push('--json');
   if (options.project) args.push('--project', options.project);
   if (options.projectDir) args.push('--project-dir', options.projectDir);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -540,7 +560,8 @@ export interface FindUiOptions extends CommonOptions {
  */
 export async function findUi(options: FindUiOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-ui'];
-  if (options.query) args.push(options.query);
+  const positionals: string[] = [];
+  if (options.query) positionals.push(options.query);
   if (options.id) {
     const idArr = Array.isArray(options.id) ? options.id : [options.id];
     for (const v of idArr) args.push('--id', v);
@@ -550,6 +571,7 @@ export async function findUi(options: FindUiOptions = {}): Promise<WinappResult>
   if (options.max !== undefined) args.push('--max', options.max.toString());
   if (options.refresh) args.push('--refresh');
   if (options.source) args.push('--source', options.source);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -609,7 +631,8 @@ export interface InitOptions extends CommonOptions {
  */
 export async function init(options: InitOptions = {}): Promise<WinappResult> {
   const args: string[] = ['init'];
-  if (options.baseDirectory) args.push(options.baseDirectory);
+  const positionals: string[] = [];
+  if (options.baseDirectory) positionals.push(options.baseDirectory);
   if (options.configDir) args.push('--config-dir', options.configDir);
   if (options.configOnly) args.push('--config-only');
   if (options.exe) args.push('--exe', options.exe);
@@ -622,6 +645,7 @@ export async function init(options: InitOptions = {}): Promise<WinappResult> {
   if (options.setupSdks) args.push('--setup-sdks', options.setupSdks);
   if (options.sparse) args.push('--sparse');
   if (options.useDefaults) args.push('--use-defaults');
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -679,7 +703,8 @@ export interface ManifestGenerateOptions extends CommonOptions {
  */
 export async function manifestGenerate(options: ManifestGenerateOptions = {}): Promise<WinappResult> {
   const args: string[] = ['manifest', 'generate'];
-  if (options.directory) args.push(options.directory);
+  const positionals: string[] = [];
+  if (options.directory) positionals.push(options.directory);
   if (options.description) args.push('--description', options.description);
   if (options.executable) args.push('--executable', options.executable);
   if (options.ifExists) args.push('--if-exists', options.ifExists);
@@ -688,6 +713,7 @@ export async function manifestGenerate(options: ManifestGenerateOptions = {}): P
   if (options.publisherName) args.push('--publisher-name', options.publisherName);
   if (options.template) args.push('--template', options.template);
   if (options.version) args.push('--version', options.version);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -709,9 +735,11 @@ export interface ManifestUpdateAssetsOptions extends CommonOptions {
  */
 export async function manifestUpdateAssets(options: ManifestUpdateAssetsOptions): Promise<WinappResult> {
   const args: string[] = ['manifest', 'update-assets'];
-  args.push(options.imagePath);
+  const positionals: string[] = [];
+  positionals.push(options.imagePath);
   if (options.lightImage) args.push('--light-image', options.lightImage);
   if (options.manifest) args.push('--manifest', options.manifest);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -759,20 +787,14 @@ export async function newCommand(options: NewOptions = {}): Promise<WinappResult
 // ---------------------------------------------------------------------------
 
 export interface PackageOptions extends CommonOptions {
-  /** A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). */
+  /** One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). */
   inputFolder: string | string[];
-  /** Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture. */
-  arch?: string | string[];
   /** Path to signing certificate (will auto-sign if provided) */
   cert?: string;
   /** Certificate password (default: password) */
   certPassword?: string;
-  /** Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release. */
-  configuration?: string;
   /** Path to the executable relative to the input folder. */
   executable?: string;
-  /** Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
-  framework?: string;
   /** Generate a new development certificate */
   generateCert?: boolean;
   /** Install certificate to machine */
@@ -781,16 +803,8 @@ export interface PackageOptions extends CommonOptions {
   manifest?: string;
   /** Package name (default: from manifest) */
   name?: string;
-  /** Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
-  noBuild?: boolean;
-  /** Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
-  noRestore?: boolean;
-  /** Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. */
-  noSign?: boolean;
   /** Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. */
   output?: string;
-  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
-  property?: string | string[];
   /** Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
   /** Bundle Windows App SDK runtime for self-contained deployment */
@@ -800,36 +814,25 @@ export interface PackageOptions extends CommonOptions {
 }
 
 /**
- * Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.
+ * Create MSIX installer from your built app. Run after building your app. A manifest (Package.appxmanifest or appxmanifest.xml) is required for packaging - it must be in current working directory, passed as --manifest or be in the input folder. Use --cert devcert.pfx to sign for testing. Example: winapp package ./dist --manifest Package.appxmanifest --cert ./devcert.pfx
  */
 export async function packageApp(options: PackageOptions): Promise<WinappResult> {
   const args: string[] = ['package'];
+  const positionals: string[] = [];
   const inputFolderArr = Array.isArray(options.inputFolder) ? options.inputFolder : [options.inputFolder];
-  args.push(...inputFolderArr);
-  if (options.arch) {
-    const archArr = Array.isArray(options.arch) ? options.arch : [options.arch];
-    for (const v of archArr) args.push('--arch', v);
-  }
+  positionals.push(...inputFolderArr);
   if (options.cert) args.push('--cert', options.cert);
   if (options.certPassword) args.push('--cert-password', options.certPassword);
-  if (options.configuration) args.push('--configuration', options.configuration);
   if (options.executable) args.push('--executable', options.executable);
-  if (options.framework) args.push('--framework', options.framework);
   if (options.generateCert) args.push('--generate-cert');
   if (options.installCert) args.push('--install-cert');
   if (options.manifest) args.push('--manifest', options.manifest);
   if (options.name) args.push('--name', options.name);
-  if (options.noBuild) args.push('--no-build');
-  if (options.noRestore) args.push('--no-restore');
-  if (options.noSign) args.push('--no-sign');
   if (options.output) args.push('--output', options.output);
-  if (options.property) {
-    const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
-    for (const v of propertyArr) args.push('--property', v);
-  }
   if (options.publisher) args.push('--publisher', options.publisher);
   if (options.selfContained) args.push('--self-contained');
   if (options.skipPri) args.push('--skip-pri');
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -849,8 +852,10 @@ export interface RestoreOptions extends CommonOptions {
  */
 export async function restore(options: RestoreOptions = {}): Promise<WinappResult> {
   const args: string[] = ['restore'];
-  if (options.baseDirectory) args.push(options.baseDirectory);
+  const positionals: string[] = [];
+  if (options.baseDirectory) positionals.push(options.baseDirectory);
   if (options.configDir) args.push('--config-dir', options.configDir);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -863,6 +868,8 @@ export interface RunOptions extends CommonOptions {
   input?: string;
   /** @deprecated Use `input` instead. Retained for backward compatibility. */
   inputFolder?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. */
   aot?: boolean;
   /** Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. */
@@ -875,7 +882,7 @@ export interface RunOptions extends CommonOptions {
   configuration?: string;
   /** Capture OutputDebugString messages and first-chance exceptions from the launched application. Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use --no-launch instead if you need to attach a different debugger. For WinUI apps, a crash also triggers a stowed-exception triage pass; the first run downloads debugger components (cached under the winapp global directory) and can be pointed at an existing debugger install via the WINAPP_DBGTOOLS_DIR environment variable. Cannot be combined with --no-launch or --json. */
   debugOutput?: boolean;
-  /** Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Prints the PID to stdout (or in JSON with --json). */
+  /** Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope. */
   detach?: boolean;
   /** Path to the executable relative to the input folder. Use to disambiguate when the manifest contains a $targetnametoken$ placeholder and multiple .exe files are present in the input folder. */
   executable?: string;
@@ -912,12 +919,13 @@ export interface RunOptions extends CommonOptions {
 }
 
 /**
- * Builds or Native AOT-publishes and runs a Windows app from a project, .NET file-based app, or build-output folder.
+ * Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
  */
 export async function run(options: RunOptions = {}): Promise<WinappResult> {
   const args: string[] = ['run'];
   const inputValue = options.input ?? options.inputFolder;
   if (inputValue) args.push(inputValue);
+  if (options.on) args.push('--on', options.on);
   if (options.aot) args.push('--aot');
   if (options.arch) args.push('--arch', options.arch);
   if (options.args) args.push('--args', options.args);
@@ -972,10 +980,12 @@ export interface SignOptions extends CommonOptions {
  */
 export async function sign(options: SignOptions): Promise<WinappResult> {
   const args: string[] = ['sign'];
-  args.push(options.filePath);
-  args.push(options.certPath);
+  const positionals: string[] = [];
+  positionals.push(options.filePath);
+  positionals.push(options.certPath);
   if (options.password) args.push('--password', options.password);
   if (options.timestamp) args.push('--timestamp', options.timestamp);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -997,6 +1007,171 @@ export async function store(options: StoreOptions = {}): Promise<WinappResult> {
     const storeArgsArr = Array.isArray(options.storeArgs) ? options.storeArgs : [options.storeArgs];
     args.push(...storeArgsArr);
   }
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// target exec
+// ---------------------------------------------------------------------------
+
+export interface TargetExecOptions extends CommonOptions {
+  /** Execution target to act on. Currently: 'sandbox'. */
+  target: string;
+  /** Working directory on the target. */
+  targetCwd?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Executable and arguments to run on the target, e.g. ['dotnet', '--info'] (forwarded after --). */
+  command?: string | string[];
+}
+
+/**
+ * Run a command on an execution target, as that target's interactive user. Streams stdin, stdout, and stderr, and returns the command's own exit code. Does not provide a full terminal, so interactive console applications may see redirected pipes.
+ */
+export async function targetExec(options: TargetExecOptions): Promise<WinappResult> {
+  const args: string[] = ['target', 'exec'];
+  args.push(options.target);
+  if (options.targetCwd) args.push('--cwd', options.targetCwd);
+  if (options.json) args.push('--json');
+  if (options.command !== undefined) {
+    const commandArr = Array.isArray(options.command) ? options.command : [options.command];
+    if (commandArr.length > 0) {
+      args.push('--', ...commandArr);
+    }
+  }
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// target pull
+// ---------------------------------------------------------------------------
+
+export interface TargetPullOptions extends CommonOptions {
+  /** Execution target to act on. Currently: 'sandbox'. */
+  target: string;
+  /** File or directory on the target to copy, relative to its managed work area. */
+  source: string;
+  /** Destination path on this machine. */
+  destination: string;
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Copy files or directories from an execution target to this machine. Directory structure and useful timestamps are preserved, unchanged files are skipped, and changed files are replaced atomically.
+ */
+export async function targetPull(options: TargetPullOptions): Promise<WinappResult> {
+  const args: string[] = ['target', 'pull'];
+  const positionals: string[] = [];
+  positionals.push(options.target);
+  positionals.push(options.source);
+  positionals.push(options.destination);
+  if (options.json) args.push('--json');
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// target push
+// ---------------------------------------------------------------------------
+
+export interface TargetPushOptions extends CommonOptions {
+  /** Execution target to act on. Currently: 'sandbox'. */
+  target: string;
+  /** File or directory on this machine to copy. */
+  source: string;
+  /** Destination path on the target, relative to its managed work area. */
+  destination: string;
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Copy files or directories from this machine to an execution target. Directory structure and useful timestamps are preserved, unchanged files are skipped, and changed files are replaced atomically.
+ */
+export async function targetPush(options: TargetPushOptions): Promise<WinappResult> {
+  const args: string[] = ['target', 'push'];
+  const positionals: string[] = [];
+  positionals.push(options.target);
+  positionals.push(options.source);
+  positionals.push(options.destination);
+  if (options.json) args.push('--json');
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// target record
+// ---------------------------------------------------------------------------
+
+export interface TargetRecordOptions extends CommonOptions {
+  /** Execution target to act on. Currently: 'sandbox'. */
+  target: string;
+  /** Recording duration in seconds. 0 records until Ctrl+C or redirected-stdin newline/EOF. */
+  durationSec?: number;
+  /** Frames per second to capture */
+  fps?: number;
+  /** Write timestamped JPEGs, frames.ndjson, and manifest.json to <output-name>.frames. Supports 1-30 fps and max-edge 64-4096 (default 1280), with a 1 GiB frame-data cap. */
+  frames?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Downscale so the longest edge is at most this many pixels (0 = no downscale) */
+  maxEdge?: number;
+  /** Save output to this file path. */
+  output?: string;
+  /** Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory. */
+  overwrite?: boolean;
+}
+
+// _targetRecordGenerated: options interface exported above; function body omitted — use the
+//   public guarded wrapper (e.g. uiRecord from ui-record-guard.ts) instead.
+
+// ---------------------------------------------------------------------------
+// target screenshot
+// ---------------------------------------------------------------------------
+
+export interface TargetScreenshotOptions extends CommonOptions {
+  /** Execution target to act on. Currently: 'sandbox'. */
+  target: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Save output to this file path. */
+  output?: string;
+}
+
+/**
+ * Capture an execution target's entire desktop at its native pixel size. Saves a PNG on this machine without activating a host or guest window. JSON includes the guest screen origin and pixel-coordinate mapping.
+ */
+export async function targetScreenshot(options: TargetScreenshotOptions): Promise<WinappResult> {
+  const args: string[] = ['target', 'screenshot'];
+  const positionals: string[] = [];
+  positionals.push(options.target);
+  if (options.json) args.push('--json');
+  if (options.output) args.push('--output', options.output);
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// target snapshot
+// ---------------------------------------------------------------------------
+
+export interface TargetSnapshotOptions extends CommonOptions {
+  /** Execution target to act on. Currently: 'sandbox'. */
+  target: string;
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Report an execution target's readiness, capabilities, deployments, and top-level guest windows. Inspects only: never starts, connects, or repairs a target, and reports plainly when none is running. Writes only to stdout: no screenshots and no files.
+ */
+export async function targetSnapshot(options: TargetSnapshotOptions): Promise<WinappResult> {
+  const args: string[] = ['target', 'snapshot'];
+  const positionals: string[] = [];
+  positionals.push(options.target);
+  if (options.json) args.push('--json');
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1030,6 +1205,8 @@ export async function tool(options: ToolOptions = {}): Promise<WinappResult> {
 export interface UiClickOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Perform a double-click instead of a single click */
@@ -1047,12 +1224,15 @@ export interface UiClickOptions extends CommonOptions {
  */
 export async function uiClick(options: UiClickOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'click'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.double) args.push('--double');
   if (options.json) args.push('--json');
   if (options.right) args.push('--right');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1065,6 +1245,8 @@ export interface UiDragOptions extends CommonOptions {
   from?: string;
   /** End point — an element selector (drops at its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-target-d746 or 300,400). */
   to?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Milliseconds to dwell at the destination after moving, before releasing (default: 0). Lets drop targets / merge overlays that arm from a sustained hover latch before release. */
@@ -1084,14 +1266,17 @@ export interface UiDragOptions extends CommonOptions {
  */
 export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'drag'];
-  if (options.from) args.push(options.from);
-  if (options.to) args.push(options.to);
+  const positionals: string[] = [];
+  if (options.from) positionals.push(options.from);
+  if (options.to) positionals.push(options.to);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.dwellMs !== undefined) args.push('--dwell-ms', options.dwellMs.toString());
   if (options.holdMs !== undefined) args.push('--hold-ms', options.holdMs.toString());
   if (options.json) args.push('--json');
   if (options.right) args.push('--right');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1102,6 +1287,8 @@ export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult>
 export interface UiFocusOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1115,10 +1302,13 @@ export interface UiFocusOptions extends CommonOptions {
  */
 export async function uiFocus(options: UiFocusOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'focus'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1127,6 +1317,8 @@ export async function uiFocus(options: UiFocusOptions = {}): Promise<WinappResul
 // ---------------------------------------------------------------------------
 
 export interface UiGetFocusedOptions extends CommonOptions {
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1140,6 +1332,7 @@ export interface UiGetFocusedOptions extends CommonOptions {
  */
 export async function uiGetFocused(options: UiGetFocusedOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-focused'];
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
@@ -1153,6 +1346,8 @@ export async function uiGetFocused(options: UiGetFocusedOptions = {}): Promise<W
 export interface UiGetPropertyOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1168,11 +1363,14 @@ export interface UiGetPropertyOptions extends CommonOptions {
  */
 export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-property'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.property) args.push('--property', options.property);
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1183,6 +1381,8 @@ export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise
 export interface UiGetValueOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1196,10 +1396,13 @@ export interface UiGetValueOptions extends CommonOptions {
  */
 export async function uiGetValue(options: UiGetValueOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-value'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1210,6 +1413,8 @@ export async function uiGetValue(options: UiGetValueOptions = {}): Promise<Winap
 export interface UiHoverOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Time in milliseconds to wait after hovering for hover effects to appear (default: 800) */
@@ -1225,11 +1430,14 @@ export interface UiHoverOptions extends CommonOptions {
  */
 export async function uiHover(options: UiHoverOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'hover'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.dwellTime !== undefined) args.push('--dwell-time', options.dwellTime.toString());
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1240,6 +1448,8 @@ export async function uiHover(options: UiHoverOptions = {}): Promise<WinappResul
 export interface UiInspectOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Walk up the tree from the specified element to the root */
   ancestors?: boolean;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
@@ -1263,7 +1473,9 @@ export interface UiInspectOptions extends CommonOptions {
  */
 export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'inspect'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.ancestors) args.push('--ancestors');
   if (options.app) args.push('--app', options.app);
   if (options.depth !== undefined) args.push('--depth', options.depth.toString());
@@ -1272,6 +1484,7 @@ export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappR
   if (options.interactive) args.push('--interactive');
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1282,6 +1495,8 @@ export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappR
 export interface UiInvokeOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1295,10 +1510,13 @@ export interface UiInvokeOptions extends CommonOptions {
  */
 export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'invoke'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1307,6 +1525,8 @@ export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappRes
 // ---------------------------------------------------------------------------
 
 export interface UiListWindowsOptions extends CommonOptions {
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1320,6 +1540,7 @@ export interface UiListWindowsOptions extends CommonOptions {
  */
 export async function uiListWindows(options: UiListWindowsOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'list-windows'];
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.showHidden) args.push('--show-hidden');
@@ -1333,6 +1554,8 @@ export async function uiListWindows(options: UiListWindowsOptions = {}): Promise
 export interface UiPenOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Pen contact point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. Ignored when --path is given. */
@@ -1360,7 +1583,9 @@ export interface UiPenOptions extends CommonOptions {
  */
 export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'pen'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.at) args.push('--at', options.at);
   if (options.durationMs !== undefined) args.push('--duration-ms', options.durationMs.toString());
@@ -1371,6 +1596,7 @@ export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
   if (options.tiltX !== undefined) args.push('--tilt-x', options.tiltX.toString());
   if (options.tiltY !== undefined) args.push('--tilt-y', options.tiltY.toString());
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1381,6 +1607,8 @@ export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
 export interface UiRecordOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). */
@@ -1397,6 +1625,8 @@ export interface UiRecordOptions extends CommonOptions {
   maxEdge?: number;
   /** Save output to this file path. */
   output?: string;
+  /** Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory. */
+  overwrite?: boolean;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
   window?: number;
 }
@@ -1411,6 +1641,8 @@ export interface UiRecordOptions extends CommonOptions {
 export interface UiScreenshotOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). */
@@ -1430,13 +1662,16 @@ export interface UiScreenshotOptions extends CommonOptions {
  */
 export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'screenshot'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.captureScreen) args.push('--capture-screen');
   if (options.focus) args.push('--focus');
   if (options.json) args.push('--json');
   if (options.output) args.push('--output', options.output);
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1447,6 +1682,8 @@ export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<W
 export interface UiScrollOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Scroll direction: up, down, left, right */
@@ -1466,13 +1703,16 @@ export interface UiScrollOptions extends CommonOptions {
  */
 export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'scroll'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.direction) args.push('--direction', options.direction);
   if (options.json) args.push('--json');
   if (options.to) args.push('--to', options.to);
   if (options.wheel !== undefined) args.push('--wheel', options.wheel.toString());
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1483,6 +1723,8 @@ export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappRes
 export interface UiScrollIntoViewOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1496,10 +1738,13 @@ export interface UiScrollIntoViewOptions extends CommonOptions {
  */
 export async function uiScrollIntoView(options: UiScrollIntoViewOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'scroll-into-view'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1510,6 +1755,8 @@ export async function uiScrollIntoView(options: UiScrollIntoViewOptions = {}): P
 export interface UiSearchOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1525,11 +1772,14 @@ export interface UiSearchOptions extends CommonOptions {
  */
 export async function uiSearch(options: UiSearchOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'search'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.max !== undefined) args.push('--max', options.max.toString());
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1540,6 +1790,8 @@ export async function uiSearch(options: UiSearchOptions = {}): Promise<WinappRes
 export interface UiSendKeysOptions extends CommonOptions {
   /** Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). Use text=<literal> to type a single value verbatim when it would otherwise be read as a key name or combo (text=enter types "enter"; text=ctrl+a types "ctrl+a"); backslash escapes \s \t \n \r \\ are supported (text=a\s\sb types "a b"). To type the whole argument literally without escaping each token, pass --verbatim instead. Quote multi-token strings, e.g. "ctrl+a delete". */
   keys?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. */
   allowSystemKeys?: boolean;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
@@ -1561,7 +1813,9 @@ export interface UiSendKeysOptions extends CommonOptions {
  */
 export async function uiSendKeys(options: UiSendKeysOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'send-keys'];
-  if (options.keys) args.push(options.keys);
+  const positionals: string[] = [];
+  if (options.keys) positionals.push(options.keys);
+  if (options.on) args.push('--on', options.on);
   if (options.allowSystemKeys) args.push('--allow-system-keys');
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
@@ -1569,6 +1823,7 @@ export async function uiSendKeys(options: UiSendKeysOptions = {}): Promise<Winap
   if (options.verbatim) args.push('--verbatim');
   if (options.via) args.push('--via', options.via);
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1581,6 +1836,8 @@ export interface UiSetValueOptions extends CommonOptions {
   selector?: string;
   /** Value to set (text for TextBox/ComboBox, number for Slider) */
   value?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1594,11 +1851,14 @@ export interface UiSetValueOptions extends CommonOptions {
  */
 export async function uiSetValue(options: UiSetValueOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'set-value'];
-  if (options.selector) args.push(options.selector);
-  if (options.value) args.push(options.value);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.value) positionals.push(options.value);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1607,6 +1867,8 @@ export async function uiSetValue(options: UiSetValueOptions = {}): Promise<Winap
 // ---------------------------------------------------------------------------
 
 export interface UiStatusOptions extends CommonOptions {
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Format output as JSON */
@@ -1620,6 +1882,7 @@ export interface UiStatusOptions extends CommonOptions {
  */
 export async function uiStatus(options: UiStatusOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'status'];
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.window !== undefined) args.push('--window', options.window.toString());
@@ -1633,6 +1896,8 @@ export async function uiStatus(options: UiStatusOptions = {}): Promise<WinappRes
 export interface UiTouchOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Explicit start point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. */
@@ -1662,7 +1927,9 @@ export interface UiTouchOptions extends CommonOptions {
  */
 export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'touch'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.at) args.push('--at', options.at);
   if (options.direction) args.push('--direction', options.direction);
@@ -1674,6 +1941,7 @@ export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResul
   if (options.json) args.push('--json');
   if (options.toPoint) args.push('--to-point', options.toPoint);
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1684,6 +1952,8 @@ export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResul
 export interface UiWaitForOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
   selector?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
   /** Use substring matching for --value instead of exact match */
@@ -1707,7 +1977,9 @@ export interface UiWaitForOptions extends CommonOptions {
  */
 export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'wait-for'];
-  if (options.selector) args.push(options.selector);
+  const positionals: string[] = [];
+  if (options.selector) positionals.push(options.selector);
+  if (options.on) args.push('--on', options.on);
   if (options.app) args.push('--app', options.app);
   if (options.contains) args.push('--contains');
   if (options.gone) args.push('--gone');
@@ -1716,6 +1988,7 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
   if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
   if (options.value) args.push('--value', options.value);
   if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 
@@ -1724,6 +1997,8 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
 // ---------------------------------------------------------------------------
 
 export interface UiYieldOptions extends CommonOptions {
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Format output as JSON */
   json?: boolean;
 }
@@ -1733,6 +2008,7 @@ export interface UiYieldOptions extends CommonOptions {
  */
 export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'yield'];
+  if (options.on) args.push('--on', options.on);
   if (options.json) args.push('--json');
   return execCommand(args, options);
 }
@@ -1744,6 +2020,8 @@ export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResul
 export interface UnregisterOptions extends CommonOptions {
   /** Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. */
   input?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. */
   arch?: string;
   /** Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. */
@@ -1769,7 +2047,9 @@ export interface UnregisterOptions extends CommonOptions {
  */
 export async function unregister(options: UnregisterOptions = {}): Promise<WinappResult> {
   const args: string[] = ['unregister'];
-  if (options.input) args.push(options.input);
+  const positionals: string[] = [];
+  if (options.input) positionals.push(options.input);
+  if (options.on) args.push('--on', options.on);
   if (options.arch) args.push('--arch', options.arch);
   if (options.configuration) args.push('--configuration', options.configuration);
   if (options.force) args.push('--force');
@@ -1782,6 +2062,7 @@ export async function unregister(options: UnregisterOptions = {}): Promise<Winap
   }
   if (options.prune) args.push('--prune');
   if (options.runtime) args.push('--runtime', options.runtime);
+  if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
 

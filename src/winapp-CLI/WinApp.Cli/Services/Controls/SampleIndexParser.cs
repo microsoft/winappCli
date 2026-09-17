@@ -124,13 +124,17 @@ internal static class SampleIndexParser
                     ? GetStringArray(sample, SampleIndexSchema.XmlnsImports)
                     : xmlnsImports;
 
-                // A sample with neither XAML nor code has no usable content. Guard on the
-                // raw code (before the usings prefix) so a control that declares only
-                // control-level usings can't slip a using-only stub through.
+                // A sample with neither XAML nor code has no usable content. Placeholder
+                // tokens depend on live Gallery option controls, so suppress only the
+                // affected language block and keep the sample when the other block remains.
+                // Guard on the raw code (before the usings prefix) so a control that
+                // declares only control-level usings can't slip a using-only stub through.
                 // Code is pasted into a C# file, so drop it when tagged as another
                 // language rather than emitting, say, C++ as if it were C#.
-                var hasXaml = !string.IsNullOrWhiteSpace(xaml);
-                var hasCode = !string.IsNullOrWhiteSpace(code) && IsCSharp(sample);
+                var hasXaml = !string.IsNullOrWhiteSpace(xaml) && !SampleSubstitutionPlaceholder.Contains(xaml);
+                var hasCode = !string.IsNullOrWhiteSpace(code)
+                    && IsCSharp(sample)
+                    && !SampleSubstitutionPlaceholder.Contains(code);
                 if (!hasXaml && !hasCode) continue;
 
                 // Ids are positional over KEPT samples, so they stay contiguous from 1.

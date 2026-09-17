@@ -83,6 +83,20 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
     }
 
+    [TestMethod]
+    public async Task Status_DpiReadFailure_ReturnsExplicitJsonError()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 123;
+        _fakeWindowDpiContextProvider.Throw =
+            new InvalidOperationException("GetDpiForWindow failed for HWND 123.");
+
+        var command = GetRequiredService<UiStatusCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "GetDpiForWindow failed for HWND 123");
+    }
+
     // ---------- focus ----------
 
     [TestMethod]

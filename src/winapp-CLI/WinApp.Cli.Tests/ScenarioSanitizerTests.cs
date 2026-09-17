@@ -152,6 +152,22 @@ public class ScenarioSanitizerTests
         Assert.IsNull(s.CSharp, "brace-unbalanced C# is dropped");
     }
 
+    [TestMethod]
+    public void Sanitize_DropsSubstitutionPlaceholders()
+    {
+        var s = new Scenario
+        {
+            Id = "gallery-x-1",
+            Xaml = "<Button IsEnabled=\"$(IsEnabled)\" />",
+            CSharp = "ColorHelper.FromArgb($(Color));",
+        };
+
+        ScenarioSanitizer.Sanitize(s);
+
+        Assert.IsNull(s.Xaml, "XAML with an unresolved substitution placeholder is not pasteable");
+        Assert.IsNull(s.CSharp, "C# with an unresolved substitution placeholder is not pasteable");
+    }
+
     // ── Id / ControlId ──────────────────────────────────────────────────────
 
     [TestMethod]

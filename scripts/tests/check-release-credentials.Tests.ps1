@@ -10,7 +10,7 @@
     These tests must stay OFFLINE. build-cli.ps1 runs scripts/tests during CI *and during the
     real release build*, so a test that reaches api.github.com would let a GitHub outage block
     a release. Every case below exercises a path that returns before any network call: no
-    GitHub token and no ADO collection URI.
+    GitHub token.
 #>
 
 BeforeAll {
@@ -89,21 +89,6 @@ Describe 'check-release-credentials.ps1' {
             $result = Invoke-Checker -ScriptArgs @()
 
             $result.Output | Should -Match '\[WARN\] winget-pkgs fork push access'
-        }
-    }
-
-    Context 'service connection checks outside Azure Pipelines' {
-        BeforeAll {
-            $script:result = Invoke-Checker -ScriptArgs @('-ServiceConnections', 'some-connection')
-        }
-
-        It 'warns rather than fails when there is no collection URI' {
-            $script:result.Output | Should -Match '\[WARN\] Service connections'
-        }
-
-        It 'never reports a connection as missing when it could not look it up' {
-            # A false "not found" would send someone hunting for a deleted connection that exists.
-            $script:result.Output | Should -Not -Match '\[FAIL\] Service connection'
         }
     }
 
