@@ -1395,12 +1395,14 @@ internal sealed partial class UiAutomationService : IUiAutomation
     /// <summary>
     /// Resolves a slug selector by walking the tree, regenerating slugs for each element,
     /// and matching + validating the RuntimeId hash.
-    /// Returns both the UiElement model and the live COM element.
+    /// Returns both the UiElement model and the live COM element, or only the COM element for strict uniqueness checks.
     /// </summary>
     private (UiElement? Model, IUIAutomationElement? ComElement) FindElementBySlugWithCom(
         string targetSlug, IUIAutomationElement root, bool includeRoot = true,
-        bool throwOnHashMismatch = true, bool requireCurrentIdentity = false, CancellationToken ct = default)
+        bool throwOnHashMismatch = true, bool requireCurrentIdentity = false,
+        bool requireUnique = false, Func<IUIAutomationElement, bool>? matches = null, CancellationToken ct = default)
     {
+        requireCurrentIdentity |= requireUnique;
         var parsed = SlugGenerator.ParseSlug(targetSlug);
         if (parsed is null)
         {
@@ -1419,6 +1421,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         foreach (var element in candidates)
         {
             ct.ThrowIfCancellationRequested();
+            if (requireUnique && matches is not null && !matches(element)) { continue; }
             string type;
             try { type = GetControlTypeName(element.get_CurrentControlType()); }
             catch (Exception ex) when (!requireCurrentIdentity && ex is COMException or InvalidCastException)
@@ -1444,6 +1447,16 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         var hash = SlugGenerator.ComputeHashFromSafeArray(runtimeId);
                         if (hash == targetHash)
                         {
+                            if (requireUnique)
+                            {
+                                if (matchedCom is not null && !s_compareElements(this, matchedCom, element))
+                                {
+                                    throw new UiAmbiguousSelectorException(
+                                        $"Slug '{targetSlug}' matched multiple elements. Narrow the selector with a root, class, or window and re-run 'inspect'.");
+                                }
+                                matchedCom ??= element;
+                                continue;
+                            }
                             matchedCom = element;
                             matchedUi = ToUiElement(element, "", ref nextElementId, requireCurrentIdentity);
                             break;
@@ -1459,7 +1472,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
 
             // Also handle nameless elements: prefix-hash (no name slug)
-            if (targetNameSlug is null && prefix == targetPrefix)
+            if (!requireUnique && targetNameSlug is null && prefix == targetPrefix)
             {
                 try
                 {
@@ -1480,6 +1493,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
 
         }
+
+        // Strict callers need the exact provider, not a model that probes patterns before
+        // uniqueness is established. Query callers materialize it after selection.
+        if (requireUnique && matchedCom is not null) { return (null, matchedCom); }
 
         if (matchedUi is not null)
         {
@@ -1616,7 +1633,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 throw new InvalidOperationException(
                     $"Element selector '{element.Selector}' is not an exact runtime slug or matching AutomationId. Re-run 'inspect' or 'search'.");
             }
-            return FindElementBySlugWithCom(element.Selector, root, ct: ct).ComElement;
+            return FindElementBySlugWithCom(element.Selector, root, ct: ct, requireUnique: true).ComElement;
         }
 
         // Try slug-based resolution first (most precise — uses RuntimeId hash)

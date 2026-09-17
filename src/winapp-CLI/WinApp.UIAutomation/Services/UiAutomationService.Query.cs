@@ -149,7 +149,8 @@ internal sealed partial class UiAutomationService
             // A same-name element with a different runtime ID is not this identity.
             // In particular, another app window may contain the actual slug.
             var (_, element) = FindElementBySlugWithCom(selector.Slug!, root, includeRoot,
-                throwOnHashMismatch: false, ct: ct, requireCurrentIdentity: true);
+                throwOnHashMismatch: false, ct: ct, requireCurrentIdentity: true,
+                requireUnique: requireUnique, matches: candidate => MatchesQueryPredicates(candidate, selector));
             return element is not null && MatchesQueryPredicates(element, selector) ? [element] : [];
         }
 
