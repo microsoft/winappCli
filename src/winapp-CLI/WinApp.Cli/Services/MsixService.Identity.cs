@@ -838,7 +838,7 @@ internal partial class MsixService
         }
 
         var executable = Path.GetFullPath(
-            Path.Combine(outputDirectory.FullName, NormalizePackagePath(manifest.ApplicationExecutable)));
+            Path.Join(outputDirectory.FullName, NormalizePackagePath(manifest.ApplicationExecutable)));
 
         if (!IsPathInsideDirectory(executable, outputDirectory.FullName))
         {
