@@ -11,41 +11,39 @@
     }
   },
   "results": {
-    "5ca1b6336b4c897e0051c1906282d756496583cf01f2396f075954644f2bdc13": {
-      "signature": "5ca1b6336b4c897e0051c1906282d756496583cf01f2396f075954644f2bdc13",
+    "5d7fac3ac06796185e30b96ed797285fcea9d87a05900c29b91921e6cc9d27c4": {
+      "signature": "5d7fac3ac06796185e30b96ed797285fcea9d87a05900c29b91921e6cc9d27c4",
       "alternativeSignatures": [
-        "28f2f862371ca2e37f688c39a284823a52cef1511030e8ab3ce552a7568f61c7",
-        "ef886847458e451c552cd7982ede5177fcad3ce4b0a1bf8297380a676a556ac0",
-        "4dad3dfda180bb8cfe5ba9e78c5de47134462fb01248eae3de551c4d4f61de88"
+        "27e0b145546285f15fe977cd7060554a19e6df6f313d7952a455c2fe2121eaae",
+        "3e5e433367402380451a087431a38c2f9d208a7343e86480adbdb929bb81d8b6",
+        "b4635930b865b7c274eba9c865061bf110e6d1539f1b0bbec524669930bb9876"
       ],
-      "target": "cli/win-arm64/libSkiaSharp.dll",
+      "target": "cli/win-arm64/libHarfBuzzSharp.dll",
       "uriBaseId": "file:///D:/a/_work/1/a/",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
-      "ruleId": "BA2008",
-      "createdDate": "2026-05-20 01:12:41Z",
-      "expirationDate": "2026-11-06 01:17:17Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-20 01:17:17Z"
+      "ruleId": "BA2007",
+      "createdDate": "2026-09-17 17:38:46Z",
+      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change, and every published version of it fails this rule. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled."
     },
-    "4b54f4eb14c18c15cb572b88baa253008f728ee4ff3e248f8bf767fad27eac8a": {
-      "signature": "4b54f4eb14c18c15cb572b88baa253008f728ee4ff3e248f8bf767fad27eac8a",
+    "bef185746e419cfc313d6e9ffc371635712e5b4ded6c576407eebf03706d1a64": {
+      "signature": "bef185746e419cfc313d6e9ffc371635712e5b4ded6c576407eebf03706d1a64",
       "alternativeSignatures": [
-        "6178b99605c851620929c43de41ef63c63974772a78214dd07ce3c3e9c41b53f",
-        "9c54eb86027dd75461f15ee0b2d39380bc752c18898a9647e95a73829a2c6980",
-        "3922c5c92055d2bfc3841772994f6fc09dc3d8dd5151f8a014a161213c6597c9"
+        "516eae04909778d0b183e7f5b4aaa7d02ba5563edec43793734e1ce0404466ba",
+        "75bb0f86672b88edbf930f4a04aa173a5e00f5d286f5118cceff2c790e999035",
+        "a230cac607b9846f146d41357d892716170635d99602b15899c9a5611c0d42e3"
       ],
-      "target": "cli/win-x64/libSkiaSharp.dll",
+      "target": "cli/win-x64/libHarfBuzzSharp.dll",
       "uriBaseId": "file:///D:/a/_work/1/a/",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
-      "ruleId": "BA2008",
-      "createdDate": "2026-05-20 01:12:41Z",
-      "expirationDate": "2026-11-06 01:17:17Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-20 01:17:17Z"
+      "ruleId": "BA2007",
+      "createdDate": "2026-09-17 17:38:46Z",
+      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change, and every published version of it fails this rule. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled."
     },
     "d9a3c66c830ce4995996ce22ffec0bdef5992aac4c050baac37f3b810f903cd7": {
       "signature": "d9a3c66c830ce4995996ce22ffec0bdef5992aac4c050baac37f3b810f903cd7",
