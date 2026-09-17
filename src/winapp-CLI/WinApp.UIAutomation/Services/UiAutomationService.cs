@@ -42,6 +42,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
     internal static Func<int, nint> s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
     internal static Func<UiAutomationService, IUIAutomationTreeWalker> s_getExplicitIdentityWalker = service => service._automation.get_ControlViewWalker();
+    internal static Func<UiAutomationService, IUIAutomationElement, IUIAutomationElement, bool> s_compareElements =
+        (service, first, second) => service._automation.CompareElements(first, second);
 
     internal static void ResetNativeSeams()
     {
@@ -57,6 +59,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
         s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
         s_getExplicitIdentityWalker = service => service._automation.get_ControlViewWalker();
+        s_compareElements = (service, first, second) => service._automation.CompareElements(first, second);
         s_captureFromWindow = CaptureFromWindow;
         s_captureFromScreenScaled = CaptureFromScreenScaled;
         s_foregroundWindowForBlankRetry = ForegroundWindowForBlankRetry;
@@ -1389,6 +1392,18 @@ return Task.FromResult<UiElement?>(null);
             try
             {
                 _ = s_getElementProcessId(context.AutomationElement);
+                if (strictIdentity && !string.IsNullOrEmpty(element.AutomationId) &&
+                    element.Selector == element.AutomationId)
+                {
+                    // A caller committing to an AutomationId requires uniqueness even when initial
+                    // selection retained a provider. Validate that identity, but never replace it.
+                    var match = ResolveComElement(uiTarget, element, strictIdentity: true);
+                    if (match is null || !s_compareElements(this, context.AutomationElement, match))
+                    {
+                        throw new InvalidOperationException(
+                            $"Element {element.Id} is stale or AutomationId '{element.AutomationId}' now identifies a different element. Re-run 'inspect' or 'search'.");
+                    }
+                }
             }
             catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == UiaElementNotAvailable)
             {

@@ -161,6 +161,12 @@ internal class UiInvokeCommand : Command, IShortDescription
                     {
                         if (action is { } explicitAction)
                         {
+                            // Bulk search may be partial. An AutomationId commitment also requires
+                            // the service's complete uniqueness check against the retained provider.
+                            if (!selector.IsSlug && !string.IsNullOrEmpty(element.AutomationId))
+                            {
+                                element.Selector = element.AutomationId;
+                            }
                             var outcome = await uiAutomation.InvokeAsync(uiTarget, element, explicitAction, cancellationToken);
                             pattern = outcome.Pattern;
                             performedAction = outcome.PerformedAction;

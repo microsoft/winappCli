@@ -10,6 +10,70 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    [DataRow(true, true, true)]
+    [DataRow(false, true, true)]
+    [DataRow(false, true, false)]
+    [DataRow(true, false, true)]
+    public async Task ExplicitAction_RetainedIdentity_ValidatesWithoutReplacingProvider(
+        bool duplicate, bool automationIdSelector, bool sameProvider)
+    {
+        var calls = new List<string>();
+        var retained = ConfigureExplicitIdentityTree(calls, 1, duplicate, 3);
+        UiAutomationService.s_getElementProcessId = _ => Environment.ProcessId;
+        UiAutomationService.s_compareElements = (_, original, candidate) =>
+        {
+            calls.Add("compare");
+            Assert.AreSame(retained, original);
+            Assert.AreSame(retained, candidate);
+            return sameProvider;
+        };
+        var svc = NewService();
+        var element = new UiElement
+        {
+            Context = new UiElementContext(retained),
+            AutomationId = "save",
+            Selector = automationIdSelector ? "save" : "btn-save-1234",
+        };
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
+        if (automationIdSelector && (duplicate || !sameProvider))
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
+            Assert.IsFalse(calls.Contains("invoke"));
+        }
+        else
+        {
+            Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+                await svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
+            Assert.AreEqual(1, calls.Count(c => c == "invoke"));
+        }
+        Assert.AreEqual(automationIdSelector ? 1 : 0, svc.SerializedElementResolutionCount);
+        Assert.AreEqual(automationIdSelector && !duplicate, calls.Contains("compare"));
+        Assert.IsFalse(calls.Contains("bulk"));
+    }
+
+    [TestMethod]
+    [DataRow("first")]
+    [DataRow("sibling")]
+    [DataRow("identity")]
+    [DataRow("stale")]
+    [DataRow("missing")]
+    public async Task ExplicitAction_RetainedIdentityValidationFailure_NeverInvokes(string failure)
+    {
+        var calls = new List<string>();
+        var retained = ConfigureExplicitIdentityTree(calls, 1, false, 3, failure);
+        UiAutomationService.s_getElementProcessId = _ => Environment.ProcessId;
+        UiAutomationService.s_compareElements = (_, _, _) => throw new AssertFailedException("Cannot compare before complete uniqueness validation.");
+        var svc = NewService();
+        var aid = failure == "missing" ? "missing" : "save";
+        var element = new UiElement { Context = new UiElementContext(retained), AutomationId = aid, Selector = aid };
+        var target = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => svc.InvokeAsync(target, element, UiInvokeAction.Invoke, CancellationToken.None));
+        Assert.IsFalse(calls.Contains("invoke"));
+    }
+
+    [TestMethod]
     [DataRow(0, false, 0)]
     [DataRow(1, false, 0)]
     [DataRow(0, true, 0)]
@@ -75,7 +139,7 @@ public partial class RealUiAutomationTests
 
     // The bulk provider deliberately omits the tail: a one-element result looks unique even when
     // a duplicate exists. A synthetic ControlView allows arbitrary depth and deterministic faults.
-    private static void ConfigureExplicitIdentityTree(
+    private static IUIAutomationElement ConfigureExplicitIdentityTree(
         List<string> calls, int bulkCount, bool duplicate, int depth, string? failure = null)
     {
         var invoke = ComProxy<IUIAutomationInvokePattern>((method, _) =>
@@ -137,6 +201,7 @@ public partial class RealUiAutomationTests
         });
         UiAutomationService.s_getRootElement = (_, _) => root;
         UiAutomationService.s_getExplicitIdentityWalker = _ => walker;
+        return nodes[0];
     }
 
     [TestMethod]

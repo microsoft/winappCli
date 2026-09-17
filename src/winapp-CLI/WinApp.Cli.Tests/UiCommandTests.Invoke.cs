@@ -294,6 +294,8 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeUia.ExplicitInvokeCalls, "A unique --action selector must still invoke.");
+        Assert.AreEqual("save", _fakeUia.LastInvokedElement!.Selector,
+            "The service must verify complete AutomationId uniqueness even when bulk search returns one result.");
     }
 
     [TestMethod]
@@ -314,5 +316,6 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exitCode);
         Assert.AreEqual(1, _fakeUia.ExplicitInvokeCalls, "A slug selector must invoke without an ambiguity check.");
+        Assert.AreEqual("elm-save-9a9a", _fakeUia.LastInvokedElement!.Selector);
     }
 }

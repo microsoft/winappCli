@@ -14,6 +14,20 @@ namespace WinApp.Cli.Tests;
 public class CertGenerateCommandTests : BaseCommandTests
 {
     [TestMethod]
+    public async Task EmptyPassword_NonJson_ReturnsError()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Join(_tempDirectory.FullName, "empty-pw.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", ""]);
+
+        Assert.AreEqual(1, exitCode, "An explicitly empty --password must be rejected before generating a PFX.");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "password cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty password.");
+    }
+
+    [TestMethod]
     public void OutputOption_AcceptsPlainFileName()
     {
         // Arrange
@@ -381,24 +395,10 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
     }
 
     [TestMethod]
-    public async Task EmptyPassword_NonJson_ReturnsError()
-    {
-        var command = GetRequiredService<CertGenerateCommand>();
-        var pfxPath = Path.Combine(_tempDirectory.FullName, "empty-pw.pfx");
-
-        var exitCode = await ParseAndInvokeWithCaptureAsync(
-            command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", ""]);
-
-        Assert.AreEqual(1, exitCode, "An explicitly empty --password must be rejected before generating a PFX.");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "password cannot be empty");
-        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty password.");
-    }
-
-    [TestMethod]
     public async Task EmptyPassword_Json_OutputsJsonError()
     {
         var command = GetRequiredService<CertGenerateCommand>();
-        var pfxPath = Path.Combine(_tempDirectory.FullName, "empty-pw-json.pfx");
+        var pfxPath = Path.Join(_tempDirectory.FullName, "empty-pw-json.pfx");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
             command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", "   ", "--json"]);

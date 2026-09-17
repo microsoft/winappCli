@@ -93,8 +93,10 @@ public interface IUiAutomation
     /// changing state (at most two toggles when initially indeterminate, otherwise at most one).
     /// </summary>
     /// <param name="uiTarget">The app or window that owns the element.</param>
-    /// <param name="element">The selected element. In-process models use their retained live provider
-    /// element without re-resolution, including after a provider failure. Serialized or externally-created
+    /// <param name="element">The selected element. In-process models act on their retained live provider,
+    /// never a replacement after a failure. When Selector equals AutomationId, that ID must still be
+    /// unique and identify the retained provider. Runtime-slug models use the retained provider directly.
+    /// Serialized or externally-created
     /// models require a runtime slug or unique AutomationId. A missing identity fails without trying
     /// another identity or matching by Name and Type.</param>
     /// <param name="action">The explicit action to perform.</param>
