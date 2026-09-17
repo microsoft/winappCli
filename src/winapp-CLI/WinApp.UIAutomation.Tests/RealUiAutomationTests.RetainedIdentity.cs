@@ -29,7 +29,7 @@ public partial class RealUiAutomationTests
         };
         // Recovery can select a sibling window with the same AutomationId. It must not be
         // reached for a strict action with a recorded source or target HWND.
-        UiAutomationService.s_getRootElement = (_, _) =>
+        UiAutomationService.s_getRootElement = (_, _, _) =>
         {
             recoveryCalls++;
             return null;
@@ -309,7 +309,7 @@ public partial class RealUiAutomationTests
             ? throw new System.Runtime.InteropServices.COMException("Window closed", unchecked((int)0x80040201))
             : bind(service, hwnd);
         UiAutomationService.s_getAllAppWindows = (_, _) => throw new AssertFailedException("A closed source must not enumerate siblings.");
-        UiAutomationService.s_getRootElement = (_, _) => throw new AssertFailedException("A closed source must not recover.");
+        UiAutomationService.s_getRootElement = (_, _, _) => throw new AssertFailedException("A closed source must not recover.");
         var element = new UiElement
         {
             AutomationId = "save", Selector = "save", WindowHandle = fx.Target.WindowHandle,

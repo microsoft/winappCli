@@ -386,7 +386,7 @@ public partial class RealUiAutomationTests
             }
             return ThrowCom();
         });
-        UiAutomationService.s_getRootElement = (_, _) => root;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
         UiAutomationService.s_getAllAppWindows = (_, _) => [];
         UiAutomationService.s_getExplicitIdentityWalker = _ => walker;
         return nodes[0];
