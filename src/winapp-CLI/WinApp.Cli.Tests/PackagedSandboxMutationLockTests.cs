@@ -864,7 +864,6 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
                 orchestrator,
                 runner,
                 runtimeService,
-                new WinappDirectoryService(currentDirectoryProvider),
                 logger);
         }
 

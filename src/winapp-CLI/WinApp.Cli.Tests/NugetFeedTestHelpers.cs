@@ -18,32 +18,13 @@ namespace WinApp.Cli.Tests;
 /// </summary>
 internal static class NugetFeedTestHelpers
 {
-    /// <summary>
-    /// <see cref="IWinappDirectoryService"/> whose global directory is the real default
-    /// (<c>%USERPROFILE%\.winapp</c>), so <see cref="NugetService"/> does NOT treat it as a test
-    /// override and instead resolves the global packages folder from the supplied nuget.config
-    /// (exercising <c>SettingsUtility.GetGlobalPackagesFolder</c>).
-    /// </summary>
-    private sealed class DefaultWinappDirectoryService : IWinappDirectoryService
-    {
-        public DirectoryInfo GetGlobalWinappDirectory() =>
-            new(Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp"));
-
-        public DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null) =>
-            new(Path.Join((baseDirectory ?? new DirectoryInfo(Directory.GetCurrentDirectory())).FullName, ".winapp"));
-
-        public void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory)
-        {
-        }
-    }
-
     internal static NugetSourceProvider CreateSourceProviderRootedAt(DirectoryInfo root) =>
         new(new CurrentDirectoryProvider(root.FullName));
 
     internal static NugetService CreateServiceRootedAt(DirectoryInfo root)
     {
         var sourceProvider = CreateSourceProviderRootedAt(root);
-        return new NugetService(new DefaultWinappDirectoryService(), sourceProvider, new NugetPackageDownloader(sourceProvider));
+        return new NugetService(sourceProvider, new NugetPackageDownloader(sourceProvider));
     }
 
     internal static DirectoryInfo CreateFeedTestDirectory()

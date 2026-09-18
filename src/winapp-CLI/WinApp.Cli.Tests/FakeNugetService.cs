@@ -15,6 +15,7 @@ internal class FakeNugetService : INugetService
     public string DefaultVersion { get; set; } = "1.6.0";
     public List<string> QueriedPackages { get; } = [];
     public List<(string Package, string Version)> InstalledPackages { get; } = [];
+    public Action<string, string>? BeforeInstall { get; set; }
 
     /// <summary>
     /// Set this to the test cache directory to enable NuGet cache path resolution in tests.
@@ -63,19 +64,24 @@ internal class FakeNugetService : INugetService
 
     public Task<Dictionary<string, string>> InstallPackageAsync(string package, string version, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
+        BeforeInstall?.Invoke(package, version);
         InstalledPackages.Add((package, version));
+        var installed = InstallReturns.TryGetValue(package, out var configured)
+            ? new Dictionary<string, string>(configured)
+            : new Dictionary<string, string> { [package] = version };
 
         // When a cache directory is configured, create the package folder AND the completion marker so
         // subsequent "already present" checks (INugetService.IsPackageInstalled) behave like a real,
         // fully-extracted NuGet cache entry.
         if (CacheDirectory != null)
         {
-            MarkInstalled(package, version);
+            foreach (var (installedPackage, installedVersion) in installed)
+            {
+                MarkInstalled(installedPackage, installedVersion);
+            }
         }
 
-        return Task.FromResult(InstallReturns.TryGetValue(package, out var configured)
-            ? new Dictionary<string, string>(configured)
-            : new Dictionary<string, string> { [package] = version });
+        return Task.FromResult(installed);
     }
 
     /// <summary>

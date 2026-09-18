@@ -278,7 +278,6 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         ExecutionTargetOrchestrator executionTargetOrchestrator,
         GuestApplicationRunner guestApplicationRunner,
         TargetRuntimeService targetRuntimeService,
-        IWinappDirectoryService winappDirectoryService,
         ILogger<RunCommand> logger) : AsynchronousCommandLineAction
     {
         // Test seams for the execution-alias launch path. They isolate the two operating-system
@@ -810,7 +809,6 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // register the other one's app. It is released before the run waits on the
                     // application, so an open app never blocks another run against this build output.
                     using var layoutLease = LayoutLease.Acquire(
-                        winappDirectoryService.GetGlobalWinappDirectory(),
                         outputAppXDirectory,
                         cancellationToken);
 

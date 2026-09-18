@@ -134,7 +134,7 @@ small API. A filter that matches nothing exits `0` and says so explicitly — th
 - **Querying a project:** run from (or point `--project-dir` at) a project that has been **restored** — the index is built from `project.assets.json` and the restored NuGet/SDK packages. If the project has never been restored, run `winapp restore` (or `dotnet restore`) first. A solution directory works too: run from the folder holding the `.sln`/`.slnx` and the projects it builds are indexed and answer the query.
 - **Querying with no project:** nothing is required. From a directory with no project and no solution, `find-api` answers from the machine-wide **SDK scope** (Windows SDK + Windows App SDK), so an agent can explore the API surface *before* scaffolding an app. No network access is needed in either case.
 - The first query builds the index automatically (this can take a few seconds for a large SDK like WindowsAppSDK); subsequent queries are served from the warm cache. The project index refreshes automatically when the project is re-restored.
-- No setup is needed beyond a restored project — the index lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects.
+- No setup is needed beyond a restored project — the index normally lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects. For current-directory-only environments, see [restricted filesystem access](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#restricted-filesystem-access).
 
 ## Common patterns
 

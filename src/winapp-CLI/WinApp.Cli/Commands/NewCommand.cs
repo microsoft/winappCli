@@ -852,6 +852,10 @@ internal class NewCommand : Command, IShortDescription
                     {
                         latest = cachedLatest;
                     }
+                    else if (!templateUpdateThrottle.CanCheckForUpdates())
+                    {
+                        latest = null;
+                    }
                     else
                     {
                         var (checkSucceeded, feedLatest) = await WithSpinnerAsync(

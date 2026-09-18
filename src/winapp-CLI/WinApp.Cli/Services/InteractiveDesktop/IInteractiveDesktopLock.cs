@@ -19,6 +19,7 @@ internal interface IDesktopSection
 {
     /// <summary>
     /// Acquires <c>active.lock</c> for the duration of the returned scope.
+    /// Observation turns cannot enter a desktop section.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -82,6 +83,8 @@ internal interface IInteractiveDesktopLock
     /// never open a lease, take a ticket, or join an indefinite queue (spec §10). The forward barrier
     /// wraps <paramref name="body"/>; <c>active.lock</c> is <em>not</em> held across it — the body takes
     /// it only for its desktop-sensitive section via <see cref="IDesktopSection.EnterAsync"/>.
+    /// An observation may run detached when coordination storage is unavailable, without ordering or
+    /// workflow continuity. Invalid configuration and ambiguous state still fail closed.
     /// </remarks>
     /// <param name="mode">The command's coordination mode.</param>
     /// <param name="operation">Command name for diagnostics, e.g. <c>ui click</c>. Never arguments.</param>

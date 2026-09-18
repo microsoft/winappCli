@@ -24,6 +24,18 @@ namespace WinApp.Cli.Commands;
 /// </summary>
 internal static class FindApiShared
 {
+    internal static int Invoke(IAnsiConsole console, ParseResult parseResult, Func<int> execute)
+    {
+        try
+        {
+            return execute();
+        }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex) || ex is InvalidOperationException)
+        {
+            return Fail(console, parseResult.GetValue(WinAppRootCommand.JsonOption), ex.Message);
+        }
+    }
+
     /// <summary>
     /// The scope options are declared once and shared by <c>find-api</c> and every verb
     /// under it — the pattern the CLI already uses for <c>--verbose</c> and <c>--quiet</c>.

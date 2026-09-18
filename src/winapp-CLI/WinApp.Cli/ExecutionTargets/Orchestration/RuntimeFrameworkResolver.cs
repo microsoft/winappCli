@@ -68,8 +68,10 @@ internal interface IRuntimeFrameworkResolver
 internal sealed class RuntimeFrameworkResolver(
     INugetService nugetService,
     IPackageInstallationService packageInstallationService,
-    IWinappDirectoryService winappDirectoryService) : IRuntimeFrameworkResolver
+    IWinappDirectoryService winappDirectoryService,
+    IStorageDiagnostics? diagnostics = null) : IRuntimeFrameworkResolver
 {
+    private readonly CacheStorage _cache = new(winappDirectoryService, Path.Combine("cache", CacheFolderName), CacheFolderName, diagnostics);
     /// <summary>Folder inside the shared winapp cache that built layouts are kept in.</summary>
     internal const string CacheFolderName = "dotnet-layouts";
 
@@ -222,41 +224,43 @@ internal sealed class RuntimeFrameworkResolver(
             return null;
         }
 
-        var cache = new DirectoryInfo(Path.Join(
-            winappDirectoryService.GetGlobalWinappDirectory().FullName, "cache", CacheFolderName));
-
-        cache.Create();
-
-        var archive = new FileInfo(Path.Join(
-            cache.FullName,
-            TargetPathSafety.EnsureSafeSegment(
-                $"{requirement.Name}_{source.Version}_{requirement.Architecture}.zip")));
-
-        if (!archive.Exists)
+        return await _cache.RunAsync(async cache =>
         {
-            try
+            var archive = new FileInfo(Path.Join(
+                cache,
+                TargetPathSafety.EnsureSafeSegment(
+                    $"{requirement.Name}_{source.Version}_{requirement.Architecture}.zip")));
+
+            if (!archive.Exists)
             {
-                await DotNetLayout.BuildArchiveAsync(source, archive.FullName, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    Directory.CreateDirectory(cache);
+                    await DotNetLayout.BuildArchiveAsync(source, archive.FullName, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException ex)
+                {
+                    taskContext.AddDebugMessage(
+                        $"{UiSymbols.Note} The {requirement.Name} layout could not be assembled: {ex.Message}");
+
+                    return null;
+                }
+                archive.Refresh();
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            else
             {
-                taskContext.AddDebugMessage(
-                    $"{UiSymbols.Note} The {requirement.Name} layout could not be assembled: {ex.Message}");
-
-                return null;
+                using var readable = archive.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
             }
 
-            archive.Refresh();
-        }
-
-        return new RuntimeFrameworkPayload(
-            archive,
-            requirement.Name,
-            source.Version.ToString(),
-            requirement.Architecture)
-        {
-            Dependencies = dependencies,
-        };
+            return new RuntimeFrameworkPayload(
+                archive,
+                requirement.Name,
+                source.Version.ToString(),
+                requirement.Architecture)
+            {
+                Dependencies = dependencies,
+            };
+        }).ConfigureAwait(false);
     }
 
     private static string PackId(RuntimeFrameworkRequirement requirement) =>

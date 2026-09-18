@@ -222,9 +222,6 @@ internal class WorkspaceSetupService(
                     logger.LogDebug("{UISymbol} Local workspace → {LocalWinappDir}", UiSymbols.Folder, localWinappDir);
                 }
 
-                // First ensure basic workspace (for global packages)
-                logger.LogDebug("{UISymbol} Initializing workspace at {LocalWinappDir}", UiSymbols.Sync, localWinappDir);
-                packageInstallationService.InitializeWorkspace(globalWinappDir);
             }
         }
         else if (options.SdkInstallMode == SdkInstallMode.None)
@@ -536,6 +533,8 @@ internal class WorkspaceSetupService(
                         {
                             return (1, "Error installing packages.");
                         }
+
+                        nugetCacheDir = nugetService.GetNuGetGlobalPackagesDir();
 
                         // Step 5: Run cppwinrt and set up projections
                         var cppWinrtExe = cppWinrtService.FindCppWinrtExe(nugetCacheDir, usedVersions);

@@ -6,6 +6,7 @@ using NuGet.Configuration;
 using NuGet.Credentials;
 using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
 namespace WinApp.Cli.Services;
@@ -46,12 +47,35 @@ internal sealed class NugetSourceProvider
     });
 
     private readonly ICurrentDirectoryProvider _currentDirectoryProvider;
+    private readonly IWinappDirectoryService? _directoryService;
+    private readonly IStorageDiagnostics? _storageDiagnostics;
+    private readonly object _packagesLock;
+    private readonly Dictionary<string, string> _fallbackPackagesFolders;
+    private readonly HashSet<string> _writablePackagesFolders;
+    private readonly Dictionary<string, NugetSourceProvider> _childProviders = new(StringComparer.OrdinalIgnoreCase);
+
+    internal Func<string, ISettings> LoadSettings { get; set; } =
+        root => NuGet.Configuration.Settings.LoadDefaultSettings(root);
+    internal Func<string, string?> GetEnvironmentVariable { get; set; } = Environment.GetEnvironmentVariable;
+    internal Func<ISettings, string> ResolveGlobalPackagesFolder { get; set; } = SettingsUtility.GetGlobalPackagesFolder;
+    internal Action<string> ReadPackagesDirectory { get; set; } = path =>
+    {
+        using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
+        _ = entries.MoveNext();
+    };
+    internal Action<string> WritePackagesDirectory { get; set; } = path =>
+    {
+        Directory.CreateDirectory(path);
+        using var probe = new FileStream(
+            Path.Combine(path, $".winapp-write-{Guid.NewGuid():N}"),
+            FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose);
+    };
 
     // The directory the nuget.config hierarchy is resolved from. Null means "use the process working
     // directory"; SetConfigRoot overrides it for commands that select an explicit project/config dir.
     private DirectoryInfo? _configRoot;
 
-    // All three caches are Lazy (default ExecutionAndPublication mode: thread-safe, initialized exactly
+    // Configuration caches are Lazy (default ExecutionAndPublication mode: thread-safe, initialized exactly
     // once) rather than plain '??=' fields. NugetSourceProvider is a DI singleton and WorkspaceSetupService
     // resolves versions for many packages concurrently (Task.WhenAll over GetLatestVersionAsync), so a
     // bare '??=' could race two threads into building duplicate providers/mappings or observing a
@@ -60,31 +84,83 @@ internal sealed class NugetSourceProvider
     private Lazy<SourceRepositoryProvider> _sourceRepositoryProvider;
     private Lazy<PackageSourceMapping> _packageSourceMapping;
     private Lazy<string> _configScopeKey;
+    private Lazy<(string Path, bool Explicit)> _packagesLocation;
 
-    public NugetSourceProvider(ICurrentDirectoryProvider currentDirectoryProvider)
+    public NugetSourceProvider(
+        ICurrentDirectoryProvider currentDirectoryProvider,
+        IWinappDirectoryService? directoryService = null,
+        IStorageDiagnostics? storageDiagnostics = null)
+        : this(currentDirectoryProvider, directoryService, storageDiagnostics, null)
+    {
+    }
+
+    private NugetSourceProvider(
+        ICurrentDirectoryProvider currentDirectoryProvider,
+        IWinappDirectoryService? directoryService,
+        IStorageDiagnostics? storageDiagnostics,
+        NugetSourceProvider? storageOwner)
     {
         _currentDirectoryProvider = currentDirectoryProvider;
+        _directoryService = directoryService;
+        _storageDiagnostics = storageDiagnostics;
+        _packagesLock = storageOwner?._packagesLock ?? new();
+        _fallbackPackagesFolders = storageOwner?._fallbackPackagesFolders ?? new(StringComparer.OrdinalIgnoreCase);
+        _writablePackagesFolders = storageOwner?._writablePackagesFolders ?? new(StringComparer.OrdinalIgnoreCase);
         InitializeCaches();
     }
 
-    [MemberNotNull(nameof(_settings), nameof(_sourceRepositoryProvider), nameof(_packageSourceMapping), nameof(_configScopeKey))]
+    [MemberNotNull(nameof(_settings), nameof(_sourceRepositoryProvider), nameof(_packageSourceMapping), nameof(_configScopeKey), nameof(_packagesLocation))]
     private void InitializeCaches()
     {
         _settings = new Lazy<ISettings>(() =>
-            NuGet.Configuration.Settings.LoadDefaultSettings(
-                root: _configRoot?.FullName ?? _currentDirectoryProvider.GetCurrentDirectory()));
+        {
+            var root = _configRoot?.FullName ?? _currentDirectoryProvider.GetCurrentDirectory();
+            try
+            {
+                return LoadSettings(root);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NuGetConfigurationException)
+            {
+                throw new InvalidOperationException(
+                    $"Could not load the required NuGet configuration for '{root}': {NugetErrorMessage.Redact(ex.Message)} "
+                    + "Restore access to the nuget.config hierarchy; configured feeds and credentials cannot be replaced.");
+            }
+        });
+        _packagesLocation = new Lazy<(string, bool)>(() =>
+        {
+            if ((_directoryService as WinappDirectoryService)?.CacheDirectoryOverrideForTesting is { } testCache)
+            {
+                return (Path.Combine(testCache.FullName, "packages"), true);
+            }
+
+            var environmentFolder = GetEnvironmentVariable("NUGET_PACKAGES");
+            if (environmentFolder is not null
+                && (string.IsNullOrWhiteSpace(environmentFolder) || !Path.IsPathFullyQualified(environmentFolder)))
+            {
+                throw new InvalidOperationException("NUGET_PACKAGES must specify a fully qualified packages directory. Correct the explicit setting.");
+            }
+
+            var configuredFolder = Settings.GetSection("config")?.Items.OfType<AddItem>()
+                .FirstOrDefault(item => string.Equals(item.Key, "globalPackagesFolder", StringComparison.OrdinalIgnoreCase));
+            if (environmentFolder is null && configuredFolder is not null && string.IsNullOrWhiteSpace(configuredFolder.Value))
+            {
+                throw new InvalidOperationException("globalPackagesFolder in nuget.config must specify a packages directory. Correct the explicit setting.");
+            }
+
+            var explicitlyConfigured = environmentFolder is not null || configuredFolder is not null;
+            return (Path.GetFullPath(ResolveGlobalPackagesFolder(Settings)), explicitlyConfigured);
+        });
         _sourceRepositoryProvider = new Lazy<SourceRepositoryProvider>(() =>
             new SourceRepositoryProvider(new PackageSourceProvider(Settings), Repository.Provider.GetCoreV3()));
         _packageSourceMapping = new Lazy<PackageSourceMapping>(() =>
             NuGet.Configuration.PackageSourceMapping.GetPackageSourceMapping(Settings));
-        // A stable fingerprint of the effective source set + global packages folder + the FULL
+        // A stable fingerprint of the effective source set + the FULL
         // packageSourceMapping rules, so callers that keep a process-wide cache keyed only by package/version
         // (e.g. the dependency cache in NugetService) can additionally scope it to THIS configuration and
         // never serve results resolved against a different config root, private feed, global folder or
         // package-to-source mapping after SetConfigRoot switches it.
         _configScopeKey = new Lazy<string>(() =>
         {
-            var globalFolder = SettingsUtility.GetGlobalPackagesFolder(Settings);
             // Preserve source ORDER: dependency resolution returns the graph from the FIRST eligible source
             // that has the package (see NugetService.FetchDirectDependenciesAsync), so two configs with the
             // same feeds listed in a different order can resolve DIFFERENT dependency graphs and must not
@@ -111,7 +187,7 @@ internal sealed class NugetSourceProvider
                 new PackageSourceMappingProvider(Settings).GetPackageSourceMappingItems()
                     .OrderBy(m => m.Key, StringComparer.OrdinalIgnoreCase)
                     .Select(m => $"{m.Key}=>{string.Join(",", m.Patterns.Select(p => p.Pattern).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))}"));
-            return $"gpf={globalFolder}\nsources={sources}\nmapping={mapping}";
+            return $"sources={sources}\nmapping={mapping}";
         });
     }
 
@@ -126,6 +202,7 @@ internal sealed class NugetSourceProvider
     internal void SetConfigRoot(DirectoryInfo configRoot)
     {
         _configRoot = configRoot;
+        _childProviders.Clear();
         InitializeCaches();
     }
 
@@ -141,9 +218,147 @@ internal sealed class NugetSourceProvider
     /// process-wide, static cache keyed only by package identity use this to additionally scope entries to the
     /// current config root/feed set, so a cache populated under one <c>nuget.config</c> is never reused under
     /// another after <see cref="SetConfigRoot"/> switches it. Source order is part of the fingerprint because
-    /// dependency resolution is first-source-wins. Recomputed whenever the caches are re-created.
+    /// dependency resolution is first-source-wins. The selected packages folder is added at lookup time:
+    /// switching to local storage must not reuse a graph cached for the default folder.
     /// </summary>
-    internal string ConfigScopeKey => _configScopeKey.Value;
+    internal string ConfigScopeKey => $"gpf={GetPackagesDirectory().FullName}\n{_configScopeKey.Value}";
+
+    internal DirectoryInfo GetPackagesDirectory(bool requireWrite = false)
+    {
+        lock (_packagesLock)
+        {
+            var (configuredPath, explicitlyConfigured) = _packagesLocation.Value;
+            var path = !explicitlyConfigured && _fallbackPackagesFolders.TryGetValue(configuredPath, out var selected)
+                ? selected : configuredPath;
+            try
+            {
+                if (!string.Equals(path, configuredPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    path = GetLocalPackagesDirectory().FullName;
+                }
+                EnsurePackagesDirectory(path, requireWrite);
+                return new DirectoryInfo(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return UseLocalPackagesDirectoryAfterFailure(ex, path);
+            }
+        }
+    }
+
+    internal DirectoryInfo UseLocalPackagesDirectoryAfterFailure(Exception error, string? failedPackagesFolder = null)
+    {
+        lock (_packagesLock)
+        {
+            var (configuredPath, explicitlyConfigured) = _packagesLocation.Value;
+            if (!explicitlyConfigured && _fallbackPackagesFolders.TryGetValue(configuredPath, out var selected)
+                && failedPackagesFolder is not null && !string.Equals(selected, failedPackagesFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                return GetPackagesDirectory(requireWrite: true);
+            }
+            if (explicitlyConfigured || _fallbackPackagesFolders.ContainsKey(configuredPath))
+            {
+                var path = explicitlyConfigured ? configuredPath : _fallbackPackagesFolders[configuredPath];
+                throw new InvalidOperationException(
+                    $"The {(explicitlyConfigured ? "explicitly configured" : "local fallback")} NuGet packages folder '{path}' is unavailable: "
+                    + $"{NugetErrorMessage.Redact(error.Message)} Fix its permissions or the NUGET_PACKAGES/globalPackagesFolder setting.");
+            }
+
+            DirectoryInfo fallback;
+            try
+            {
+                fallback = GetLocalPackagesDirectory();
+                EnsurePackagesDirectory(fallback.FullName, requireWrite: true);
+            }
+            catch (Exception fallbackError) when (fallbackError is IOException or UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException(
+                    $"The default NuGet packages folder '{configuredPath}' is unavailable, and the invocation directory's .winapp\\cache\\nuget\\packages could not be used: "
+                    + $"{NugetErrorMessage.Redact(fallbackError.Message)} Restore access or configure a writable NUGET_PACKAGES folder.");
+            }
+
+            _fallbackPackagesFolders[configuredPath] = fallback.FullName;
+            _storageDiagnostics?.Warning("nuget-packages-fallback",
+                $"The default NuGet packages folder '{configuredPath}' is unavailable. Using '{fallback.FullName}' for this invocation.");
+            return fallback;
+        }
+    }
+
+    private void EnsurePackagesDirectory(string path, bool requireWrite)
+    {
+        try
+        {
+            ReadPackagesDirectory(path);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            requireWrite = true;
+        }
+
+        if (requireWrite && !_writablePackagesFolders.Contains(path))
+        {
+            WritePackagesDirectory(path);
+            _writablePackagesFolders.Add(path);
+        }
+    }
+
+    private DirectoryInfo GetLocalPackagesDirectory()
+    {
+        var directories = _directoryService ?? new WinappDirectoryService(_currentDirectoryProvider);
+        var root = directories.GetLocalCacheDirectory();
+        var path = Path.Combine(root.FullName, "nuget", "packages");
+        CacheStorage.ValidateLocalPath(path, root.FullName);
+        CacheStorage.ValidateLocalTree(path);
+        return new DirectoryInfo(path);
+    }
+
+    internal void ValidatePackagePath(string packagesFolder, string packagePath)
+    {
+        lock (_packagesLock)
+        {
+            if (_fallbackPackagesFolders.Values.Contains(packagesFolder, StringComparer.OrdinalIgnoreCase))
+            {
+                CacheStorage.ValidateLocalPath(packagePath, GetLocalPackagesDirectory().FullName);
+                CacheStorage.ValidateLocalTree(packagePath);
+            }
+        }
+    }
+
+    internal void ConfigureChildProcessPackages(ProcessStartInfo startInfo)
+    {
+        NugetSourceProvider child;
+        lock (_packagesLock)
+        {
+            var root = Path.GetFullPath(startInfo.WorkingDirectory);
+            if (string.Equals(root, _configRoot?.FullName ?? _currentDirectoryProvider.GetCurrentDirectory(), StringComparison.OrdinalIgnoreCase))
+            {
+                child = this;
+            }
+            else if (!_childProviders.TryGetValue(root, out child!))
+            {
+                child = new NugetSourceProvider(_currentDirectoryProvider, _directoryService, _storageDiagnostics, this)
+                {
+                    LoadSettings = LoadSettings,
+                    GetEnvironmentVariable = GetEnvironmentVariable,
+                    ResolveGlobalPackagesFolder = ResolveGlobalPackagesFolder,
+                    ReadPackagesDirectory = ReadPackagesDirectory,
+                    WritePackagesDirectory = WritePackagesDirectory,
+                };
+                child.SetConfigRoot(new DirectoryInfo(root));
+                _childProviders.Add(root, child);
+            }
+        }
+
+        // A fully restored project can use a readable read-only cache. Only dotnet knows whether this
+        // invocation needs additional packages; do not switch roots merely because it may perform restore.
+        startInfo.Environment["NUGET_PACKAGES"] = child.GetPackagesDirectory().FullName;
+    }
+
+    internal static string? GetChildPackageStorageGuidance(ProcessStartInfo startInfo) =>
+        startInfo.Environment.TryGetValue("NUGET_PACKAGES", out var packagesFolder)
+            ? $"If NuGet needs to write to the packages folder '{packagesFolder}', set NUGET_PACKAGES to a permitted writable directory and retry. "
+                + "The dotnet command was not retried automatically."
+            : null;
 
     /// <summary>
     /// Configures NuGet's default credential service so authenticated (private) feeds work using

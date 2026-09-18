@@ -19,6 +19,9 @@ internal interface ITemplateUpdateCheckThrottle
     /// </summary>
     bool TryGetRecentLatest(string installedVersion, out string? latestVersion);
 
+    /// <summary>Whether an automatic check can persist its throttle without relocating bookkeeping.</summary>
+    bool CanCheckForUpdates();
+
     /// <summary>
     /// Records that a staleness check just ran for <paramref name="installedVersion"/>, remembering the
     /// newest available version (<paramref name="latestVersion"/>, or <see langword="null"/>/empty when

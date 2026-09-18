@@ -53,7 +53,11 @@ or remove unrelated apps. There is **no silent host fallback**: a command reques
 Sandbox runs there or fails.
 
 Host-side ownership and deployment records use [shared runtime state](usage.md#shared-runtime-state),
-independently of the configured cache directory.
+independently of the configured cache directory. That state must remain accessible;
+an inaccessible ownership record is not treated as permission to start managing an
+unrelated Sandbox. Disposable runtime caches can use
+[current-directory fallback storage](usage.md#restricted-filesystem-access), but
+that does not replace the shared ownership and lifecycle locks.
 
 ## Running and rebuilding
 

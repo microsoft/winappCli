@@ -140,6 +140,10 @@ Use `restore` when you clone a repo that already has `winapp.yaml` but no `.wina
 
 ### Private or custom NuGet feeds
 
+If an agent environment restricts filesystem access, see
+[restricted filesystem access](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#restricted-filesystem-access)
+before changing cache settings. Preserve the project's feed and credential configuration.
+
 `init`, `restore`, and `update` download the SDK packages through NuGet, honoring your standard `nuget.config` hierarchy. Private feeds and mirrors, feed credentials (including credential providers), and a custom `globalPackagesFolder` all work as they do for `dotnet restore`. To use only your feed, `<clear />` the inherited sources first:
 
 ```xml

@@ -611,7 +611,7 @@ internal static class ApiQueryEngine
                     Status = incomplete ? "incomplete" : "ok",
                 });
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException
                 or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
             {
                 // Unreadable or malformed meta.json is reported per package rather than
@@ -650,7 +650,7 @@ internal static class ApiQueryEngine
                     winmds += winMdFiles.GetArrayLength();
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException
                 or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
             {
                 // Skip a package whose meta.json cannot be read or parsed and keep
@@ -1621,7 +1621,7 @@ internal static class ApiQueryEngine
         {
             return JsonSerializer.Deserialize(File.ReadAllText(path), typeInfo);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException)
         {
             // A missing or corrupt cache file reads as "no data" so the caller can
             // fall back to reindexing instead of crashing.
@@ -1635,7 +1635,7 @@ internal static class ApiQueryEngine
         {
             return JsonSerializer.Deserialize(File.ReadAllText(path), ApiSearchJsonContext.Default.ProjectManifest);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException)
         {
             // A missing or corrupt manifest reads as "no manifest" so the caller can
             // report an unindexed project instead of crashing.

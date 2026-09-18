@@ -11,6 +11,11 @@ Use this skill when:
 
 ## Common errors & solutions
 
+For blocked cache or coordination directories, follow
+[restricted filesystem access](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#restricted-filesystem-access).
+Do not treat a sandbox filesystem restriction as a reason to elevate, disable
+coordination, or redirect different desktop-driving processes to separate lock roots.
+
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "winapp.yaml not found" | Running `restore` or `update` without config | Run `winapp init` first, or `cd` to the directory containing `winapp.yaml` |

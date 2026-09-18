@@ -53,9 +53,11 @@ internal static class Program
         // Check if this is a completion request - completions must be fast and silent
         bool isCompleteMode = args.Length > 0 && args[0] == "complete";
 
+        var storageDiagnostics = new StorageDiagnostics(Console.Error, json, quiet, deferWarnings: true);
         var services = new ServiceCollection()
             .ConfigureServices()
             .ConfigureCommands()
+            .AddSingleton<IStorageDiagnostics>(storageDiagnostics)
             .AddLogging(b =>
             {
                 b.ClearProviders();
@@ -126,9 +128,9 @@ internal static class Program
             }
         }
 
-        // Skip first-run notice for machine-readable output modes and completions
+        // Informational commands must not need storage or prepend bookkeeping to their result.
         var didShowFirstRunNotice = false;
-        if (!isCliSchemaMode && !isCompleteMode && !json)
+        if (!isCliSchemaMode && !isCompleteMode && !json && !quiet && !IsInformationalInvocation(parseResult))
         {
             var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
             didShowFirstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();
@@ -152,6 +154,7 @@ internal static class Program
 
             // Show help by invoking with --help
             await rootCommand.Parse(["--help"], WinAppParserConfiguration.Default).InvokeAsync();
+            storageDiagnostics.Complete(succeeded: true);
             return 0;
         }
 
@@ -239,7 +242,7 @@ internal static class Program
             }
         }
 
-        return await RunWithTelemetryAsync(parsedArgs, isCompleteMode, () =>
+        var exitCode = await RunWithTelemetryAsync(parsedArgs, isCompleteMode, () =>
         {
             // Target selection is settled before anything else, and settled for every command.
             // A command that cannot honour --on says so, and a selector that names nothing usable
@@ -284,7 +287,16 @@ internal static class Program
 
             return parsedArgs.InvokeAsync();
         });
+        storageDiagnostics.Complete(succeeded: exitCode == 0);
+        return exitCode;
     }
+
+    private static bool IsInformationalInvocation(System.CommandLine.ParseResult? parseResult) =>
+        parseResult is not null
+        && (parseResult.CommandResult.Command is GetWinappPathCommand
+            || parseResult.Errors.Count > 0
+            || parseResult.Tokens.Any(token => token.Type == System.CommandLine.Parsing.TokenType.Option
+                && token.Value is "--help" or "-h" or "-?" or "/?" or "--version"));
 
     /// <summary>
     /// Reports positional values that were really misspelt options, and returns the exit code.

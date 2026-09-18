@@ -1086,10 +1086,9 @@ public class MsixServiceIdentityTests : BaseCommandTests
     {
         var layout = _tempDirectory.CreateSubdirectory("leased-layout");
 
-        using var first = LayoutLease.Acquire(_testCacheDirectory, layout, TestContext.CancellationToken);
+        using var first = LayoutLease.Acquire(layout, TestContext.CancellationToken);
 
         var second = Assert.ThrowsExactly<TimeoutException>(() => LayoutLease.Acquire(
-            _testCacheDirectory,
             new DirectoryInfo(layout.FullName.ToUpperInvariant()),
             TestContext.CancellationToken,
             TimeSpan.FromMilliseconds(200)));
@@ -1104,8 +1103,8 @@ public class MsixServiceIdentityTests : BaseCommandTests
         var first = _tempDirectory.CreateSubdirectory("layout-a");
         var second = _tempDirectory.CreateSubdirectory("layout-b");
 
-        using var leaseA = LayoutLease.Acquire(_testCacheDirectory, first, TestContext.CancellationToken);
-        using var leaseB = LayoutLease.Acquire(_testCacheDirectory, second, TestContext.CancellationToken);
+        using var leaseA = LayoutLease.Acquire(first, TestContext.CancellationToken);
+        using var leaseB = LayoutLease.Acquire(second, TestContext.CancellationToken);
     }
 
     /// <summary>
@@ -1117,7 +1116,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
     {
         var layout = _tempDirectory.CreateSubdirectory("layout-c");
 
-        using (var lease = LayoutLease.Acquire(_testCacheDirectory, layout, TestContext.CancellationToken))
+        using (var lease = LayoutLease.Acquire(layout, TestContext.CancellationToken))
         {
             Assert.AreEqual(0, layout.GetFileSystemInfos().Length, "The lease must not write into the layout");
         }
@@ -1134,13 +1133,13 @@ public class MsixServiceIdentityTests : BaseCommandTests
     {
         var layout = _tempDirectory.CreateSubdirectory("layout-d");
 
-        var lease = LayoutLease.Acquire(_testCacheDirectory, layout, TestContext.CancellationToken);
+        var lease = LayoutLease.Acquire(layout, TestContext.CancellationToken);
         lease.Dispose();
         lease.Dispose();
 
         // A second run must be able to claim it immediately, without waiting out the timeout.
         using var next = LayoutLease.Acquire(
-            _testCacheDirectory, layout, TestContext.CancellationToken, TimeSpan.FromMilliseconds(200));
+            layout, TestContext.CancellationToken, TimeSpan.FromMilliseconds(200));
     }
 
     /// <summary>

@@ -278,15 +278,43 @@ internal static class DotNetLayout
             await using (var stream = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
             {
+                var buffer = new byte[81920];
                 foreach (var entry in source.Entries)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var created = archive.CreateEntry(entry.EntryPath, CompressionLevel.Fastest);
 
-                    await using var content = File.OpenRead(entry.SourcePath);
-                    await using var target = created.Open();
-                    await content.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+                    FileStream content;
+                    try
+                    {
+                        content = File.OpenRead(entry.SourcePath);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        throw new InvalidDataException($"The host runtime input '{entry.SourcePath}' could not be read.", ex);
+                    }
+                    await using (content)
+                    await using (var target = created.Open())
+                    {
+                        while (true)
+                        {
+                            int count;
+                            try
+                            {
+                                count = await content.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                            {
+                                throw new InvalidDataException($"The host runtime input '{entry.SourcePath}' could not be read.", ex);
+                            }
+                            if (count == 0)
+                            {
+                                break;
+                            }
+                            await target.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+                        }
+                    }
                 }
             }
 

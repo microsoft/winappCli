@@ -113,6 +113,22 @@ public class RuntimeFrameworkResolverTests
     }
 
     [TestMethod]
+    public async Task Resolve_UnreadableHostAssembly_IsNotReportedAsACacheFailure()
+    {
+        var installed = TestPaths.Under(_root, "dotnet");
+        WriteInstallation(installed, "10.0.4");
+        _resolver.HostDotNetRoots = () => [installed];
+        var source = Path.Combine(installed, "shared", Core, "10.0.4", "System.Private.CoreLib.dll");
+        using var denyRead = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var payload = await ResolveAsync(Core, "10.0.0", "x64");
+
+        Assert.IsNull(payload, "An already-provisioned guest can continue without an unreadable host payload.");
+        Assert.AreEqual(0, Directory.EnumerateFiles(_winappCache, "*.zip", SearchOption.AllDirectories).Count());
+        Assert.AreEqual(0, Directory.EnumerateFiles(_winappCache, "*.tmp", SearchOption.AllDirectories).Count());
+    }
+
+    [TestMethod]
     public async Task Resolve_IgnoresAHostInstallationForAnotherArchitecture()
     {
         var installed = TestPaths.Under(_root, "dotnet-x86");

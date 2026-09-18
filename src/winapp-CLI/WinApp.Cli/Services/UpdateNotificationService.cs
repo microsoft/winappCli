@@ -12,8 +12,10 @@ namespace WinApp.Cli.Services;
 
 internal class UpdateNotificationService(
     IWinappDirectoryService winappDirectoryService,
-    ILogger<UpdateNotificationService> logger) : IUpdateNotificationService
+    ILogger<UpdateNotificationService> logger,
+    IStorageDiagnostics? diagnostics = null) : IUpdateNotificationService
 {
+    private readonly IStorageDiagnostics _diagnostics = diagnostics ?? new StorageDiagnostics(Console.Error);
     private static readonly HttpClient SharedHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
     private static int _refreshScheduled;  // guarded by Interlocked; see NotScheduled/Scheduled constants
     private const int NotScheduled = 0;
@@ -87,12 +89,12 @@ internal class UpdateNotificationService(
                     || (DateTimeOffset.UtcNow - cache.LastCheck.Value).TotalHours >= CheckIntervalHours)
                 && Interlocked.CompareExchange(ref _refreshScheduled, Scheduled, NotScheduled) == NotScheduled)
             {
-                // On first run (no cache), write a placeholder synchronously so subsequent
-                // invocations see a valid LastCheck and don't re-race while the network call
-                // is in flight. The actual version will be filled in once the refresh completes.
-                if (!cache.LastCheck.HasValue)
+                // Persist the throttle before starting a network request. A restricted invocation
+                // must not repeatedly fetch an optional update it cannot remember.
+                if (!WriteCacheFile(cacheFile, new UpdateCheckCache(DateTimeOffset.UtcNow, cache.LatestVersion, cache.LastShownDate)))
                 {
-                    WriteCacheFile(cacheFile, new UpdateCheckCache(DateTimeOffset.UtcNow, cache.LatestVersion, cache.LastShownDate));
+                    Interlocked.Exchange(ref _refreshScheduled, NotScheduled);
+                    return;
                 }
 
                 var refreshTask = Task.Run(async () =>
@@ -118,9 +120,9 @@ internal class UpdateNotificationService(
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or InvalidOperationException)
         {
-            // Silent failure — never disrupt the user's command
+            _diagnostics.Warning("optional_storage_unavailable", $"Skipping the automatic CLI update check: {ex.Message}");
         }
     }
 
@@ -385,24 +387,25 @@ internal class UpdateNotificationService(
         }
     }
 
-    private void WriteCacheFile(FileInfo cacheFile, UpdateCheckCache cache)
+    private bool WriteCacheFile(FileInfo cacheFile, UpdateCheckCache cache)
     {
         try
         {
             cacheFile.Directory?.Create();
 
-            // Write to a temp file then move for atomic replacement
-            var tempPath = cacheFile.FullName + ".tmp";
             var content = $"{cache.LastCheck?.ToString("O", CultureInfo.InvariantCulture) ?? ""}\n{cache.LatestVersion ?? ""}\n{cache.LastShownDate ?? ""}";
-            File.WriteAllText(tempPath, content);
-            File.Move(tempPath, cacheFile.FullName, overwrite: true);
+            AtomicFile.WriteAllText(cacheFile.FullName, content);
 
             cacheFile.Refresh();
             cacheFile.Attributes |= FileAttributes.Hidden;
+            return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             logger.LogDebug(ex, "Failed to write update check cache.");
+            _diagnostics.Warning("optional_storage_unavailable",
+                $"CLI update bookkeeping at '{cacheFile.FullName}' is unavailable. The automatic update check may be skipped.");
+            return false;
         }
     }
 

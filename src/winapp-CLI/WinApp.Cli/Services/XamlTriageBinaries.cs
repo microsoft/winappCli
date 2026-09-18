@@ -399,7 +399,7 @@ internal static class XamlTriageBinaries
                     acquired++;
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException and not CacheWriteException)
             {
                 logger.LogDebug(ex, "Failed to acquire debugging component {Package} from NuGet.", package);
             }
@@ -442,7 +442,11 @@ internal static class XamlTriageBinaries
 
             foreach (var file in files)
             {
-                AtomicFile.Copy(Path.Combine(archDir, file), Path.Combine(cacheBinDir.FullName, file));
+                try { AtomicFile.Copy(Path.Combine(archDir, file), Path.Combine(cacheBinDir.FullName, file)); }
+                catch (Exception ex) when (CacheStorage.IsStorageFailure(ex))
+                {
+                    throw new CacheWriteException(cacheBinDir.FullName, ex);
+                }
             }
 
             if (!versionDir.Name.Equals(pinnedVersion, StringComparison.OrdinalIgnoreCase))
@@ -492,10 +496,10 @@ internal static class XamlTriageBinaries
             return false;
         }
 
-        var tempPkgDir = Path.Combine(Path.GetTempPath(), $"winapp-dbgtools-{id}-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempPkgDir);
+        var tempPkgDir = Path.Combine(cacheBinDir.FullName, $".staging-{id}-{Guid.NewGuid():N}");
         try
         {
+            Directory.CreateDirectory(tempPkgDir);
             using (var nupkgStream = new MemoryStream(nupkgBytes, writable: false))
             using (var archive = new ZipArchive(nupkgStream, ZipArchiveMode.Read))
             {
@@ -519,6 +523,10 @@ internal static class XamlTriageBinaries
             }
 
             return copied == files.Length;
+        }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex))
+        {
+            throw new CacheWriteException(cacheBinDir.FullName, ex);
         }
         finally
         {

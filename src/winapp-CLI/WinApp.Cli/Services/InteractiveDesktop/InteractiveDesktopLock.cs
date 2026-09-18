@@ -251,8 +251,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             }
             catch (UnauthorizedAccessException ex)
             {
-                throw new UiCoordinationException(
-                    UiCoordinationErrorCodes.Unavailable,
+                throw UiCoordinationException.StorageUnavailable(
                     $"The UI desktop lock could not be opened: {ex.Message}",
                     "Check that the current user can write to the coordination directory.");
             }
@@ -313,7 +312,9 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         private readonly SemaphoreSlim _sectionGate = new(1, 1);
 
         private IParticipantLease? _lease;
-        private FileStream? _activeLock;        private bool _detached;
+        private FileStream? _activeLock;
+        private bool _detached;
+        private UiCoordinationException? _storageDegradation;
         private bool _recoveredFromCorruption;
         private long? _ticket;
         private UiTurnAction _turnAction = UiTurnAction.New;
@@ -350,13 +351,32 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
 
             try
             {
-                Register(cancellationToken);
-
-                if (!_detached)
+                try
                 {
-                    await WaitUntilRunnableAsync(cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Register(cancellationToken);
+
+                    if (!_detached)
+                    {
+                        await WaitUntilRunnableAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (UiCoordinationException ex) when (Mode == UiTurnMode.Observe && ex.IsStorageUnavailable)
+                {
+                    // Only admission may degrade. The body below is never retried, even if it throws
+                    // an identical storage exception after contacting the target app.
+                    _lease?.Dispose();
+                    _lease = null;
+                    _detached = true;
+                    _turnAction = UiTurnAction.Detached;
+                    _turnStartedTick64 = null;
+                    _recoveredFromCorruption = false;
+                    _waitWatch.Stop();
+                    WaitedMs = _waitWatch.ElapsedMilliseconds;
+                    _storageDegradation = ex;
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     var exitCode = await body(this, cancellationToken).ConfigureAwait(false);
@@ -367,6 +387,15 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                     // Commands that must not renew let the cancellation propagate instead, which is why
                     // handler catch-alls are filtered with UiCoordinatedAction.IsCoordinationFault.
                     bodyCompletedNormally = true;
+                    if (exitCode == 0 && _storageDegradation is { } degradation && !outputMode.Quiet)
+                    {
+                        StorageDiagnostics.WriteWarning(
+                            parseResult.InvocationConfiguration.Error,
+                            outputMode.Json,
+                            UiCoordinationErrorCodes.Unavailable,
+                            $"This observation ran without desktop ordering or workflow continuity because UI coordination storage is unavailable. {degradation.Message} Restore access to the shared coordination directory before running commands that change or capture the desktop.");
+                    }
+
                     return exitCode;
                 }
                 finally
@@ -741,6 +770,15 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
 
         public async Task<IAsyncDisposable> EnterAsync(CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Mode == UiTurnMode.Observe)
+            {
+                throw new UiCoordinationException(
+                    UiCoordinationErrorCodes.Unavailable,
+                    "An observation cannot enter a desktop input or capture section.",
+                    "Use a coordinated command that requests a shared or exclusive desktop turn.");
+            }
+
             // Serialize within this command first, then take the cross-process lock. Both are required:
             // the gate stops two concurrent tasks in this command from racing, and active.lock stops
             // other winapp processes from acting on the desktop at the same time.
@@ -824,24 +862,29 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             var waitedMs = _waitWatch.ElapsedMilliseconds;
             int? queuePosition = null;
 
-            try
+            if (_lease is not null && _ticket is not null)
             {
-                using var stateLock = coordinator._store.AcquireStateLock(CancellationToken.None);
-                var read = coordinator._store.Read();
-                if (read.State is { } state && _ticket is { } ticket
-                    && InteractiveDesktopScheduler.FindWaiter(state, participant) is not null)
+                try
                 {
-                    queuePosition = InteractiveDesktopScheduler.QueuePositionOf(state, _probe, ticket);
+                    using var stateLock = coordinator._store.AcquireStateLock(CancellationToken.None);
+                    var read = coordinator._store.Read();
+                    if (read.State is { } state && _ticket is { } ticket
+                        && InteractiveDesktopScheduler.FindWaiter(state, participant) is not null)
+                    {
+                        queuePosition = InteractiveDesktopScheduler.QueuePositionOf(state, _probe, ticket);
+                    }
                 }
-            }
-            catch (Exception ex) when (ex is UiCoordinationException or IOException)
-            {
-                coordinator._logger.LogDebug("Queue position could not be read while cancelling: {Message}", ex.Message);
+                catch (Exception ex) when (ex is UiCoordinationException or IOException)
+                {
+                    coordinator._logger.LogDebug("Queue position could not be read while cancelling: {Message}", ex.Message);
+                }
             }
 
             var message = cancelledWhileQueued
                 ? "UI turn wait was cancelled."
-                : "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.";
+                : _detached
+                    ? "The observation was cancelled."
+                    : "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.";
 
             UiJsonError.Emit(
                 outputMode.Json,

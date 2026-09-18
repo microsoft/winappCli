@@ -4,7 +4,6 @@
 using System.Collections.Concurrent;
 using System.Xml;
 using NuGet.Common;
-using NuGet.Configuration;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
 using NuGet.Protocol;
@@ -29,16 +28,13 @@ internal partial class NugetService : INugetService
     private static readonly ILogger Logger = NullLogger.Instance;
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> DependencyCache = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly IWinappDirectoryService _winappDirectoryService;
     private readonly NugetSourceProvider _sourceProvider;
     private readonly NugetPackageDownloader _downloader;
 
     public NugetService(
-        IWinappDirectoryService winappDirectoryService,
         NugetSourceProvider sourceProvider,
         NugetPackageDownloader downloader)
     {
-        _winappDirectoryService = winappDirectoryService;
         _sourceProvider = sourceProvider;
         _downloader = downloader;
     }
@@ -62,31 +58,7 @@ internal partial class NugetService : INugetService
         $"{BuildToolsService.CPP_SDK_PACKAGE}.arm64"
     ];
 
-    public DirectoryInfo GetNuGetGlobalPackagesDir()
-    {
-        // In test mode (cache override set), use a "packages" subdir of the override directory
-        var globalDir = _winappDirectoryService.GetGlobalWinappDirectory();
-        if (IsTestOverride(globalDir))
-        {
-            var overrideDir = new DirectoryInfo(Path.Join(globalDir.FullName, "packages"));
-            if (!overrideDir.Exists)
-            {
-                overrideDir.Create();
-            }
-            return overrideDir;
-        }
-
-        // Resolve the global packages folder from the user's NuGet configuration. This honors the
-        // NUGET_PACKAGES environment variable and the `globalPackagesFolder` setting in nuget.config,
-        // falling back to %USERPROFILE%/.nuget/packages.
-        var globalPackagesFolder = SettingsUtility.GetGlobalPackagesFolder(_sourceProvider.Settings);
-        var nugetDir = new DirectoryInfo(globalPackagesFolder);
-        if (!nugetDir.Exists)
-        {
-            nugetDir.Create();
-        }
-        return nugetDir;
-    }
+    public DirectoryInfo GetNuGetGlobalPackagesDir() => _sourceProvider.GetPackagesDirectory();
 
     public DirectoryInfo GetNuGetPackageDir(string packageName, string version)
     {
@@ -106,7 +78,9 @@ internal partial class NugetService : INugetService
         // Resolve the on-disk folder the same way the global-packages writer does, so the path matches
         // regardless of how the version string is expressed (NuGet stores e.g. "1.0" under "1.0.0").
         var resolver = new VersionFolderPathResolver(cache.FullName);
-        return new DirectoryInfo(resolver.GetInstallPath(packageName, parsed));
+        var packagePath = resolver.GetInstallPath(packageName, parsed);
+        _sourceProvider.ValidatePackagePath(cache.FullName, packagePath);
+        return new DirectoryInfo(packagePath);
     }
 
     /// <summary>
@@ -151,16 +125,6 @@ internal partial class NugetService : INugetService
         }
 
         return parsed;
-    }
-
-    /// <summary>
-    /// Detects whether the global winapp directory is a test override (not the real user profile .winapp).
-    /// </summary>
-    private static bool IsTestOverride(DirectoryInfo globalDir)
-    {
-        var defaultWinapp = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp");
-        return !string.Equals(globalDir.FullName, defaultWinapp, StringComparison.OrdinalIgnoreCase)
-            && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY"));
     }
 
     /// <summary>
@@ -319,9 +283,18 @@ internal partial class NugetService : INugetService
     public async Task<Dictionary<string, string>> InstallPackageAsync(string package, string version, TaskContext taskContext, CancellationToken cancellationToken = default)
     {
         NugetSourceProvider.EnsureCredentialService();
-        var graph = new InstallGraph(package);
         using var cacheContext = new SourceCacheContext();
-        await InstallPackageRecursiveAsync(package, version, graph, taskContext, cacheContext, cancellationToken);
+        InstallGraph graph;
+        string packagesFolder;
+        do
+        {
+            packagesFolder = GetNuGetGlobalPackagesDir().FullName;
+            graph = new InstallGraph(package);
+            await InstallPackageRecursiveAsync(package, version, graph, taskContext, cacheContext, cancellationToken);
+            // A warm read-only cache can satisfy the entire graph without writes. If a missing dependency
+            // selects local storage, walk the graph again there so no returned package points at the old root.
+        }
+        while (!string.Equals(packagesFolder, GetNuGetGlobalPackagesDir().FullName, StringComparison.OrdinalIgnoreCase));
 
         // A downloaded root package with unresolvable/uninstallable REQUIRED transitive dependencies is an
         // incomplete install, not a success. Each gap was surfaced as a warning above (and the rest of the
@@ -378,7 +351,17 @@ internal partial class NugetService : INugetService
         // global packages folder (using the standard NuGet on-disk layout). Throws with the
         // underlying source error if no configured source can provide the package.
         var identity = new PackageIdentity(package, ParseVersion(package, normalizedVersion));
-        await _downloader.DownloadPackageAsync(identity, GetNuGetGlobalPackagesDir().FullName, cacheContext, cancellationToken);
+        var packagesFolder = _sourceProvider.GetPackagesDirectory(requireWrite: true).FullName;
+        try
+        {
+            await _downloader.DownloadPackageAsync(identity, packagesFolder, cacheContext, cancellationToken);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            packagesFolder = _sourceProvider.UseLocalPackagesDirectoryAfterFailure(ex, packagesFolder).FullName;
+            await _downloader.DownloadPackageAsync(identity, packagesFolder, cacheContext, cancellationToken);
+        }
+        packageDir = GetNuGetPackageDir(package, normalizedVersion);
 
         graph.Installed[package] = normalizedVersion;
         taskContext.AddStatusMessage($"{UiSymbols.Check} Installed {package} {normalizedVersion}");

@@ -625,8 +625,10 @@ public class InteractiveDesktopStoreTests
 
         // A relative path resolves against the caller's working directory, so two winapp processes
         // started in different folders would silently coordinate against different files.
-        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => new InteractiveDesktopPaths(_inspector));
-        Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, ex.Code);
+        var paths = new InteractiveDesktopPaths(_inspector);
+        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => _ = paths.LockDirectory);
+        Assert.AreEqual(UiCoordinationErrorCodes.InvalidLockDirectory, ex.Code);
+        Assert.IsFalse(ex.IsStorageUnavailable, "invalid explicit configuration must not trigger observation fallback");
     }
 
     [TestMethod]
@@ -636,8 +638,10 @@ public class InteractiveDesktopStoreTests
             InteractiveDesktopPaths.LockDirectoryOverrideVariable, @"\\server\share\locks");
 
         // SMB byte-range locking is advisory, so exclusive-share semantics would silently not exclude.
-        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => new InteractiveDesktopPaths(_inspector));
-        Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, ex.Code);
+        var paths = new InteractiveDesktopPaths(_inspector);
+        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => _ = paths.LockDirectory);
+        Assert.AreEqual(UiCoordinationErrorCodes.InvalidLockDirectory, ex.Code);
+        Assert.IsFalse(ex.IsStorageUnavailable);
     }
 
     [TestMethod]

@@ -11,9 +11,15 @@ namespace WinApp.Cli.Services;
 internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectoryProvider) : IWinappDirectoryService
 {
     private DirectoryInfo? _globalOverride;
+    internal DirectoryInfo? CacheDirectoryOverrideForTesting => _globalOverride;
 
     internal Func<string> UserProfileProvider { get; set; } =
         () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    internal Func<string?> CacheOverrideProvider { get; set; } =
+        () => Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
+
+    public bool IsGlobalCacheOverridden => _globalOverride is not null || CacheOverrideProvider() is not null;
 
     /// <summary>
     /// Method to override the cache directory for testing purposes
@@ -33,15 +39,43 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         }
 
         // Allow override via environment variable (useful for CI/CD)
-        var cacheDirectory = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
-        if (!string.IsNullOrEmpty(cacheDirectory))
+        var cacheDirectory = CacheOverrideProvider();
+        if (cacheDirectory is not null)
         {
-            return new DirectoryInfo(cacheDirectory);
+            if (string.IsNullOrWhiteSpace(cacheDirectory) || !Path.IsPathFullyQualified(cacheDirectory))
+            {
+                throw new InvalidOperationException("WINAPP_CLI_CACHE_DIRECTORY must be a fully qualified directory path.");
+            }
+            try { return new DirectoryInfo(cacheDirectory); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                throw new InvalidOperationException("WINAPP_CLI_CACHE_DIRECTORY is not a valid directory path.", ex);
+            }
         }
 
         var userProfile = UserProfileProvider();
+        if (string.IsNullOrWhiteSpace(userProfile) || !Path.IsPathFullyQualified(userProfile))
+        {
+            throw new IOException("The user profile folder could not be resolved for the default winapp cache.");
+        }
         var winappDir = Path.Combine(userProfile, ".winapp");
         return new DirectoryInfo(winappDir);
+    }
+
+    public DirectoryInfo GetLocalCacheDirectory()
+    {
+        var cwd = Path.GetFullPath(currentDirectoryProvider.GetCurrentDirectory());
+        // The invocation directory is the sandbox boundary. Do not inspect its parents.
+        if (PathSafety.IsNetworkPath(cwd)
+            || Windows.Win32.PInvoke.GetDriveType(Path.GetPathRoot(cwd)!) == Windows.Win32.PInvoke.DRIVE_REMOTE
+            || PathSafety.IsReparsePoint(cwd))
+        {
+            throw new IOException("The invocation directory is not a verifiable local cache location.");
+        }
+
+        var path = Path.Combine(cwd, ".winapp", "cache");
+        CacheStorage.ValidateLocalPath(path, cwd);
+        return new DirectoryInfo(path);
     }
 
     /// <summary>

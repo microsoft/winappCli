@@ -11,6 +11,8 @@ namespace WinApp.Cli.Tests;
 /// </summary>
 internal sealed class StubWinappDirectoryService(DirectoryInfo global) : IWinappDirectoryService
 {
+    public bool IsGlobalCacheOverridden => true;
+    public DirectoryInfo GetLocalCacheDirectory() => new(Path.Combine(global.FullName, "local-cache"));
     public DirectoryInfo GetGlobalWinappDirectory() => global;
     public DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null) => global;
     public void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory) { }

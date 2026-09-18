@@ -17,8 +17,10 @@ namespace WinApp.Cli.Services;
 internal sealed partial class XamlTriageService(
     ILogger<XamlTriageService> logger,
     IWinappDirectoryService winappDirectoryService,
-    INugetService nugetService) : IXamlTriageService
+    INugetService nugetService,
+    IStorageDiagnostics? diagnostics = null) : IXamlTriageService
 {
+    private readonly CacheStorage _cache = new(winappDirectoryService, "dbgtools", "dbgtools", diagnostics);
     // Pinned WinUI debugger extension (microsoft/microsoft-ui-xaml). See plan / docs for rationale.
     private const string ExtCommit = "29d537445eaa34d47e66ab8859583ae953c62dd1";
     private const string ExtRepoPath = "dbgext/publicXamlThread/winui-dbgext.js";
@@ -59,32 +61,37 @@ internal sealed partial class XamlTriageService(
     {
         try
         {
-            var dbgToolsRoot = new DirectoryInfo(Path.Combine(
-                winappDirectoryService.GetGlobalWinappDirectory().FullName, "dbgtools"));
-            var cacheBinDir = new DirectoryInfo(Path.Combine(dbgToolsRoot.FullName, XamlTriageBinaries.KitsArch));
-
-            ResolvedTriageBinaries? ResolveExisting(DirectoryInfo dir) =>
-                (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger)))(dir);
-
-            // Resolve an existing debugger layout; if none, populate the download-on-first-use cache:
-            // engine bits from NuGet (global cache or download) and JsProvider.dll from the WinDbg bundle.
-            var binaries = ResolveExisting(cacheBinDir);
-            if (binaries == null && !XamlTriageBinaries.IsEnvOverrideSet)
+            var (binaries, extPath) = await _cache.RunAsync(async root =>
             {
-                // Only populate the download-on-first-use cache when no authoritative override is set;
-                // with an override configured, ResolveExisting never consults the cache, so acquiring
-                // into it would waste the download and still report triage as unavailable.
-                var nugetCacheDir = TryGetNuGetCacheDir();
-                await XamlTriageBinaries.TryAcquireFromNuGetAsync(cacheBinDir, nugetCacheDir, logger, cancellationToken);
+                var dbgToolsRoot = new DirectoryInfo(root);
+                var cacheBinDir = new DirectoryInfo(Path.Combine(dbgToolsRoot.FullName, XamlTriageBinaries.KitsArch));
 
-                // JsProvider.dll only ships in the WinDbg bundle; acquire it once the engine is present.
-                if (XamlTriageBinaries.HasEngine(cacheBinDir))
+                ResolvedTriageBinaries? ResolveExisting(DirectoryInfo dir) =>
+                    (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger)))(dir);
+
+                // Resolve an existing debugger layout; if none, populate the download-on-first-use cache:
+                // engine bits from NuGet (global cache or download) and JsProvider.dll from the WinDbg bundle.
+                var resolvedBinaries = ResolveExisting(cacheBinDir);
+                if (resolvedBinaries == null && !XamlTriageBinaries.IsEnvOverrideSet)
                 {
-                    await WinDbgJsProviderAcquirer.TryAcquireAsync(cacheBinDir, logger, cancellationToken);
+                    // Only populate the download-on-first-use cache when no authoritative override is set;
+                    // with an override configured, ResolveExisting never consults the cache, so acquiring
+                    // into it would waste the download and still report triage as unavailable.
+                    var nugetCacheDir = TryGetNuGetCacheDir();
+                    await XamlTriageBinaries.TryAcquireFromNuGetAsync(cacheBinDir, nugetCacheDir, logger, cancellationToken);
+
+                    // JsProvider.dll only ships in the WinDbg bundle; acquire it once the engine is present.
+                    if (XamlTriageBinaries.HasEngine(cacheBinDir))
+                    {
+                        await WinDbgJsProviderAcquirer.TryAcquireAsync(cacheBinDir, logger, cancellationToken);
+                    }
+
+                    resolvedBinaries = ResolveExisting(cacheBinDir);
                 }
 
-                binaries = ResolveExisting(cacheBinDir);
-            }
+                var extension = resolvedBinaries is null ? null : await EnsureExtensionAsync(dbgToolsRoot, cancellationToken);
+                return (resolvedBinaries, extension);
+            });
 
             if (binaries == null)
             {
@@ -92,7 +99,6 @@ internal sealed partial class XamlTriageService(
                 return XamlTriageResult.Skipped(UnavailableNote());
             }
 
-            var extPath = await EnsureExtensionAsync(dbgToolsRoot, cancellationToken);
             if (extPath == null)
             {
                 logger.LogDebug("WinUI triage skipped: could not obtain {Ext}.", ExtFileName);
@@ -144,6 +150,11 @@ internal sealed partial class XamlTriageService(
             // TaskCanceledException stack to the console — the caller keeps the managed crash stack.
             logger.LogDebug("WinUI triage pass timed out acquiring debugging tools; skipping triage.");
             return XamlTriageResult.None;
+        }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex))
+        {
+            _cache.WarnUnavailable(ex);
+            return XamlTriageResult.Skipped($"WinUI Triage: skipped — debugging tool cache is unavailable. {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -403,7 +414,6 @@ internal sealed partial class XamlTriageService(
     internal async Task<string?> EnsureExtensionAsync(DirectoryInfo dbgToolsRoot, CancellationToken cancellationToken)
     {
         var extDir = Path.Combine(dbgToolsRoot.FullName, "ext");
-        Directory.CreateDirectory(extDir);
         var extPath = Path.Combine(extDir, ExtFileName);
 
         bool MatchesHash(byte[] content) => (ExtensionHashValidatorOverride ?? MatchesPinnedExtensionHash)(content);
@@ -413,10 +423,11 @@ internal sealed partial class XamlTriageService(
             return extPath;
         }
 
+        byte[] bytes;
         try
         {
             var url = $"https://raw.githubusercontent.com/microsoft/microsoft-ui-xaml/{ExtCommit}/{ExtRepoPath}";
-            var bytes = await (ExtensionBytesDownloader ?? DownloadExtensionBytesAsync)(url, cancellationToken);
+            bytes = await (ExtensionBytesDownloader ?? DownloadExtensionBytesAsync)(url, cancellationToken);
 
             if (!MatchesHash(bytes))
             {
@@ -425,14 +436,15 @@ internal sealed partial class XamlTriageService(
                 return null;
             }
 
-            await File.WriteAllBytesAsync(extPath, bytes, cancellationToken);
-            return extPath;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogDebug(ex, "Failed to download {Ext}.", ExtFileName);
             return null;
         }
+        Directory.CreateDirectory(extDir);
+        await File.WriteAllBytesAsync(extPath, bytes, cancellationToken);
+        return extPath;
     }
 
     /// <summary>Real GitHub download boundary for the debugger extension; seamed via <see cref="ExtensionBytesDownloader"/>.</summary>
