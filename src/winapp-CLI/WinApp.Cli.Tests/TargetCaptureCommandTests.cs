@@ -61,7 +61,7 @@ public partial class TargetCaptureCommandTests
     public async Task Snapshot_WorkRootMatchesRelativeTransfersUnderTheReportedNondefaultRoot()
     {
         await using var harness = new Harness(GuestWindows());
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var files = new GuestFileService(harness.GuestManaged);
         var workRoot = files.ResolveScopeDirectory(TargetFileTransferService.WorkScope, create: false);
 
@@ -82,7 +82,7 @@ public partial class TargetCaptureCommandTests
     public async Task Snapshot_HumanOutputReportsWorkRoot()
     {
         await using var harness = new Harness(GuestWindows());
-        var console = new TestConsole();
+        using var console = new TestConsole();
         console.Profile.Width = 240;
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox"));
@@ -103,7 +103,7 @@ public partial class TargetCaptureCommandTests
         harness.Backend.Running = running;
         harness.Backend.AgentAnswers = agentAnswers;
         harness.Backend.ReportsManagedRoot = reportsManagedRoot;
-        var console = new TestConsole();
+        using var console = new TestConsole();
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
 

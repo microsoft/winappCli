@@ -98,9 +98,10 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                     Running = inspection.Running,
                     Attached = target is not null,
                     Capabilities = target?.Capabilities,
-                    WorkRoot = string.IsNullOrWhiteSpace(target?.Capabilities.ManagedRoot)
-                        ? null
-                        : GuestPaths.Resolve(target.Capabilities, TargetFileTransferService.WorkScope),
+                    WorkRoot = target?.Capabilities is { } capabilities &&
+                        !string.IsNullOrWhiteSpace(capabilities.ManagedRoot)
+                            ? GuestPaths.Resolve(capabilities, TargetFileTransferService.WorkScope)
+                            : null,
                     Desktop = DescribeDesktop(inspection.Running),
                     Deployments = [],
                 };
