@@ -14,6 +14,36 @@ namespace WinApp.Cli.Tests;
 public class CertGenerateCommandTests : BaseCommandTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task EmptyPassword_ExistingOutputSkip_PreservesNoOp(bool json)
+    {
+        var path = Path.Join(_tempDirectory.FullName, "skip.pfx");
+        await File.WriteAllTextAsync(path, "existing certificate");
+        var args = new List<string> { "--output", path, "--if-exists", "skip", "--password", "" };
+        if (json) { args.Add("--json"); }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<CertGenerateCommand>(), args.ToArray());
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("existing certificate", await File.ReadAllTextAsync(path));
+    }
+
+    [TestMethod]
+    public async Task EmptyPassword_NonJson_ReturnsError()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Join(_tempDirectory.FullName, "empty-pw.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", ""]);
+
+        Assert.AreEqual(1, exitCode, "An explicitly empty --password must be rejected before generating a PFX.");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "password cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty password.");
+    }
+
+    [TestMethod]
     public void OutputOption_AcceptsPlainFileName()
     {
         // Arrange
@@ -378,5 +408,21 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
 
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
         StringAssert.Contains(errorProp.GetString(), "already exists");
+    }
+
+    [TestMethod]
+    public async Task EmptyPassword_Json_OutputsJsonError()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Join(_tempDirectory.FullName, "empty-pw-json.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", "CN=EmptyPwTest", "--output", pfxPath, "--password", "   ", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+        Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
+        StringAssert.Contains(errorProp.GetString(), "password cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath));
     }
 }

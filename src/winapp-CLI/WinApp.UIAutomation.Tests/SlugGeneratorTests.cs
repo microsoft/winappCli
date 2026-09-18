@@ -318,7 +318,7 @@ public class SlugGeneratorTests
     private static extern unsafe int SafeArrayUnaccessData(SAFEARRAY* psa);
 
     [DllImport("oleaut32.dll")]
-    private static extern unsafe int SafeArrayDestroy(SAFEARRAY* psa);
+    internal static extern unsafe int SafeArrayDestroy(SAFEARRAY* psa);
 
     private static unsafe string HashFromSafeArray(params int[] runtimeId)
     {
@@ -346,7 +346,7 @@ public class SlugGeneratorTests
         }
     }
 
-    private static unsafe SAFEARRAY* CreateInt32SafeArray(int[] values)
+    internal static unsafe SAFEARRAY* CreateInt32SafeArray(int[] values)
     {
         SAFEARRAY* psa = SafeArrayCreateVector(VT_I4, 0, (uint)values.Length);
         Assert.IsTrue(psa != null, "SafeArrayCreateVector returned null.");
