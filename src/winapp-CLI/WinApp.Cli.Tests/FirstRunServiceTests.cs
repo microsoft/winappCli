@@ -23,7 +23,7 @@ public class FirstRunServiceTests
         // at a throwaway directory instead of the real ~/.winapp.
         var dirService = new WinappDirectoryService(new CurrentDirectoryProvider(_tempDir.FullName));
         dirService.SetCacheDirectoryForTesting(_globalDir);
-        return new FirstRunService(dirService, logger, new StorageDiagnostics(error ?? new StringWriter()));
+        return new FirstRunService(dirService, logger, new StorageDiagnostics(error ?? TextWriter.Null));
     }
 
     [TestInitialize]

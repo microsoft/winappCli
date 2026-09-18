@@ -22,8 +22,8 @@ public partial class InteractiveDesktopLockTests
         Environment.SetEnvironmentVariable(
             InteractiveDesktopPaths.LockDirectoryOverrideVariable, Path.Combine(blockedParent, "ui"));
         var calls = 0;
-        var error = new StringWriter();
-        var output = new StringWriter();
+        using var error = new StringWriter();
+        using var output = new StringWriter();
         var parse = ParseObservation(error, output, "--json");
         UiCoordinationTelemetryScope.Begin();
 
@@ -51,7 +51,7 @@ public partial class InteractiveDesktopLockTests
     public async Task StorageUnavailable_ParticipatingCommandsFailClosed(int mode)
     {
         var store = new FailingStorage { LockFailure = StorageFailure() };
-        var error = new StringWriter();
+        using var error = new StringWriter();
         var calls = 0;
         var action = new ReadOnlyProbeAction(CreateReadOnlyCoordinator(store), (UiTurnMode)mode, (_, _) =>
         {
@@ -59,7 +59,7 @@ public partial class InteractiveDesktopLockTests
             return Task.FromResult(0);
         });
 
-        var exit = await action.InvokeAsync(ParseObservation(error, new StringWriter(), "--json"));
+        var exit = await action.InvokeAsync(ParseObservation(error, TextWriter.Null, "--json"));
 
         Assert.AreEqual(1, exit);
         Assert.AreEqual(0, calls, "mutation, capture and recording must never bypass coordination");
@@ -76,8 +76,8 @@ public partial class InteractiveDesktopLockTests
     public async Task Observe_StorageWarningHonorsQuiet(bool json)
     {
         var store = new FailingStorage { LockFailure = StorageFailure() };
-        var error = new StringWriter();
-        var output = new StringWriter();
+        using var error = new StringWriter();
+        using var output = new StringWriter();
         var args = json ? new[] { "--json", "--quiet" } : new[] { "--quiet" };
         var parse = ParseObservation(error, output, args);
 
@@ -94,8 +94,8 @@ public partial class InteractiveDesktopLockTests
     [TestMethod]
     public async Task Observe_HumanStorageWarningUsesStderrOnly()
     {
-        var error = new StringWriter();
-        var output = new StringWriter();
+        using var error = new StringWriter();
+        using var output = new StringWriter();
         var coordinator = CreateReadOnlyCoordinator(new FailingStorage { LockFailure = StorageFailure() });
 
         Assert.AreEqual(0, await coordinator.RunCoordinatedAsync(
@@ -114,13 +114,13 @@ public partial class InteractiveDesktopLockTests
     {
         var store = new FailingStorage { LockFailure = admissionUnavailable ? StorageFailure() : null };
         var coordinator = CreateReadOnlyCoordinator(store);
-        var error = new StringWriter();
+        using var error = new StringWriter();
         var expected = StorageFailure();
         var calls = 0;
 
         var actual = await Assert.ThrowsExactlyAsync<UiCoordinationException>(() =>
             coordinator.RunCoordinatedAsync(
-                UiTurnMode.Observe, "ui inspect", ParseObservation(error, new StringWriter(), "--json"),
+                UiTurnMode.Observe, "ui inspect", ParseObservation(error, TextWriter.Null, "--json"),
                 (_, _) =>
                 {
                     calls++;
@@ -138,11 +138,11 @@ public partial class InteractiveDesktopLockTests
     public async Task Observe_FailedBodyPreservesExitAndDoesNotWriteStateOrWarning()
     {
         var store = new FailingStorage { LockFailure = StorageFailure() };
-        var error = new StringWriter();
+        using var error = new StringWriter();
         var calls = 0;
 
         var exit = await CreateReadOnlyCoordinator(store).RunCoordinatedAsync(
-            UiTurnMode.Observe, "ui get-value", ParseObservation(error, new StringWriter(), "--json"),
+            UiTurnMode.Observe, "ui get-value", ParseObservation(error, TextWriter.Null, "--json"),
             (_, _) =>
             {
                 calls++;
@@ -163,11 +163,11 @@ public partial class InteractiveDesktopLockTests
     {
         var store = new FailingStorage { LockFailure = unavailable ? StorageFailure() : null };
         var coordinator = CreateReadOnlyCoordinator(store);
-        var error = new StringWriter();
+        using var error = new StringWriter();
 
         var ex = await Assert.ThrowsExactlyAsync<UiCoordinationException>(() =>
             coordinator.RunCoordinatedAsync(
-                UiTurnMode.Observe, "ui inspect", ParseObservation(error, new StringWriter(), "--json"),
+                UiTurnMode.Observe, "ui inspect", ParseObservation(error, TextWriter.Null, "--json"),
                 async (turn, token) =>
                 {
                     await using var section = await turn.EnterAsync(token);
@@ -185,10 +185,10 @@ public partial class InteractiveDesktopLockTests
     public async Task Observe_ReadStorageFailureDetachesWithoutPublishing()
     {
         var store = new FailingStorage { ReadFailure = StorageFailure() };
-        var error = new StringWriter();
+        using var error = new StringWriter();
 
         Assert.AreEqual(0, await CreateReadOnlyCoordinator(store).RunCoordinatedAsync(
-            UiTurnMode.Observe, "ui list-windows", ParseObservation(error, new StringWriter(), "--json"),
+            UiTurnMode.Observe, "ui list-windows", ParseObservation(error, TextWriter.Null, "--json"),
             (_, _) => Task.FromResult(0), CancellationToken.None));
 
         Assert.AreEqual(1, store.LockAttempts);
@@ -205,10 +205,10 @@ public partial class InteractiveDesktopLockTests
         state.Owner = new OwnerRecord { Kind = owner.Kind, Key = owner.Key };
         state.IdleExpiresTick64 = Environment.TickCount64 + 60_000;
         var store = new FailingStorage { State = state, PublishFailure = StorageFailure() };
-        var error = new StringWriter();
+        using var error = new StringWriter();
 
         Assert.AreEqual(0, await CreateReadOnlyCoordinator(store).RunCoordinatedAsync(
-            UiTurnMode.Observe, "ui inspect", ParseObservation(error, new StringWriter(), "--json"),
+            UiTurnMode.Observe, "ui inspect", ParseObservation(error, TextWriter.Null, "--json"),
             (_, _) => Task.FromResult(0), CancellationToken.None));
 
         Assert.AreEqual(1, store.LockAttempts, "no cleanup transaction may retry unavailable storage");
@@ -274,12 +274,12 @@ public partial class InteractiveDesktopLockTests
     public async Task Observe_CancellationAfterDetachingDoesNotRetryStorage()
     {
         var store = new FailingStorage { LockFailure = StorageFailure() };
-        var error = new StringWriter();
+        using var error = new StringWriter();
         using var cancellation = new CancellationTokenSource();
         UiCoordinationTelemetryScope.Begin();
 
         var exit = await CreateReadOnlyCoordinator(store).RunCoordinatedAsync(
-            UiTurnMode.Observe, "ui wait-for", ParseObservation(error, new StringWriter(), "--json"),
+            UiTurnMode.Observe, "ui wait-for", ParseObservation(error, TextWriter.Null, "--json"),
             (_, token) =>
             {
                 cancellation.Cancel();
@@ -304,7 +304,7 @@ public partial class InteractiveDesktopLockTests
     {
         Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, invalidDirectory);
         _ = new InteractiveDesktopPaths(new ProcessInspector());
-        var error = new StringWriter();
+        using var error = new StringWriter();
         var calls = 0;
         var action = new ReadOnlyProbeAction(_coordinator, UiTurnMode.Observe, (_, _) =>
         {
@@ -312,7 +312,7 @@ public partial class InteractiveDesktopLockTests
             return Task.FromResult(0);
         });
 
-        var exit = await action.InvokeAsync(ParseObservation(error, new StringWriter(), "--json"));
+        var exit = await action.InvokeAsync(ParseObservation(error, TextWriter.Null, "--json"));
 
         Assert.AreEqual(1, exit);
         Assert.AreEqual(0, calls);
@@ -326,14 +326,14 @@ public partial class InteractiveDesktopLockTests
     public async Task InvalidLocalArguments_AreRejectedBeforeDirectoryResolution()
     {
         Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, "relative\\locks");
-        var error = new StringWriter();
+        using var error = new StringWriter();
         var action = new ReadOnlyProbeAction(_coordinator, UiTurnMode.Observe,
             (_, _) => throw new AssertFailedException("preflight must prevent execution"))
         {
             PreflightResult = 9,
         };
 
-        Assert.AreEqual(9, await action.InvokeAsync(ParseObservation(error, new StringWriter(), "--json")));
+        Assert.AreEqual(9, await action.InvokeAsync(ParseObservation(error, TextWriter.Null, "--json")));
         Assert.AreEqual(string.Empty, error.ToString());
         Assert.IsFalse(Directory.Exists(_lockDirectory));
     }

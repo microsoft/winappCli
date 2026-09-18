@@ -76,8 +76,14 @@ internal class MSStoreCLIService(
             }
             finally
             {
-                try { File.Delete(zipPath); }
-                catch { /* Best effort cleanup. */ }
+                try
+                {
+                    File.Delete(zipPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogDebug("Could not remove downloaded MSStore archive '{ZipPath}': {Message}", zipPath, ex.Message);
+                }
             }
             return true;
         });

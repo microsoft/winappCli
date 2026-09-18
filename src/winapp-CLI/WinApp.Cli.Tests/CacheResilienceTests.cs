@@ -239,10 +239,13 @@ public sealed class CacheResilienceTests
         var provider = new TestProvider { Storage = Storage() };
         await provider.LoadAsync();
         var directory = Path.Combine(Global, "cache", "test", "test-provider");
-        var locks = Directory.GetFiles(directory)
-            .Select(path => File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read)).ToArray();
+        var locks = new List<FileStream>();
         try
         {
+            foreach (var path in Directory.GetFiles(directory))
+            {
+                locks.Add(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read));
+            }
             var data = await provider.LoadAsync();
             Assert.AreEqual(CorpusOrigin.Cache, data.Origin);
             Assert.AreEqual(1, provider.Fetches);
