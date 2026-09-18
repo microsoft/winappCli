@@ -410,6 +410,52 @@ public class UnregisterCommandManagedTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("implicit")]
+    [DataRow("directory")]
+    [DataRow("project")]
+    [DataRow("solution")]
+    public async Task ReceiptlessProjectUsesGuardedManifestCleanupWithoutBuilding(string inputKind)
+    {
+        var project = WriteFile(Path.Join(_tempDirectory.FullName, "App.csproj"), "<Project />");
+        var solution = WriteFile(Path.Join(_tempDirectory.FullName, "App.slnx"), "<Solution />");
+        WriteFile(Path.Join(_tempDirectory.FullName, "Package.appxmanifest"), ManifestXml);
+        _projects.InputResolutionOverride = new RunInputResolution(
+            WinAppRunMode.Project, project, _tempDirectory,
+            Solution: inputKind == "solution" ? solution : null);
+        var layout = _tempDirectory.CreateSubdirectory("bin\\AppX");
+        var other = Directory.CreateDirectory(_tempDirectory.FullName + "-unrelated");
+        const string ownedFullName = "TestPackage_1.0.0.0_x64__legacy";
+        try
+        {
+            _packages.FakeDevPackages =
+            [
+                new DevPackageInfo(ownedFullName, "TestPackage", "1.0.0.0", layout.FullName, true, "CN=TestPublisher"),
+                new DevPackageInfo("TestPackage_2.0.0.0_x64__other", "TestPackage", "2.0.0.0", other.FullName, true, "CN=TestPublisher"),
+                new DevPackageInfo("TestPackage_3.0.0.0_x64__store", "TestPackage", "3.0.0.0", layout.FullName, false, "CN=TestPublisher"),
+            ];
+            string[] arguments = inputKind switch
+            {
+                "directory" => [_tempDirectory.FullName, "--json"],
+                "project" => [project.FullName, "--json"],
+                "solution" => [solution.FullName, "--json"],
+                _ => ["--json"],
+            };
+
+            var exitCode = await InvokeAsync(arguments);
+
+            Assert.AreEqual(0, exitCode, TestAnsiConsole.Output);
+            Assert.AreEqual(ownedFullName, _packages.UnregisterByFullNameCalls.Single().PackageFullName);
+            Assert.IsEmpty(_packages.UnregisterCalls, "Legacy fallback must still remove only the package it vetted.");
+            AssertNoBuildOrIdentityEvaluation();
+            Assert.IsNull(DevelopmentRegistrationStore.Read(layout));
+        }
+        finally
+        {
+            other.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ProjectWithoutARecordedDeploymentReportsAbsenceWithoutBuilding()
     {
         var owner = WriteFile(Path.Join(_tempDirectory.FullName, "App.csproj"), "<Project />");

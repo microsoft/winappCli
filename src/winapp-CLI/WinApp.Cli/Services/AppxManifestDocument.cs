@@ -261,8 +261,9 @@ internal class AppxManifestDocument
     /// </summary>
     public void ValidateUniqueIdentitySupport()
     {
-        var root = _document.Root;
-        if (root?.Name != DefaultNs + "Package")
+        var root = _document.Root
+            ?? throw UnsupportedIdentity(null, "a Windows 10 application Package root is required");
+        if (root.Name != DefaultNs + "Package")
         {
             throw UnsupportedIdentity(root, "only a Windows 10 application Package is supported, not a bundle");
         }

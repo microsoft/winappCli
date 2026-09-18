@@ -86,6 +86,53 @@ public class OwnedDevelopmentRegistrationTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task UniqueIdentityUsesExplicitAotRecipeOutsidePublishDirectory(bool materializeOnly)
+    {
+        var generated = _tempDirectory.CreateSubdirectory("generated-aot");
+        var project = new FileInfo(Path.Join(_tempDirectory.FullName, "App.csproj"));
+        File.WriteAllText(project.FullName, "<Project />");
+        var manifest = new FileInfo(Path.Join(generated.FullName, "AppxManifest.xml"));
+        File.Copy(_manifest.FullName, manifest.FullName);
+        var nativeExe = Path.Join(generated.FullName, "Owned.exe");
+        File.WriteAllText(nativeExe, "native-output");
+        File.WriteAllText(Path.Join(_input.FullName, "stale.build.appxrecipe"), "not the published recipe");
+        var recipe = new FileInfo(Path.Join(generated.FullName, "Native.build.appxrecipe"));
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var entries = new XElement(ns + "ItemGroup",
+            new XElement(ns + "AppXManifest", new XAttribute("Include", manifest.FullName),
+                new XElement(ns + "PackagePath", "appxmanifest.xml")));
+        foreach (var (source, destination) in new[]
+        {
+            (nativeExe, "Owned.exe"),
+            (Path.Join(_input.FullName, "resources.pri"), "resources.pri"),
+            (Path.Join(_input.FullName, "logo.png"), "logo.png"),
+        })
+        {
+            entries.Add(new XElement(ns + "AppxPackagedFile", new XAttribute("Include", source),
+                new XElement(ns + "PackagePath", destination)));
+        }
+        new XDocument(new XElement(ns + "Project", entries)).Save(recipe.FullName);
+        var options = new DevelopmentIdentityOptions(project.FullName, true);
+
+        var result = materializeOnly
+            ? await _service.MaterializeLooseLayoutAsync(manifest, _input, _layout, TestTaskContext,
+                LayoutReconciliation.Exact, selfContained: true, developmentIdentity: options,
+                appxRecipe: recipe, cancellationToken: TestContext.CancellationToken)
+            : await _service.AddLooseLayoutIdentityAsync(manifest, _input, _layout, TestTaskContext,
+                LayoutReconciliation.Exact, selfContained: true, developmentIdentity: options,
+                appxRecipe: recipe, cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual("native-output", File.ReadAllText(Path.Join(_layout.FullName, "Owned.exe")));
+        Assert.AreEqual("Unique", result.Identity!.Mode);
+        Assert.AreEqual(DevelopmentIdentityHelper.CanonicalizePath(project.FullName), result.Identity.OwnerPath);
+        Assert.AreEqual("Owned.App", AppxManifestDocument.Load(manifest.FullName).IdentityName);
+        Assert.AreNotEqual("Owned.App", AppxManifestDocument.Load(Path.Join(_layout.FullName, "appxmanifest.xml")).IdentityName);
+        Assert.HasCount(materializeOnly ? 0 : 1, _registration.RegisterLooseLayoutCalls);
+    }
+
+    [TestMethod]
     public async Task FirstRun_ObservesExactIdentityAndStoresAdjacentReceipt()
     {
         var result = await Run();

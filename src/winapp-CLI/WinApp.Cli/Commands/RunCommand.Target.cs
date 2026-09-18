@@ -43,6 +43,7 @@ internal partial class RunCommand
             bool noRestore,
             bool selfContained,
             PackageGraphSource? packageGraph,
+            FileInfo? appxRecipe,
             CancellationToken cancellationToken,
             DevelopmentIdentityOptions? developmentIdentity = null)
         {
@@ -84,7 +85,7 @@ internal partial class RunCommand
                                     resolvedManifest, inputFolder, layout, taskContext, layoutOutput.Reconciliation,
                                     executable, projectFile, framework, noRestore,
                                     selfContained, aliasDecision.UseAlias, packageGraph,
-                                    developmentIdentity: developmentIdentity, cancellationToken: ct);
+                                    developmentIdentity: developmentIdentity, appxRecipe: appxRecipe, cancellationToken: ct);
                                 return (0, $"{identity.PackageName} ready to deploy");
                             }
                             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -317,7 +318,7 @@ internal partial class RunCommand
 
                 var state = deployment.State;
 
-                if (identity is not null && requestedPackage is not null)
+                if (requestedPackage is not null)
                 {
                     var familyName = requestedPackage.PackageFamilyName;
 
@@ -334,8 +335,8 @@ internal partial class RunCommand
                         var reconciled = await guestApplicationRunner.ReconcileRegistrationAttemptAsync(
                             target,
                             deployment.State.DeploymentId,
-                            identity.PackageName,
-                            identity.Publisher,
+                            requestedPackage.PackageName,
+                            requestedPackage.Publisher,
                             familyName,
                             registration.ExitCode == 0,
                             cancellationToken);

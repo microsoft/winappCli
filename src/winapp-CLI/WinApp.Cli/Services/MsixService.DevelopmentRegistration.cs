@@ -20,7 +20,7 @@ internal partial class MsixService
         FileInfo manifest, DirectoryInfo input, DirectoryInfo layout, TaskContext taskContext,
         bool register, LayoutReconciliation reconciliation, bool clean, string? executable,
         string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained,
-        bool ensureExecutionAlias, PackageGraphSource? packageGraph, DevelopmentIdentityOptions? options,
+        bool ensureExecutionAlias, PackageGraphSource? packageGraph, DevelopmentIdentityOptions? options, FileInfo? appxRecipe,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -60,7 +60,7 @@ internal partial class MsixService
             // Build only the candidate. The materializer cannot provision or register on the host.
             await BuildLooseLayoutAsync(manifest, input, staging, taskContext,
                 LayoutReconciliation.Exact, executable, projectFile, framework, noRestore,
-                selfContained, packageGraph, layout, options.UniqueIdentity, stateRoot, cancellationToken);
+                selfContained, packageGraph, appxRecipe, layout, options.UniqueIdentity, stateRoot, cancellationToken);
             var stagedManifest = ResolveLayoutRegistrationManifest(staging);
             var document = AppxManifestDocument.Load(stagedManifest.FullName);
             var identity = DevelopmentIdentityHelper.Create(document, options.OwnerPath, layout.FullName, options.UniqueIdentity);
@@ -352,10 +352,10 @@ internal partial class MsixService
             DevelopmentRegistrationStore.Commit(stateRoot, layout, pending.Candidate);
             return;
         }
-        if (priorLive is not null && pending.Prior is not null && actualHash == pending.Prior.ManifestHash)
+        if (pending.Prior is { } prior && actualHash == prior.ManifestHash && priorLive is not null)
         {
-            DevelopmentRegistrationStore.VerifyLive(priorLive, pending.Prior.Identity);
-            DevelopmentRegistrationStore.Commit(stateRoot, layout, pending.Prior);
+            DevelopmentRegistrationStore.VerifyLive(priorLive, prior.Identity);
+            DevelopmentRegistrationStore.Commit(stateRoot, layout, prior);
             return;
         }
         if (candidateLive is null && priorLive is null && packageRegistrationService.FindPackagesAtLocation(layout.FullName).Count == 0)

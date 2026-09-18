@@ -55,7 +55,7 @@ internal static class DevelopmentRegistrationStore
 
     internal static IReadOnlyList<DevelopmentRegistration> FindAll(DirectoryInfo stateRoot)
     {
-        var index = Path.Combine(stateRoot.FullName, "development-registrations");
+        var index = Path.Join(stateRoot.FullName, "development-registrations");
         EnsureRealPath(index);
         if (File.Exists(index))
         {
@@ -163,9 +163,9 @@ internal static class DevelopmentRegistrationStore
         {
             throw new InvalidOperationException(
                 $"The ownership receipt at '{layout.FullName}' changed or a newer run superseded revision {registration.Identity.Revision} " +
-                $"with revision {current.Identity.Revision}. Nothing was removed. Select the current deployment and retry.");
+                $"with revision {current.Revision}. Nothing was removed. Select the current deployment and retry.");
         }
-        var identity = current?.Identity ?? registration.Identity;
+        var identity = current is null ? registration.Identity : current.Identity;
         var installed = FindExact(packages, identity);
         if (installed is null)
         {
@@ -263,7 +263,7 @@ internal static class DevelopmentRegistrationStore
     }
 
     internal static string HashManifest(DirectoryInfo layout) =>
-        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(layout.FullName, "appxmanifest.xml"))));
+        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Join(layout.FullName, "appxmanifest.xml"))));
 
     internal static bool SamePath(string left, string right) =>
         string.Equals(DevelopmentIdentityHelper.CanonicalizePath(left), DevelopmentIdentityHelper.CanonicalizePath(right), StringComparison.OrdinalIgnoreCase);
@@ -354,7 +354,7 @@ internal static class DevelopmentRegistrationStore
     {
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             DevelopmentIdentityHelper.CanonicalizePath(layout.FullName).ToUpperInvariant())));
-        return Path.Combine(root.FullName, "development-registrations", key + ".path");
+        return Path.Join(root.FullName, "development-registrations", key + ".path");
     }
 
     private static void WriteIndex(DirectoryInfo root, DirectoryInfo layout)

@@ -954,7 +954,9 @@ public class RunCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RunCommand_JsonAndDebugOutput_ReturnsError()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RunCommand_JsonAndDebugOutput_ReturnsError(bool unregisterOnExit)
     {
         // Arrange - --json and --debug-output are mutually exclusive. In --json mode the
         // human-readable logger is suppressed, so the rejection must still surface a
@@ -964,7 +966,10 @@ public class RunCommandTests : BaseCommandTests
         var command = GetRequiredService<RunCommand>();
 
         // Act
-        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--debug-output", "--json"]);
+        string[] arguments = unregisterOnExit
+            ? [_tempDirectory.FullName, "--debug-output", "--unregister-on-exit", "--json"]
+            : [_tempDirectory.FullName, "--debug-output", "--json"];
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, arguments);
 
         // Assert
         Assert.AreEqual(1, exitCode, "Command should fail when both --json and --debug-output are specified");

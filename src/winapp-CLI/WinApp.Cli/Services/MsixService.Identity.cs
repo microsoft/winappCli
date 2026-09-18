@@ -118,15 +118,15 @@ internal partial class MsixService
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
     }
 
-    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, DevelopmentIdentityOptions? developmentIdentity = null, CancellationToken cancellationToken = default)
-        => BuildOwnedLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, register: true, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, developmentIdentity, cancellationToken);
+    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, DevelopmentIdentityOptions? developmentIdentity = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
+        => BuildOwnedLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, register: true, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, developmentIdentity, appxRecipe, cancellationToken);
 
     /// <inheritdoc/>
-    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, DevelopmentIdentityOptions? developmentIdentity = null, CancellationToken cancellationToken = default)
-        => BuildOwnedLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, register: false, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, developmentIdentity, cancellationToken);
+    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, DevelopmentIdentityOptions? developmentIdentity = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
+        => BuildOwnedLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, register: false, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, developmentIdentity, appxRecipe, cancellationToken);
 
     /// <summary>Builds an unregistered candidate without touching host runtime or registration state.</summary>
-    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, PackageGraphSource? packageGraph, DirectoryInfo? excludedLayout, bool strictIdentity, DirectoryInfo? excludedStateRoot, CancellationToken cancellationToken)
+    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, PackageGraphSource? packageGraph, FileInfo? appxRecipe, DirectoryInfo? excludedLayout, bool strictIdentity, DirectoryInfo? excludedStateRoot, CancellationToken cancellationToken)
     {
         // Validate inputs
         if (!appxManifestPath.Exists)
@@ -148,15 +148,20 @@ internal partial class MsixService
             .Elements(AppxManifestDocument.BuildNs + "Item")
             .Any(e => string.Equals(e.Attribute("Name")?.Value, "makepri.exe", StringComparison.OrdinalIgnoreCase)) == true;
 
-        if (isMSBuildGenerated)
+        if (isMSBuildGenerated || appxRecipe is not null)
         {
             taskContext.AddDebugMessage($"{UiSymbols.Note} MSBuild-generated manifest detected");
 
-            // Look for a .build.appxrecipe file in the input directory
-            var recipeFile = inputDirectory.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault();
+            var recipeFile = appxRecipe
+                ?? inputDirectory.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault();
 
             if (recipeFile != null)
             {
+                if (!recipeFile.Exists)
+                {
+                    throw new FileNotFoundException(
+                        $"AppxPackageRecipe was not found: '{recipeFile.FullName}'.");
+                }
                 taskContext.AddDebugMessage($"{UiSymbols.Files} Using appxrecipe for layout: {recipeFile.Name}");
                 await CopyFilesFromRecipeAsync(recipeFile, outputAppXDirectory, taskContext, reconciliation, cancellationToken);
 
@@ -173,6 +178,8 @@ internal partial class MsixService
             }
 
             var identity = ParseAppxManifestAsync(manifestContent);
+            var registrationManifest = ResolveLayoutRegistrationManifest(outputAppXDirectory);
+            ValidateStagedEntryPoint(registrationManifest, outputAppXDirectory);
             return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
         }
 
@@ -657,6 +664,44 @@ internal partial class MsixService
         }
 
         return desired;
+    }
+
+    /// <summary>
+    /// Fails when the manifest about to be registered or deployed names an executable the layout does
+    /// not contain.
+    /// </summary>
+    /// <remarks>
+    /// A Native AOT publish produces a different executable than a plain build, so a layout assembled
+    /// from the wrong recipe can look complete while naming an entry point that is not there. Windows
+    /// only reports that at activation, as a generic failure — and for a layout bound for an execution
+    /// target, nowhere the developer can see. Checking the staged layout turns it into a message that
+    /// names the missing file.
+    /// </remarks>
+    private static void ValidateStagedEntryPoint(FileInfo manifestFile, DirectoryInfo outputDirectory)
+    {
+        var manifest = AppxManifestDocument.Load(manifestFile.FullName);
+
+        if (string.IsNullOrWhiteSpace(manifest.ApplicationExecutable))
+        {
+            throw new InvalidDataException(
+                $"The staged manifest '{manifestFile.FullName}' has no application executable.");
+        }
+
+        var executable = Path.GetFullPath(
+            Path.Join(outputDirectory.FullName, NormalizePackagePath(manifest.ApplicationExecutable)));
+
+        if (!IsPathInsideDirectory(executable, outputDirectory.FullName))
+        {
+            throw new InvalidDataException(
+                $"The staged manifest '{manifestFile.FullName}' declares an executable outside the layout: " +
+                $"'{manifest.ApplicationExecutable}'.");
+        }
+
+        if (!File.Exists(executable))
+        {
+            throw new FileNotFoundException(
+                $"The staged executable declared by the manifest was not found: '{executable}'.");
+        }
     }
 
     /// <summary>

@@ -320,11 +320,6 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 return await UnregisterOnTargetAsync(null, canonicalOwner, outputAppXDirectory?.FullName, null, isJson, cancellationToken);
             }
 
-            if (manifest == null && inputResolution?.Mode == WinAppRunMode.Project)
-            {
-                return ReportNoRegistration(isJson);
-            }
-
             if (manifest == null && inputResolution == null && outputAppXDirectory != null)
             {
                 return ReportNoRegistration(isJson);

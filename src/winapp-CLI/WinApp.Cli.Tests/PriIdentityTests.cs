@@ -628,9 +628,8 @@ public class PriIdentityTests
         var map = renamed.Root!.Element("ResourceMap")!;
         map.SetAttributeValue("name", EffectiveName);
         map.SetAttributeValue("uniqueName", $"ms-appx://{EffectiveName}/");
-        foreach (var resource in renamed.Descendants("NamedResource"))
+        foreach (var uri in renamed.Descendants("NamedResource").Select(resource => resource.Attribute("uri")!))
         {
-            var uri = resource.Attribute("uri")!;
             uri.Value = uri.Value.Replace($"ms-resource://{OriginalName}/", $"ms-resource://{EffectiveName}/", StringComparison.Ordinal);
         }
         return renamed;

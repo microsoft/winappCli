@@ -200,7 +200,9 @@ public class PathSafetyTests
         }
         finally
         {
-            try { Directory.Delete(junctionDir, recursive: false); } catch { /* ignore */ }
+            try { Directory.Delete(junctionDir, recursive: false); }
+            catch (IOException) { /* ignore */ }
+            catch (UnauthorizedAccessException) { /* ignore */ }
         }
     }
 

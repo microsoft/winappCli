@@ -75,7 +75,7 @@ internal static partial class DevelopmentIdentityHelper
                     }
                     foreach (var component in missing)
                     {
-                        finalPath = Path.Combine(finalPath, component);
+                        finalPath = Path.Join(finalPath, component);
                     }
                     return Path.TrimEndingDirectorySeparator(finalPath);
                 }
