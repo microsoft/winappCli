@@ -34,8 +34,9 @@ BeforeDiscovery {
 
     # File-based apps (a lone .cs with #: directives) only reach winapp's single-file mode on
     # .NET SDK 10.0.300 or later, so the tests below are skipped on anything older. The newest
-    # installed SDK is the one that matters: these tests run from a temp directory, outside any
-    # global.json that would otherwise pin a different one.
+    # installed SDK is the one that matters, because every dotnet invocation below is anchored to
+    # the temp directory holding the app, outside any global.json that would otherwise pin a
+    # different one. See Invoke-FileBasedDotnet.
     $script:skipFileBased = $script:skip
     if (-not $script:skipFileBased) {
         $newestSdk = & dotnet --list-sdks 2>$null |
@@ -743,15 +744,36 @@ $ExtraProps  </PropertyGroup>
             $csPath
         }
 
+        # Runs a dotnet evaluation against a file-based app with the working directory anchored to
+        # the .cs file.
+        #
+        # SDK selection follows the CURRENT DIRECTORY, not the project being built: 'dotnet build
+        # <temp>\app.cs' launched from the repo reads the repo's global.json and ignores one sitting
+        # next to app.cs. Without this anchor the SDK would be whatever Pester's launch directory
+        # resolves to, while the skip logic above reasons about the newest INSTALLED SDK. Those only
+        # agree when no global.json is in scope, which is true of the temp tree and not guaranteed
+        # anywhere else.
+        function script:Invoke-FileBasedDotnet {
+            param([string]$CsPath, [string[]]$Arguments = @(), [string]$What)
+            Push-Location (Split-Path -Path $CsPath -Parent)
+            try {
+                $out = & dotnet build $CsPath @Arguments -nologo 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to $What for ${CsPath}:`n$($out -join [Environment]::NewLine)"
+                }
+                ($out | Select-Object -Last 1).ToString().Trim()
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
         # Evaluates a single property of the app's virtual project. With no -t: switch MSBuild only
         # evaluates, so the gate can be read without a restore or a build.
         function script:Get-FileBasedProperty {
             param([string]$CsPath, [string]$Property)
-            $out = & dotnet build $CsPath "-getProperty:$Property" -nologo 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to evaluate $Property for ${CsPath}:`n$($out -join [Environment]::NewLine)"
-            }
-            ($out | Select-Object -Last 1).ToString().Trim()
+            script:Invoke-FileBasedDotnet -CsPath $CsPath -What "evaluate $Property" -Arguments @(
+                "-getProperty:$Property")
         }
 
         # Runs _WinAppBuildRunArgs and returns the winapp command line 'dotnet run app.cs' would
@@ -760,11 +782,8 @@ $ExtraProps  </PropertyGroup>
         # same target computes, such as the Exec-transport spelling of the same arguments.
         function script:Get-FileBasedRunArgs {
             param([string]$CsPath, [string[]]$Overrides = @(), [string]$Property = '_WinAppRunArgs')
-            $out = & dotnet build $CsPath @Overrides -t:_WinAppBuildRunArgs "-getProperty:$Property" -nologo 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to compute $Property for ${CsPath}:`n$($out -join [Environment]::NewLine)"
-            }
-            ($out | Select-Object -Last 1).ToString().Trim()
+            script:Invoke-FileBasedDotnet -CsPath $CsPath -What "compute $Property" -Arguments (
+                @($Overrides) + @('-t:_WinAppBuildRunArgs', "-getProperty:$Property"))
         }
 
         # Performs a plain build and reports a run property left behind afterwards.
@@ -775,11 +794,8 @@ $ExtraProps  </PropertyGroup>
         # already describe the packaged launch at the end of an ordinary build.
         function script:Get-FileBasedBuiltRunProperty {
             param([string]$CsPath, [string]$Property)
-            $out = & dotnet build $CsPath -t:Build "-getProperty:$Property" -nologo 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to build ${CsPath}:`n$($out -join [Environment]::NewLine)"
-            }
-            ($out | Select-Object -Last 1).ToString().Trim()
+            script:Invoke-FileBasedDotnet -CsPath $CsPath -What "run a build" -Arguments @(
+                '-t:Build', "-getProperty:$Property")
         }
     }
 
@@ -897,7 +913,8 @@ $ExtraProps  </PropertyGroup>
         }
     }
 
-    Context "Run argument routing" {        BeforeAll {
+    Context "Run argument routing" {
+        BeforeAll {
             $script:fbCs = script:New-FileBasedApp -CaseName "args"
             $script:fbArgs = script:Get-FileBasedRunArgs -CsPath $script:fbCs
         }
@@ -1061,10 +1078,21 @@ $ExtraProps  </PropertyGroup>
             $computed | Should -Match ([regex]::Escape('-p "WindowsAppSDKSelfContained=true"'))
         }
 
-        It "Leaves RuntimeIdentifier valueless so host RID injection stays suppressed" {
-            # Naming it is the whole point; giving it a value would defeat the suppression.
+        It "Leaves RuntimeIdentifier valueless when the build set no RID" {
+            # Naming the property is what suppresses the CLI's host-RID injection, and an
+            # unqualified build has no RID to name, so the empty value is the correct one here.
             $script:fbArgs | Should -Match ([regex]::Escape('-p "RuntimeIdentifier="'))
             $script:fbArgs | Should -Not -Match '-p "RuntimeIdentifier=[^"]'
+        }
+
+        It "Passes an explicit RID through instead of blanking it" {
+            # The point of the token is that both sides resolve the SAME output folder, not that
+            # the value is always empty. 'dotnet run app.cs -p:RuntimeIdentifier=win-x64' writes
+            # bin\debug_win-x64\, so blanking the value here would send the CLI to bin\debug\ and
+            # recreate the exact mismatch the token exists to prevent.
+            $cs = script:New-FileBasedApp -CaseName "inp-rid"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:RuntimeIdentifier=win-x64')
+            $computed | Should -Match ([regex]::Escape('-p "RuntimeIdentifier=win-x64"'))
         }
 
         It "Does not forward the alias property the switches already express" {

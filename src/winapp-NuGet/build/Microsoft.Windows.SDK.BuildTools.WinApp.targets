@@ -343,13 +343,18 @@
 
           'no-build'                   skips the CLI's build pass, leaving only a cheap property
                                        evaluation. dotnet already built the app.
-          RuntimeIdentifier property   suppresses the host RID the CLI would otherwise inject.
-                                       Without it the CLI evaluates bin\debug_win-x64\ while dotnet
-                                       wrote bin\debug\, so 'no-build' would miss the fresh output
-                                       (or find a stale one from an earlier 'winapp run'). NAMING
-                                       the property is what suppresses injection, so the empty value
-                                       an unqualified build produces here is correct and intentional:
-                                       it makes both sides agree on the same folder.
+          RuntimeIdentifier property   keeps the CLI's idea of the output folder in step with the
+                                       one dotnet just wrote. The CLI injects the host RID when
+                                       nothing names the property, so it would evaluate
+                                       bin\debug_win-x64\ while an unqualified build wrote
+                                       bin\debug\, and 'no-build' would miss the fresh output (or
+                                       find a stale one from an earlier 'winapp run'). NAMING the
+                                       property is what suppresses that injection, so the empty
+                                       value an unqualified build produces here is correct and
+                                       intentional. A build that DID set a RID writes
+                                       bin\debug_&lt;rid&gt;\ instead, so the effective value is passed
+                                       through rather than forced empty: forcing it empty would
+                                       recreate the very mismatch this token exists to prevent.
 
         An explicit manifest is deliberately NOT forwarded for a file-based app; winapp owns the
         whole resolution order (explicit path, #:property WinAppManifestPath, <stem>.appxmanifest,
@@ -377,9 +382,11 @@
                                global properties would override the CLI's evaluation with the outer
                                build's answer instead of letting it derive its own. OutputPath IS
                                forwarded, and TargetDir follows from it.
-        RuntimeIdentifier      already passed by name with an empty value above, which is what
-                               suppresses the CLI's host RID injection. Giving it a value here
-                               would defeat that.
+        RuntimeIdentifier      already carried by the leading tokens above, which pass the effective
+                               value through: empty when the build set no RID, which is what
+                               suppresses the CLI's host RID injection, and the RID itself when one
+                               was set, so both sides resolve the same output folder either way.
+                               Repeating it here would be redundant.
         WinAppRunUseExecutionAlias
                                already translated into the explicit alias switches below, which
                                carry extra conditions the raw property does not. Forwarding it too
@@ -510,7 +517,12 @@
           Condition="'$(_WinAppRunSupportActive)' == 'true'">
     
     <Message Text="[WinAppRunSupport] Launching packaged application..." Importance="high" />
-    <Message Text="[WinAppRunSupport] Command: &quot;$(WinAppCliPath)&quot; $(_WinAppRunArgs)" Importance="normal" />
+    <!--
+      The arguments winapp itself receives, which is what matters when diagnosing quoting. The Exec
+      below runs $(_WinAppRunArgsForExec), the same string with '%' doubled for cmd's benefit; that
+      doubling is a transport detail of the batch file Exec writes, not part of the command line.
+    -->
+    <Message Text="[WinAppRunSupport] winapp receives: &quot;$(WinAppCliPath)&quot; $(_WinAppRunArgs)" Importance="normal" />
     
     <!-- Execute the CLI to run the packaged app -->
     <Exec Command="&quot;$(WinAppCliPath)&quot; $(_WinAppRunArgsForExec)"
