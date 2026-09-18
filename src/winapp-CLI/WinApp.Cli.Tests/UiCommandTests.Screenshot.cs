@@ -69,7 +69,7 @@ public partial class UiCommandTests
             var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiScreenshotCommand>(), args);
             Assert.AreEqual(0, exitCode);
             Assert.IsTrue(File.Exists(path));
-            var hostConsole = new TestConsole();
+            using var hostConsole = new TestConsole();
             hostConsole.Profile.Width = width;
             var router = new ExecutionTargetUiRouter(null!, hostConsole);
             using var output = new MemoryStream(Encoding.UTF8.GetBytes(TestAnsiConsole.Output));
