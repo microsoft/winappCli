@@ -47,7 +47,10 @@ internal partial class MsixService
                 extractedManifests.Add(manifestTemp);
                 using (var archive = ZipFile.OpenRead(msix.FullName))
                 {
+                    // MSIX stores the package manifest at the root as AppxManifest.xml, but zip entry lookup is
+                    // case-sensitive and a generic slice can stage it as appxmanifest.xml — match case-insensitively.
                     var entry = archive.GetEntry("AppxManifest.xml")
+                        ?? archive.Entries.FirstOrDefault(e => string.Equals(e.FullName, "AppxManifest.xml", StringComparison.OrdinalIgnoreCase))
                         ?? throw new InvalidOperationException($"Bundle slice '{msix.Name}' contains no AppxManifest.xml.");
                     entry.ExtractToFile(manifestTemp.FullName, overwrite: true);
                 }
@@ -57,29 +60,22 @@ internal partial class MsixService
                 slices.Add((msix, doc, arch));
             }
 
-            // Cross-slice invariants: identical Identity Name/Publisher/Version, distinct architectures.
+            // Cross-slice invariants: run the SAME consistency validation the folder-bundle path uses
+            // (identity Name/Publisher/Version, capabilities, dependencies, target device families,
+            // application IDs, and distinct/non-neutral architectures) rather than a narrower hand-rolled
+            // subset, so a project bundle can't ship an inconsistency folder mode would reject.
             var reference = slices[0].Doc;
             var referenceName = reference.IdentityName;
             var referenceVersion = reference.IdentityVersion;
-            foreach (var (msix, doc, _) in slices)
+
+            var validationErrors = bundleValidationService.Validate(
+                slices.Select(s => s.Doc).ToList(),
+                slices.Select(s => s.Arch).ToList(),
+                slices.Select(s => s.Msix.Directory ?? new DirectoryInfo(Path.GetDirectoryName(s.Msix.FullName) ?? ".")).ToList());
+            if (validationErrors.Count > 0)
             {
-                if (!string.Equals(doc.IdentityName, referenceName, StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException($"Bundle slices disagree on Identity/@Name ('{referenceName}' vs '{doc.IdentityName}' in {msix.Name}).");
-                }
-                if (!string.Equals(doc.IdentityPublisher, reference.IdentityPublisher, StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException($"Bundle slices disagree on Identity/@Publisher (in {msix.Name}).");
-                }
-                if (!string.Equals(doc.IdentityVersion, referenceVersion, StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException($"Bundle slices disagree on Identity/@Version ('{referenceVersion}' vs '{doc.IdentityVersion}' in {msix.Name}).");
-                }
-            }
-            var duplicateArch = slices.GroupBy(s => s.Arch, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1);
-            if (duplicateArch != null)
-            {
-                throw new InvalidOperationException($"Two bundle slices target the same architecture '{duplicateArch.Key}'.");
+                var details = string.Join(Environment.NewLine, validationErrors.Select(e => $"  - {e.Field}: {e.Message}"));
+                throw new InvalidOperationException($"Bundle slices are inconsistent and cannot be composed into one bundle:{Environment.NewLine}{details}");
             }
 
             if (!MsixVersion.TryParse(referenceVersion, out var bundleVersion))

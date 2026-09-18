@@ -36,6 +36,56 @@ internal partial class PackageCommand
                "that contains an AppxManifest.xml.";
 
         /// <summary>
+        /// Rejects a project build-output directory that resolves to a network location before winapp probes
+        /// or enumerates it as the package input. A project can steer TargetDir/PublishDir (untrusted input)
+        /// at a UNC / mapped-network-drive / reparse-redirected path; probing it with the filesystem can
+        /// trigger outbound SMB authentication or package attacker-controlled remote content. Mirrors the
+        /// project-keyfile guard. Returns an actionable error, or <c>null</c> for a local directory.
+        /// </summary>
+        private static string? NetworkOutputDirError(string csprojName, string targetDir)
+            => PathSafety.IsNetworkPath(targetDir)
+               || PathSafety.IsNetworkDriveRoot(targetDir)
+               || PathSafety.RedirectsToNetwork(targetDir)
+                ? $"'{csprojName}' resolves to a build output directory on a network location, which winapp will not " +
+                  $"probe or package: {targetDir}. Publish to a local directory."
+                : null;
+
+        /// <summary>
+        /// Returns the last user-supplied <c>-p Platform=&lt;value&gt;</c> value (trimmed, name-insensitive),
+        /// or <c>null</c> when none was provided. MSBuild is last-wins, so the last occurrence is authoritative.
+        /// </summary>
+        private static string? FindUserPlatform(IReadOnlyList<string> properties)
+        {
+            string? platform = null;
+            foreach (var property in properties)
+            {
+                var separator = property.IndexOf('=');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+                if (string.Equals(property[..separator].Trim(), "Platform", StringComparison.OrdinalIgnoreCase))
+                {
+                    platform = property[(separator + 1)..].Trim();
+                }
+            }
+            return platform;
+        }
+
+        /// <summary>
+        /// Maps an MSBuild <c>Platform</c> value to winapp's canonical architecture (x64 / arm64 / x86), or
+        /// <c>null</c> for a non-architecture Platform (AnyCPU or a custom platform), which never conflicts.
+        /// </summary>
+        private static string? PlatformArchitecture(string platform)
+            => platform.Trim().ToLowerInvariant() switch
+            {
+                "x64" => "x64",
+                "arm64" => "arm64",
+                "x86" or "win32" => "x86",
+                _ => null,
+            };
+
+        /// <summary>
         /// Returns an actionable scope error when an explicit <c>-p</c> requests a packaging flow project
         /// mode does not expose — Store-upload archives (<c>.msixupload</c>) or resource-split bundles
         /// (language/scale resource packages) — or <c>null</c> when the properties are in scope. Project
@@ -270,6 +320,24 @@ internal partial class PackageCommand
                 return Fail(scopeError);
             }
 
+            // A user -p Platform=<architecture> stays authoritative for MSBuild while --arch drives the RID,
+            // runtime staging, and manifest architecture. An architecture-specific Platform that disagrees
+            // with the selected architecture would build one architecture but package another; a fixed
+            // Platform can never be right for every slice of a multi-architecture bundle. Reject both rather
+            // than emit an architecture-mismatched package. (AnyCPU / non-architecture Platforms are ignored.)
+            if (FindUserPlatform(properties) is { Length: > 0 } userPlatform
+                && PlatformArchitecture(userPlatform) is { } platformArch)
+            {
+                if (isBundle)
+                {
+                    return Fail($"-p Platform={userPlatform} cannot be used when building a multi-architecture bundle; each slice's architecture is selected by --arch. Remove -p Platform and choose architectures with --arch.");
+                }
+                if (!string.Equals(platformArch, resolvedArches[0], StringComparison.OrdinalIgnoreCase))
+                {
+                    return Fail($"-p Platform={userPlatform} conflicts with the target architecture '{resolvedArches[0]}'. Select the architecture with --arch (which drives the runtime identifier and packaging), and omit the conflicting -p Platform.");
+                }
+            }
+
             // Single-package mode targets one architecture; the bundle path drives each slice's own.
             var architecture = resolvedArches[0];
 
@@ -304,8 +372,19 @@ internal partial class PackageCommand
 
             // Resolve one signing policy up front (CLI overrides project config; reject unsupported project
             // signing rather than silently ignoring it) and reuse it for the single package or every slice.
-            var (resolvedPolicy, signingError) = await ResolveSigningPolicyAsync(
-                csproj, buildOptions, noSign, certPath, generateCert, installCert, certPassword, cancellationToken);
+            SigningPolicy? resolvedPolicy;
+            string? signingError;
+            try
+            {
+                (resolvedPolicy, signingError) = await ResolveSigningPolicyAsync(
+                    csproj, buildOptions, noSign, certPath, generateCert, installCert, certPassword, cancellationToken);
+            }
+            catch (ProjectRunException ex)
+            {
+                // A project-evaluation validation error (e.g. a lone exact -p RuntimeIdentifier a RID-splitting
+                // graph cannot honor) is an actionable input error, not an unexpected crash.
+                return Fail(ex.Message);
+            }
             if (signingError != null)
             {
                 return Fail(signingError);
@@ -322,17 +401,30 @@ internal partial class PackageCommand
             }
 
             // Fast-fail: an unpackaged app can never be packaged. Reject before paying the publish cost
-            // when the project is definitively WindowsPackageType=None (skipped under --no-build).
-            if (!noBuild && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
+            // when the project is definitively WindowsPackageType=None (skipped under --no-build). These
+            // pre-build probes evaluate the project graph and can raise an actionable ProjectRunException
+            // (e.g. an exact -p RuntimeIdentifier a RID-splitting graph cannot honor); surface it as a normal
+            // failure rather than letting it reach the generic "unexpected error" handler.
+            bool isNativeMsix;
+            try
             {
-                return Fail(UnpackagedProjectMessage(csproj.Name));
+                if (!noBuild && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
+                {
+                    return Fail(UnpackagedProjectMessage(csproj.Name));
+                }
+
+                isNativeMsix = await projectRunService.IsNativeMsixProjectAsync(csproj, buildOptions, cancellationToken);
+            }
+            catch (ProjectRunException ex)
+            {
+                return Fail(ex.Message);
             }
 
             // MSIX-tooling projects (WinUI / EnableMsixTooling): let the Windows App SDK's own MSIX targets
             // produce the package during publish, then sign and deliver it. The SDK owns file selection and
             // Native AOT native/managed filtering, so winapp never repackages the output. A native project
             // that fails to package is reported as-is — never a silent fall back to generic packaging.
-            if (await projectRunService.IsNativeMsixProjectAsync(csproj, buildOptions, cancellationToken))
+            if (isNativeMsix)
             {
                 if (manifestPath != null)
                 {
@@ -447,6 +539,11 @@ internal partial class PackageCommand
             if (resolution.Packaging == ProjectPackaging.Unpackaged)
             {
                 return Fail(UnpackagedProjectMessage(csproj.Name));
+            }
+
+            if (NetworkOutputDirError(csproj.Name, resolution.TargetDir) is { } targetDirError)
+            {
+                return Fail(targetDirError);
             }
 
             var targetDir = new DirectoryInfo(resolution.TargetDir);
@@ -566,9 +663,16 @@ internal partial class PackageCommand
             }
 
             var props = await projectRunService.EvaluateProjectSigningAsync(csproj, buildOptions, cancellationToken);
-            if (props is null || props.SigningEnabled == false)
+            if (props is null)
             {
-                // Could not evaluate, or signing explicitly disabled → deliver unsigned.
+                // Evaluation could not determine the project's signing configuration (even after a restore).
+                // Do NOT silently deliver unsigned — that can ship an unsigned package for a project that
+                // requires signing. Make the user choose explicitly.
+                return (null, "Could not determine the project's signing configuration. Build/restore the project first, or pass --cert <pfx> / --generate-cert to sign, or --no-sign to produce an unsigned package.");
+            }
+            if (props.SigningEnabled == false)
+            {
+                // Signing explicitly disabled by the project → deliver unsigned.
                 return (unsigned, null);
             }
 
@@ -710,7 +814,17 @@ internal partial class PackageCommand
             bool skipPri,
             CancellationToken cancellationToken)
         {
-            if (await projectRunService.IsNativeMsixProjectAsync(csproj, sliceOptions, cancellationToken))
+            bool isNativeMsix;
+            try
+            {
+                isNativeMsix = await projectRunService.IsNativeMsixProjectAsync(csproj, sliceOptions, cancellationToken);
+            }
+            catch (ProjectRunException ex)
+            {
+                return (null, 1, ex.Message);
+            }
+
+            if (isNativeMsix)
             {
                 if (manifestPath != null)
                 {
@@ -757,6 +871,11 @@ internal partial class PackageCommand
             if (resolution.Packaging == ProjectPackaging.Unpackaged)
             {
                 return (null, 1, UnpackagedProjectMessage(csproj.Name));
+            }
+
+            if (NetworkOutputDirError(csproj.Name, resolution.TargetDir) is { } sliceTargetDirError)
+            {
+                return (null, 1, sliceTargetDirError);
             }
 
             var targetDir = new DirectoryInfo(resolution.TargetDir);

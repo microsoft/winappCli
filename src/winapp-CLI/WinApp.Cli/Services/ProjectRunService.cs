@@ -199,7 +199,8 @@ internal sealed partial class ProjectRunService(
             ProjectRunOptions options,
             DirectoryInfo workingDir,
             CancellationToken cancellationToken,
-            bool aotPublish = false)
+            bool aotPublish = false,
+            bool publish = false)
     {
         // Pin an effective single TFM for a multi-targeted project (default = first declared) BEFORE any
         // pass so build/evaluate/packaging/provisioning all agree. No-op when single-targeted / --framework set.
@@ -254,13 +255,16 @@ internal sealed partial class ProjectRunService(
                     csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
                     // A project-scoped restore mirrors Platform and fully covers the build. A solution-scoped
                     // restore omits Platform to avoid MSB4126, so a platform-specific build must restore again.
-                    if (!restoredWholeSolution || !HasEffectivePlatform(options))
+                    // Never reuse this build-context restore to skip the PUBLISH pass's restore: `dotnet
+                    // publish` sets _IsPublishing=true, which can pull in publish-only dependencies (e.g. a
+                    // PackageReference conditioned on '$(_IsPublishing)') that the build restore never fetched.
+                    if (!publish && (!restoredWholeSolution || !HasEffectivePlatform(options)))
                     {
                         buildOptions = options with { NoRestore = true };
                     }
                 }
             }
-            else if (restoredWholeSolution && !HasEffectivePlatform(options))
+            else if (!publish && restoredWholeSolution && !HasEffectivePlatform(options))
             {
                 buildOptions = options with { NoRestore = true };
             }
@@ -302,7 +306,7 @@ internal sealed partial class ProjectRunService(
         // buffering those diagnostics makes the command look frozen. Property discovery remains buffered
         // because winapp parses it, but every restore below streams progress and failures immediately.
         var (preparedOptions, buildOptions, csWinRTMetadata) = await PrepareBuildInputsAsync(
-            csproj, options, workingDir, cancellationToken);
+            csproj, options, workingDir, cancellationToken, publish: publish);
         options = preparedOptions;
 
         // Reject a non-runnable project (e.g. a class library) before building it — the post-build
@@ -347,7 +351,7 @@ internal sealed partial class ProjectRunService(
             }
         }
 
-        var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata);
+        var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata, publish: publish);
         logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(evaluateArgs));
 
         var (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(workingDir, evaluateArgs, cancellationToken);
@@ -635,6 +639,16 @@ internal sealed partial class ProjectRunService(
         CancellationToken cancellationToken)
     {
         var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+        if (props is null && !options.NoRestore)
+        {
+            // On a clean checkout obj/<project>.nuget.g.props does not exist yet, so signing properties
+            // imported from a referenced NuGet package (AppxPackageSigningEnabled / PackageCertificateKeyFile)
+            // are invisible and this evaluate fails. Restore once and retry, so a project that requires
+            // signing is not silently resolved as unsigned on its first (unrestored) packaging run.
+            var restoreWorkingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+            await RunRestorePassAsync(csproj, options, restoreWorkingDir, cancellationToken);
+            props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+        }
         if (props is null)
         {
             return null;
@@ -913,7 +927,7 @@ internal sealed partial class ProjectRunService(
                 workingDir, arguments,
                 onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
                 onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
-                cancellationToken);
+                cancellationToken: cancellationToken);
         }
 
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Sync} {banner}");
@@ -922,7 +936,7 @@ internal sealed partial class ProjectRunService(
         var writeLive = CreateSynchronizedRedactedLineWriter();
 
         return await dotNetService.RunDotnetStreamingAsync(
-            workingDir, arguments, writeLive, writeLive, cancellationToken);
+            workingDir, arguments, writeLive, writeLive, cancellationToken: cancellationToken);
     }
 
     private static string? ResolveRestoreVerbosity(ILogger logger, bool json) =>
@@ -968,6 +982,13 @@ internal sealed partial class ProjectRunService(
         var banner = $"{(publish ? "Publishing" : "Building")} {csproj.Name} ({options.Configuration} | {options.Architecture})...";
         var stopwatch = Stopwatch.StartNew();
 
+        // Native AOT publish needs the VS Installer directory on PATH so vswhere.exe (and the MSVC toolchain
+        // the AOT linker invokes) resolves. The native-MSIX packaging pass already applies this; the generic
+        // publish pass must too, or `winapp pack` on a generic <PublishAot> project fails with MSB3073/exit
+        // 123 on a machine whose PATH omits the Installer directory even though `run --aot` succeeds. Null
+        // (build mode, or when the Installer directory is already resolvable) leaves the environment untouched.
+        var publishEnvironment = publish ? BuildAotPublishEnvironment() : null;
+
         // --json/--quiet: stdout stays pure JSON, so route the invocation AND build output to stderr
         // (Console.Error is synchronized, so concurrent stdout/stderr callbacks are safe).
         if (options.Json || !logger.IsEnabled(LogLevel.Information))
@@ -982,7 +1003,7 @@ internal sealed partial class ProjectRunService(
                 workingDir, redirectedArgs,
                 onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
                 onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
-                cancellationToken);
+                publishEnvironment, cancellationToken);
         }
 
         // Info-enabled paths (default interactive / --verbose / agent-CI): print the header and the sanitized
@@ -1003,7 +1024,7 @@ internal sealed partial class ProjectRunService(
             // Real interactive terminal: hand the console to dotnet (inherited stdio, no -tl:off) so its
             // native terminal logger renders the live build directly — single warnings, live progress.
             // winapp never sees the lines; the persistent header/invocation above and ✓ Built below frame it.
-            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, cancellationToken);
+            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, publishEnvironment, cancellationToken);
         }
         else
         {
@@ -1012,7 +1033,7 @@ internal sealed partial class ProjectRunService(
             var writeLive = CreateSynchronizedRedactedLineWriter();
 
             streamedExit = await dotNetService.RunDotnetStreamingAsync(
-                workingDir, buildArgs, writeLive, writeLive, cancellationToken);
+                workingDir, buildArgs, writeLive, writeLive, publishEnvironment, cancellationToken);
         }
 
         if (streamedExit == 0)

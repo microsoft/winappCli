@@ -339,6 +339,8 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--no-restore` - Skip restoring the project before building
 - `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
 
+> **Note:** For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
+
 **What it does:**
 
 - Validates and processes Package.appxmanifest files

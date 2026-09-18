@@ -341,7 +341,8 @@ internal sealed partial class ProjectRunService
         string? csWinRTMetadataFolder = null,
         bool includeRuntimeIdentifier = true,
         bool includePlatform = true,
-        bool includePublishProfile = true)
+        bool includePublishProfile = true,
+        bool publish = false)
     {
         var rid = options.EffectiveRuntimeIdentifier;
 
@@ -350,6 +351,16 @@ internal sealed partial class ProjectRunService
             "msbuild",
             csproj.FullName,
         };
+
+        // Publish mode evaluates in the publish context: `dotnet publish` sets the global _IsPublishing=true,
+        // so a project that conditions output properties on it (e.g. <PublishDir Condition="'$(_IsPublishing)'
+        // == 'true'">) resolves the SAME PublishDir the publish pass wrote. Without it this evaluate reads the
+        // non-publish default and winapp would package a stale/wrong directory. Emitted as a global -p so a
+        // publish-conditioned property group sees it during evaluation (getProperty runs no targets).
+        if (publish)
+        {
+            tokens.Add("-p:_IsPublishing=true");
+        }
 
         // Drop dedicated-switch dupes (same filter as the build pass) so the two passes stay in lock-step;
         // the dedicated -p: equivalents are emitted below. A user -p:Platform / EDPR flows through.

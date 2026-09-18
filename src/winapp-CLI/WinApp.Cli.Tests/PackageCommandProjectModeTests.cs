@@ -418,6 +418,98 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_SigningConfigurationUnknown_Rejected()
+    {
+        // A null signing evaluation means "could not determine the project's signing configuration" (e.g. an
+        // unrestored clean checkout). It must NOT silently deliver unsigned — the user must choose explicitly.
+        var csproj = CreateCsproj();
+        _fakeProjectRunService.IsNativeMsixProject = true;
+        _fakeProjectRunService.ProjectSigning = null;
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishNativeMsixCalls.Count, "an undeterminable signing configuration must be rejected before packaging");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_SigningConfigurationUnknownWithNoSign_ProducesUnsigned()
+    {
+        // --no-sign short-circuits before signing evaluation, so an undeterminable configuration is fine when
+        // the user explicitly asked for an unsigned artifact.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir);
+        _fakeProjectRunService.ProjectSigning = null;
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--no-sign"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeMsixService.CreatePackageCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_TargetDirOnNetworkPath_Rejected()
+    {
+        // A project can steer TargetDir/PublishDir at a UNC path; winapp must reject it before probing or
+        // enumerating the directory, which could trigger outbound SMB authentication.
+        var csproj = CreateCsproj();
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, @"\\attacker\share\out", null, ProjectPackaging.Packaged, false, "x64", null, false), 0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--no-sign"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "a network build-output directory must be rejected before packaging");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_PlatformConflictsWithArch_Rejected()
+    {
+        // An architecture-specific -p Platform that disagrees with --arch would build one architecture but
+        // package another. Reject it rather than emit an architecture-mismatched package.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "x64", "-p", "Platform=ARM64"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "a conflicting -p Platform must be rejected before packaging");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_PlatformMatchingArch_Allowed()
+    {
+        // A -p Platform that matches the single selected architecture is consistent and must be allowed.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "x64", "-p", "Platform=x64", "--no-sign"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeMsixService.CreatePackageCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_PlatformInMultiArchBundle_Rejected()
+    {
+        // A fixed architecture-specific -p Platform can never be correct for every slice of a multi-arch
+        // bundle; reject it rather than mis-stamp a slice.
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "x64", "--arch", "arm64", "-p", "Platform=x64"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count, "a -p Platform in a multi-arch bundle must be rejected before packaging");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_BareArch_Rejected()
     {
         // A valueless --arch must fail loudly rather than silently defaulting to the host architecture.
