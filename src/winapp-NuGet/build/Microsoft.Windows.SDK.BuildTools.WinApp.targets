@@ -359,8 +359,17 @@
         An explicit manifest is deliberately NOT forwarded for a file-based app; winapp owns the
         whole resolution order (explicit path, #:property WinAppManifestPath, <stem>.appxmanifest,
         generated), so 'dotnet run app.cs' and 'winapp run app.cs' register the same identity.
+
+        Both values carry the SAME percent-escaping as the forwarded properties below. Configuration
+        is the one that needs it: MSBuild does not validate it, so '-p:Configuration=Debug\' builds
+        happily, and splicing that into a quoted argument would escape the closing quote and swallow
+        every argument after it into the configuration name. RuntimeIdentifier is escaped alongside
+        it only to keep the rule uniform; the SDK rejects a RID containing any of these characters
+        long before this target runs, so that escape is a no-op for every value which gets this far.
       -->
-      <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' == 'true'">run "$(EntryPointFilePath)" --no-build --configuration "$(Configuration)" -p "RuntimeIdentifier=$(RuntimeIdentifier)"</_WinAppRunArgs>
+      <_WinAppEscapedConfiguration>$(Configuration.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))</_WinAppEscapedConfiguration>
+      <_WinAppEscapedRuntimeIdentifier>$(RuntimeIdentifier.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))</_WinAppEscapedRuntimeIdentifier>
+      <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' == 'true'">run "$(EntryPointFilePath)" --no-build --configuration "$(_WinAppEscapedConfiguration)" -p "RuntimeIdentifier=$(_WinAppEscapedRuntimeIdentifier)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' != 'true'">run "$(_WinAppInputFolderArg)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(_WinAppManifestPathArg)' != ''">$(_WinAppRunArgs) --manifest "$(_WinAppManifestPathArg)"</_WinAppRunArgs>
     </PropertyGroup>
@@ -380,9 +389,11 @@
         derived outputs        TargetDir, RunCommand, RunArguments and ProjectAssetsFile are
                                computed by the SDK, not supplied by the consumer. Forcing them as
                                global properties would override the CLI's evaluation with the outer
-                               build's answer instead of letting it derive its own. OutDir IS
-                               forwarded, and TargetDir is just its resolved absolute form, so it
-                               follows without being named.
+                               build's answer instead of letting it derive its own. What IS
+                               forwarded is the input each one hangs off, so the derived value
+                               follows without being named: OutDir, whose resolved absolute form is
+                               TargetDir, and MSBuildProjectExtensionsPath, the folder
+                               ProjectAssetsFile is written into.
         RuntimeIdentifier      already carried by the leading tokens above, which pass the effective
                                value through: empty when the build set no RID, which is what
                                suppresses the CLI's host RID injection, and the RID itself when one
@@ -475,6 +486,21 @@
         passes resolve the same folder no matter where either was launched from.
       -->
       <_WinAppForwardedProperty Include="OutDir" Value="$(OutDir.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutDir)' != ''" />
+      <!--
+        The obj folder, for the same reason as OutDir: the CLI reads project.assets.json to discover
+        which packages the build actually restored, and ProjectAssetsFile is just
+        '$(MSBuildProjectExtensionsPath)project.assets.json'. Relocating the intermediate directory
+        with '-p:BaseIntermediateOutputPath=custom_obj\' moves the assets file out of the SDK's
+        runfile folder, so an evaluation that was told nothing would re-derive the default path and
+        read a stale graph or none at all, quietly dropping the conditional Windows App SDK
+        dependencies that decide provisioning and the generated manifest.
+
+        Naming the folder rather than the file covers a relocation spelled either way, since
+        MSBuildProjectExtensionsPath is what BaseIntermediateOutputPath feeds. It always evaluates
+        to an absolute path, so unlike OutDir there is no relative-resolution question, and in the
+        default case it is the same runfile folder the CLI's own evaluation would compute anyway.
+      -->
+      <_WinAppForwardedProperty Include="MSBuildProjectExtensionsPath" Value="$(MSBuildProjectExtensionsPath.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(MSBuildProjectExtensionsPath)' != ''" />
       <_WinAppForwardedProperty Include="OutputType" Value="$(OutputType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutputType)' != ''" />
       <_WinAppForwardedProperty Include="TargetFramework" Value="$(TargetFramework.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(TargetFramework)' != ''" />
       <_WinAppForwardedProperty Include="Version" Value="$(Version.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(Version)' != ''" />

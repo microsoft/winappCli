@@ -1091,6 +1091,22 @@ $ExtraProps  </PropertyGroup>
             $replayed | Should -Be $built
         }
 
+        It "Carries the obj folder, so the CLI reads the package graph the build restored" {
+            # ProjectAssetsFile is '$(MSBuildProjectExtensionsPath)project.assets.json', and the CLI
+            # reads that file to discover which packages were actually restored. Relocating the
+            # intermediate directory moves it out of the SDK's runfile folder, so forwarding
+            # nothing would leave the CLI re-deriving the default path and reading a stale graph.
+            $cs = script:New-FileBasedApp -CaseName "inp-objdir"
+            $built = script:Invoke-FileBasedDotnet -CsPath $cs -What "resolve ProjectAssetsFile" -Arguments @(
+                '-p:BaseIntermediateOutputPath=custom_obj\', '-getProperty:ProjectAssetsFile')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:BaseIntermediateOutputPath=custom_obj\')
+            $forwarded = [regex]::Match($computed, '-p "MSBuildProjectExtensionsPath=([^"]*)"').Groups[1].Value
+            $forwarded | Should -Not -BeNullOrEmpty
+            $replayed = script:Invoke-FileBasedDotnet -CsPath $cs -What "replay ProjectAssetsFile" -Arguments @(
+                '-p', "MSBuildProjectExtensionsPath=$forwarded", '-getProperty:ProjectAssetsFile')
+            $replayed | Should -Be $built
+        }
+
         It "Carries the standard Version, which the CLI reads when WinAppVersion is absent" {
             $cs = script:New-FileBasedApp -CaseName "inp-version"
             script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:Version=2.3.4.5') |
@@ -1170,6 +1186,17 @@ $ExtraProps  </PropertyGroup>
         # The CLI rejects a -p token containing ';' or ',' outright, and the value is spliced into a
         # quoted command-line argument, so both the MSBuild separator contract and the command-line
         # quoting have to survive the hand-off.
+        It "Escapes the configuration, so a trailing backslash cannot swallow the command line" {
+            # Configuration is spliced into a quoted argument, where '\"' is an escaped quote rather
+            # than a closing one: '--configuration "Debug\"' would run the quote on through every
+            # argument after it, so the CLI would see one enormous configuration name instead of the
+            # properties and switches that follow.
+            $cs = script:New-FileBasedApp -CaseName "esc-configuration"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:Configuration=Debug\')
+            $computed | Should -Match ([regex]::Escape('--configuration "Debug%5C"'))
+            $computed | Should -Not -Match ([regex]::Escape('--configuration "Debug\"'))
+        }
+
         It "Percent-escapes a semicolon so a capability list survives" {
             # 'a;b' is how capability lists are written, so raw forwarding failed every such run.
             $cs = script:New-FileBasedApp -CaseName "esc-semicolon" -Directives @(

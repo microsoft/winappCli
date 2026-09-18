@@ -187,7 +187,7 @@ The hand-off also differs. A `.csproj` passes its output folder, which the CLI t
 winapp run <app.cs> --no-build --configuration "Debug" -p "RuntimeIdentifier=<rid>" ...
 ```
 
-Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, every property the CLI reads is carried across explicitly. That covers the identity-shaping ones (`WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, `WinAppManifestPath`), the packaging mode (`WindowsPackageType`), and the build inputs that decide which file is packaged (`AssemblyName`, `OutputPath`, `OutDir`, `OutputType`, `TargetFramework`, `Version`, `WindowsAppSDKSelfContained`). This is what makes a command-line override take effect:
+Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, every property the CLI reads is carried across explicitly. That covers the identity-shaping ones (`WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, `WinAppManifestPath`), the packaging mode (`WindowsPackageType`), and the build inputs that decide which file is packaged (`AssemblyName`, `OutputPath`, `OutDir`, `MSBuildProjectExtensionsPath`, `OutputType`, `TargetFramework`, `Version`, `WindowsAppSDKSelfContained`). This is what makes a command-line override take effect:
 
 ```bash
 dotnet run app.cs -p:WinAppPackageName=Contoso    # registers as Contoso
@@ -195,11 +195,21 @@ dotnet run app.cs -p:AssemblyName=Contoso         # packages Contoso.exe
 dotnet run app.cs -p:OutDir=.\out\                # launches what was built in .\out\
 ```
 
-`OutDir` is carried alongside `OutputPath` because it is the property MSBuild actually writes the executable to. Setting it moves the output while leaving `OutputPath` at its default, so forwarding `OutputPath` alone would point the CLI at a directory the build never wrote to.
+`OutDir` is carried alongside `OutputPath` because it is the property MSBuild actually writes the executable to. Setting it moves the output while leaving `OutputPath` at its default, so forwarding `OutputPath` alone would point the CLI at a directory the build never wrote to. `MSBuildProjectExtensionsPath` is carried for the same reason on the input side: it is the folder `project.assets.json` is written into, so relocating the intermediate directory with `-p:BaseIntermediateOutputPath=custom_obj\` would otherwise leave the CLI reading a default path that holds a stale package graph or none at all.
 
-Values are percent-escaped on the way across (`%`, `;`, `,`, `"` and `\`), so a capability list such as `internetClient;privateNetworkClientServer` or a publisher containing a comma survives intact; MSBuild decodes them again on the other side.
+Values are percent-escaped on the way across (`%`, `;`, `,`, `"` and `\`), so a capability list such as `internetClient;privateNetworkClientServer` or a publisher containing a comma survives intact; MSBuild decodes them again on the other side. The configuration and runtime identifier in the leading tokens are escaped the same way, so a value ending in a backslash cannot escape its closing quote and swallow the rest of the command line.
 
-Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. An empty value is forwarded rather than skipped for the identity properties and for `WindowsPackageType`, because the CLI treats an empty property exactly as it treats an absent one: that is what makes `dotnet run app.cs -p:WinAppPackageName=` clear a directive instead of leaving the CLI to re-read it. `WinAppRunUseExecutionAlias` is forwarded only when it is empty, because a `true` or `false` already rides on the `--with-alias` / `--without-alias` switch. The build inputs are the exception in the other direction and are forwarded only when set, since the SDK always gives them a value. The SDK's derived outputs (`TargetDir`, `RunCommand`, `RunArguments`, `ProjectAssetsFile`) are left alone so the CLI still derives them itself.
+Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. An empty value is forwarded rather than skipped for the identity properties and for `WindowsPackageType`, because the CLI treats an empty property exactly as it treats an absent one: that is what makes `dotnet run app.cs -p:WinAppPackageName=` clear a directive instead of leaving the CLI to re-read it. `WinAppRunUseExecutionAlias` is forwarded only when it is empty, because a `true` or `false` already rides on the `--with-alias` / `--without-alias` switch. The build inputs are the exception in the other direction and are forwarded only when set, since the SDK always gives them a value. The SDK's derived outputs (`TargetDir`, `RunCommand`, `RunArguments`, `ProjectAssetsFile`) are left alone so the CLI still derives them itself, from the inputs above.
+
+#### Declaring an architecture
+
+A file-based app that does not name an architecture builds `AnyCPU`, which a self-contained Windows App SDK app cannot use. Declare one in the file:
+
+```csharp
+#:property RuntimeIdentifier=win-x64
+```
+
+`winapp run app.cs` injects a `win-<host>` runtime identifier when the file declares none, but `dotnet run app.cs` does not: the SDK owns that build, and silently changing its architecture because a package happens to be referenced would move the output from under a build the user invoked directly. Declaring the property makes both entry points build and launch the same thing.
 
 ## Build Scripts
 
