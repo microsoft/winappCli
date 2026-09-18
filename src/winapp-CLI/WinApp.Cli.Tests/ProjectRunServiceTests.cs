@@ -163,6 +163,35 @@ public class ProjectRunServiceTests
         string.Join(Environment.NewLine, relativeProjectPaths.Select(p => $"  <Project Path=\"{p}\" />")) +
         Environment.NewLine + "</Solution>";
 
+    #region ResolveEvaluatedFileIfPresent (network-path guard)
+
+    [TestMethod]
+    public void ResolveEvaluatedFileIfPresent_LocalExistingFile_ReturnsResolvedPath()
+    {
+        var manifest = WriteFile("Package.appxmanifest", "<Package/>");
+        var props = new Dictionary<string, string> { ["WinAppManifestPath"] = manifest.Name };
+
+        var resolved = ProjectRunService.ResolveEvaluatedFileIfPresent(props, "WinAppManifestPath", _tempDir.FullName);
+
+        Assert.AreEqual(manifest.FullName, resolved);
+    }
+
+    [TestMethod]
+    [DataRow(@"\\host\share\Package.appxmanifest")]
+    [DataRow(@"\\?\UNC\host\share\Package.appxmanifest")]
+    public void ResolveEvaluatedFileIfPresent_NetworkPath_ReturnsNullWithoutProbing(string networkPath)
+    {
+        // A project-evaluated path on a network share must be treated as "not present" without a File.Exists
+        // probe, which could trigger outbound SMB authentication (matches the project-keyfile guard).
+        var props = new Dictionary<string, string> { ["WinAppManifestPath"] = networkPath };
+
+        var resolved = ProjectRunService.ResolveEvaluatedFileIfPresent(props, "WinAppManifestPath", _tempDir.FullName);
+
+        Assert.IsNull(resolved);
+    }
+
+    #endregion
+
     #region BuildBuildPassArguments (streamed build pass, Change #1)
 
     [TestMethod]
