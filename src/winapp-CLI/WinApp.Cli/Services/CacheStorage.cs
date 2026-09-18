@@ -10,6 +10,8 @@ internal sealed class CacheStorage(
     string localRelativePath,
     IStorageDiagnostics? diagnostics = null)
 {
+    private readonly string _globalRelativePath = RequireRelativePath(globalRelativePath, nameof(globalRelativePath));
+    private readonly string _localRelativePath = RequireRelativePath(localRelativePath, nameof(localRelativePath));
     private bool _local;
 
     // A read-only probe: readable warm caches do not need writable directories.
@@ -20,13 +22,13 @@ internal sealed class CacheStorage(
 
     public void Clear(Action<string> clear)
     {
-        var global = Path.Combine(directories.GetGlobalWinappDirectory().FullName, globalRelativePath);
+        var global = Path.Combine(directories.GetGlobalWinappDirectory().FullName, _globalRelativePath);
         InspectDirectory(global);
         clear(global);
         if (!IsExplicit)
         {
             var root = directories.GetLocalCacheDirectory().FullName;
-            var local = Path.Combine(root, localRelativePath);
+            var local = Path.Combine(root, _localRelativePath);
             ValidateLocalPath(local, root);
             ValidateLocalTree(local);
             if (!local.Equals(global, StringComparison.OrdinalIgnoreCase))
@@ -102,15 +104,29 @@ internal sealed class CacheStorage(
         if (_local)
         {
             var root = directories.GetLocalCacheDirectory().FullName;
-            path = Path.GetFullPath(Path.Combine(root, localRelativePath));
+            path = Path.GetFullPath(Path.Combine(root, _localRelativePath));
             ValidateLocalPath(path, root);
             ValidateLocalTree(path);
         }
         else
         {
-            path = Path.Combine(directories.GetGlobalWinappDirectory().FullName, globalRelativePath);
+            path = Path.Combine(directories.GetGlobalWinappDirectory().FullName, _globalRelativePath);
         }
         InspectDirectory(path);
+        return path;
+    }
+
+    private static string RequireRelativePath(string path, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path, parameterName);
+        if (Path.IsPathRooted(path)
+            || path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries)
+                .Any(segment => segment is "." or ".."
+                    || segment.EndsWith(' ') || segment.EndsWith('.')
+                    || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
+        {
+            throw new ArgumentException("A cache subdirectory must be relative and cannot contain parent traversal or invalid path segments.", parameterName);
+        }
         return path;
     }
 

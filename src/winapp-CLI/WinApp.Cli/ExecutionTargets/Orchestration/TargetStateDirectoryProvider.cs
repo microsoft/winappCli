@@ -11,7 +11,8 @@ internal interface ITargetStateDirectoryProvider
 {
     /// <summary>
     /// Returns the state root for <paramref name="target"/>, creating it when
-    /// <paramref name="create"/> is true.
+    /// <paramref name="create"/> is true. Existing state and its namespace must be private
+    /// to this user; neither reads nor writes repair or discard untrusted state.
     /// </summary>
     DirectoryInfo GetTargetRoot(ExecutionTargetRef target, bool create = true);
 }
@@ -46,42 +47,39 @@ internal sealed class TargetStateDirectoryProvider(string? rootOverride = null) 
     {
         ArgumentNullException.ThrowIfNull(target);
 
-        var root = TargetPathSafety.CombineInsideRoot(GetTargetsRoot(), target.StateKey);
-        var directory = new DirectoryInfo(root);
-        if (create && !directory.Exists)
+        try
         {
-            directory.Create();
-            directory.Refresh();
+            var targetsRoot = GetTargetsRoot();
+            var root = TargetPathSafety.CombineInsideRoot(targetsRoot, target.StateKey);
+            return TargetStateDirectorySecurity.EnsureTrusted(targetsRoot, root, create);
         }
-
-        return directory;
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.StateUnavailable,
+                $"The execution-target state directory is unavailable or untrusted: {ex.Message}",
+                userAction: "Ensure %USERPROFILE%\\.winapp\\state is a writable local path without junctions or symbolic links, and secure its ownership and permissions against other users. " +
+                    "If WINAPP_TARGET_STATE_ROOT is set, use the same private, fully qualified local directory in every winapp process. " +
+                    "Do not reuse exposed connection keys: after safely stopping any affected Sandbox, replace its exposed state in a secure directory. Existing state has not been repaired or deleted.",
+                innerException: ex);
+        }
     }
 
     private string GetTargetsRoot()
     {
-        try
+        if (rootOverride is not null)
         {
-            if (!string.IsNullOrWhiteSpace(rootOverride))
-            {
-                return WinappDirectoryService.ValidateStateDirectory(rootOverride);
-            }
-
-            var environmentRoot = Environment.GetEnvironmentVariable(RootOverrideVariable);
-            if (!string.IsNullOrWhiteSpace(environmentRoot))
-            {
-                return WinappDirectoryService.ValidateStateDirectory(environmentRoot);
-            }
-
-            return WinappDirectoryService.ValidateStateDirectory(
-                Path.Combine(WinappDirectoryService.GetUserStateDirectory(UserProfileProvider()), "targets"));
+            return WinappDirectoryService.ValidateStateDirectory(rootOverride);
         }
-        catch (IOException ex)
+
+        var environmentRoot = Environment.GetEnvironmentVariable(RootOverrideVariable);
+        if (environmentRoot is not null)
         {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.TargetStale,
-                $"The execution-target state directory could not be resolved: {ex.Message}",
-                userAction: "Ensure %USERPROFILE%\\.winapp\\state is on a writable local drive. If WINAPP_TARGET_STATE_ROOT is set, use the same fully qualified local directory in every winapp process.",
-                innerException: ex);
+            return WinappDirectoryService.ValidateStateDirectory(environmentRoot);
         }
+
+        return WinappDirectoryService.ValidateStateDirectory(
+            TargetPathSafety.CombineInsideRoot(WinappDirectoryService.GetUserStateDirectory(UserProfileProvider()), "targets"));
     }
 }

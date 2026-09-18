@@ -119,6 +119,29 @@ public sealed class CacheResilienceTests
     }
 
     [TestMethod]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow(@"C:\outside")]
+    [DataRow(@"C:outside")]
+    [DataRow(@"\outside")]
+    [DataRow(@"..\outside")]
+    [DataRow(@"cache\..\outside")]
+    [DataRow(@"cache\.. \outside")]
+    [DataRow(@"cache\name:stream")]
+    public void CacheSubdirectories_RejectRootedOrTraversingPathsBeforeStorageAccess(string path)
+    {
+        _directories.CacheOverrideProvider = () => throw new AssertFailedException("Invalid subpaths must not resolve storage.");
+
+        var global = Assert.Throws<ArgumentException>(() => new CacheStorage(_directories, path, "test"));
+        var local = Assert.Throws<ArgumentException>(() => new CacheStorage(_directories, Path.Join("cache", "test"), path));
+
+        Assert.AreEqual("globalRelativePath", global.ParamName);
+        Assert.AreEqual("localRelativePath", local.ParamName);
+        Assert.IsFalse(Directory.Exists(Global));
+        Assert.IsFalse(Directory.Exists(Local));
+    }
+
+    [TestMethod]
     public void DeniedAncestor_RetriesOnlyInsideInvocationDirectory_AndWarns()
     {
         using var warnings = new StringWriter();
