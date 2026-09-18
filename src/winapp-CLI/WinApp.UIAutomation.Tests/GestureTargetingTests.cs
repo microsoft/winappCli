@@ -122,6 +122,9 @@ public class GestureTargetingTests
 
         public QueueUiAutomation(IEnumerable<UiElement?> elements) => _elements = new Queue<UiElement?>(elements);
 
+        public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
+            => throw new NotImplementedException();
+
         public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
         {
             Assert.AreSame(Session, uiTarget);
@@ -138,6 +141,7 @@ public class GestureTargetingTests
         public Task<Dictionary<string, object?>> GetPropertiesAsync(UiTarget uiTarget, UiElement element, string? propertyName, CancellationToken ct) => throw new NotImplementedException();
         public Task<(byte[] Pixels, int Width, int Height)> ScreenshotAsync(UiTarget uiTarget, string? elementId, bool captureScreen, bool focus, CancellationToken ct) => throw new NotImplementedException();
         public Task<string> InvokeAsync(UiTarget uiTarget, UiElement element, CancellationToken ct) => throw new NotImplementedException();
+        public Task<UiInvokeActionResult> InvokeAsync(UiTarget uiTarget, UiElement element, UiInvokeAction action, CancellationToken ct) => throw new NotImplementedException();
         public Task SetValueAsync(UiTarget uiTarget, UiElement element, string text, CancellationToken ct) => throw new NotImplementedException();
         public Task FocusAsync(UiTarget uiTarget, UiElement element, CancellationToken ct) => throw new NotImplementedException();
         public Task ScrollIntoViewAsync(UiTarget uiTarget, UiElement element, CancellationToken ct) => throw new NotImplementedException();
@@ -155,5 +159,3 @@ public class GestureTargetingTests
         }
     }
 }
-
-
