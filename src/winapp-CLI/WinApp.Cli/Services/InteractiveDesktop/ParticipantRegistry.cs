@@ -74,15 +74,13 @@ internal sealed class ParticipantRegistry(
         }
         catch (IOException ex)
         {
-            throw new UiCoordinationException(
-                UiCoordinationErrorCodes.Unavailable,
+            throw UiCoordinationException.StorageUnavailable(
                 $"The UI coordination participant lease '{path}' could not be opened: {ex.Message}",
                 "Retry the command. If it keeps failing, check that the coordination directory is on a local writable drive.");
         }
         catch (UnauthorizedAccessException ex)
         {
-            throw new UiCoordinationException(
-                UiCoordinationErrorCodes.Unavailable,
+            throw UiCoordinationException.StorageUnavailable(
                 $"The UI coordination participant lease '{path}' could not be opened: {ex.Message}",
                 "Check that the current user can write to the coordination directory.");
         }
@@ -120,27 +118,25 @@ internal sealed class ParticipantRegistry(
 
     public bool AnyLiveParticipant()
     {
-        if (!Directory.Exists(paths.ParticipantsDirectory))
-        {
-            return false;
-        }
-
-        IEnumerable<string> leaseFiles;
         try
         {
-            leaseFiles = Directory.EnumerateFiles(paths.ParticipantsDirectory, paths.LeaseSearchPattern);
+            foreach (var leaseFile in Directory.EnumerateFiles(paths.ParticipantsDirectory, paths.LeaseSearchPattern))
+            {
+                if (IsLeaseFileHeld(leaseFile))
+                {
+                    return true;
+                }
+            }
         }
         catch (DirectoryNotFoundException)
         {
             return false;
         }
-
-        foreach (var leaseFile in leaseFiles)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            if (IsLeaseFileHeld(leaseFile))
-            {
-                return true;
-            }
+            throw UiCoordinationException.StorageUnavailable(
+                $"The UI coordination participants could not be inspected: {ex.Message}",
+                "Check that the current user can read the coordination directory.");
         }
 
         return false;

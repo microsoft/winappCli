@@ -84,6 +84,7 @@ internal interface ISearchProvider
 internal abstract class CachedProviderBase : ISearchProvider
 {
     private readonly string _cacheRoot;
+    internal CacheStorage? Storage { get; set; }
 
     protected CachedProviderBase(string cacheRoot)
     {
@@ -151,7 +152,7 @@ internal abstract class CachedProviderBase : ISearchProvider
 
         if (fetched.Scenarios.Length > 0)
         {
-            await TryWriteCacheAsync(fetched, cancellationToken).ConfigureAwait(false);
+            await TryWriteCacheAsync(fetched, forceRefresh, cancellationToken).ConfigureAwait(false);
             return fetched with { Origin = CorpusOrigin.Network };
         }
 
@@ -201,16 +202,26 @@ internal abstract class CachedProviderBase : ISearchProvider
 
     private (ProviderData Data, DateTime WrittenAt)? TryReadCache(bool ignoreTtl = false)
     {
-        var scenariosPath = Path.Combine(CacheDir, "scenarios.json");
-        var tagsPath = Path.Combine(CacheDir, "tags.json");
-        var keywordsPath = Path.Combine(CacheDir, "keywords.json");
-        var timestampPath = Path.Combine(CacheDir, "last-updated.txt");
-        var versionPath = Path.Combine(CacheDir, "schema-version.txt");
-
-        if (!File.Exists(scenariosPath) || !File.Exists(tagsPath)
-            || !File.Exists(timestampPath) || !File.Exists(versionPath))
+        try
+        {
+            return Storage is null
+                ? ReadCache(CacheDir, ignoreTtl)
+                : Storage.Run(root => ReadCache(Path.Combine(root, Id), ignoreTtl));
+        }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex) && Storage?.IsExplicit != true)
+        {
+            Storage?.WarnUnavailable(ex);
             return null;
+        }
+    }
 
+    private (ProviderData Data, DateTime WrittenAt)? ReadCache(string cacheDir, bool ignoreTtl)
+    {
+        var scenariosPath = Path.Combine(cacheDir, "scenarios.json");
+        var tagsPath = Path.Combine(cacheDir, "tags.json");
+        var keywordsPath = Path.Combine(cacheDir, "keywords.json");
+        var timestampPath = Path.Combine(cacheDir, "last-updated.txt");
+        var versionPath = Path.Combine(cacheDir, "schema-version.txt");
         try
         {
             if (File.ReadAllText(versionPath).Trim() != CacheVersion.Current) return null;
@@ -236,61 +247,75 @@ internal abstract class CachedProviderBase : ISearchProvider
                     keywords = JsonSerializer.Deserialize(
                         File.ReadAllText(keywordsPath), ControlsJsonContext.Default.DictionaryStringStringArray);
                 }
-                catch { keywords = null; }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException) { keywords = null; }
             }
 
             return (new ProviderData(scenarios, NormalizeTagsOnRead(tags), keywords ?? new(), CorpusOrigin.Cache),
                     lastUpdated.Value);
         }
-        catch { return null; }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        catch (JsonException) { return null; }
     }
 
-    private async Task TryWriteCacheAsync(ProviderData data, CancellationToken cancellationToken)
+    private async Task TryWriteCacheAsync(ProviderData data, bool required, CancellationToken cancellationToken)
     {
         try
         {
-            var scenariosPath = Path.Combine(CacheDir, "scenarios.json");
-            var tagsPath = Path.Combine(CacheDir, "tags.json");
-            var keywordsPath = Path.Combine(CacheDir, "keywords.json");
-            var timestampPath = Path.Combine(CacheDir, "last-updated.txt");
-            var versionPath = Path.Combine(CacheDir, "schema-version.txt");
-
-            Directory.CreateDirectory(CacheDir);
-
-            // Invalidate the freshness marker BEFORE mutating any data file. On a
-            // refresh of an already-fresh cache the old timestamp would otherwise
-            // still be valid, so a crash after rewriting some (but not all) data
-            // files would pair mismatched generations under a "fresh" stamp for up
-            // to the TTL. Removing it first means any mid-write crash leaves no
-            // valid timestamp ⇒ next read misses ⇒ clean re-fetch.
-            if (File.Exists(timestampPath))
+            if (Storage is null) await WriteCacheAsync(CacheDir, data, cancellationToken).ConfigureAwait(false);
+            else await Storage.RunAsync(async root =>
             {
-                File.Delete(timestampPath);
-            }
-
-            // Atomic per-file writes (temp + rename via the shared PathSafety
-            // helper). Order: data first, version next, timestamp LAST, so a
-            // partially-written set is detected as still-stale on the next read
-            // (no fresh timestamp ⇒ cache miss ⇒ re-fetch).
-            await PathSafety.AtomicWriteAllTextAsync(scenariosPath,
-                JsonSerializer.Serialize(data.Scenarios, ControlsJsonContext.Default.ScenarioArray), Utf8NoBom, cancellationToken).ConfigureAwait(false);
-            await PathSafety.AtomicWriteAllTextAsync(tagsPath,
-                JsonSerializer.Serialize(data.Tags, ControlsJsonContext.Default.DictionaryStringStringArray), Utf8NoBom, cancellationToken).ConfigureAwait(false);
-            if (data.Keywords.Count > 0)
-            {
-                await PathSafety.AtomicWriteAllTextAsync(keywordsPath,
-                    JsonSerializer.Serialize(data.Keywords, ControlsJsonContext.Default.DictionaryStringStringArray), Utf8NoBom, cancellationToken).ConfigureAwait(false);
-            }
-            else if (File.Exists(keywordsPath))
-            {
-                // A refresh with no keywords must not leave a stale keywords.json behind.
-                File.Delete(keywordsPath);
-            }
-            await PathSafety.AtomicWriteAllTextAsync(versionPath, CacheVersion.Current, Utf8NoBom, cancellationToken).ConfigureAwait(false);
-            await PathSafety.AtomicWriteAllTextAsync(timestampPath, DateTime.UtcNow.ToString("o"), Utf8NoBom, cancellationToken).ConfigureAwait(false);
+                await WriteCacheAsync(Path.Combine(root, Id), data, cancellationToken).ConfigureAwait(false);
+                return true;
+            }).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { throw; }
-        catch { /* cache write is best-effort */ }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex) && !required && Storage?.IsExplicit != true)
+        {
+            Storage?.WarnUnavailable(ex);
+        }
+    }
+
+    private static async Task WriteCacheAsync(string cacheDir, ProviderData data, CancellationToken cancellationToken)
+    {
+        var scenariosPath = Path.Combine(cacheDir, "scenarios.json");
+        var tagsPath = Path.Combine(cacheDir, "tags.json");
+        var keywordsPath = Path.Combine(cacheDir, "keywords.json");
+        var timestampPath = Path.Combine(cacheDir, "last-updated.txt");
+        var versionPath = Path.Combine(cacheDir, "schema-version.txt");
+
+        Directory.CreateDirectory(cacheDir);
+
+        // Invalidate the freshness marker BEFORE mutating any data file. On a
+        // refresh of an already-fresh cache the old timestamp would otherwise
+        // still be valid, so a crash after rewriting some (but not all) data
+        // files would pair mismatched generations under a "fresh" stamp for up
+        // to the TTL. Removing it first means any mid-write crash leaves no
+        // valid timestamp ⇒ next read misses ⇒ clean re-fetch.
+        if (File.Exists(timestampPath))
+        {
+            File.Delete(timestampPath);
+        }
+
+        // Atomic per-file writes (temp + rename via the shared PathSafety
+        // helper). Order: data first, version next, timestamp LAST, so a
+        // partially-written set is detected as still-stale on the next read
+        // (no fresh timestamp ⇒ cache miss ⇒ re-fetch).
+        await PathSafety.AtomicWriteAllTextAsync(scenariosPath,
+            JsonSerializer.Serialize(data.Scenarios, ControlsJsonContext.Default.ScenarioArray), Utf8NoBom, cancellationToken).ConfigureAwait(false);
+        await PathSafety.AtomicWriteAllTextAsync(tagsPath,
+            JsonSerializer.Serialize(data.Tags, ControlsJsonContext.Default.DictionaryStringStringArray), Utf8NoBom, cancellationToken).ConfigureAwait(false);
+        if (data.Keywords.Count > 0)
+        {
+            await PathSafety.AtomicWriteAllTextAsync(keywordsPath,
+                JsonSerializer.Serialize(data.Keywords, ControlsJsonContext.Default.DictionaryStringStringArray), Utf8NoBom, cancellationToken).ConfigureAwait(false);
+        }
+        else if (File.Exists(keywordsPath))
+        {
+            // A refresh with no keywords must not leave a stale keywords.json behind.
+            File.Delete(keywordsPath);
+        }
+        await PathSafety.AtomicWriteAllTextAsync(versionPath, CacheVersion.Current, Utf8NoBom, cancellationToken).ConfigureAwait(false);
+        await PathSafety.AtomicWriteAllTextAsync(timestampPath, DateTime.UtcNow.ToString("o"), Utf8NoBom, cancellationToken).ConfigureAwait(false);
     }
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -299,7 +324,15 @@ internal abstract class CachedProviderBase : ISearchProvider
     {
         try
         {
-            if (Directory.Exists(CacheDir)) Directory.Delete(CacheDir, recursive: true);
+            if (Storage is null)
+            {
+                if (Directory.Exists(CacheDir)) Directory.Delete(CacheDir, recursive: true);
+            }
+            else Storage.Clear(root =>
+            {
+                var path = Path.Combine(root, Id);
+                if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+            });
         }
         catch (Exception ex)
         {

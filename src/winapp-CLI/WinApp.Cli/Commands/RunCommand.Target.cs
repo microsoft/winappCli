@@ -67,7 +67,6 @@ internal partial class RunCommand
                     LongPathHelper.ValidatePathLength(layout.FullName);
 
                     layoutLease = LayoutLease.Acquire(
-                        winappDirectoryService.GetGlobalWinappDirectory(),
                         layout,
                         cancellationToken);
 

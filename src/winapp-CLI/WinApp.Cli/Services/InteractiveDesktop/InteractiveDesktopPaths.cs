@@ -4,14 +4,13 @@
 using System.Globalization;
 using System.Security.AccessControl;
 using System.Security.Principal;
-using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services.InteractiveDesktop;
 
 /// <summary>
 /// Resolves the coordination file set for the current user and Windows session (spec §7):
 /// <code>
-/// %LOCALAPPDATA%\Microsoft\WinAppCli\locks\
+/// %USERPROFILE%\.winapp\state\ui\
 ///   interactive-desktop-{session}.state.lock
 ///   interactive-desktop-{session}.state.json
 ///   interactive-desktop-{session}.active.lock
@@ -74,28 +73,24 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
     private const string LeaseExtension = ".lease";
 
     private readonly string _sessionToken;
+    private readonly Lazy<string> _lockDirectory = new(ResolveLockDirectory);
     private bool _directoriesVerified;
 
     public InteractiveDesktopPaths(IProcessInspector processInspector)
     {
         _sessionToken = processInspector.CurrentSessionId.ToString(CultureInfo.InvariantCulture);
-        LockDirectory = ResolveLockDirectory();
-        ParticipantsDirectory = Path.Combine(LockDirectory, "participants");
-        StateLockPath = Path.Combine(LockDirectory, $"{FilePrefix}{_sessionToken}.state.lock");
-        StatePath = Path.Combine(LockDirectory, $"{FilePrefix}{_sessionToken}.state.json");
-        ActiveLockPath = Path.Combine(LockDirectory, $"{FilePrefix}{_sessionToken}.active.lock");
         LeaseSearchPattern = $"{FilePrefix}{_sessionToken}-*{LeaseExtension}";
     }
 
-    public string LockDirectory { get; }
+    public string LockDirectory => _lockDirectory.Value;
 
-    public string ParticipantsDirectory { get; }
+    public string ParticipantsDirectory => Path.Combine(LockDirectory, "participants");
 
-    public string StateLockPath { get; }
+    public string StateLockPath => Path.Combine(LockDirectory, $"{FilePrefix}{_sessionToken}.state.lock");
 
-    public string StatePath { get; }
+    public string StatePath => Path.Combine(LockDirectory, $"{FilePrefix}{_sessionToken}.state.json");
 
-    public string ActiveLockPath { get; }
+    public string ActiveLockPath => Path.Combine(LockDirectory, $"{FilePrefix}{_sessionToken}.active.lock");
 
     public string LeaseSearchPattern { get; }
 
@@ -220,52 +215,41 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
     private static string ResolveLockDirectory()
     {
         var overridePath = Environment.GetEnvironmentVariable(LockDirectoryOverrideVariable);
-        if (!string.IsNullOrWhiteSpace(overridePath))
+        if (overridePath is not null)
         {
             return ValidateLockDirectory(overridePath.Trim(), LockDirectoryOverrideVariable);
         }
 
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localAppData))
+        try
         {
-            throw new UiCoordinationException(
-                UiCoordinationErrorCodes.Unavailable,
-                "The local application data folder could not be resolved, so UI turn coordination has nowhere to store its state.",
-                "Ensure LOCALAPPDATA is set for this user, or set WINAPP_UI_LOCK_DIRECTORY to the same fully qualified local directory for every winapp process on this desktop.");
+            return WinappDirectoryService.ValidateStateDirectory(
+                Path.Combine(WinappDirectoryService.GetUserStateDirectory(), "ui"));
         }
-
-        return ValidateLockDirectory(
-            Path.Combine(localAppData, "Microsoft", "WinAppCli", "locks"),
-            "LOCALAPPDATA");
+        catch (IOException ex)
+        {
+            throw UiCoordinationException.StorageUnavailable(
+                $"The UI coordination directory could not be resolved: {ex.Message}",
+                "Ensure %USERPROFILE%\\.winapp\\state is on a writable local drive, or set WINAPP_UI_LOCK_DIRECTORY to the same fully qualified local directory for every winapp process on this desktop.");
+        }
     }
 
     private static string ValidateLockDirectory(string path, string source)
     {
-        // A relative path would resolve against the caller's working directory, so two processes in
-        // different directories would coordinate against different files and silently not cooperate.
-        if (!Path.IsPathFullyQualified(path))
+        try
+        {
+            return WinappDirectoryService.ValidateStateDirectory(path);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
         {
             throw new UiCoordinationException(
-                UiCoordinationErrorCodes.Unavailable,
-                $"The UI coordination directory resolved from {source} is not a fully qualified path.",
-                "Set WINAPP_UI_LOCK_DIRECTORY to the same fully qualified local directory for every winapp process on this desktop, such as C:\\Temp\\winapp-locks.");
+                UiCoordinationErrorCodes.InvalidLockDirectory,
+                $"The UI coordination directory configured by {source} is invalid: {ex.Message}",
+                "Set WINAPP_UI_LOCK_DIRECTORY to the same fully qualified local directory for every winapp process on this desktop.");
         }
-
-        // Byte-range locking over SMB is advisory and unreliable for the exclusive-share protocol this
-        // coordinator depends on, so a network path would produce silent overlap instead of exclusion.
-        if (PathSafety.IsNetworkPath(path))
-        {
-            throw new UiCoordinationException(
-                UiCoordinationErrorCodes.Unavailable,
-                $"The UI coordination directory resolved from {source} is a network path, which cannot provide reliable exclusive file locks.",
-                "Set WINAPP_UI_LOCK_DIRECTORY to a fully qualified path on a local drive.");
-        }
-
-        return Path.GetFullPath(path);
     }
 
     /// <remarks>
-    /// The parent (<c>%LOCALAPPDATA%</c>) is already restricted to the current user, but that is not
+    /// The user profile normally restricts access to the current user, but that is not
     /// enough on its own: <c>WINAPP_UI_LOCK_DIRECTORY</c> can point at a shared location such as
     /// <c>C:\Temp</c>, and a directory created by an earlier run may have inherited permissive rules.
     /// Coordination state is not a secret, but a foreign writer could corrupt it or hold a lease and
@@ -358,7 +342,7 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
                 throw new UiCoordinationException(
                     UiCoordinationErrorCodes.Unavailable,
                     $"The UI coordination directory '{directoryInfo.FullName}' is still owned or reachable by another user after repair.",
-                    "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use the default location under %LOCALAPPDATA%.");
+                    "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use %USERPROFILE%\\.winapp\\state\\ui.");
             }
 
             // Repairing the directory does NOT repair what was already inside it. An explicit ACE on a
@@ -367,17 +351,16 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
             // whoever placed it, and coordination would keep reading and trusting it.
             //
             // Only reached when the directory actually needed repair, which for the default location
-            // under %LOCALAPPDATA% is the first run and never again.
+            // under the user profile is the first run and never again.
             DiscardUntrustedArtifacts(directoryInfo);
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or PrivilegeNotHeldException or InvalidOperationException)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or PrivilegeNotHeldException or IOException)
         {
             // The directory is reachable but cannot be secured — for example it belongs to another user.
             // Coordinating through storage a third party can tamper with is worse than not running.
-            throw new UiCoordinationException(
-                UiCoordinationErrorCodes.Unavailable,
+            throw UiCoordinationException.StorageUnavailable(
                 $"The UI coordination directory '{directoryInfo.FullName}' could not be restricted to the current user: {ex.Message}",
-                "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use the default location under %LOCALAPPDATA%.");
+                "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use %USERPROFILE%\\.winapp\\state\\ui.");
         }
     }
 
@@ -422,7 +405,7 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
                 throw new UiCoordinationException(
                     UiCoordinationErrorCodes.Unavailable,
                     $"The UI coordination directory '{directoryInfo.FullName}' could not be inspected after its permissions were repaired: {ex.Message}",
-                    "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use the default location under %LOCALAPPDATA%.");
+                    "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use %USERPROFILE%\\.winapp\\state\\ui.");
             }
 
             foreach (var artifact in artifacts)
@@ -557,8 +540,7 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
     }
 
     private static UiCoordinationException Unavailable(string path, Exception ex)
-        => new(
-            UiCoordinationErrorCodes.Unavailable,
+        => UiCoordinationException.StorageUnavailable(
             $"The UI coordination directory '{path}' could not be created: {ex.Message}",
             "Check that the current user can write to the directory, or set WINAPP_UI_LOCK_DIRECTORY to a writable local directory.");
 }

@@ -477,7 +477,7 @@ internal static class ApiCacheBuilder
             ExportPackageCache(package, cacheDir);
             return true;
         }
-        catch (Exception ex) when (IsPackageReadFailure(ex))
+        catch (Exception ex) when (ex is not CacheWriteException && IsPackageReadFailure(ex))
         {
             string reason = Unwrap(ex).Message;
             failures.Add((PackageKey(package.Id, package.Version), $"Skipped {package.Id} {package.Version}: {reason}"));
@@ -600,7 +600,8 @@ internal static class ApiCacheBuilder
     private static void ExportPackageCache(PackageWithWinMd package, string cacheDir)
     {
         string typesDir = Path.Combine(cacheDir, "types");
-        Directory.CreateDirectory(typesDir);
+        try { Directory.CreateDirectory(typesDir); }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex)) { throw new CacheWriteException(typesDir, ex); }
 
         var types = new List<WinMdTypeInfo>();
         var parseErrors = new List<string>();
@@ -702,8 +703,15 @@ internal static class ApiCacheBuilder
     private static void WriteFileAtomic(string path, string content)
     {
         string dir = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(dir);
-        PathSafety.AtomicWriteAllText(path, content);
+        try
+        {
+            Directory.CreateDirectory(dir);
+            PathSafety.AtomicWriteAllText(path, content);
+        }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex))
+        {
+            throw new CacheWriteException(path, ex);
+        }
     }
 
     /// <summary>

@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging.Abstractions;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
@@ -44,6 +45,116 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
     }
 
     private static string Sha256Hex(byte[] data) => Convert.ToHexString(SHA256.HashData(data));
+
+    private MSStoreCLIService NewLocalService(FakeHttpMessageHandler handler, out DirectoryInfo installDir)
+    {
+        var root = _tempDirectory.CreateSubdirectory("local-store-" + Guid.NewGuid().ToString("N"));
+        var profile = root.CreateSubdirectory("profile");
+        File.WriteAllText(Path.Combine(profile.FullName, ".winapp"), "blocked default");
+        var cwd = root.CreateSubdirectory("project");
+        var directories = new WinappDirectoryService(new CurrentDirectoryProvider(cwd.FullName))
+        {
+            UserProfileProvider = () => profile.FullName,
+            CacheOverrideProvider = () => null,
+        };
+        installDir = cwd.CreateSubdirectory(Path.Combine(".winapp", "cache", "tools", "msstore"));
+        return new MSStoreCLIService(directories, NullLogger<MSStoreCLIService>.Instance)
+        {
+            Http = new HttpClient(handler),
+            OsArchitectureProvider = () => Architecture.X64,
+        };
+    }
+
+    [TestMethod]
+    public async Task LocalCache_TrustedToolAndDependencies_AreVerifiedAgainAtUse()
+    {
+        var svc = NewLocalService(new FakeHttpMessageHandler(), out var dir);
+        var exe = Path.Combine(dir.FullName, "msstore.exe");
+        var dll = Path.Combine(dir.FullName, "msalruntime.dll");
+        File.WriteAllText(exe, "fixture");
+        File.WriteAllText(dll, "fixture");
+        var verified = new List<string>();
+        svc.SignatureVerifier = (path, _) => { verified.Add(path); return true; };
+
+        await svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken);
+        Assert.AreEqual(exe, svc.GetMSStoreCLIPath());
+
+        Assert.AreEqual(2, verified.Count(path => path == exe));
+        Assert.AreEqual(2, verified.Count(path => path == dll));
+        svc.SignatureVerifier = (_, _) => false;
+        Assert.Throws<InvalidOperationException>(() => svc.GetMSStoreCLIPath(),
+            "A prior successful verification must not authorize changed bytes.");
+    }
+
+    [TestMethod]
+    public async Task LocalCache_UntrustedDependency_IsRejectedEvenWhenExecutableIsTrusted()
+    {
+        var svc = NewLocalService(new FakeHttpMessageHandler(), out var dir);
+        File.WriteAllText(Path.Combine(dir.FullName, "msstore.exe"), "fixture");
+        var dll = Path.Combine(dir.FullName, "msalruntime.dll");
+        File.WriteAllText(dll, "fixture");
+        svc.SignatureVerifier = (path, _) => path != dll;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
+
+        StringAssert.Contains(error.Message, dll);
+        StringAssert.Contains(error.Message, "not validly signed by Microsoft");
+    }
+
+    [TestMethod]
+    public async Task ExplicitCache_ReadableTool_DoesNotApplyLocalSignaturePolicy()
+    {
+        var svc = NewService(new FakeHttpMessageHandler(), out var dir);
+        dir.Create();
+        File.WriteAllText(Path.Combine(dir.FullName, "msstore.exe"), "fixture");
+        svc.SignatureVerifier = (_, _) => throw new AssertFailedException("Only local fallback changes trust policy.");
+
+        await svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken);
+
+        Assert.AreEqual(Path.Combine(dir.FullName, "msstore.exe"), svc.GetMSStoreCLIPath());
+    }
+
+    [TestMethod]
+    public async Task DefaultGlobalCache_ReadableTool_DoesNotApplyLocalSignaturePolicy()
+    {
+        var profile = _tempDirectory.CreateSubdirectory("global-store-" + Guid.NewGuid().ToString("N"));
+        var dir = profile.CreateSubdirectory(Path.Combine(".winapp", "tools", "msstore"));
+        var exe = Path.Combine(dir.FullName, "msstore.exe");
+        File.WriteAllText(exe, "fixture");
+        var directories = new WinappDirectoryService(new CurrentDirectoryProvider(_tempDirectory.FullName))
+        {
+            UserProfileProvider = () => profile.FullName,
+            CacheOverrideProvider = () => null,
+        };
+        var svc = new MSStoreCLIService(directories, NullLogger<MSStoreCLIService>.Instance)
+        {
+            SignatureVerifier = (_, _) => throw new AssertFailedException("Only local fallback changes trust policy."),
+        };
+
+        await svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken);
+
+        Assert.AreEqual(exe, svc.GetMSStoreCLIPath());
+    }
+
+    [TestMethod]
+    public async Task LocalCache_FreshDownload_StillRequiresAuthenticExecutable()
+    {
+        var zip = BuildExeZip();
+        var handler = new FakeHttpMessageHandler()
+            .WhenUriContains(ReleaseApi, HttpStatusCode.OK,
+                ReleaseJson("v1.2.3", "x64", "https://dl.test/local.zip", "https://dl.test/local.sha256"))
+            .WhenUriContains("/local.zip", HttpStatusCode.OK, zip)
+            .WhenUriContains("/local.sha256", HttpStatusCode.OK, $"{Sha256Hex(zip)}  MSStoreCLI-win-x64.zip");
+        var svc = NewLocalService(handler, out var dir);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
+
+        StringAssert.Contains(error.Message, "not validly signed by Microsoft");
+        Assert.IsFalse(File.Exists(Path.Combine(dir.FullName, "MSStoreCLI.zip")));
+        Assert.Throws<InvalidOperationException>(() => svc.GetMSStoreCLIPath());
+    }
 
     private static string ReleaseJson(string tag, string arch, string? zipUrl, string? checksumUrl)
     {

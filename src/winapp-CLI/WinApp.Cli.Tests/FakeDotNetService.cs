@@ -13,7 +13,8 @@ namespace WinApp.Cli.Tests;
 /// </summary>
 internal class FakeDotNetService : IDotNetService
 {
-    private readonly DotNetService _real = new();
+    private readonly DotNetService _real = new(
+        new NugetSourceProvider(new CurrentDirectoryProvider(Environment.CurrentDirectory)));
 
     /// <summary>
     /// Tracks packages added via AddOrUpdatePackageReferenceAsync

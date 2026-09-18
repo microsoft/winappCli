@@ -83,6 +83,21 @@ public class GetWinappPathCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task GetWinappPath_GlobalPathIsFile_FailsWithoutPrintingAFallback()
+    {
+        var path = Path.Join(_tempDirectory.FullName, "not-a-directory");
+        File.WriteAllText(path, "sentinel");
+        GetRequiredService<IWinappDirectoryService>().SetCacheDirectoryForTesting(new DirectoryInfo(path));
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<GetWinappPathCommand>(), ["--global"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(string.Empty, TestAnsiConsole.Output);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "not a directory");
+        Assert.AreEqual("sentinel", File.ReadAllText(path));
+    }
+
+    [TestMethod]
     public async Task GetWinappPath_GlobalDirectoryMissing_ReturnsErrorExitCode()
     {
         // Arrange — point the global directory at a path that doesn't exist.

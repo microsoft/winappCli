@@ -66,10 +66,32 @@ internal sealed class ApiMetadataService(
     IWinappDirectoryService directoryService,
     ICurrentDirectoryProvider currentDirectory,
     ISdkPackageSource sdkPackages,
-    ILogger<ApiMetadataService> logger) : IApiMetadataService
+    ILogger<ApiMetadataService> logger,
+    IStorageDiagnostics? diagnostics = null) : IApiMetadataService
 {
-    private string GetCacheDir() =>
-        Path.Combine(directoryService.GetGlobalWinappDirectory().FullName, "cache", "find-api");
+    private readonly CacheStorage _cache = new(directoryService, Path.Combine("cache", "find-api"), "find-api", diagnostics);
+
+    private T WithCache<T>(ApiRequestScope scope, Func<ApiRequestScope, string, T> operation)
+    {
+        string? firstRoot = null;
+        string? namedProject = null;
+        return _cache.Run(root =>
+        {
+            if (firstRoot is null)
+            {
+                firstRoot = root;
+                if (scope.Project is not null && !IsSdkScopeName(scope.Project))
+                {
+                    namedProject = TryResolveNamedProjectDir(scope.Project, root);
+                }
+            }
+            // Keep the requested project's identity when rebuilding into an empty local cache.
+            var effectiveScope = firstRoot != root && namedProject is not null
+                ? new ApiRequestScope(namedProject, null)
+                : scope;
+            return operation(effectiveScope, root);
+        });
+    }
 
     public ApiQueryResult<ApiSearchOutput> Search(string query, int maxResults, ApiRequestScope scope) =>
         WithManifest(scope, (cacheDir, manifest) => ApiQueryEngine.Search(query, maxResults, cacheDir, manifest));
@@ -107,11 +129,13 @@ internal sealed class ApiMetadataService(
     public ApiQueryResult<ApiStatsOutput> Stats(ApiRequestScope scope) =>
         WithManifest(scope, (cacheDir, manifest) => ApiQueryEngine.Stats(cacheDir, manifest));
 
-    public ApiProjectsOutput Projects() => ApiQueryEngine.Projects(GetCacheDir());
+    public ApiProjectsOutput Projects() => _cache.Run(ApiQueryEngine.Projects);
 
-    public ApiQueryResult<ApiRefreshOutput> Refresh(ApiRequestScope scope, bool scan, Action<string>? onProgress = null, bool force = false)
+    public ApiQueryResult<ApiRefreshOutput> Refresh(ApiRequestScope scope, bool scan, Action<string>? onProgress = null, bool force = false) =>
+        WithCache(scope, (resolvedScope, cacheDir) => RefreshCore(resolvedScope, cacheDir, scan, onProgress, force));
+
+    private ApiQueryResult<ApiRefreshOutput> RefreshCore(ApiRequestScope scope, string cacheDir, bool scan, Action<string>? onProgress = null, bool force = false)
     {
-        string cacheDir = GetCacheDir();
         string? runtimePath = ApiCacheBuilder.DetectWinAppSdkRuntime();
 
         // 'refresh --project sdk' rebuilds the machine-wide scope explicitly (the
@@ -230,9 +254,12 @@ internal sealed class ApiMetadataService(
     /// <see cref="ApiQueryOutcome.NoProject"/> result with actionable guidance.
     /// </summary>
     private ApiQueryResult<T> WithManifest<T>(ApiRequestScope scope, Func<string, ProjectManifest, ApiQueryResult<T>> query)
+        where T : class =>
+        WithCache(scope, (resolvedScope, cacheDir) => WithManifestCore(resolvedScope, cacheDir, query));
+
+    private ApiQueryResult<T> WithManifestCore<T>(ApiRequestScope scope, string cacheDir, Func<string, ProjectManifest, ApiQueryResult<T>> query)
         where T : class
     {
-        string cacheDir = GetCacheDir();
         string? indexError = AutoIndexIfStale(scope, cacheDir);
         if (indexError is not null)
         {
@@ -270,6 +297,14 @@ internal sealed class ApiMetadataService(
         ApiRequestScope scope,
         IReadOnlyList<string> keys,
         Func<string, ProjectManifest, List<(string Key, ApiQueryResult<T> Result)>> query)
+        where T : class =>
+        WithCache(scope, (resolvedScope, cacheDir) => WithManifestBatchCore(resolvedScope, cacheDir, keys, query));
+
+    private List<(string Key, ApiQueryResult<T> Result)> WithManifestBatchCore<T>(
+        ApiRequestScope scope,
+        string cacheDir,
+        IReadOnlyList<string> keys,
+        Func<string, ProjectManifest, List<(string Key, ApiQueryResult<T> Result)>> query)
         where T : class
     {
         static List<(string, ApiQueryResult<T>)> FailAll(IReadOnlyList<string> keys, string message)
@@ -282,7 +317,6 @@ internal sealed class ApiMetadataService(
             return failed;
         }
 
-        string cacheDir = GetCacheDir();
         string? indexError = AutoIndexIfStale(scope, cacheDir);
         if (indexError is not null)
         {
@@ -562,7 +596,7 @@ internal sealed class ApiMetadataService(
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException)
         {
             // A manifest or meta.json that cannot be read is treated as stale so the
             // next query rebuilds it rather than answering from an unknown state.
@@ -630,14 +664,14 @@ internal sealed class ApiMetadataService(
                 // Index the directory already resolved for this scope so a named
                 // project is not re-resolved (or resolved differently) here.
                 var indexScope = new ApiRequestScope(projectDir, Project: null);
-                var result = Refresh(indexScope, scan: false, onProgress: msg => logger.LogInformation("{Message}", msg));
+                var result = RefreshCore(indexScope, cacheDir, scan: false, onProgress: msg => logger.LogInformation("{Message}", msg));
                 if (result.Outcome != ApiQueryOutcome.Ok)
                 {
                     logger.LogWarning("Failed to index API metadata: {Message}", result.Message);
                     return result.Message ?? "Failed to index API metadata for this project.";
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException && !CacheStorage.IsStorageFailure(ex))
             {
                 // Cancellation is deliberately excluded so Ctrl+C is not reported
                 // as an indexing failure.
@@ -660,7 +694,7 @@ internal sealed class ApiMetadataService(
         {
             return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         }
-        catch (IOException)
+        catch (IOException ex) when ((ex.HResult & 0xffff) is 32 or 33)
         {
             return null;
         }
@@ -994,7 +1028,7 @@ internal sealed class ApiMetadataService(
             logger.LogInformation("No project here — indexing {Scope} metadata…", ApiCachePaths.SdkScopeName);
             ApiCacheBuilder.BuildSdkCache(cacheDir, packages, onProgress: msg => logger.LogInformation("{Message}", msg));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException && !CacheStorage.IsStorageFailure(ex))
         {
             // Indexing the machine-wide SDK is best-effort; cancellation still
             // propagates so Ctrl+C is not reported as an SDK failure.
@@ -1027,7 +1061,7 @@ internal sealed class ApiMetadataService(
         {
             return JsonSerializer.Deserialize(File.ReadAllText(path), ApiSearchJsonContext.Default.ProjectManifest);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or JsonException)
         {
             // A missing or corrupt manifest reads as "no manifest" so the caller can
             // report an unindexed project instead of crashing.

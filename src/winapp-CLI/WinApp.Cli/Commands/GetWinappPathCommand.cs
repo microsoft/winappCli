@@ -69,22 +69,40 @@ internal class GetWinappPathCommand : Command, IShortDescription
                 }
 
                 // For global directories, check if they exist
-                if (global && !winappDir.Exists)
+                if (global)
                 {
-                    logger.LogError("{UISymbol} {DirectoryType} .winapp directory not found: {WinappDir}", UiSymbols.Error, directoryType, winappDir);
-                    logger.LogError("   Make sure to run 'winapp init' first");
-                    return Task.FromResult(1);
+                    try
+                    {
+                        if (!File.GetAttributes(winappDir.FullName).HasFlag(FileAttributes.Directory))
+                        {
+                            logger.LogError("{UISymbol} The global cache path is not a directory: {WinappDir}",
+                                UiSymbols.Error, winappDir);
+                            return Task.FromResult(1);
+                        }
+                    }
+                    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                    {
+                        logger.LogError("{UISymbol} {DirectoryType} .winapp directory not found: {WinappDir}", UiSymbols.Error, directoryType, winappDir);
+                        logger.LogError("Choose an existing, permitted directory with WINAPP_CLI_CACHE_DIRECTORY.");
+                        return Task.FromResult(1);
+                    }
                 }
 
                 // Output just the path for easy consumption by scripts. Use IAnsiConsole
                 // directly (rather than ILogger) so the path lands cleanly on stdout without
                 // any logger formatting and so tests can capture it via TestAnsiConsole.
-                console.WriteLine(winappDir.FullName);
+                console.Profile.Out.Writer.WriteLine(winappDir.FullName);
 
                 var status = winappDir.Exists ? "exists" : "does not exist";
                 logger.LogDebug("{UISymbol} {DirectoryType} .winapp directory: {WinappDir} ({Status})", UiSymbols.Folder, directoryType, winappDir, status);
 
                 return Task.FromResult(0);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                logger.LogError("{UISymbol} Cannot access the {DirectoryType} winapp directory: {ErrorMessage}. Allow access or set WINAPP_CLI_CACHE_DIRECTORY to a permitted directory.",
+                    UiSymbols.Error, global ? "global" : "local", ex.Message);
+                return Task.FromResult(1);
             }
             catch (Exception ex)
             {

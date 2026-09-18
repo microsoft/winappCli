@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -24,12 +26,13 @@ namespace WinApp.Cli.Services;
 /// mutation lease already draws.
 /// </para>
 /// <para>
-/// The lock file lives in winapp's state directory rather than in the layout: anything inside the
-/// layout is app payload, and would be packaged and registered along with it.
+/// The lock lives beside the layout, in a reserved directory excluded from app payload. Its location
+/// depends only on the layout, never the caller's working directory or cache configuration.
 /// </para>
 /// </remarks>
 internal sealed class LayoutLease : IDisposable
 {
+    internal const string LockDirectoryName = ".winapp-layout-locks";
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
 
     private readonly FileStream _stream;
@@ -41,21 +44,23 @@ internal sealed class LayoutLease : IDisposable
     /// </summary>
     /// <exception cref="TimeoutException">Another winapp process held the layout for too long.</exception>
     internal static LayoutLease Acquire(
-        DirectoryInfo winappStateRoot,
         DirectoryInfo layoutDirectory,
         CancellationToken cancellationToken,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        Func<string, FileStream>? openLock = null)
     {
-        var stateDirectory = Path.Combine(winappStateRoot.FullName, "layout-locks");
-        Directory.CreateDirectory(stateDirectory);
+        cancellationToken.ThrowIfCancellationRequested();
+        var lockPath = LongPathHelper.EnsureExtendedLengthPrefix(GetLockPath(layoutDirectory));
+        var lockDirectory = Path.GetDirectoryName(lockPath)!;
+        Directory.CreateDirectory(lockDirectory);
 
-        // Hashed so the name is a fixed length no matter how deep the layout is, and
-        // case-insensitively, so two spellings of one Windows path do not become two locks.
-        var canonical = Path.TrimEndingDirectorySeparator(Path.GetFullPath(layoutDirectory.FullName));
-        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToUpperInvariant())));
-        var lockPath = Path.Combine(stateDirectory, key + ".lock");
-
-        var deadline = DateTime.UtcNow + (timeout ?? DefaultTimeout);
+        // A redirected lock directory would no longer be bookkeeping beside this resource.
+        RejectLinkedLockPath(lockDirectory);
+        RejectLinkedLockPath(lockPath);
+        var elapsed = Stopwatch.StartNew();
+        var waitLimit = timeout ?? DefaultTimeout;
+        openLock ??= path => new FileStream(
+            path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.None);
 
         while (true)
         {
@@ -63,26 +68,102 @@ internal sealed class LayoutLease : IDisposable
 
             try
             {
-                // DeleteOnClose keeps the state directory from growing a file per layout ever built.
-                return new LayoutLease(new FileStream(
-                    lockPath,
-                    FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite,
-                    FileShare.None,
-                    bufferSize: 1,
-                    FileOptions.DeleteOnClose));
+                // The kernel releases the exclusive handle even if a process is killed. Keep the
+                // file: DeleteOnClose can make the next opener get access-denied while metadata
+                // handles held by a scanner or watcher keep deletion pending.
+                return new LayoutLease(openLock(lockPath));
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (IOException ex) when (IsContention(ex))
             {
-                if (DateTime.UtcNow >= deadline)
+                if (elapsed.Elapsed >= waitLimit)
                 {
                     throw new TimeoutException(
-                        $"Another winapp process is using the app layout at '{canonical}'. Wait for it to finish, " +
-                        $"or use --output-appx-directory to give this run a layout of its own.");
+                        $"Another winapp process is using the app layout at '{layoutDirectory.FullName}'. Wait for it to finish, " +
+                        "or use --output-appx-directory to give this run a layout of its own.", ex);
                 }
 
-                Thread.Sleep(100);
+                var remaining = waitLimit - elapsed.Elapsed;
+                cancellationToken.WaitHandle.WaitOne(
+                    TimeSpan.FromMilliseconds(Math.Clamp(remaining.TotalMilliseconds, 0, 100)));
             }
+        }
+    }
+
+    internal static string GetLockPath(DirectoryInfo layoutDirectory)
+    {
+        var canonical = Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(LongPathHelper.StripExtendedPrefix(layoutDirectory.FullName)));
+        ThrowIfArtifactPath(canonical);
+        var parent = Path.GetDirectoryName(canonical);
+        if (string.IsNullOrEmpty(parent))
+        {
+            throw new InvalidOperationException("A drive or share root cannot be used as an app layout. Choose a subdirectory.");
+        }
+
+        // Fixed-length names and extended-length I/O keep bookkeeping usable even when a layout
+        // near MAX_PATH leaves no room for an appended suffix.
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToUpperInvariant())));
+        return Path.Combine(parent, LockDirectoryName, key + ".lock");
+    }
+
+    internal static bool IsContention(IOException exception) =>
+        exception.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021);
+
+    internal static bool IsArtifactPath(string path) =>
+        path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries)
+            .Any(segment => string.Equals(segment, LockDirectoryName, StringComparison.OrdinalIgnoreCase));
+
+    internal static void ThrowIfArtifactPath(string path)
+    {
+        if (IsArtifactPath(path))
+        {
+            throw new InvalidOperationException(
+                $"'{path}' uses '{LockDirectoryName}', which is reserved for layout coordination and cannot be app payload. " +
+                "Choose a different layout or payload path.");
+        }
+    }
+
+    /// <summary>
+    /// Existing lock state in a destination may belong to another layout. Never prune it, copy over
+    /// it, or register it as payload; refuse the ambiguous layout without deleting anything.
+    /// </summary>
+    internal static void EnsureNoArtifactsInLayout(DirectoryInfo layoutDirectory)
+    {
+        ThrowIfArtifactPath(layoutDirectory.FullName);
+        layoutDirectory.Refresh();
+        if (!layoutDirectory.Exists)
+        {
+            return;
+        }
+
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(layoutDirectory);
+        while (pending.TryPop(out var directory))
+        {
+            foreach (var entry in directory.EnumerateFileSystemInfos())
+            {
+                ThrowIfArtifactPath(entry.FullName);
+                if (entry is DirectoryInfo child && !child.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    pending.Push(child);
+                }
+            }
+        }
+    }
+
+    private static void RejectLinkedLockPath(string path)
+    {
+        try
+        {
+            if (File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new InvalidOperationException(
+                    $"Layout lock path '{path}' is a symbolic link or junction. Use a real layout lock directory.");
+            }
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // The lock file is normally absent until it is acquired.
         }
     }
 

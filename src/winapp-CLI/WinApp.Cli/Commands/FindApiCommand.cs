@@ -78,7 +78,8 @@ internal sealed class FindApiCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {

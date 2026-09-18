@@ -6,11 +6,16 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
-internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService, ILogger<MSStoreCLIService> logger) : IMSStoreCLIService
+internal class MSStoreCLIService(
+    IWinappDirectoryService winappDirectoryService,
+    ILogger<MSStoreCLIService> logger,
+    IStorageDiagnostics? diagnostics = null) : IMSStoreCLIService
 {
+    private readonly CacheStorage _cache = new(winappDirectoryService, Path.Combine("tools", "msstore"), Path.Combine("tools", "msstore"), diagnostics);
     private static readonly HttpClient SharedHttp = new();
 
     // Test seam: HttpClient for the GitHub release API and asset downloads. Defaults to
@@ -23,12 +28,14 @@ internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService,
     // drive both the arch-specific asset selection and the unsupported-architecture path.
     internal Func<Architecture> OsArchitectureProvider { get; set; } = () => RuntimeInformation.OSArchitecture;
 
+    internal Func<string, ILogger, bool> SignatureVerifier { get; set; } = AuthenticodeVerifier.IsTrustedMicrosoftSigned;
+
     private const string ExeName = "msstore.exe";
     private const string GitHubApiLatestRelease = "https://api.github.com/repos/microsoft/msstore-cli/releases/latest";
 
     public async Task EnsureMSStoreCLIAvailableAsync(CancellationToken cancellationToken = default)
     {
-        if (!IsMSStoreCLIAvailable())
+        if (!_cache.Run(IsMSStoreCLIAvailable))
         {
             logger.LogInformation("MSStoreCLI not found. Downloading and installing MSStore Developer CLI...");
 
@@ -54,38 +61,36 @@ internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService,
 
         logger.LogInformation("Downloading MSStoreCLI {Version} from {Url}", version, downloadUrl);
 
-        var installDir = GetInstallDirectory();
-        Directory.CreateDirectory(installDir);
-
-        var zipPath = Path.Combine(installDir, "MSStoreCLI.zip");
-
-        try
+        var bytes = await Http.GetByteArrayAsync(downloadUrl, cancellationToken);
+        VerifyHash(Convert.ToHexString(SHA256.HashData(bytes)), expectedHash);
+        await _cache.RunAsync(async installDir =>
         {
-            using (var response = await Http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
-            {
-                response.EnsureSuccessStatusCode();
-                await using var fs = File.Create(zipPath);
-                await response.Content.CopyToAsync(fs, cancellationToken);
-            }
-
-            VerifyFileHash(zipPath, expectedHash);
-
-            logger.LogDebug("Extracting MSStoreCLI to {InstallDir}", installDir);
-            await ZipFile.ExtractToDirectoryAsync(zipPath, installDir, overwriteFiles: true, cancellationToken: cancellationToken);
-
-            logger.LogDebug("MSStoreCLI {Version} installed to {InstallDir}", version, installDir);
-        }
-        finally
-        {
+            Directory.CreateDirectory(installDir);
+            var zipPath = Path.Combine(installDir, "MSStoreCLI.zip");
             try
             {
-                File.Delete(zipPath);
+                await File.WriteAllBytesAsync(zipPath, bytes, cancellationToken);
+                VerifyFileHash(zipPath, expectedHash);
+
+                logger.LogDebug("Extracting MSStoreCLI to {InstallDir}", installDir);
+                await ZipFile.ExtractToDirectoryAsync(zipPath, installDir, overwriteFiles: true, cancellationToken: cancellationToken);
+
+                VerifyLocalTool(installDir);
+                logger.LogDebug("MSStoreCLI {Version} installed to {InstallDir}", version, installDir);
             }
-            catch
+            finally
             {
-                // Best effort cleanup
+                try
+                {
+                    File.Delete(zipPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogDebug("Could not remove downloaded MSStore archive '{ZipPath}': {Message}", zipPath, ex.Message);
+                }
             }
-        }
+            return true;
+        });
     }
 
     /// <summary>
@@ -179,14 +184,18 @@ internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService,
     {
         var actualHash = ComputeSha256Hash(filePath);
 
+        VerifyHash(actualHash, expectedHash);
+        logger.LogDebug("SHA-256 hash verified for {FilePath}", filePath);
+    }
+
+    private static void VerifyHash(string actualHash, string expectedHash)
+    {
         if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
                 $"SHA-256 hash mismatch for downloaded MSStoreCLI. Expected: {expectedHash}, Actual: {actualHash}. " +
                 "The downloaded file may be corrupted or tampered with.");
         }
-
-        logger.LogDebug("SHA-256 hash verified for {FilePath}", filePath);
     }
 
     private static string ComputeSha256Hash(string filePath)
@@ -198,22 +207,45 @@ internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService,
 
     public string GetMSStoreCLIPath()
     {
-        return Path.Combine(GetInstallDirectory(), ExeName);
+        return _cache.Run(root =>
+        {
+            VerifyLocalTool(root);
+            return Path.Combine(root, ExeName);
+        });
     }
 
-    private string GetInstallDirectory()
+    private bool IsMSStoreCLIAvailable(string installDir)
     {
-        return Path.Combine(winappDirectoryService.GetGlobalWinappDirectory().FullName, "tools", "msstore");
-    }
-
-    private bool IsMSStoreCLIAvailable()
-    {
-        var exePath = GetMSStoreCLIPath();
+        var exePath = Path.Combine(installDir, ExeName);
         var exists = File.Exists(exePath);
         if (exists)
         {
+            using var readable = File.Open(exePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            VerifyLocalTool(installDir);
             logger.LogDebug("MSStoreCLI found at {ExePath}", exePath);
         }
         return exists;
+    }
+
+    private void VerifyLocalTool(string installDir)
+    {
+        if (!_cache.IsLocalFallback)
+        {
+            return;
+        }
+
+        // A repository can prepopulate the fallback cache. Verify the actual executable and
+        // co-located native dependencies on every use, not a repository-provided receipt.
+        // The official Windows MSStoreCLI distribution is Microsoft Authenticode-signed.
+        foreach (var path in new[] { Path.Combine(installDir, ExeName) }
+            .Concat(Directory.EnumerateFiles(installDir, "*.dll", SearchOption.AllDirectories)))
+        {
+            if (!SignatureVerifier(path, logger))
+            {
+                throw new InvalidOperationException(
+                    $"MSStoreCLI local cache file '{path}' is not validly signed by Microsoft, so the tool was not run. " +
+                    $"Remove the local tool cache '{installDir}' and retry to download a verified copy.");
+            }
+        }
     }
 }

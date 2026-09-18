@@ -114,6 +114,13 @@ other, dismiss a menu the other just opened, or move a target out from under a p
 turn, with no setup and no way to switch it off, so two agents can never type into each other's
 windows. Read-only commands keep running concurrently.
 
+Coordination uses [shared runtime state](usage.md#shared-runtime-state), independently
+of the configured cache directory. If that storage is inaccessible, read-only
+observation can continue with a warning, but it does not participate in workflow
+ordering. Mutations and captures still require coordination. See
+[restricted filesystem access](usage.md#restricted-filesystem-access) for fallback
+and diagnostic behavior.
+
 **Continuity between commands is opt-in.** By default each command is a self-contained one-shot: it
 waits its turn, does its work, and releases the desktop immediately. To keep the desktop across
 several commands, give them all the same workflow id:
@@ -201,6 +208,7 @@ record a workflow driving an app. Two caveats:
   recording and the command says so in its output; even same-workflow input will wait.
 
 Errors you may see: `invalid_ui_workflow_id` (the variable is set but empty or over 256 characters),
+`invalid_ui_lock_directory` (an explicit coordination path is invalid; correct or remove the override),
 `desktop_coordination_unavailable` (coordination state is unreadable and cannot be safely rebuilt, or
 was written by a newer `winapp`), `queue_capacity_exceeded` (64 commands from **other** workflows are
 already waiting — the limit counts live foreign waiters, not processes you have started, so entries

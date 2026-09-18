@@ -98,7 +98,7 @@ public class NugetPackageDownloaderCoverageTests : BaseCommandTests
             {
                 // Force the best-effort temp-file cleanup to throw after the package has transferred.
                 // Capture the path first so this test can delete the temp file itself — otherwise disabling
-                // the product's cleanup would orphan the downloaded .nupkg under %TEMP% on every run.
+                // the product's cleanup would orphan the download in the selected packages folder.
                 DeleteTempFile = path =>
                 {
                     leakedTempFile = path;
@@ -118,11 +118,13 @@ public class NugetPackageDownloaderCoverageTests : BaseCommandTests
                 "The package must have extracted into the global packages folder despite the temp-cleanup failure.");
 
             Assert.IsNotNull(leakedTempFile, "The temp-file cleanup seam must have been invoked with a real temp-file path.");
+            Assert.AreEqual(packages.FullName, Path.GetDirectoryName(leakedTempFile),
+                "Package staging must use the selected cache rather than an unrelated TEMP directory.");
         }
         finally
         {
             // The product's cleanup was deliberately disabled above, so delete the orphaned temp file here to
-            // avoid leaking a .nupkg into the system temp directory on every test run.
+            // avoid leaking a download into the packages directory on every test run.
             if (leakedTempFile is not null)
             {
                 try

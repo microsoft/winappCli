@@ -659,6 +659,7 @@ internal partial class MsixService(
 
     private async Task CreateMsixPackageFromFolderAsync(DirectoryInfo inputFolder, FileInfo outputMsixPath, TaskContext taskContext, CancellationToken cancellationToken)
     {
+        LayoutLease.EnsureNoArtifactsInLayout(inputFolder);
         // Create MSIX package
         var inputPath = LongPathHelper.EnsureExtendedLengthPrefix(Path.TrimEndingDirectorySeparator(inputFolder.FullName));
         var outputPath = LongPathHelper.EnsureExtendedLengthPrefix(outputMsixPath.FullName);
@@ -721,20 +722,28 @@ internal partial class MsixService(
 
     /// <summary>
     /// Recursively copies all files and subdirectories from source to destination,
-    /// skipping any top-level directories whose names appear in <paramref name="excludedDirectories"/>.
+    /// skipping reserved layout lock state at every depth and any top-level directories whose names
+    /// appear in <paramref name="excludedDirectories"/>.
     /// </summary>
     private static void CopyDirectoryRecursive(DirectoryInfo source, DirectoryInfo destination, HashSet<string>? excludedDirectories = null)
     {
+        LayoutLease.ThrowIfArtifactPath(source.FullName);
         destination.Create();
 
         foreach (var file in source.EnumerateFiles())
         {
+            if (LayoutLease.IsArtifactPath(file.FullName))
+            {
+                continue;
+            }
+
             file.CopyTo(Path.Combine(destination.FullName, file.Name), overwrite: true);
         }
 
         foreach (var subDir in source.EnumerateDirectories())
         {
-            if (excludedDirectories != null && excludedDirectories.Contains(subDir.Name))
+            if (LayoutLease.IsArtifactPath(subDir.FullName) ||
+                (excludedDirectories != null && excludedDirectories.Contains(subDir.Name)))
             {
                 continue;
             }
@@ -769,6 +778,7 @@ internal partial class MsixService(
             cancellationToken.ThrowIfCancellationRequested();
 
             var stagingPath = Path.GetFullPath(Path.Combine(stagingDir.FullName, relativePath));
+            LayoutLease.ThrowIfArtifactPath(stagingPath);
             var stagingRoot = Path.GetFullPath(stagingDir.FullName).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
 
             // Verify the destination stays within the staging directory
@@ -805,6 +815,7 @@ internal partial class MsixService(
             // Security: verify the resolved source path stays within the allowed roots.
             // This prevents symlinks/junctions from escaping the project directory.
             var resolvedSourcePath = Path.GetFullPath(sourceFile.FullName);
+            LayoutLease.ThrowIfArtifactPath(resolvedSourcePath);
             var manifestRoot = Path.GetFullPath(manifestDir.FullName).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             var inputRoot = Path.GetFullPath(inputFolder.FullName).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
 

@@ -9,6 +9,10 @@ namespace WinApp.Cli.Services;
 internal interface IWinappDirectoryService
 {
     DirectoryInfo GetGlobalWinappDirectory();
+    /// <summary>Whether cache configuration is authoritative and must not silently fall back.</summary>
+    bool IsGlobalCacheOverridden { get; }
+    /// <summary>Validates and resolves invocation-CWD .winapp\cache without creating it or searching parents.</summary>
+    DirectoryInfo GetLocalCacheDirectory();
     DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null);
     void SetCacheDirectoryForTesting(DirectoryInfo? cacheDirectory);
 }

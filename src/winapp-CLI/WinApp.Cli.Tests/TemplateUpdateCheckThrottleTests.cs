@@ -42,6 +42,39 @@ public class TemplateUpdateCheckThrottleTests
         };
 
     [TestMethod]
+    public void CanCheckForUpdates_UnavailableBookkeeping_SkipsCheckWithWarning()
+    {
+        Directory.CreateDirectory(Path.Join(_globalDir.FullName, ".template-update-check"));
+        using var error = new StringWriter();
+        var throttle = new TemplateUpdateCheckThrottle(
+            new FakeWinappDirectoryService(_globalDir),
+            NullLogger<TemplateUpdateCheckThrottle>.Instance,
+            new StorageDiagnostics(error));
+
+        Assert.IsFalse(throttle.CanCheckForUpdates());
+        StringAssert.Contains(error.ToString(), "Skipping the automatic template update check");
+    }
+
+    [TestMethod]
+    public void CanCheckForUpdates_ReadableCache_IsNotTruncated()
+    {
+        var throttle = CreateThrottle();
+        throttle.Record("1.0.0", "1.2.0");
+        var path = Path.Join(_globalDir.FullName, ".template-update-check");
+        var before = File.ReadAllText(path);
+
+        Assert.IsTrue(throttle.CanCheckForUpdates());
+        Assert.AreEqual(before, File.ReadAllText(path));
+    }
+
+    [TestMethod]
+    public void CanCheckForUpdates_NoCache_DoesNotPublishAnEmptyResult()
+    {
+        Assert.IsTrue(CreateThrottle().CanCheckForUpdates());
+        Assert.AreEqual(0, Directory.GetFiles(_globalDir.FullName).Length);
+    }
+
+    [TestMethod]
     public void TryGetRecentLatest_NoCache_ReturnsFalse()
     {
         var throttle = CreateThrottle();

@@ -14,8 +14,10 @@ namespace WinApp.Cli.Services;
 /// </summary>
 internal sealed class TemplateUpdateCheckThrottle(
     IWinappDirectoryService winappDirectoryService,
-    ILogger<TemplateUpdateCheckThrottle> logger) : ITemplateUpdateCheckThrottle
+    ILogger<TemplateUpdateCheckThrottle> logger,
+    IStorageDiagnostics? diagnostics = null) : ITemplateUpdateCheckThrottle
 {
+    private readonly IStorageDiagnostics _diagnostics = diagnostics ?? new StorageDiagnostics(Console.Error);
     private const string CacheFileName = ".template-update-check";
     private const int CheckIntervalHours = 24;
 
@@ -46,9 +48,37 @@ internal sealed class TemplateUpdateCheckThrottle(
             latestVersion = string.IsNullOrEmpty(cache.LatestVersion) ? null : cache.LatestVersion;
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or InvalidOperationException)
         {
             logger.LogDebug(ex, "Failed to read template update-check cache; treating as due.");
+            return false;
+        }
+    }
+
+    public bool CanCheckForUpdates()
+    {
+        try
+        {
+            var file = GetCacheFile();
+            file.Directory?.Create();
+            try
+            {
+                using var existing = new FileStream(file.FullName, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+                return true;
+            }
+            catch (FileNotFoundException)
+            {
+                // Probe a sibling without creating a result that a failed network check never earned.
+            }
+            using var probe = new FileStream(
+                file.FullName + $".{Guid.NewGuid():N}.probe",
+                FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or InvalidOperationException)
+        {
+            _diagnostics.Warning("optional_storage_unavailable",
+                $"Skipping the automatic template update check because its bookkeeping is unavailable: {ex.Message}");
             return false;
         }
     }
@@ -64,6 +94,8 @@ internal sealed class TemplateUpdateCheckThrottle(
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             logger.LogDebug(ex, "Failed to write template update-check cache.");
+            _diagnostics.Warning("optional_storage_unavailable",
+                "The template update check completed, but its result could not be saved.");
         }
     }
 

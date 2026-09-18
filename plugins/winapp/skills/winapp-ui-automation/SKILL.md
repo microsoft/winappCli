@@ -23,6 +23,10 @@ therefore makes desktop-driving commands take **cooperative turns** so concurren
 steal each other's focus or dismiss each other's menus. That is always on. Read-only commands never
 wait.
 
+For read-only observation when shared storage is blocked, and for operations that
+must still fail closed, see
+[restricted filesystem access](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#restricted-filesystem-access).
+
 Keeping the desktop *across* commands is opt-in — without an id, each command is a one-shot that
 releases the desktop the moment it finishes:
 

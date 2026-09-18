@@ -13,6 +13,9 @@ internal static class UiCoordinationErrorCodes
     /// <summary><c>WINAPP_UI_WORKFLOW_ID</c> was set but empty/whitespace or longer than 256 UTF-16 units.</summary>
     public const string InvalidWorkflowId = "invalid_ui_workflow_id";
 
+    /// <summary>An explicit coordination directory is not a fully qualified local path.</summary>
+    public const string InvalidLockDirectory = "invalid_ui_lock_directory";
+
     /// <summary>
     /// Coordination state could not be read, published, or safely recovered — for example an unknown
     /// newer schema version, or corrupt state while a live participant may exist. Turn-participating
@@ -45,6 +48,15 @@ internal sealed class UiCoordinationException(string code, string message, strin
 
     /// <summary>Optional actionable next step surfaced alongside the error.</summary>
     public string? RecoveryHint { get; } = recoveryHint;
+
+    /// <summary>
+    /// A filesystem availability failure, not invalid configuration, ambiguous state, or a
+    /// scheduling error. Only observations may detach, and only before their body starts.
+    /// </summary>
+    public bool IsStorageUnavailable { get; private init; }
+
+    internal static UiCoordinationException StorageUnavailable(string message, string? recoveryHint = null)
+        => new(UiCoordinationErrorCodes.Unavailable, message, recoveryHint) { IsStorageUnavailable = true };
 }
 
 /// <summary>

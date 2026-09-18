@@ -129,6 +129,8 @@ winapp find-ui "color picker" --json
   every 24 hours, or on demand with `--refresh`); the built-in corpus is a floor,
   never a ceiling, so live data always wins. `--source core` searches the curated
   built-in patterns and never touches the network at all.
+- For blocked global caches and fallback diagnostics, see
+  [restricted filesystem access](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#restricted-filesystem-access).
 - **Check the corpus provenance when it matters.** `--json` carries `"corpus"`:
   `"network"` (fetched this run), `"cache"` (this machine's earlier fetch), or
   `"embedded"` (served from the corpus built into the CLI — either the fetch failed

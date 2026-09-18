@@ -13,6 +13,9 @@ namespace WinApp.Cli.Tests;
 internal sealed class FakeWinappDirectoryService(DirectoryInfo globalDirectory) : IWinappDirectoryService
 {
     public DirectoryInfo GlobalDirectory { get; set; } = globalDirectory;
+    public bool IsGlobalCacheOverridden { get; set; } = true;
+    public DirectoryInfo? LocalCacheDirectory { get; set; }
+    public DirectoryInfo GetLocalCacheDirectory() => LocalCacheDirectory ?? new(Path.Combine(GlobalDirectory.FullName, "local-cache"));
 
     public DirectoryInfo GetGlobalWinappDirectory() => GlobalDirectory;
 

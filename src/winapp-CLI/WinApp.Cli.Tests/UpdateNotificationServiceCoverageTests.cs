@@ -67,6 +67,29 @@ public class UpdateNotificationServiceCoverageTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void CheckAndNotify_BlockedBookkeeping_DoesNotStartNetworkRefresh()
+    {
+        Directory.CreateDirectory(Path.Join(_testCacheDirectory.FullName, ".update-check"));
+        using var error = new StringWriter();
+        var handler = new FakeHttpMessageHandler().WhenUriContains(
+            "releases/latest", HttpStatusCode.OK, """{"tag_name":"v0.0.1"}""");
+        using var client = new HttpClient(handler);
+        var service = new UpdateNotificationService(
+            GetRequiredService<IWinappDirectoryService>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<UpdateNotificationService>.Instance,
+            new StorageDiagnostics(error))
+        {
+            Http = client,
+        };
+
+        service.CheckAndNotify();
+
+        Assert.AreEqual(0, handler.Requests.Count);
+        StringAssert.Contains(error.ToString(), "bookkeeping");
+        Assert.IsFalse(Directory.EnumerateFiles(_testCacheDirectory.FullName, "*.tmp").Any());
+    }
+
+    [TestMethod]
     public async Task GetLatestVersionAsync_OnSuccess_ReturnsParsedVersion()
     {
         _service.Http = FakeGitHub(HttpStatusCode.OK, """{"tag_name":"v42.7.0"}""");

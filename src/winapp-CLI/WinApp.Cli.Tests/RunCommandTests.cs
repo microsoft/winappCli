@@ -590,7 +590,6 @@ public class RunCommandTests : BaseCommandTests
             GetRequiredService<ExecutionTargetOrchestrator>(),
             GetRequiredService<GuestApplicationRunner>(),
             GetRequiredService<TargetRuntimeService>(),
-            GetRequiredService<IWinappDirectoryService>(),
             GetRequiredService<ILogger<RunCommand>>());
 
         // Act

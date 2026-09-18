@@ -294,16 +294,21 @@ they do not apply.
 ### Desktop coordination
 
 Concurrent `winapp ui` workflows take cooperative turns on the shared
-desktop (see the skill's coordination section). Four additional codes can
+desktop (see the skill's coordination section). These additional codes can
 appear:
 
 | `code` | Meaning |
 |---|---|
 | `invalid_ui_workflow_id` | `WINAPP_UI_WORKFLOW_ID` is set but empty/whitespace or longer than 256 characters. Fails before any UI side effect. |
+| `invalid_ui_lock_directory` | An explicitly configured coordination directory is invalid. Correct or remove the override; read-only commands do not hide configuration errors. |
 | `desktop_coordination_unavailable` | Coordination state could not be read, published, or safely rebuilt — including state written by a newer `winapp`. Mutating commands fail closed rather than acting uncoordinated. |
 | `queue_capacity_exceeded` | 64 commands from other workflows are already waiting for the desktop. Counts live foreign waiters, so entries left by commands that exited or were killed do not occupy a slot. |
 | `ui_turn_busy` | `ui yield` was run while this same workflow still has a command running or queued, so its turn is not idle. Nothing was released, and the running command is unaffected. Distinct from `invalid_arguments` (the request was well formed) and from `desktop_coordination_unavailable` (coordination is working — this is a valid request at an unsafe moment). Carries a `recoveryHint`: wait for or stop this workflow's other `winapp ui` commands — typically a `record` started with the same `WINAPP_UI_WORKFLOW_ID` — then retry `yield`. |
 | `cancelled` | Native Ctrl+C while the command was still waiting for its turn. The command never ran, so it has no UI side effects. Exit code **130**. |
+
+Successful read-only observations may instead report a storage warning on stderr.
+See [restricted filesystem access](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#restricted-filesystem-access)
+for the warning envelope and the distinction from failed commands.
 
 `ui yield` also emits the command-level `invalid_arguments` when `WINAPP_UI_WORKFLOW_ID` is not set
 at all — deliberately not `invalid_ui_workflow_id`, which means the variable is present but

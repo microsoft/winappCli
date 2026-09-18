@@ -519,6 +519,90 @@ public class NewCommandHandlerTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("io", true)]
+    [DataRow("access", true)]
+    [DataRow("configuration", true)]
+    [DataRow("configuration", false)]
+    public async Task Handler_ScaffoldStoragePreparationFails_ReturnsJsonAndScaffoldFailed(string failureKind, bool isJson)
+    {
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args[0] == "--version")
+            {
+                return (0, "9.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[1] == "uninstall")
+            {
+                return (0, BuildUninstallOutput("0.0.6-alpha"), string.Empty);
+            }
+            if (args.Count >= 2 && args[1] == "list")
+            {
+                return (0, SampleListOutput, string.Empty);
+            }
+            throw failureKind switch
+            {
+                "access" => new UnauthorizedAccessException("NUGET_PACKAGES is unreadable; fix its permissions."),
+                "configuration" => new NugetStorageException("The explicitly configured NuGet packages folder is unavailable; fix its permissions."),
+                _ => new IOException("NuGet package storage is unavailable; fix its permissions."),
+            };
+        };
+        var command = GetRequiredService<NewCommand>();
+
+        string[] args = ["--template", "winui", "--name", "StorageProbe", "--template-version", "installed", "--use-defaults"];
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, isJson ? [.. args, "--json"] : args);
+
+        Assert.AreEqual(NewCommand.ExitScaffoldFailed, exitCode);
+        if (isJson)
+        {
+            var json = ParseJson(TestAnsiConsole.Output);
+            Assert.IsFalse(json.GetProperty("Created").GetBoolean());
+            Assert.AreEqual("StorageProbe", json.GetProperty("Name").GetString());
+            StringAssert.Contains(json.GetProperty("Error").GetString()!, "fix its permissions");
+        }
+        else
+        {
+            StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}", "fix its permissions");
+        }
+        Assert.AreEqual(1, _dotnet.ArgumentListInvocations.Count(args => args.Count > 1 && args[1] == "winui"),
+            "A pre-launch failure must not retry scaffolding.");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Handler_ScaffoldUnexpectedFailureOrCancellation_IsNotConvertedToStorageFailure(bool cancelled)
+    {
+        ScriptHappyPath();
+        var respond = _dotnet.RunDotnetArgumentListHandler!;
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count > 1 && args[0] == "new" && args[1] == "winui")
+            {
+                if (cancelled)
+                {
+                    throw new OperationCanceledException("cancelled scaffold");
+                }
+                throw new InvalidOperationException("unexpected scaffold defect");
+            }
+            return respond(args);
+        };
+        var command = GetRequiredService<NewCommand>();
+        var handler = GetRequiredService<NewCommand.Handler>();
+        var parsed = command.Parse(["--template", "winui", "--name", "StorageProbe", "--use-defaults", "--json"]);
+
+        if (cancelled)
+        {
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => handler.InvokeAsync(parsed, TestContext.CancellationToken));
+        }
+        else
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => handler.InvokeAsync(parsed, TestContext.CancellationToken));
+        }
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("\"Created\"", StringComparison.Ordinal),
+            "Unexpected defects and cancellation must not produce an ordinary scaffold result.");
+    }
+
+    [TestMethod]
     public async Task Handler_OwnershipUnverifiable_FailsClosedInsteadOfOfferingUnknownTemplates()
     {
         // `dotnet new list winui` matches short-name prefixes across every installed pack and has no
