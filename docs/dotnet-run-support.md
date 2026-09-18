@@ -196,7 +196,7 @@ dotnet run app.cs -p:AssemblyName=Contoso         # packages Contoso.exe
 
 Values are percent-escaped on the way across (`%`, `;`, `,`, `"` and `\`), so a capability list such as `internetClient;privateNetworkClientServer` or a publisher containing a comma survives intact; MSBuild decodes them again on the other side.
 
-Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. Empty values are never forwarded, because the CLI treats a named property as an explicit request and an empty one would override a directive back to the inferred default. The SDK's derived outputs (`TargetDir`, `RunCommand`, `RunArguments`, `ProjectAssetsFile`) are also left alone so the CLI still derives them itself.
+Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. An empty value is forwarded rather than skipped, because the CLI treats an empty property exactly as it treats an absent one: that is what makes `dotnet run app.cs -p:WinAppPackageName=` clear a directive instead of leaving the CLI to re-read it. The build inputs are the exception, since the SDK always gives them a value. The SDK's derived outputs (`TargetDir`, `RunCommand`, `RunArguments`, `ProjectAssetsFile`) are left alone so the CLI still derives them itself.
 
 ## Build Scripts
 

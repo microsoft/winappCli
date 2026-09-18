@@ -389,53 +389,55 @@
       or an adjacent Directory.Build.props, because winapp's evaluation reads those too. It only
       changes the outcome when an outer override would otherwise have been lost.
 
-      Empty values are skipped rather than forwarded. Winapp treats a named property as an
-      explicit request, so passing an empty one would override a directive back to the inferred
-      default instead of leaving it alone.
+      Every value is percent-escaped on the way out, for two separate reasons. The CLI REJECTS a
+      property token containing ';' or ',', because MSBuild would split it into several properties
+      and smuggle one past the name-only filter that protects the architecture; a capability list
+      is written 'a;b', so forwarding one raw fails the run outright. And the value is spliced into
+      a quoted command-line argument, where an embedded quote ends the argument early and a
+      trailing backslash (OutputPath always has one) escapes the closing quote, swallowing the rest
+      of the line. Escaping '%' FIRST keeps the rest reversible: MSBuild unescapes '%XX' when it
+      reads the property back, so each one round-trips to the original value. '%2525' is how this
+      file spells a literal '%25'.
+
+      The escape is spelled out per property rather than applied once over the item list, because
+      the batched form has to name the value as %(Value) INSIDE a single-quoted function argument.
+      An apostrophe in the value closes that argument, and MSBuild then silently emits the
+      unevaluated expression text as the value. Calling the method on the property itself never
+      puts the value in the expression, so 'Bob's App' survives.
     -->
     <ItemGroup Condition="'$(_WinAppFileBasedApp)' == 'true'">
-      <_WinAppForwardedProperty Include="WinAppPackageName" Value="$(WinAppPackageName)" Condition="'$(WinAppPackageName)' != ''" />
-      <_WinAppForwardedProperty Include="WinAppDisplayName" Value="$(WinAppDisplayName)" Condition="'$(WinAppDisplayName)' != ''" />
-      <_WinAppForwardedProperty Include="WinAppPublisher" Value="$(WinAppPublisher)" Condition="'$(WinAppPublisher)' != ''" />
-      <_WinAppForwardedProperty Include="WinAppVersion" Value="$(WinAppVersion)" Condition="'$(WinAppVersion)' != ''" />
-      <_WinAppForwardedProperty Include="WinAppDescription" Value="$(WinAppDescription)" Condition="'$(WinAppDescription)' != ''" />
-      <_WinAppForwardedProperty Include="WinAppCapabilities" Value="$(WinAppCapabilities)" Condition="'$(WinAppCapabilities)' != ''" />
       <!--
-        Only ever set by the consumer for a file-based app: manifest auto-detection is skipped
-        above, so this is empty unless it was explicitly requested.
+        Identity properties, forwarded even when empty. Winapp maps an empty property to "absent"
+        exactly as it maps an undeclared one, so an empty value is not a lost default: it is how
+        'dotnet run app.cs -p:WinAppPackageName=' clears a #:property directive. Skipping it would
+        leave winapp reading the directive the outer build was told to discard.
       -->
-      <_WinAppForwardedProperty Include="WinAppManifestPath" Value="$(WinAppManifestPath)" Condition="'$(WinAppManifestPath)' != ''" />
-
-      <!--
-        Build inputs. These decide WHERE the CLI looks for the output dotnet just built and WHAT
-        it finds there, so losing one makes the no-build hand-off inspect the wrong folder or the
-        wrong file name. Version is read as the manifest version when WinAppVersion is absent.
-      -->
-      <_WinAppForwardedProperty Include="AssemblyName" Value="$(AssemblyName)" Condition="'$(AssemblyName)' != ''" />
-      <_WinAppForwardedProperty Include="OutputPath" Value="$(OutputPath)" Condition="'$(OutputPath)' != ''" />
-      <_WinAppForwardedProperty Include="OutputType" Value="$(OutputType)" Condition="'$(OutputType)' != ''" />
-      <_WinAppForwardedProperty Include="TargetFramework" Value="$(TargetFramework)" Condition="'$(TargetFramework)' != ''" />
-      <_WinAppForwardedProperty Include="Version" Value="$(Version)" Condition="'$(Version)' != ''" />
-      <_WinAppForwardedProperty Include="WindowsPackageType" Value="$(WindowsPackageType)" Condition="'$(WindowsPackageType)' != ''" />
-      <_WinAppForwardedProperty Include="WindowsAppSDKSelfContained" Value="$(WindowsAppSDKSelfContained)" Condition="'$(WindowsAppSDKSelfContained)' != ''" />
+      <_WinAppForwardedProperty Include="WinAppPackageName" Value="$(WinAppPackageName.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+      <_WinAppForwardedProperty Include="WinAppDisplayName" Value="$(WinAppDisplayName.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+      <_WinAppForwardedProperty Include="WinAppPublisher" Value="$(WinAppPublisher.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+      <_WinAppForwardedProperty Include="WinAppVersion" Value="$(WinAppVersion.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+      <_WinAppForwardedProperty Include="WinAppDescription" Value="$(WinAppDescription.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+      <_WinAppForwardedProperty Include="WinAppCapabilities" Value="$(WinAppCapabilities.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+      <_WinAppForwardedProperty Include="WinAppManifestPath" Value="$(WinAppManifestPath.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
 
       <!--
-        Percent-escape every forwarded value, matching the CLI's own property escaping.
+        Build inputs, forwarded only when they have a value. These decide WHERE the CLI looks for
+        the output dotnet just built and WHAT it finds there, so losing one makes the no-build
+        hand-off inspect the wrong folder or the wrong file name. Version is read as the manifest
+        version when WinAppVersion is absent.
 
-        Two separate hazards, one fix. The CLI REJECTS a property token containing ';' or ',',
-        because MSBuild would split it into several properties and smuggle one past the name-only
-        filter that protects the architecture; a capability list is written 'a;b', so forwarding it
-        raw fails the run outright. And the value is spliced into a quoted command-line argument,
-        where an embedded quote ends the argument early and a trailing backslash (OutputPath always
-        has one) escapes the closing quote, swallowing the rest of the command line.
-
-        Escaping '%' FIRST keeps the rest reversible. MSBuild unescapes '%XX' when it reads the
-        property back on the other side, so every one of these round-trips to the original value.
-
-        Written one level deeper than it reads: '%2525' is how this file spells a literal '%25'.
+        The SDK gives each of these a value, so an empty one means the consumer cleared it and the
+        outer build is already broken. Forwarding that empty value would make it worse: as a global
+        property it would also suppress the default inside winapp's evaluation, which would
+        otherwise still resolve the name and folder the build actually used.
       -->
-      <_WinAppForwardedProperty Update="@(_WinAppForwardedProperty)"
-                                Value="$([System.String]::Copy('%(Value)').Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+      <_WinAppForwardedProperty Include="AssemblyName" Value="$(AssemblyName.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(AssemblyName)' != ''" />
+      <_WinAppForwardedProperty Include="OutputPath" Value="$(OutputPath.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutputPath)' != ''" />
+      <_WinAppForwardedProperty Include="OutputType" Value="$(OutputType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutputType)' != ''" />
+      <_WinAppForwardedProperty Include="TargetFramework" Value="$(TargetFramework.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(TargetFramework)' != ''" />
+      <_WinAppForwardedProperty Include="Version" Value="$(Version.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(Version)' != ''" />
+      <_WinAppForwardedProperty Include="WindowsPackageType" Value="$(WindowsPackageType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(WindowsPackageType)' != ''" />
+      <_WinAppForwardedProperty Include="WindowsAppSDKSelfContained" Value="$(WindowsAppSDKSelfContained.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(WindowsAppSDKSelfContained)' != ''" />
     </ItemGroup>
 
     <PropertyGroup>

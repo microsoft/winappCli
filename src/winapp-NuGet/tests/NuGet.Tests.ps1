@@ -1008,10 +1008,24 @@ $ExtraProps  </PropertyGroup>
             $computed | Should -Not -Match ' --manifest '
         }
 
-        It "Forwards nothing when no identity property is set" {
-            # Winapp treats a named property as an explicit request, so forwarding empties would
-            # override a directive back to the inferred default instead of leaving it alone.
-            $script:fbArgs | Should -Not -Match '-p "WinApp'
+        It "Forwards an identity property with an empty value when nothing set it" {
+            # Winapp maps an empty property to "absent" exactly as it maps an undeclared one, so
+            # this is the same answer its own evaluation would reach on its own.
+            $script:fbArgs | Should -Match ([regex]::Escape('-p "WinAppPackageName="'))
+        }
+
+        It "Carries an explicit clear so it overrides a #:property directive" {
+            # 'dotnet run app.cs -p:WinAppPackageName=' clears the directive for the outer build.
+            # Dropping the empty value would leave winapp reading the directive the build discarded,
+            # and registering an identity the run was told not to use.
+            $cs = script:New-FileBasedApp -CaseName "fwd-clear" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WinAppPackageName=FromDirective')
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Match ([regex]::Escape('-p "WinAppPackageName=FromDirective"'))
+
+            $cleared = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppPackageName=')
+            $cleared | Should -Match ([regex]::Escape('-p "WinAppPackageName="'))
+            $cleared | Should -Not -Match 'FromDirective'
         }
     }
 
@@ -1117,6 +1131,24 @@ $ExtraProps  </PropertyGroup>
             $cs = script:New-FileBasedApp -CaseName "esc-backslash"
             script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppManifestPath=sub\dir\') |
                 Should -Match ([regex]::Escape('-p "WinAppManifestPath=sub%5Cdir%5C"'))
+        }
+
+        It "Survives an apostrophe in the value" {
+            # The escape used to be applied once over the whole item list, which meant naming the
+            # value inside a single-quoted MSBuild function argument. An apostrophe closed that
+            # argument and MSBuild silently emitted the unevaluated expression text as the value.
+            $cs = script:New-FileBasedApp -CaseName "esc-apostrophe"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @("-p:WinAppDisplayName=Bob's App")
+            $computed | Should -Match ([regex]::Escape("-p `"WinAppDisplayName=Bob's App`""))
+            $computed | Should -Not -Match ([regex]::Escape('System.String'))
+        }
+
+        It "Survives an apostrophe alongside a character that needs escaping" {
+            # Proves the apostrophe does not merely pass through untouched, but that the rest of the
+            # escaping still runs on the same value.
+            $cs = script:New-FileBasedApp -CaseName "esc-apostrophe-mix"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @("-p:WinAppDescription=Bob's, fast") |
+                Should -Match ([regex]::Escape("-p `"WinAppDescription=Bob's%2C fast`""))
         }
 
         It "Doubles percent signs for the Exec transport only" {
