@@ -162,9 +162,27 @@ The package only activates when **all** of the following are true (gated by the 
 2. `WindowsPackageType` is not set to `None` (absence of the property means packaged).
 3. `OutputType` is not `Library` — both `Exe` (packaged console apps via execution alias) and `WinExe` (WinUI apps) are supported.
 4. The target platform identifier is `windows` (derived from `$(TargetPlatformIdentifier)` if set, else from `$(TargetFramework)`). In multi-targeted projects (e.g. MAUI `net*-android;net*-ios;net*-windows10.0.19041.0`), the targets are inert for non-Windows TFMs.
-5. `WinAppManifestPath` resolves to an existing file. The targets auto-detect the manifest by checking the output directory first (`$(OutputPath)AppxManifest.xml`, `$(OutputPath)Package.appxmanifest`, `$(OutputPath)appxmanifest.xml`) and then the project directory (`AppxManifest.xml`, `Package.appxmanifest`, `appxmanifest.xml`); a consumer-supplied `WinAppManifestPath` is honored as-is. Output-directory paths are accepted because frameworks like MAUI generate the manifest at build time into `$(OutputPath)` from platform / msbuild props; without that the gate could never activate for transitive MAUI head apps.
+5. `WinAppManifestPath` resolves to an existing file, **or** the project is a .NET file-based app. The targets auto-detect the manifest by checking the output directory first (`$(OutputPath)AppxManifest.xml`, `$(OutputPath)Package.appxmanifest`, `$(OutputPath)appxmanifest.xml`) and then the project directory (`AppxManifest.xml`, `Package.appxmanifest`, `appxmanifest.xml`); a consumer-supplied `WinAppManifestPath` is honored as-is. Output-directory paths are accepted because frameworks like MAUI generate the manifest at build time into `$(OutputPath)` from platform / msbuild props; without that the gate could never activate for transitive MAUI head apps.
 
 This gating ensures the package is safe to consume transitively (e.g. when re-exported by a library): unrelated projects (libraries, test projects, console apps without manifests, non-Windows TFMs) see no winapp activity and no impact on `dotnet run`.
+
+### File-based apps
+
+A [file-based app](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/sdk#file-based-apps) — a single `.cs` run with `dotnet run app.cs` — has no authored manifest by design; its identity comes from the `#:property` directives in the file. Condition 5 therefore accepts the file-based case instead of a manifest, detected through the `FileBasedProgram` and `EntryPointFilePath` properties that the SDK writes into the generated virtual project. Conditions 1-4 still apply, so the `.cs` must declare a Windows target framework:
+
+```csharp
+#:package Microsoft.Windows.SDK.BuildTools.WinApp@*
+#:property TargetFramework=net10.0-windows10.0.19041.0
+#:property OutputType=Exe
+```
+
+Manifest auto-detection is skipped entirely for a file-based app and resolution is left to the CLI, for two reasons: several `.cs` files can share one directory, so a directory-scoped `Package.appxmanifest` cannot be assumed to belong to this app; and the CLI generates its own manifest into the build output, which auto-detection would otherwise pick up on the second run and pin as a stale identity.
+
+The hand-off also differs. A `.csproj` passes its output folder, which the CLI treats as a pre-built layout. A `.cs` has to be passed as the input, because manifest inference is only reachable from the CLI's single-file mode — so `no-build` is added to keep `dotnet run`'s build the only one, and `RuntimeIdentifier` is forwarded so the CLI reads the same output folder `dotnet run` wrote to rather than injecting a host RID of its own:
+
+```
+winapp run <app.cs> --no-build --configuration Debug -p RuntimeIdentifier=<rid> ...
+```
 
 ## Build Scripts
 

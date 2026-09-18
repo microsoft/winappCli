@@ -26,7 +26,24 @@
       WindowsPackageType=None explicitly marks the project as unpackaged.
       When WindowsPackageType is absent or any value other than 'None', the app is considered packaged.
     -->
-    
+
+    <!--
+      Detect a .NET file-based app: a single .cs run through the SDK's generated
+      virtual project (dotnet run app.cs). The SDK writes FileBasedProgram and
+      EntryPointFilePath into that project's FIRST PropertyGroup, emitted before
+      the Sdk.props import, so both are already set by the time this file is
+      evaluated. EntryPointFilePath is the full path to the .cs file.
+
+      A file-based app has no authored manifest by design — identity is inferred
+      from its #:property directives — so this property is what lets the gate
+      below activate without one.
+    -->
+    <_WinAppFileBasedApp Condition="
+        '$(FileBasedProgram)' == 'true'
+        And '$(EntryPointFilePath)' != ''
+        And Exists('$(EntryPointFilePath)')">true</_WinAppFileBasedApp>
+    <_WinAppFileBasedApp Condition="'$(_WinAppFileBasedApp)' == ''">false</_WinAppFileBasedApp>
+
     <!--
       Output directory for the loose-layout AppX package.
       Defaults to AppX subfolder in the output directory.
@@ -39,7 +56,7 @@
       appxmanifest.xml does, promote it so the MSIX SDK processes it (placeholder
       resolution, PRI generation, .appxrecipe, etc.).
     -->
-    <_WinAppPromoteManifest Condition="'$(EnableMsixTooling)' == 'true' And !Exists('$(MSBuildProjectDirectory)\Package.appxmanifest') And Exists('$(MSBuildProjectDirectory)\appxmanifest.xml')">true</_WinAppPromoteManifest>
+    <_WinAppPromoteManifest Condition="'$(EnableMsixTooling)' == 'true' And '$(_WinAppFileBasedApp)' != 'true' And !Exists('$(MSBuildProjectDirectory)\Package.appxmanifest') And Exists('$(MSBuildProjectDirectory)\appxmanifest.xml')">true</_WinAppPromoteManifest>
     
     <!--
       Path to the AppxManifest.xml file.
@@ -53,13 +70,30 @@
       the only manifest that exists is in $(OutputPath). Project-directory
       locations cover the standard winapp / VS conventions where the manifest
       is authored in source.
+
+      Skipped entirely for a file-based app, which delegates ALL manifest
+      resolution to the CLI. Two reasons:
+        - The CLI generates Package.appxmanifest INTO the build output when the
+          app has no authored manifest, and regenerates it on every run. Because
+          the hand-off below runs the CLI with 'no-build' against that same
+          output directory, an output-directory probe would find that generated
+          file on the SECOND run and pin it as an explicit manifest, freezing a
+          stale identity.
+        - A file-based app deliberately ignores shared-name manifests
+          (Package.appxmanifest / appxmanifest.xml in the folder), because
+          several .cs files can share one directory and would otherwise silently
+          run under each other's identity. It honors only <stem>.appxmanifest or
+          an explicit #:property WinAppManifestPath. Probing here would break
+          that rule.
+      Delegating keeps 'dotnet run app.cs' and 'winapp run app.cs' resolving
+      identity identically.
     -->
-    <WinAppManifestPath Condition="'$(WinAppManifestPath)' == '' And Exists('$(OutputPath)AppxManifest.xml')">$(OutputPath)AppxManifest.xml</WinAppManifestPath>
-    <WinAppManifestPath Condition="'$(WinAppManifestPath)' == '' And Exists('$(OutputPath)Package.appxmanifest')">$(OutputPath)Package.appxmanifest</WinAppManifestPath>
-    <WinAppManifestPath Condition="'$(WinAppManifestPath)' == '' And Exists('$(OutputPath)appxmanifest.xml')">$(OutputPath)appxmanifest.xml</WinAppManifestPath>
-    <WinAppManifestPath Condition="'$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\AppxManifest.xml')">$(MSBuildProjectDirectory)\AppxManifest.xml</WinAppManifestPath>
-    <WinAppManifestPath Condition="'$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')">$(MSBuildProjectDirectory)\Package.appxmanifest</WinAppManifestPath>
-    <WinAppManifestPath Condition="'$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\appxmanifest.xml')">$(MSBuildProjectDirectory)\appxmanifest.xml</WinAppManifestPath>
+    <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(OutputPath)AppxManifest.xml')">$(OutputPath)AppxManifest.xml</WinAppManifestPath>
+    <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(OutputPath)Package.appxmanifest')">$(OutputPath)Package.appxmanifest</WinAppManifestPath>
+    <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(OutputPath)appxmanifest.xml')">$(OutputPath)appxmanifest.xml</WinAppManifestPath>
+    <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\AppxManifest.xml')">$(MSBuildProjectDirectory)\AppxManifest.xml</WinAppManifestPath>
+    <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')">$(MSBuildProjectDirectory)\Package.appxmanifest</WinAppManifestPath>
+    <WinAppManifestPath Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == '' And Exists('$(MSBuildProjectDirectory)\appxmanifest.xml')">$(MSBuildProjectDirectory)\appxmanifest.xml</WinAppManifestPath>
   </PropertyGroup>
 
   <!--
@@ -85,19 +119,27 @@
         Windows TFMs must build cleanly with no winapp activity. We prefer
         the explicitly-set $(TargetPlatformIdentifier) when present and
         fall back to deriving it from $(TargetFramework).
-      - A manifest exists at $(WinAppManifestPath). After the auto-detection
-        block above runs, this property points at the first existing manifest
-        across all supported output- and project-directory locations, OR at
-        whatever path the consumer set explicitly. Frameworks like MAUI
-        generate the manifest into $(OutputPath) based on platform / msbuild
-        props, so we deliberately accept output-dir paths here — without that,
-        MAUI head apps consuming this package transitively would never have
-        the gate activate. The other discriminators above (WindowsPackageType,
-        OutputType, TPI) already prevent activation in projects that aren't
-        intended to be packaged Windows apps, so a stale output-dir manifest
-        from a prior build only matters in a project that is otherwise still
-        a packaged Windows app — in which case re-activating the gate is the
-        correct behavior.
+      - A manifest exists at $(WinAppManifestPath), OR the project is a .NET
+        file-based app. After the auto-detection block above runs, the manifest
+        property points at the first existing manifest across all supported
+        output- and project-directory locations, OR at whatever path the
+        consumer set explicitly. Frameworks like MAUI generate the manifest into
+        $(OutputPath) based on platform / msbuild props, so we deliberately
+        accept output-dir paths here — without that, MAUI head apps consuming
+        this package transitively would never have the gate activate. The other
+        discriminators above (WindowsPackageType, OutputType, TPI) already
+        prevent activation in projects that aren't intended to be packaged
+        Windows apps, so a stale output-dir manifest from a prior build only
+        matters in a project that is otherwise still a packaged Windows app —
+        in which case re-activating the gate is the correct behavior.
+
+        A file-based app (a single .cs run through the SDK's virtual project)
+        has NO authored manifest by design: its identity is inferred from the
+        #:property directives in the file, which is exactly what the CLI's
+        single-file mode already does. Requiring a manifest here is what kept
+        'dotnet run app.cs' launching the raw unpackaged .exe, so the file-based
+        case is accepted instead of a manifest. Note the Windows-TFM clause
+        still applies: a plain net10.0 .cs is not redirected.
     ============================================================================
   -->
   <PropertyGroup>
@@ -117,8 +159,8 @@
         And '$(WindowsPackageType)' != 'None'
         And '$(OutputType)' != 'Library'
         And '$(_WinAppEffectiveTargetPlatformIdentifier)' == 'windows'
-        And '$(WinAppManifestPath)' != ''
-        And Exists('$(WinAppManifestPath)')">true</_WinAppRunSupportActive>
+        And ('$(_WinAppFileBasedApp)' == 'true'
+             Or ('$(WinAppManifestPath)' != '' And Exists('$(WinAppManifestPath)')))">true</_WinAppRunSupportActive>
     <_WinAppRunSupportActive Condition="'$(_WinAppRunSupportActive)' == ''">false</_WinAppRunSupportActive>
   </PropertyGroup>
 
@@ -247,14 +289,19 @@
   -->
   <Target Name="_WinAppValidateRunSupport"
           Condition="'$(_WinAppRunSupportActive)' == 'true'">
-    <Message Text="[WinAppRunSupport] Manifest: $(WinAppManifestPath)" Importance="normal" />
+    <Message Condition="'$(_WinAppFileBasedApp)' != 'true'" Text="[WinAppRunSupport] Manifest: $(WinAppManifestPath)" Importance="normal" />
+    <Message Condition="'$(_WinAppFileBasedApp)' == 'true'" Text="[WinAppRunSupport] File-based app: $(EntryPointFilePath) (manifest resolved by winapp)" Importance="normal" />
     <Error Condition="!Exists('$(WinAppCliPath)')"
            Text="[WinAppRunSupport] WinAppCLI tool not found at '$(WinAppCliPath)'. The NuGet package may be corrupted." />
     
-    <!-- Validate manifest exists -->
-    <Error Condition="'$(WinAppManifestPath)' != '' And !Exists('$(WinAppManifestPath)')"
+    <!--
+      Validate manifest exists. Skipped for a file-based app, which has none by
+      design — winapp infers its identity from the #:property directives in the
+      .cs file, or from a <stem>.appxmanifest next to it.
+    -->
+    <Error Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' != '' And !Exists('$(WinAppManifestPath)')"
            Text="[WinAppRunSupport] AppxManifest not found at '$(WinAppManifestPath)'. Ensure Package.appxmanifest or appxmanifest.xml exists at the resolved manifest path, in your project directory, or in the build output directory, as applicable." />
-    <Error Condition="'$(WinAppManifestPath)' == ''"
+    <Error Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == ''"
            Text="[WinAppRunSupport] No AppxManifest found. Ensure Package.appxmanifest or appxmanifest.xml exists in your project or build output directory. Run 'winapp init' to generate one." />
     
     <Message Text="[WinAppRunSupport] Using CLI: $(WinAppCliPath)" Importance="normal" />
@@ -287,9 +334,30 @@
       <_WinAppProjectFramework Condition="'$(UseWPF)' == 'true'">wpf</_WinAppProjectFramework>
       <_WinAppProjectFramework Condition="'$(UseWinUI)' == 'true'">winui</_WinAppProjectFramework>
       <_WinAppProjectFramework Condition="'$(UseMaui)' == 'true'">maui</_WinAppProjectFramework>
-      <!-- Build command with input-folder positional argument -->
-      <_WinAppRunArgs>run "$(_WinAppInputFolderArg)"</_WinAppRunArgs>
-      <_WinAppRunArgs Condition="'$(_WinAppManifestPathArg)' != ''">$(_WinAppRunArgs) --manifest "$(_WinAppManifestPathArg)"</_WinAppRunArgs>
+      <!--
+        Leading tokens. A .csproj hands winapp its OUTPUT FOLDER, which routes the CLI into folder
+        mode: nothing is built, the existing output is packaged and launched. A file-based app can't
+        use folder mode, because manifest inference from #:property directives only exists in the
+        CLI's single-file mode. So it hands over the .cs file itself and reproduces folder mode's
+        "run what's already built" contract with two arguments:
+
+          'no-build'                   skips the CLI's build pass, leaving only a cheap property
+                                       evaluation. dotnet already built the app.
+          RuntimeIdentifier property   suppresses the host RID the CLI would otherwise inject.
+                                       Without it the CLI evaluates bin\debug_win-x64\ while dotnet
+                                       wrote bin\debug\, so 'no-build' would miss the fresh output
+                                       (or find a stale one from an earlier 'winapp run'). NAMING
+                                       the property is what suppresses injection, so the empty value
+                                       an unqualified build produces here is correct and intentional:
+                                       it makes both sides agree on the same folder.
+
+        An explicit manifest is deliberately NOT forwarded for a file-based app; winapp owns the
+        whole resolution order (explicit path, #:property WinAppManifestPath, <stem>.appxmanifest,
+        generated), so 'dotnet run app.cs' and 'winapp run app.cs' register the same identity.
+      -->
+      <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' == 'true'">run "$(EntryPointFilePath)" --no-build --configuration $(Configuration) -p RuntimeIdentifier=$(RuntimeIdentifier)</_WinAppRunArgs>
+      <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' != 'true'">run "$(_WinAppInputFolderArg)"</_WinAppRunArgs>
+      <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(_WinAppManifestPathArg)' != ''">$(_WinAppRunArgs) --manifest "$(_WinAppManifestPathArg)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppLooseLayoutPathArg)' != ''">$(_WinAppRunArgs) --output-appx-directory "$(_WinAppLooseLayoutPathArg)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppLaunchArgs)' != ''">$(_WinAppRunArgs) --args "$(WinAppLaunchArgs)"</_WinAppRunArgs>
       <!--
@@ -372,10 +440,15 @@
     Outside VS, the recipe mechanism doesn't apply. This target physically
     copies those Content/None items to the AppX layout folder so the
     packaged app can access them at runtime.
+
+    Inert for a file-based app: the SDK's virtual project sets
+    EnableDefaultCompileItems=false and EnableDefaultNoneItems=false, so there
+    are no default Content/None items to stage, and the CLI builds the loose
+    layout itself during the single-file run.
     ============================================================================
   -->
   <Target Name="_WinAppCopyContentToLooseLayout"
-          Condition="'$(_WinAppRunSupportActive)' == 'true'"
+          Condition="'$(_WinAppRunSupportActive)' == 'true' And '$(_WinAppFileBasedApp)' != 'true'"
           DependsOnTargets="AssignTargetPaths">
 
     <MakeDir Directories="$(WinAppLooseLayoutPath)" />
@@ -449,6 +522,25 @@
   </Target>
 
   <!--
+    Seed the run properties during a plain build of a file-based app.
+
+    'dotnet build app.cs' records RunCommand, RunArguments and RunWorkingDirectory in the SDK's
+    build success cache, and a later 'dotnet run app.cs' replays that cache instead of re-evaluating
+    the project when nothing has changed. ComputeRunArguments does not run during a plain build, so
+    the SDK falls back to TargetPath and the cache captures the bare apphost. The next
+    'dotnet run app.cs' would then replay that entry and silently launch the app unpackaged.
+    Preparing the same properties after Build keeps the cached entry and the redirect in agreement,
+    so the app runs packaged no matter which command populated the cache.
+
+    Scoped to file-based apps on purpose: a project file has no such cache, and preparing run
+    arguments on every build would add loose layout copying to a plain build.
+  -->
+  <Target Name="_WinAppPrepareRunArgumentsForFileBasedBuild"
+          AfterTargets="Build"
+          DependsOnTargets="_WinAppPrepareRunArguments"
+          Condition="'$(_WinAppRunSupportActive)' == 'true' And '$(_WinAppFileBasedApp)' == 'true'" />
+
+  <!--
     ============================================================================
     Debugging Support
     
@@ -464,11 +556,16 @@
     <Message Text="TargetFramework: $(TargetFramework)" Importance="high" />
     <Message Text="TargetPlatformIdentifier (raw): $(TargetPlatformIdentifier)" Importance="high" />
     <Message Text="_WinAppEffectiveTargetPlatformIdentifier (used by gate): $(_WinAppEffectiveTargetPlatformIdentifier)" Importance="high" />
+    <Message Text="FileBasedProgram: $(FileBasedProgram)" Importance="high" />
+    <Message Text="EntryPointFilePath: $(EntryPointFilePath)" Importance="high" />
+    <Message Text="_WinAppFileBasedApp (used by gate): $(_WinAppFileBasedApp)" Importance="high" />
+    <Message Text="RuntimeIdentifier: $(RuntimeIdentifier)" Importance="high" />
     <Message Text="WinAppCliPath: $(WinAppCliPath)" Importance="high" />
     <Message Text="WinAppCliArch: $(WinAppCliArch)" Importance="high" />
     <Message Text="WinAppManifestPath: $(WinAppManifestPath)" Importance="high" />
     <Message Text="_WinAppManifestPathUserSet: $(_WinAppManifestPathUserSet)" Importance="high" />
     <Message Text="WinAppLooseLayoutPath: $(WinAppLooseLayoutPath)" Importance="high" />
+    <Message Text="(For the exact CLI command, query -getProperty:RunArguments.)" Importance="high" />
     <Message Text="======================================" Importance="high" />
   </Target>
 
