@@ -783,7 +783,9 @@ internal partial class PackageCommand
                         effectiveManifest, selfContainedModel, executable,
                         projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore,
                         packageGraph: packageGraph, targetArch: resolution.Architecture,
-                        runtimeAlreadyBundled: runtimeAlreadyBundled, cancellationToken: ct);
+                        runtimeAlreadyBundled: runtimeAlreadyBundled,
+                        appxRecipe: string.IsNullOrWhiteSpace(resolution.AppxRecipePath) ? null : new FileInfo(resolution.AppxRecipePath),
+                        cancellationToken: ct);
                     producedMsix = result.MsixPath;
                     return (0, "Slice packaged.");
                 }

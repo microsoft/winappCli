@@ -655,6 +655,37 @@ public sealed class ProjectRunServiceAotTests
             installer.FullName));
     }
 
+    [TestMethod]
+    public async Task PublishNativeMsix_UsesAotPublishEnvironmentOverload()
+    {
+        // Regression guard for the native packaging publish reusing the AOT publish environment (which
+        // prepends the VS Installer directory so vswhere.exe resolves). The AOT env is delivered only
+        // through the argument-list overload of RunDotnetCommandAsync; the old string overload could not
+        // carry it. Asserting the publish goes through the argument-list overload proves the wiring.
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        var properties = PropertyJson(project, assets, publishAot: false, packaging: "MSIX", enableMsixTooling: true);
+        var packageDir = _tempDirectory.CreateSubdirectory("pkgout");
+        var producedMsix = WriteFile("pkgout\\App_1.0.0.0_x64.msix", "msix");
+        var dotnet = new FakeDotNetService
+        {
+            // Property-evaluation passes (PrepareBuildInputsAsync) use the string overload; the publish
+            // (--getProperty:AppxPackageOutput) uses the argument-list overload and returns the package path.
+            RunDotnetCommandHandler = _ => (0, properties, string.Empty),
+            RunDotnetArgumentListHandler = _ => (0, producedMsix.FullName, string.Empty),
+        };
+        var service = NewService(dotnet);
+
+        var outcome = await service.PublishNativeMsixAsync(project, Options(), packageDir, CancellationToken.None);
+
+        Assert.AreEqual(0, outcome.ExitCode);
+        Assert.AreEqual(producedMsix.FullName, outcome.PackagePath!.FullName);
+        Assert.AreEqual(1, dotnet.ArgumentListInvocations.Count, "the native publish must use the env-capable argument-list overload");
+        Assert.IsTrue(dotnet.ArgumentListInvocations[0].Contains("--getProperty:AppxPackageOutput"),
+            "the argument-list overload must carry the native packaging publish");
+        Assert.AreEqual(1, dotnet.ArgumentListEnvironmentInvocations.Count, "the AOT publish environment must be threaded (value is machine-dependent, presence is not)");
+    }
+
     private static FakeDotNetService SuccessfulDotnet(string properties) =>
         new()
         {

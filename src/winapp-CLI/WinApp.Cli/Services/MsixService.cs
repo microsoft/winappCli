@@ -1131,6 +1131,16 @@ internal partial class MsixService(
             (modifiedContent, detectedArch) = AutoDetectProcessorArchitecture(modifiedContent, exePath, taskContext);
         }
 
+        // Fallback: when PE detection could not stamp an architecture (no executable in the packaging
+        // directory — e.g. a Native AOT app whose exe lives in publish/native output, not the recipe's
+        // TargetDir) and the manifest still omits ProcessorArchitecture, use the resolved target
+        // architecture. Otherwise the package ships without an architecture and architecture-only bundles
+        // fail validation ("no Identity/@ProcessorArchitecture"). An explicit manifest value is preserved.
+        if (detectedArch == null)
+        {
+            (modifiedContent, detectedArch) = EnsureProcessorArchitecture(modifiedContent, targetArch, taskContext);
+        }
+
         return (modifiedContent, detectedArch);
     }
 

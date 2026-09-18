@@ -40,7 +40,13 @@ internal sealed partial class ProjectRunService
         }
         logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, display);
 
-        var (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(workingDir, argString, cancellationToken);
+        // Reuse the Native AOT publish environment (prepends the VS Installer directory so vswhere.exe —
+        // and the MSVC toolchain the AOT linker needs — resolves) for the native packaging publish too.
+        // Without it, packaging an AOT project fails with MSB3073 on a machine whose PATH omits the
+        // Installer directory, even though `run --aot` succeeds. Returns null when already resolvable, so
+        // this is a no-op for non-AOT native packaging. Pass the argument tokens discretely (ArgumentList).
+        var (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(
+            workingDir, arguments, BuildAotPublishEnvironment(), onOutputLine: null, onErrorLine: null, cancellationToken);
 
         if (exitCode != 0)
         {

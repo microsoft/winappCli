@@ -444,6 +444,28 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_GenericBundleSlice_ForwardsAppxRecipePath()
+    {
+        // A generic (recipe-based) bundle slice must forward the evaluated AppxPackageRecipe just like the
+        // single-package path, so slices assemble the recipe payload instead of a whole-folder copy.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        var recipePath = Path.Join(_tempDirectory.FullName, "obj", "App.build.appxrecipe");
+        _fakeProjectRunService.IsNativeMsixProject = false;
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64",
+                AppxRecipePath: recipePath), 0);
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "x64", "--arch", "arm64"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(_fakeMsixService.CreatePackageCalls.Count >= 2, "each generic slice must call CreateMsixPackageAsync");
+        Assert.AreEqual(recipePath, _fakeMsixService.LastCreatePackageArgs!.AppxRecipe!.FullName,
+            "the evaluated recipe must be forwarded into the generic bundle slice, not rediscovered from targetDir");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_MultipleArches_ProducesBundle()
     {
         var csproj = CreateCsproj();
