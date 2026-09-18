@@ -409,7 +409,7 @@ internal partial class PackageCommand
                             packageStagingDir.Delete(recursive: true);
                         }
                     }
-                    catch
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                     {
                         // Best-effort cleanup of the native packaging scratch directory.
                     }
@@ -685,7 +685,7 @@ internal partial class PackageCommand
                         bundleStagingDir.Delete(recursive: true);
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
                     // Best-effort cleanup of the bundle staging directory.
                 }

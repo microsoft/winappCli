@@ -141,7 +141,7 @@ internal partial class MsixService
                         stagingBundle.Delete();
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
                     // Best-effort cleanup of the staged bundle.
                 }
@@ -160,7 +160,7 @@ internal partial class MsixService
                         manifest.Delete();
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
                     // Best-effort cleanup of extracted temp manifests.
                 }

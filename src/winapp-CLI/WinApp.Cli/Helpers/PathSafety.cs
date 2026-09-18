@@ -460,7 +460,7 @@ internal static class PathSafety
         {
             root = Path.GetPathRoot(Path.GetFullPath(path));
         }
-        catch
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or System.Security.SecurityException)
         {
             return true; // Unresolvable path: bias to unsafe.
         }
@@ -476,7 +476,7 @@ internal static class PathSafety
         {
             return new DriveInfo(root).DriveType == DriveType.Network;
         }
-        catch
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             return true; // Bias to unsafe: if the drive type cannot be determined, refuse to probe it.
         }

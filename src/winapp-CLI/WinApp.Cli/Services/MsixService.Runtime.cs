@@ -213,7 +213,7 @@ internal partial class MsixService
     /// </summary>
     internal static List<string> CollectNativeFragmentDllNames(IEnumerable<FileInfo> fragments, string architecture) =>
         fragments
-            .Select(fragment => Path.Combine(fragment.DirectoryName!, $"win-{architecture}", "native"))
+            .Select(fragment => Path.Join(fragment.DirectoryName!, $"win-{architecture}", "native"))
             .Where(Directory.Exists)
             .SelectMany(dir => Directory.EnumerateFiles(dir, "*.dll"))
             .Select(Path.GetFileName)

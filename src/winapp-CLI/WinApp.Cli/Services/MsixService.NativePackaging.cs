@@ -86,7 +86,7 @@ internal partial class MsixService
                         stagingMsix.Delete();
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
                     // Best-effort cleanup of the staged (unpublished) artifact.
                 }
@@ -103,7 +103,7 @@ internal partial class MsixService
                     manifestTemp.Delete();
                 }
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
                 // Best-effort cleanup of the extracted temp manifest.
             }
