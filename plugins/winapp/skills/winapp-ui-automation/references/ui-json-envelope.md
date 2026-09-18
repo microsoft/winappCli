@@ -244,6 +244,34 @@ The internal `id`, `parentSelector`, and `windowHandle` fields are
 **scrubbed** from typed element results — both at the top level and inside any
 nested `invokableAncestor`. Don't depend on them; use `selector` as the handle.
 
+## `ui invoke --json`
+
+```powershell
+winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
+```
+
+```json
+{
+  "elementId": "AgreeCheckbox",
+  "pattern": "TogglePattern",
+  "requestedAction": "toggle-on",
+  "performedAction": "toggle",
+  "hwnd": 12345
+}
+```
+
+`requestedAction` is the supplied action, or `"auto"` when `--action` is omitted.
+`performedAction` is `"invoke"`, `"select"`, `"toggle"`, `"expand"`, or `"collapse"`.
+An already-correct `toggle-on` or `toggle-off` returns `"none"` without toggling;
+`pattern` still identifies the pattern used to read the state.
+`elementId` identifies the element acted on; automatic mode can report an
+ancestor, while explicit mode never acts on an ancestor.
+`hwnd` identifies that element's source window, which can differ from the main
+window when an app-scoped command selects a control in a secondary window.
+Failures emit the error envelope below on stderr, with a nonzero exit code and
+no success result. See the [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
+for action semantics and recovery.
+
 ## Error envelope
 
 Every `winapp ui` command writes errors to **stderr** as:

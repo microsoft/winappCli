@@ -124,6 +124,9 @@ Every option `winapp run` accepts in folder mode has a dedicated property above.
 exists for the rest — the global options such as `--verbose`, and any option added to the CLI before
 a property is wired up for it:
 
+`WinAppRunArgs` is appended to a **folder-mode** `winapp run` invocation. Project-only options such
+as `--aot`, `--project`, and `--framework` cannot be used through this property.
+
 ```powershell
 dotnet run -p:WinAppRunArgs="--verbose"
 ```

@@ -97,6 +97,13 @@ internal interface IMsixService
     /// configuration- or RID-conditional <c>PackageReference</c> is seen exactly as the build resolved it;
     /// when null (or the file is gone) discovery falls back to re-evaluating the project.
     /// </param>
+    /// <param name="appxRecipe">
+    /// The <c>.build.appxrecipe</c> the build produced, when the caller already knows which one describes
+    /// this output. A Native AOT publish writes its recipe outside the publish directory, so probing
+    /// <paramref name="inputDirectory"/> would find nothing (or a stale non-AOT recipe); passing it
+    /// explicitly is what makes the AOT layout the published one. When null, the recipe is probed for in
+    /// <paramref name="inputDirectory"/> as before.
+    /// </param>
     public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(
         FileInfo appxManifestPath,
         DirectoryInfo inputDirectory,
@@ -112,6 +119,7 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -125,6 +133,7 @@ internal interface IMsixService
     /// Developer Mode is likewise not required, because nothing is registered.
     /// </remarks>
     /// <param name="reconciliation">See <see cref="AddLooseLayoutIdentityAsync"/>.</param>
+    /// <param name="appxRecipe">See <see cref="AddLooseLayoutIdentityAsync"/>.</param>
     public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(
         FileInfo appxManifestPath,
         DirectoryInfo inputDirectory,
@@ -138,6 +147,7 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -158,6 +158,63 @@ internal sealed partial class ProjectRunService
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
 
+    internal static IReadOnlyList<string> BuildAotPublishArguments(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        string verbosity,
+        string? csWinRTMetadataFolder = null)
+    {
+        var tokens = new List<string>
+        {
+            "publish",
+            csproj.FullName,
+            "-c",
+            options.Configuration,
+            "-r",
+            RunArchHelper.ToRuntimeIdentifier(options.Architecture),
+        };
+
+        if (options.NoRestore)
+        {
+            tokens.Add("--no-restore");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Framework))
+        {
+            tokens.Add("-f");
+            tokens.Add(options.Framework);
+        }
+
+        tokens.Add("-v");
+        tokens.Add(verbosity);
+        tokens.Add("-tl:off");
+
+        foreach (var property in ForwardableProperties(options.Properties))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Platform))
+        {
+            tokens.Add($"-p:Platform={options.Platform}");
+        }
+
+        AppendInferredPublishProfile(tokens, csproj, options);
+        AppendSolutionProperties(tokens, options);
+
+        if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
+        {
+            tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
+        }
+
+        tokens.Add("-p:IncludePublishItemsOutputGroup=true");
+        foreach (var name in RequestedProperties)
+        {
+            tokens.Add($"--getProperty:{name}");
+        }
+        return tokens;
+    }
+
     /// <summary>
     /// Builds the arguments for the EVALUATE pass: a fast, side-effect-free <c>dotnet msbuild
     /// --getProperty</c> returning resolved output paths as JSON. Fed the SAME effective build inputs as

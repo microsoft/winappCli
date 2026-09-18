@@ -8,7 +8,36 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 
 internal sealed partial class UiAutomationService
 {
-    private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults, CancellationToken ct)
+    private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults,
+        bool requireUnique = false, CancellationToken ct = default)
+    {
+        var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct);
+        var nextId = 0;
+        var results = new List<UiElement>();
+        foreach (var (element, boundary, sourceHwnd) in matches)
+        {
+            ct.ThrowIfCancellationRequested();
+            var model = ToUiElement(element, "", ref nextId, requireCurrentIdentity: true);
+            if (requireUnique) { SetResolvedWindowHandle(model, element, sourceHwnd); }
+            else { model.WindowHandle = sourceHwnd; }
+            if (!requireUnique && !IsInvokable(element))
+            {
+                var ancestor = FindInvokableAncestor(element, boundary);
+                if (ancestor is not null)
+                {
+                    model.InvokableAncestor = ToUiElement(ancestor, "", ref nextId, requireCurrentIdentity: true);
+                }
+            }
+            results.Add(model);
+        }
+        // Keep runtime-ID slugs: an AutomationId unique in this subtree may be duplicated
+        // elsewhere in the window. Subsequent GetText/GetProperties must read the same element.
+        return results.ToArray();
+    }
+
+    private List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)> QueryConstrained(
+        UiTarget target, UiSelector selector, int maxResults, bool requireUnique, CancellationToken ct,
+        IUIAutomationElement? windowRoot = null)
     {
         if (selector.Root?.Root is not null)
         {
@@ -25,7 +54,10 @@ internal sealed partial class UiAutomationService
             }
         }
         if (maxResults <= 0) { return []; }
-        var windowRoot = GetRootElement(target, requireCurrentIdentity: true);
+        // Explicit actions must not recover a missing HWND onto a different app window.
+        windowRoot ??= requireUnique && target.WindowHandle != 0
+            ? s_elementFromHandle(this, (nint)target.WindowHandle)
+            : GetRootElement(target, requireCurrentIdentity: true);
         if (windowRoot is null) { return []; }
 
         IUIAutomationElement queryRoot = windowRoot;
@@ -34,7 +66,8 @@ internal sealed partial class UiAutomationService
         {
             // Resolve afresh on every call (including every wait-for poll). Root selection is
             // independent of the descendant predicates and must never pick an arbitrary match.
-            var roots = QueryWindow(windowRoot, rootSelector, 2, ct, out var hasExactRoot, includeRoot: true)
+            var roots = QueryWindow(windowRoot, rootSelector, 2, ct, out var hasExactRoot,
+                includeRoot: true, requireUnique: requireUnique)
                 .Select(el => (Element: el, Hwnd: hwnd)).ToList();
             if (!target.IsExplicitWindow)
             {
@@ -42,9 +75,10 @@ internal sealed partial class UiAutomationService
                 {
                     ct.ThrowIfCancellationRequested();
                     if (window.Hwnd == (nint)target.WindowHandle) { continue; }
-                    var otherRoot = GetRootElementForHwnd(window.Hwnd, requireCurrentIdentity: true);
+                    var otherRoot = GetWindowRoot(window.Hwnd);
                     if (otherRoot is null) { continue; }
-                    var windowRoots = QueryWindow(otherRoot, rootSelector, 2, ct, out var hasExactWindowRoot, includeRoot: true);
+                    var windowRoots = QueryWindow(otherRoot, rootSelector, 2, ct, out var hasExactWindowRoot,
+                        includeRoot: true, requireUnique: requireUnique);
                     // Exact IDs take precedence across the entire app, not just within an HWND.
                     if (hasExactRoot && !hasExactWindowRoot) { continue; }
                     if (hasExactWindowRoot && !hasExactRoot) { roots.Clear(); }
@@ -72,52 +106,61 @@ internal sealed partial class UiAutomationService
         }
 
         var includeWindow = selector.IsSlug && selector.Root is null;
-        var matches = QueryWindow(queryRoot, selector, maxResults, ct, out _, includeRoot: includeWindow);
-        var nextId = 0;
-        var results = new List<UiElement>();
+        var matches = QueryWindow(queryRoot, selector, maxResults, ct, out var hasExactId,
+            includeRoot: includeWindow, requireUnique: requireUnique);
+        var results = new List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)>();
         AddMatches(matches, queryRoot, hwnd);
 
         // Retain the established main-window-first fallback only for unscoped queries.
         // Once --root resolves, even zero descendants must not cause a popup search.
-        if (results.Count == 0 && selector.Root is null && !target.IsExplicitWindow)
+        if ((requireUnique || results.Count == 0) && selector.Root is null && !target.IsExplicitWindow)
         {
             foreach (var window in GetAllAppWindows(target))
             {
                 ct.ThrowIfCancellationRequested();
                 if (window.Hwnd == (nint)target.WindowHandle) { continue; }
-                var otherRoot = GetRootElementForHwnd(window.Hwnd, requireCurrentIdentity: true);
+                var otherRoot = GetWindowRoot(window.Hwnd);
                 if (otherRoot is null) { continue; }
-                AddMatches(QueryWindow(otherRoot, selector, maxResults - results.Count, ct, out _, includeRoot: includeWindow),
-                    otherRoot, (long)window.Hwnd);
-                if (results.Count >= maxResults) { break; }
+                var windowMatches = QueryWindow(otherRoot, selector, requireUnique ? maxResults : maxResults - results.Count,
+                    ct, out var hasExactWindowId, includeRoot: includeWindow, requireUnique: requireUnique);
+                if (requireUnique)
+                {
+                    // Substring ambiguity is provisional until every HWND has been checked for an exact ID.
+                    if (hasExactId && !hasExactWindowId) { continue; }
+                    if (hasExactWindowId && !hasExactId) { results.Clear(); }
+                    hasExactId |= hasExactWindowId;
+                }
+                AddMatches(windowMatches, otherRoot, (long)window.Hwnd);
+                if (!requireUnique && results.Count >= maxResults) { break; }
             }
         }
-        // Keep runtime-ID slugs: an AutomationId unique in this subtree may be duplicated
-        // elsewhere in the window. Subsequent GetText/GetProperties must read the same element.
-        return results.ToArray();
+        if (requireUnique && results.Count > 1)
+        {
+            throw new UiAmbiguousSelectorException(
+                $"Selector matched {results.Count} elements. " +
+                "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name.");
+        }
+        return results;
+
+        IUIAutomationElement? GetWindowRoot(nint hwnd) => requireUnique
+            ? s_elementFromHandle(this, hwnd) ?? throw new InvalidOperationException(
+                $"Cannot verify selector uniqueness because HWND {hwnd} could not be read. Re-run 'inspect' or 'search'.")
+            : GetRootElementForHwnd(hwnd, requireCurrentIdentity: true);
 
         void AddMatches(List<IUIAutomationElement> elements, IUIAutomationElement boundary, long sourceHwnd)
         {
             foreach (var element in elements)
             {
                 ct.ThrowIfCancellationRequested();
-                var model = ToUiElement(element, "", ref nextId, requireCurrentIdentity: true);
-                model.WindowHandle = sourceHwnd;
-                if (!IsInvokable(element))
-                {
-                    var ancestor = FindInvokableAncestor(element, boundary);
-                    if (ancestor is not null)
-                    {
-                        model.InvokableAncestor = ToUiElement(ancestor, "", ref nextId, requireCurrentIdentity: true);
-                    }
-                }
-                results.Add(model);
+                if (requireUnique && results.Any(result =>
+                    s_compareElements(this, result.Element, element))) { continue; }
+                results.Add((element, boundary, sourceHwnd));
             }
         }
     }
 
     private List<IUIAutomationElement> QueryWindow(IUIAutomationElement root, UiSelector selector,
-        int maxResults, CancellationToken ct, out bool hasExactId, bool includeRoot = false)
+        int maxResults, CancellationToken ct, out bool hasExactId, bool includeRoot = false, bool requireUnique = false)
     {
         hasExactId = false;
         if (maxResults <= 0) { return []; }
@@ -126,7 +169,8 @@ internal sealed partial class UiAutomationService
             // A same-name element with a different runtime ID is not this identity.
             // In particular, another app window may contain the actual slug.
             var (_, element) = FindElementBySlugWithCom(selector.Slug!, root, includeRoot,
-                throwOnHashMismatch: false, ct: ct, requireCurrentIdentity: true);
+                throwOnHashMismatch: false, ct: ct, requireCurrentIdentity: true,
+                requireUnique: requireUnique, matches: candidate => MatchesQueryPredicates(candidate, selector));
             return element is not null && MatchesQueryPredicates(element, selector) ? [element] : [];
         }
 
@@ -167,9 +211,13 @@ internal sealed partial class UiAutomationService
             ct.ThrowIfCancellationRequested();
             var rootMatches = includeRoot && Matches(root);
             var remaining = maxResults - (rootMatches ? 1 : 0);
-            var results = FindAllDescendantMatches(root, condition, remaining,
-                () => ManualTreeSearchCore(root, remaining, Matches, ct, throwOnTraversalFailure: true),
-                Matches, requireCurrentIdentity: true, ct: ct);
+            // A bounded bulk result cannot prove uniqueness. Explicit actions finish the strict
+            // Control View walk, including predicates, even after finding their first candidate.
+            var results = requireUnique
+                ? ManualTreeSearchCore(root, int.MaxValue, Matches, ct, throwOnTraversalFailure: true)
+                : FindAllDescendantMatches(root, condition, remaining,
+                    () => ManualTreeSearchCore(root, remaining, Matches, ct, throwOnTraversalFailure: true),
+                    Matches, requireCurrentIdentity: true, ct: ct);
             if (rootMatches) { results.Insert(0, root); }
             return results;
         }
