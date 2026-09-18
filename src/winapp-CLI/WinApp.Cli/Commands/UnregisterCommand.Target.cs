@@ -23,7 +23,10 @@ internal partial class UnregisterCommand
         /// name, and the host clears evidence only after a second Windows query proves it is gone.
         /// </remarks>
         private async Task<int> UnregisterOnTargetAsync(
-            MsixIdentityResult identity,
+            MsixIdentityResult? identity,
+            string? canonicalOwner,
+            string? hostLayout,
+            FileInfo? manifest,
             bool isJson,
             CancellationToken cancellationToken)
         {
@@ -33,16 +36,56 @@ internal partial class UnregisterCommand
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = false },
                     cancellationToken);
 
-                var familyName = appLauncherService.ComputePackageFamilyName(
-                    identity.PackageName,
-                    identity.Publisher);
+                var candidates = deploymentStateStore.List(target.Reference)
+                    .Where(state => state.IsForEpoch(target.Epoch) && state.Package != null)
+                    .ToList();
+                var matches = SelectTargetDeployments(candidates, identity, manifest, hostLayout, canonicalOwner);
+                if (matches.Count > 1)
+                {
+                    return FailWith(AmbiguousLayouts(matches.Select(state =>
+                        state.Package!.HostLayoutPath ?? state.Package.RegisteredLocation)), isJson);
+                }
+                if (matches.Count == 0)
+                {
+                    if (hostLayout != null && candidates.Any(state =>
+                        state.Package!.HostLayoutPath is { } path && SamePath(path, hostLayout)))
+                    {
+                        return FailWith("The selected target layout's recorded owner or identity does not match the app input or --manifest.", isJson);
+                    }
+                    if (manifest != null && candidates.Any(state => state.Package!.Identity is { } recorded
+                        && BelongsToManifest(recorded, manifest)))
+                    {
+                        return FailWith("The target deployment at this app's path does not match --manifest. Select its app input or --output-appx-directory instead.", isJson);
+                    }
+                    return ReportNoRegistration(isJson);
+                }
+
+                var deployment = matches[0];
+                var package = deployment.Package!;
+                if (!string.Equals(package.PackageFamilyName,
+                    appLauncherService.ComputePackageFamilyName(package.PackageName, package.Publisher),
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return FailWith("The target deployment's package family does not match its recorded name and publisher. No package was removed.", isJson);
+                }
+                if (package.Identity is { } recorded &&
+                    (!string.Equals(package.PackageName, recorded.EffectivePackageName, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(package.Publisher, recorded.Publisher, StringComparison.Ordinal)
+                    || !string.Equals(package.PackageFamilyName, recorded.PackageFamilyName, StringComparison.OrdinalIgnoreCase)
+                    || !TargetPathSafety.PathsEqual(package.RegisteredLocation, recorded.LayoutPath)
+                    || (recorded.PackageFullName != null && !string.Equals(
+                        package.PackageFullName, recorded.PackageFullName, StringComparison.OrdinalIgnoreCase))))
+                {
+                    return FailWith("The target deployment's recorded identities disagree. No package was removed.", isJson);
+                }
+
                 var unregistered = await guestApplicationRunner.UnregisterOwnedPackageAsync(
                     target,
-                    identity.PackageName,
-                    identity.Publisher,
-                    familyName,
-                    requiredDeploymentId: null,
-                    requiredRevision: null,
+                    package.PackageName,
+                    package.Publisher,
+                    package.PackageFamilyName,
+                    requiredDeploymentId: deployment.DeploymentId,
+                    requiredRevision: deployment.Revision,
                     cancellationToken);
 
                 if (unregistered is null)
@@ -58,7 +101,7 @@ internal partial class UnregisterCommand
                             "{UISymbol} No package deployed on {Target} for '{PackageName}'.",
                             UiSymbols.Note,
                             target.Reference.Selector,
-                            identity.PackageName);
+                            package.PackageName);
                     }
 
                     return 0;
@@ -80,6 +123,25 @@ internal partial class UnregisterCommand
                 return TargetOutput.Fail(ansiConsole, isJson, ex.Error);
             }
         }
+
+        internal static IReadOnlyList<DeploymentState> SelectTargetDeployments(
+            IReadOnlyList<DeploymentState> candidates,
+            MsixIdentityResult? identity,
+            FileInfo? manifest,
+            string? hostLayout,
+            string? canonicalOwner = null) =>
+            candidates.Where(state => state.Package is { } package
+                && (canonicalOwner == null || (package.Identity is { } owned && SamePath(owned.OwnerPath, canonicalOwner)))
+                && (hostLayout == null || (package.HostLayoutPath is { } path && SamePath(path, hostLayout)))
+                && (identity == null
+                    || (package.Identity is { } recorded
+                        ? MatchesManifest(recorded, identity)
+                            && (hostLayout != null || manifest == null
+                                || BelongsToManifest(recorded, manifest)
+                                || (package.HostLayoutPath != null && SamePath(package.HostLayoutPath, manifest.DirectoryName!)))
+                        : string.Equals(package.PackageName, identity.PackageName, StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(package.Publisher, identity.Publisher, StringComparison.Ordinal))))
+                .ToList();
 
     }
 }

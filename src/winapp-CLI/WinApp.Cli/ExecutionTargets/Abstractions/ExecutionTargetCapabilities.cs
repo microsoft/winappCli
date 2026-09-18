@@ -21,6 +21,12 @@ namespace WinApp.Cli.ExecutionTargets.Abstractions;
 /// </remarks>
 internal sealed class ExecutionTargetCapabilities
 {
+    internal const int CurrentDevelopmentIdentityVersion = 1;
+
+    /// <summary>Exact owned development registration support; zero when unavailable.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int DevelopmentIdentityVersion { get; init; }
+
     /// <summary>Guest processor architecture, for example <c>x64</c> or <c>arm64</c>.</summary>
     public required string Architecture { get; init; }
 

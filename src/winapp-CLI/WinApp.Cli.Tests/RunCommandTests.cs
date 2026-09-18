@@ -11,6 +11,7 @@ using System.Text.Json;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
@@ -79,6 +80,54 @@ public class RunCommandTests : BaseCommandTests
     }
 
     #region Option parsing tests
+
+    [TestMethod]
+    public async Task UniqueIdentity_FolderPassesOwnerAndReturnsIdentityJson()
+    {
+        await CreateTestManifestAsync();
+        var identity = new DevelopmentIdentity
+        {
+            Mode = "Unique",
+            OriginalPackageName = "TestPackage",
+            EffectivePackageName = "TestPackage.w0123456789abcdef01234567",
+            Publisher = "CN=TestPublisher",
+            Version = "1.0.0.0",
+            Architecture = "x64",
+            ResourceId = "",
+            PackageFamilyName = "TestPackage.w0123456789abcdef01234567_testpublisher",
+            PackageFullName = "TestPackage.w0123456789abcdef01234567_1.0.0.0_x64__testpublisher",
+            ApplicationId = "TestApp",
+            OwnerPath = _tempDirectory.FullName,
+            LayoutPath = Path.Combine(_tempDirectory.FullName, "AppX"),
+            Aliases = new Dictionary<string, string> { ["test.exe"] = "test.w0123456789abcdef01234567.exe" },
+        };
+        _fakeMsixService.FakeDevelopmentIdentity = identity;
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [_tempDirectory.FullName, "--unique-identity", "--no-launch", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeMsixService.AddLooseLayoutDevelopmentIdentityCalls.Single();
+        Assert.IsNotNull(options);
+        Assert.IsTrue(options.UniqueIdentity);
+        Assert.AreEqual(_tempDirectory.FullName, options.OwnerPath);
+        var json = ParseJsonOutput();
+        Assert.AreEqual(identity.PackageFamilyName + "!TestApp", json.GetProperty("AUMID").GetString());
+        var result = json.GetProperty("Identity");
+        Assert.AreEqual("Unique", result.GetProperty("Mode").GetString());
+        Assert.AreEqual(identity.PackageFullName, result.GetProperty("PackageFullName").GetString());
+        Assert.AreEqual(identity.OwnerPath, result.GetProperty("OwnerPath").GetString());
+        Assert.AreEqual(identity.Aliases["test.exe"], result.GetProperty("Aliases").GetProperty("test.exe").GetString());
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count);
+    }
+
+    [TestMethod]
+    public void UniqueIdentity_IsOptIn()
+    {
+        var command = GetRequiredService<RunCommand>();
+        Assert.IsFalse(command.Parse([]).GetValue(RunCommand.UniqueIdentityOption));
+        Assert.IsTrue(command.Parse(["--unique-identity"]).GetValue(RunCommand.UniqueIdentityOption));
+    }
 
     [TestMethod]
     public void RunCommand_ExposesShortDescription()
@@ -1808,6 +1857,28 @@ public class RunCommandTests : BaseCommandTests
     #region --unregister-on-exit tests
 
     [TestMethod]
+    public async Task UnregisterOnExit_LiveLocationChanged_ReturnsOneJsonErrorAndRemovesNothing()
+    {
+        await CreateTestManifestAsync();
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
+        _fakeAppLauncherService.FakeProcessId = uint.MaxValue;
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0",
+                _tempDirectory.CreateSubdirectory("someone-else").FullName, IsDevelopmentMode: true),
+        ];
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [_tempDirectory.FullName, "--unregister-on-exit", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var result = ParseJsonOutput();
+        StringAssert.Contains(result.GetProperty("Error").GetString()!, "Cannot verify");
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count);
+        Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
+    }
+
+    [TestMethod]
     public async Task RunCommand_UnregisterOnExit_RemovesExactlyThePackageTheRunRegistered()
     {
         // Cleanup targets the package this run registered, identified by its full name. Identity NAME is
@@ -1816,7 +1887,7 @@ public class RunCommandTests : BaseCommandTests
         _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", Path.Join(_tempDirectory.FullName, "AppX"), IsDevelopmentMode: true),
         ];
         await CreateTestManifestAsync();
         var command = GetRequiredService<RunCommand>();
@@ -1840,7 +1911,7 @@ public class RunCommandTests : BaseCommandTests
         _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", Path.Join(_tempDirectory.FullName, "AppX"), IsDevelopmentMode: true),
             new DevPackageInfo("TestPackage_2.0.0.0_x64__theirs", "TestPackage", "2.0.0.0", null, IsDevelopmentMode: true),
             new DevPackageInfo("TestPackage_9.9.9.9_x64__8wekyb3d8bbwe", "TestPackage", "9.9.9.9", null, IsDevelopmentMode: false),
         ];
@@ -1865,12 +1936,16 @@ public class RunCommandTests : BaseCommandTests
         // --verbose and tells the user a registration is gone when it is still there.
         _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__mine";
         _fakePackageRegistrationService.FakeUnregisterByFullNameResult = false;
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__mine", "TestPackage", "1.0.0.0", Path.Join(_tempDirectory.FullName, "AppX"), IsDevelopmentMode: true),
+        ];
         await CreateTestManifestAsync();
         var command = GetRequiredService<RunCommand>();
 
         var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
 
-        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, exitCode);
         Assert.AreEqual(1, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count, "Removal is still attempted");
         var output = System.Text.RegularExpressions.Regex.Replace(
             $"{ambientOutput}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
@@ -1896,7 +1971,7 @@ public class RunCommandTests : BaseCommandTests
 
         var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
 
-        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterByFullNameCalls.Count,
             "Nothing may be removed when the package cannot be identified");
         Assert.AreEqual(0, _fakePackageRegistrationService.UnregisterCalls.Count);
@@ -1911,6 +1986,7 @@ public class RunCommandTests : BaseCommandTests
     [TestMethod]
     public async Task RunCommand_UnregisterOnExit_AfterCancellation_StillRemovesTheRegistration()
     {
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__dev";
         // Ctrl+C is the normal way to stop an inline console app, which this command now launches through
         // an alias by default. --unregister-on-exit is a promise made before the app started, so cleanup
         // has to survive it: handing the run's already-cancelled token to the removal makes
@@ -1922,6 +1998,10 @@ public class RunCommandTests : BaseCommandTests
         ];
         await CreateTestManifestAsync();
         var outputDir = await CreateProcessedManifestAsync("appx-cancel-cleanup", alias: "winapp-run-test.exe");
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", outputDir.FullName, IsDevelopmentMode: true),
+        ];
         var aliasProxy = CreateExistingFile("winapp-run-test.exe");
         var processStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var helperPid = 0;
@@ -1953,25 +2033,25 @@ public class RunCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RunCommand_UnregisterOnExit_SwallowsUnregisterFailures()
+    public async Task RunCommand_UnregisterOnExit_ReportsUnregisterFailures()
     {
-        // A failure while unregistering on exit must not fault the command (it is best-effort).
         _fakePackageRegistrationService.FindDevPackagesThrows = new InvalidOperationException("boom");
         await CreateTestManifestAsync();
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [_tempDirectory.FullName, "--unregister-on-exit"]);
 
-        Assert.AreEqual(0, exitCode, "Unregister failures on exit are non-fatal");
+        Assert.AreEqual(1, exitCode, "Unregister failures must be reported to automation");
     }
 
     [TestMethod]
     public async Task RunCommand_DebugOutput_UnregisterOnExit_Unregisters()
     {
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__dev";
         // The --debug-output launch path also honours --unregister-on-exit after the debug loop.
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", null, IsDevelopmentMode: true),
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", Path.Join(_tempDirectory.FullName, "AppX"), IsDevelopmentMode: true),
         ];
         await CreateTestManifestAsync();
         var command = GetRequiredService<RunCommand>();
@@ -2121,6 +2201,7 @@ public class RunCommandTests : BaseCommandTests
     [TestMethod]
     public async Task RunCommand_WithAlias_UnregisterOnExit_UnregistersAfterAliasPath()
     {
+        _fakeAppLauncherService.FakePackageFullName = "TestPackage_1.0.0.0_x64__dev";
         // --with-alias combined with --unregister-on-exit unregisters dev packages after the
         // alias launch path returns (here it returns early because the proxy is missing).
         _fakePackageRegistrationService.FakeDevPackages =
@@ -2129,6 +2210,10 @@ public class RunCommandTests : BaseCommandTests
         ];
         await CreateTestManifestAsync();
         var outputDir = await CreateProcessedManifestAsync("appx-proxy2", alias: "winapp-run-test-missing.exe");
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo("TestPackage_1.0.0.0_x64__dev", "TestPackage", "1.0.0.0", outputDir.FullName, IsDevelopmentMode: true),
+        ];
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,

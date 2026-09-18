@@ -3,4 +3,7 @@
 
 namespace WinApp.Cli.Models;
 
-internal sealed record MsixIdentityResult(string PackageName, string Publisher, string ApplicationId);
+internal sealed record MsixIdentityResult(string PackageName, string Publisher, string ApplicationId)
+{
+    public DevelopmentIdentity? Identity { get; init; }
+}

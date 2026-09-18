@@ -17,15 +17,21 @@ Use this skill when:
 | "Package.appxmanifest not found" | Running `package`, `create-debug-identity`, or `cert generate --manifest` | Run `winapp init` or `winapp manifest generate` first, or pass `--manifest <path>` |
 | "Publisher mismatch" | Certificate publisher ≠ manifest publisher | Regenerate cert: `winapp cert generate --manifest`, or edit `Package.appxmanifest` `Identity.Publisher` to match |
 | "Access denied" / "elevation required" | `cert install` without admin | Run terminal as Administrator for `winapp cert install` |
-| "Package installation failed" | Cert not trusted, or stale package registration | `winapp cert install ./devcert.pfx` (admin), then `Get-AppxPackage <name> \| Remove-AppxPackage` |
+| "Package installation failed" | Cert not trusted, or stale package registration | For a certificate error, `winapp cert install ./devcert.pfx` (admin). For registration conflicts, follow the ownership guidance below rather than deleting packages by name |
 | "Certificate not trusted" | Dev cert not installed on machine | `winapp cert install ./devcert.pfx` (admin) |
 | "Build tools not found" | First run, tools not yet downloaded | Run `winapp update` to download tools; ensure internet access |
-| "Failed to add package identity" | Stale debug identity or untrusted cert | `Get-AppxPackage *yourapp* \| Remove-AppxPackage` to clean up, then `winapp cert install` and retry |
+| "Failed to add package identity" | Stale debug identity or untrusted cert | Unregister the intended source or sparse manifest with `winapp unregister`; install a certificate only if the error requires it |
 | "Certificate file already exists" | `devcert.pfx` already present | Use `winapp cert generate --if-exists overwrite` or `--if-exists skip` |
 | "Manifest already exists" | `Package.appxmanifest` already present | Use `winapp manifest generate --if-exists overwrite` or edit manifest directly |
 | `run` / `create-debug-identity` registration error `0x800704EC` | Developer Mode is disabled | Enable it in **Settings → Privacy & security → For developers**, or `Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -Value 1`, then retry |
-| `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` (or `winapp unregister --force` if the package was registered from a different project tree), then retry |
+| `run` registration conflict | Another layout owns the package identity | Opt into `winapp run . --unique-identity` for supported packaged apps, or explicitly unregister your previous layout. `--force` cannot bypass managed ownership |
+| `create-debug-identity` registration error `0x80073CFB` | Legacy sparse identity already registered | See [legacy sparse cleanup](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unregister); do not force-remove a managed `run` registration |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
+
+For unique-mode validation or resource errors, read
+[unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts).
+Do not bypass rejected extensions or replace a localized resource index with a lossy
+fallback. Use normal mode when testing integrations that require the original identity.
 
 ## Command selection guide
 
@@ -80,7 +86,7 @@ Is the app a single .cs file (.NET file-based app)?
 | Capture OutputDebugString + crash dump | `winapp run .\build\Debug --debug-output` | On crash, writes minidump and shows exception type, message, and faulting methods. **Blocks other debuggers** — use `--no-launch` if you need VS Code/WinDbg |
 | Run and auto-clean | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | Launch and detach (CI) | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| Clean up stale registration | `winapp unregister` | Removes dev-mode packages for the current project (pass a `.cs` for a file-based app: `winapp unregister counter.cs`) |
+| Clean up this app's registration | `winapp unregister .` | Discovers the effective normal or unique registration; use the same source selector as `run` |
 | Start menu entry does nothing when clicked | `winapp unregister --prune` | The package is registered but its files were deleted, so activation silently fails. Prune removes every dev registration whose files are gone |
 
 > **Visual Studio users:** If you have a packaging project, VS already handles identity and debugging from F5 — you likely don't need winapp for debugging. These workflows are for VS Code, terminal, and frameworks VS doesn't natively package.
@@ -100,7 +106,7 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
 | `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.sln`; **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
-| `unregister` | A `.cs` file-based app, **or** `Package.appxmanifest` (auto-detect or `--manifest`) | Removes dev-mode package registrations |
+| `unregister` | `.cs`, `.csproj`, `.sln`/`.slnx`, folder, or a recorded `--output-appx-directory`; `--manifest` for manifest selection | Removes the matching owned development registration; legacy sparse cleanup remains separate |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |
 | `create-external-catalog` | Directory with executables | `CodeIntegrityExternal.cat` |

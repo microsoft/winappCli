@@ -201,7 +201,7 @@ internal partial class RunCommand
             // Snapshot BEFORE the pipeline runs. Once registration succeeds, FindDevPackages reports the
             // package this run just created, so "was it already registered, and from where?" has exactly
             // one moment at which it can be answered.
-            var priorRegistrations = FindPriorRegistrations(resolvedManifest);
+            var priorRegistrations = FindPriorRegistrations(resolvedManifest, singleFile);
 
             // A tier-3 manifest can be named <stem>.appxmanifest, which ManifestHelper.FindManifest does not
             // probe for, so the resolved manifest is always passed explicitly rather than left to
@@ -524,7 +524,7 @@ internal partial class RunCommand
         /// Must run BEFORE registration. Afterwards <c>FindDevPackages</c> returns the package this run just
         /// created, which would make every run look like a re-registration and suppress the notice entirely.
         /// </remarks>
-        private PriorRegistrations FindPriorRegistrations(FileInfo manifest)
+        private PriorRegistrations FindPriorRegistrations(FileInfo manifest, FileInfo owner)
         {
             try
             {
@@ -533,16 +533,25 @@ internal partial class RunCommand
                     return PriorRegistrations.None;
                 }
 
-                var packageName = AppxManifestDocument.Load(manifest.FullName).IdentityName;
+                var document = AppxManifestDocument.Load(manifest.FullName);
+                var packageName = document.IdentityName;
                 if (string.IsNullOrEmpty(packageName))
                 {
                     return PriorRegistrations.None;
+                }
+                if (_uniqueIdentityRequested)
+                {
+                    packageName = DevelopmentIdentityHelper.DeriveName(
+                        DevelopmentIdentityHelper.CanonicalizePath(owner.FullName),
+                        packageName,
+                        document.IdentityPublisher ?? throw new InvalidOperationException("The manifest has no publisher."));
                 }
 
                 return new PriorRegistrations(
                     packageName,
                     [.. packageRegistrationService.FindDevPackages(packageName)
-                        .Where(p => p.IsDevelopmentMode)
+                        .Where(p => p.IsDevelopmentMode &&
+                            string.Equals(p.Publisher, document.IdentityPublisher, StringComparison.Ordinal))
                         .Select(p => p.InstallLocation)
                         .OfType<string>()
                         .Where(location => location.Length > 0)]);
@@ -557,8 +566,7 @@ internal partial class RunCommand
         }
 
         /// <summary>
-        /// Reports what a registration leaves behind: a warning when it REPLACES a different app's
-        /// registration, and a one-time note when it creates one that outlives the run.
+        /// Reports the first registration that outlives the run.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -571,9 +579,7 @@ internal partial class RunCommand
         /// also lands in the Start menu, so scoping the note to console apps would teach the wrong model.
         /// </para>
         /// <para>
-        /// The replacement warning still fires for two apps that explicitly share one
-        /// <c>WinAppPackageName</c>; the path hash in the default identity is what keeps unrelated
-        /// same-named files from colliding in the first place.
+        /// Conflicting registrations are rejected by the registration service before this callback.
         /// </para>
         /// <para>
         /// <paramref name="layoutDirectory"/> must be the EFFECTIVE AppX layout directory (honoring
@@ -590,21 +596,13 @@ internal partial class RunCommand
             bool isJson,
             string? unregisterCommand = null)
         {
-            // Gate on Warning, not Information: --quiet suppresses Information but still promises
-            // warnings, and silently replacing another app's registration is exactly what a user needs
-            // to hear about.
-            if (isJson || prior.PackageName.Length == 0 || !logger.IsEnabled(LogLevel.Warning))
+            if (isJson || prior.PackageName.Length == 0 || !logger.IsEnabled(LogLevel.Information))
             {
                 return;
             }
 
-            var installedElsewhere = prior.InstallLocations
-                .FirstOrDefault(location => !PathsPointToSameLocation(location, layoutDirectory.FullName));
-            if (installedElsewhere is not null)
+            if (prior.InstallLocations.Any(location => !PathsPointToSameLocation(location, layoutDirectory.FullName)))
             {
-                logger.LogWarning(
-                    "{UISymbol} Replacing the existing registration of '{PackageName}', which was installed from a different location ({InstallLocation}). Set '#:property {Property}=<name>' to give this app its own package identity.",
-                    UiSymbols.Warning, prior.PackageName, installedElsewhere, SingleFileManifestPlanner.PackageNameProperty);
                 return;
             }
 

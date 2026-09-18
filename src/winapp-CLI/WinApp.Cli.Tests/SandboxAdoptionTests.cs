@@ -229,7 +229,11 @@ public class SandboxAdoptionTests
         var bootstrapShare = GuestSharePaths(harness)
             .Single(path => !path.StartsWith(@"C:\WinAppBootstrapResult", StringComparison.Ordinal));
 
-        StringAssert.Contains(rule, $@"{bootstrapShare}\{GuestAgentCommandNames.BinaryName}", StringComparison.Ordinal);
+        var launch = harness.Cli.Operations.Single(op => op.StartsWith("launch-agent:", StringComparison.Ordinal));
+        var executable = launch.Split('"')[1];
+        StringAssert.StartsWith(executable, bootstrapShare + @"\payload-", StringComparison.Ordinal);
+        StringAssert.EndsWith(executable, @"\" + GuestAgentCommandNames.BinaryName, StringComparison.Ordinal);
+        StringAssert.Contains(rule, $"$agent='{executable}'", StringComparison.Ordinal);
     }
 
     [TestMethod]

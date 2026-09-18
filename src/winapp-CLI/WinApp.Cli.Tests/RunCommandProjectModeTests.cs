@@ -237,6 +237,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
     [TestMethod]
     [DataRow("--no-launch", null)]
+    [DataRow("--unique-identity", null)]
     [DataRow("--with-alias", null)]
     [DataRow("--unregister-on-exit", null)]
     [DataRow("--clean", null)]
@@ -262,6 +263,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
     [TestMethod]
     [DataRow("--no-launch", null)]
+    [DataRow("--unique-identity", null)]
     [DataRow("--with-alias", null)]
     [DataRow("--unregister-on-exit", null)]
     [DataRow("--clean", null)]
@@ -393,6 +395,24 @@ public class RunCommandProjectModeTests : BaseCommandTests
     #endregion
 
     #region Packaged
+
+    [TestMethod]
+    public async Task UniqueIdentity_UsesResolvedProjectInsteadOfBuildOutput()
+    {
+        var project = CreateCsproj();
+        var output = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(project, output);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [project.FullName, "--unique-identity", "--no-launch"]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeMsixService.AddLooseLayoutDevelopmentIdentityCalls.Single();
+        Assert.IsNotNull(options);
+        Assert.IsTrue(options.UniqueIdentity);
+        Assert.AreEqual(project.FullName, options.OwnerPath);
+        Assert.AreNotEqual(output.FullName, options.OwnerPath);
+    }
 
     [TestMethod]
     public async Task ProjectMode_Packaged_InstallsArchRuntimeAndLaunchesViaAumid()

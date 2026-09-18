@@ -43,8 +43,11 @@ internal partial class RunCommand
             bool noRestore,
             bool selfContained,
             PackageGraphSource? packageGraph,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            DevelopmentIdentityOptions? developmentIdentity = null)
         {
+            developmentIdentity ??= new DevelopmentIdentityOptions(
+                DevelopmentIdentityHelper.CanonicalizePath(inputFolder.FullName), _uniqueIdentityRequested);
             FileInfo resolvedManifest;
             DirectoryInfo layout;
             MsixIdentityResult? identity = null;
@@ -80,7 +83,8 @@ internal partial class RunCommand
                                 identity = await msixService.MaterializeLooseLayoutAsync(
                                     resolvedManifest, inputFolder, layout, taskContext, layoutOutput.Reconciliation,
                                     executable, projectFile, framework, noRestore,
-                                    selfContained, aliasDecision.UseAlias, packageGraph, ct);
+                                    selfContained, aliasDecision.UseAlias, packageGraph,
+                                    developmentIdentity: developmentIdentity, cancellationToken: ct);
                                 return (0, $"{identity.PackageName} ready to deploy");
                             }
                             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -98,6 +102,12 @@ internal partial class RunCommand
                     if (materialized != 0 || identity is null)
                     {
                         return Fail(materializeError ?? "Failed to prepare the application.", isJson);
+                    }
+
+                    _runIdentity = identity.Identity;
+                    if (identity.Identity is { Mode: "Unique" } uniqueIdentity)
+                    {
+                        layout = new DirectoryInfo(DevelopmentIdentityHelper.ResolvePathForIo(uniqueIdentity.LayoutPath));
                     }
                 }
                 catch (OperationCanceledException)
@@ -267,16 +277,33 @@ internal partial class RunCommand
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = requiresRealInput },
                     cancellationToken);
 
+                GuestRunPlanner.EnsureUniqueIdentitySupported(
+                    target.Capabilities, _uniqueIdentityRequested || identity?.Identity?.Mode == "Unique");
+
+                PackageOwnership? requestedPackage = null;
                 if (identity is not null)
                 {
-                    var familyName = appLauncherService.ComputePackageFamilyName(
+                    var familyName = identity.Identity?.PackageFamilyName ?? appLauncherService.ComputePackageFamilyName(
                         identity.PackageName,
                         identity.Publisher);
+                    var guestLayout = GuestPaths.Resolve(target.Capabilities, GuestPaths.LayoutScope(deploymentId));
+                    requestedPackage = new PackageOwnership
+                    {
+                        PackageName = identity.PackageName,
+                        Publisher = identity.Publisher,
+                        PackageFamilyName = familyName,
+                        RegisteredLocation = guestLayout,
+                        Aumid = $"{familyName}!{identity.ApplicationId}",
+                        HostLayoutPath = DevelopmentIdentityHelper.CanonicalizePath(sourceRoot.FullName),
+                        Identity = identity.Identity is { } context
+                            ? context with { LayoutPath = guestLayout, PackageFullName = null }
+                            : null,
+                    };
                     await guestApplicationRunner.ReconcilePackageBeforeRegistrationAsync(
                         target,
-                        identity.PackageName,
-                        identity.Publisher,
-                        familyName,
+                        deploymentId,
+                        requestedPackage,
+                        clean,
                         cancellationToken);
                 }
 
@@ -290,18 +317,12 @@ internal partial class RunCommand
 
                 var state = deployment.State;
 
-                if (identity is not null)
+                if (identity is not null && requestedPackage is not null)
                 {
-                    var familyName = appLauncherService.ComputePackageFamilyName(identity.PackageName, identity.Publisher);
+                    var familyName = requestedPackage.PackageFamilyName;
 
-                    state = guestApplicationRunner.CommitPackage(target.Reference, state, new PackageOwnership
-                    {
-                        PackageName = identity.PackageName,
-                        Publisher = identity.Publisher,
-                        PackageFamilyName = familyName,
-                        RegisteredLocation = deployment.LayoutPath,
-                        Aumid = $"{familyName}!{identity.ApplicationId}",
-                    });
+                    state = guestApplicationRunner.CommitPackage(target.Reference, state, requestedPackage);
+                    _runIdentity = state.Package?.Identity;
 
                     // Even --no-launch registers under the mutation lease.
                     WriteProgress(isJson, "Registering the application in the Windows Sandbox...");
@@ -326,6 +347,7 @@ internal partial class RunCommand
                                 StringComparison.Ordinal))
                         {
                             state = reconciled;
+                            _runIdentity = state.Package?.Identity;
                         }
 
                         if (registration.ExitCode != 0)
@@ -423,28 +445,34 @@ internal partial class RunCommand
                 {
                     if (identity is not null && unregisterOnExit)
                     {
-                        await UnregisterDeploymentAfterExitAsync(target, identity, state);
+                        var error = await UnregisterDeploymentAfterExitAsync(target, state);
+                        if (error is not null)
+                        {
+                            return TargetOutput.Fail(ansiConsole, isJson, ExecutionTargetException.Create(
+                                ExecutionTargetErrorCodes.PackageConflict, error).Error);
+                        }
                     }
 
                     throw;
                 }
 
                 // Cleanup rechecks this run's revision under a fresh mutation lease.
+                string? cleanupError = null;
                 if (identity is not null && unregisterOnExit)
                 {
-                    await UnregisterDeploymentAfterExitAsync(target, identity, run.State);
+                    cleanupError = await UnregisterDeploymentAfterExitAsync(target, run.State);
                 }
 
                 if (isJson && guestProducesRunResult && capturedOutput is not null)
                 {
-                    PublishGuestJson(capturedOutput, target);
+                    PublishGuestJson(capturedOutput, target, cleanupError);
                 }
                 else if (isJson)
                 {
                     PublishDirectGuestJson(target);
                 }
 
-                return run.ExitCode;
+                return cleanupError is not null && run.ExitCode == 0 ? 1 : run.ExitCode;
             }
             catch (ExecutionTargetException ex)
             {
@@ -524,13 +552,17 @@ internal partial class RunCommand
         /// </summary>
         /// <remarks>
         /// Reuse the live channel and its epoch. The recorded revision rejects cleanup from a run
-        /// superseded while it was waiting. Cleanup has its own deadline and preserves the app's exit code.
+        /// superseded while it was waiting. Cleanup has its own deadline and reports a failure.
         /// </remarks>
-        private async Task UnregisterDeploymentAfterExitAsync(
+        private async Task<string?> UnregisterDeploymentAfterExitAsync(
             PreparedTarget target,
-            MsixIdentityResult identity,
             DeploymentState state)
         {
+            if (state.Package is not { } package)
+            {
+                return null;
+            }
+
             try
             {
                 using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -538,24 +570,21 @@ internal partial class RunCommand
                 using var mutationLease = executionTargetOrchestrator.AcquireMutationLease(cleanupToken);
                 var cleanupTarget = target with { MutationLease = mutationLease };
 
-                var familyName = appLauncherService.ComputePackageFamilyName(
-                    identity.PackageName,
-                    identity.Publisher);
                 await guestApplicationRunner.UnregisterOwnedPackageAsync(
                     cleanupTarget,
-                    identity.PackageName,
-                    identity.Publisher,
-                    familyName,
+                    package.PackageName,
+                    package.Publisher,
+                    package.PackageFamilyName,
                     state.DeploymentId,
                     state.Revision,
                     cancellationToken: cleanupToken).ConfigureAwait(false);
+                return null;
             }
             catch (Exception ex)
             {
-                // Best-effort, matching the pre-existing local UnregisterDevPackageAsync: the
-                // application already ran to completion, so a failed cleanup here -- including
-                // cancellation -- is not a reason to report the run itself as failed.
-                logger.LogDebug("Could not unregister the sandbox deployment on exit: {Message}", ex.Message);
+                var error = $"Could not unregister the sandbox deployment on exit: {ex.Message}";
+                logger.LogWarning("{Message}", error);
+                return error;
             }
         }
 
@@ -563,10 +592,10 @@ internal partial class RunCommand
         /// The deployment identity for a resolved input, derived from its canonical path and
         /// original package identity so two projects sharing an identity stay distinct.
         /// </summary>
-        private static string DeploymentIdFor(DirectoryInfo inputFolder, MsixIdentityResult identity) =>
+        internal static string DeploymentIdFor(DirectoryInfo inputFolder, MsixIdentityResult identity) =>
             DeploymentPlanner.CreateDeploymentId(
-                Path.GetFullPath(inputFolder.FullName),
-                $"{identity.PackageName}_{identity.Publisher}");
+                identity.Identity?.OwnerPath ?? DevelopmentIdentityHelper.CanonicalizePath(inputFolder.FullName),
+                $"{identity.Identity?.OriginalPackageName ?? identity.PackageName}_{identity.Publisher}");
 
         /// <summary>
         /// Installs and verifies the shared runtimes the deployment needs, before it is deployed.
@@ -785,13 +814,13 @@ internal partial class RunCommand
         /// <summary>
         /// Emits the guest's machine-readable result with the execution-target members merged in.
         /// </summary>
-        internal void PublishGuestJson(MemoryStream captured, PreparedTarget target)
+        internal void PublishGuestJson(MemoryStream captured, PreparedTarget target, string? cleanupError = null)
         {
             ArgumentNullException.ThrowIfNull(captured);
             ArgumentNullException.ThrowIfNull(target);
 
             var bytes = captured.ToArray();
-            if (bytes.Length == 0)
+            if (bytes.Length == 0 && cleanupError is null)
             {
                 return;
             }
@@ -804,10 +833,20 @@ internal partial class RunCommand
                     Id = target.Reference.Id,
                     Architecture = target.Capabilities.Architecture,
                     Epoch = target.Epoch.Value,
-                });
+                }, _runIdentity, cleanupError);
 
             if (augmented is null)
             {
+                if (cleanupError is not null)
+                {
+                    var result = CreateDirectGuestResult(target.Reference, target.Capabilities.Architecture, target.Epoch.Value);
+                    result.Identity = _runIdentity;
+                    result.Error = cleanupError;
+                    ansiConsole.Profile.Out.Writer.WriteLine(
+                        JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult));
+                    return;
+                }
+
                 WriteRawToConsole(Console.OpenStandardOutput(), bytes);
                 return;
             }
@@ -865,7 +904,9 @@ internal partial class RunCommand
         /// </remarks>
         internal static string? TryAugmentGuestJson(
             byte[] payload,
-            ExecutionTargetInfo executionTarget)
+            ExecutionTargetInfo executionTarget,
+            DevelopmentIdentity? identity = null,
+            string? cleanupError = null)
         {
             ArgumentNullException.ThrowIfNull(payload);
 
@@ -892,6 +933,13 @@ internal partial class RunCommand
 
             result.Sandbox = true;
             result.ExecutionTarget = executionTarget;
+            result.Identity = identity;
+            if (cleanupError is not null)
+            {
+                result.Error = string.IsNullOrEmpty(result.Error)
+                    ? cleanupError
+                    : $"{result.Error} {cleanupError}";
+            }
 
             var selector = string.Equals(executionTarget.Id, ExecutionTargetRef.DefaultId, StringComparison.Ordinal)
                 ? executionTarget.Kind

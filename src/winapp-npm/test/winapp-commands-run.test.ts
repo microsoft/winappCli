@@ -43,6 +43,22 @@ afterEach(() => {
   mock.restoreAll();
 });
 
+test('run forwards opt-in unique identity before application arguments', async () => {
+  const state = captureSpawnArgs();
+  await run({ input: '.\\App.csproj', uniqueIdentity: true, on: 'sandbox', appArgs: ['--hello'] });
+  const argv = state.calls[0];
+  assert.ok(argv.includes('--unique-identity'));
+  assert.ok(argv.indexOf('--unique-identity') < argv.indexOf('--'));
+  assert.equal(argv[argv.indexOf('--on') + 1], 'sandbox');
+  assert.deepEqual(argv.slice(argv.indexOf('--') + 1), ['--hello']);
+});
+
+test('run omits unique identity unless requested', async () => {
+  const state = captureSpawnArgs();
+  await run({ uniqueIdentity: false });
+  assert.ok(!state.calls[0].includes('--unique-identity'));
+});
+
 for (const command of [uiSearch, uiGetProperty, uiGetValue, uiWaitFor]) {
   for (const [option, flag] of [
     ['root', '--root'],

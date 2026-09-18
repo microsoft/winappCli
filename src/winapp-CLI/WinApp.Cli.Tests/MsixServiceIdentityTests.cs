@@ -1801,7 +1801,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
     public async Task RegisterLooseLayoutPackageAsync_Success_DelegatesToRegistrationService()
     {
         var manifest = new FileInfo(Path.Combine(_tempDirectory.FullName, "appxmanifest.xml"));
-        await File.WriteAllTextAsync(manifest.FullName, "manifest", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(manifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
 
         await _msixService.RegisterLooseLayoutPackageAsync(manifest, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 

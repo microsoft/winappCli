@@ -8,6 +8,18 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 /// <summary>Constructs the locked registration phase; launching is a separate guest command.</summary>
 internal static class GuestRunPlanner
 {
+    internal static void EnsureUniqueIdentitySupported(ExecutionTargetCapabilities capabilities, bool uniqueIdentity)
+    {
+        if (uniqueIdentity &&
+            capabilities.DevelopmentIdentityVersion != ExecutionTargetCapabilities.CurrentDevelopmentIdentityVersion)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.AgentIncompatible,
+                "The running Windows Sandbox agent does not support --unique-identity ownership checks. No package was registered or removed.",
+                userAction: "Save any guest work and close Windows Sandbox, then retry with this winapp version to start a compatible agent.");
+        }
+    }
+
     public static List<string> BuildRegistrationArguments(
         string payloadPath, string layoutPath, bool clean, bool json)
     {

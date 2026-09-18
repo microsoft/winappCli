@@ -380,6 +380,15 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         return results;
     }
 
+    public List<DevPackageInfo> FindPackagesAtLocation(string location)
+    {
+        var canonical = Helpers.DevelopmentIdentityHelper.CanonicalizePath(location);
+        return EnumerateUserPackagesImpl().Select(ToDevPackageInfo)
+            .Where(package => package.InstallLocation is { Length: > 0 } installed &&
+                string.Equals(Helpers.DevelopmentIdentityHelper.CanonicalizePath(installed), canonical, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
     /// <inheritdoc />
     public List<DevPackageInfo> FindOrphanedDevPackages()
     {
@@ -425,7 +434,8 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
             Version: $"{pkg.VersionMajor}.{pkg.VersionMinor}.{pkg.VersionBuild}.{pkg.VersionRevision}",
             InstallLocation: installLocation,
             IsDevelopmentMode: pkg.IsDevelopmentMode,
-            Publisher: pkg.Publisher);
+            Publisher: pkg.Publisher,
+            PackageFamilyName: pkg.PackageFamilyName);
     }
 
     /// <summary>
@@ -607,7 +617,8 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 p.IsDevelopmentMode,
                 () => p.InstalledLocation?.Path,
                 p.Id.Architecture,
-                p.Id.Publisher));
+                p.Id.Publisher,
+                p.Id.FamilyName));
         }
 
         return views;
@@ -659,5 +670,6 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         bool IsDevelopmentMode,
         Func<string?> InstalledLocationAccessor,
         Windows.System.ProcessorArchitecture Architecture = Windows.System.ProcessorArchitecture.Unknown,
-        string? Publisher = null);
+        string? Publisher = null,
+        string? PackageFamilyName = null);
 }

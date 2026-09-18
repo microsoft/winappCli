@@ -321,6 +321,8 @@ public partial class TargetRuntimeServiceTests
 
         public List<DevPackageInfo> FindDevPackages(string packageName) => [];
 
+        public List<DevPackageInfo> FindPackagesAtLocation(string location) => [];
+
         public List<DevPackageInfo> FindOrphanedDevPackages() => [];
     }
 

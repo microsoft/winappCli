@@ -62,6 +62,22 @@ public class DeploymentStateStoreTests
     }
 
     [TestMethod]
+    public void Commit_LeavesReusableUnlockedFileRatherThanDeletePendingLock()
+    {
+        var original = Seed();
+        var path = Path.Join(_root, Target.StateKey, DeploymentStateStore.DeploymentsFolder, "same-app.json.lock");
+
+        Assert.IsTrue(File.Exists(path), "The coordination file should remain between writers.");
+        using (var lease = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.IsTrue(lease.CanWrite, "The previous writer must release its handle.");
+        }
+
+        var committed = CreateStore().Commit(Target, original, original.Revision);
+        Assert.AreEqual(original.Revision + 1, committed.Revision);
+    }
+
+    [TestMethod]
     public async Task Commit_DoesNotCheckOrReplaceStateWhileAnotherWriterHoldsItsLease()
     {
         var original = Seed();

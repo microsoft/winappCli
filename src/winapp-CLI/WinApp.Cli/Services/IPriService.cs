@@ -7,6 +7,13 @@ namespace WinApp.Cli.Services;
 
 internal interface IPriService
 {
+    Task ReindexIdentityAsync(
+        DirectoryInfo layout,
+        string originalPackageName,
+        string effectivePackageName,
+        TaskContext taskContext,
+        CancellationToken cancellationToken = default);
+
     Task<FileInfo> CreatePriConfigAsync(
         DirectoryInfo packageDir,
         TaskContext taskContext,

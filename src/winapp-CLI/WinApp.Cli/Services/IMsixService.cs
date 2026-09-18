@@ -112,6 +112,7 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -138,6 +139,7 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

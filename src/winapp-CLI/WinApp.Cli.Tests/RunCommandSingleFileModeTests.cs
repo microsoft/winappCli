@@ -106,6 +106,26 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
     #region Routing
 
     [TestMethod]
+    public async Task UniqueIdentity_UsesSourceFileInsteadOfTemporaryBuildOutput()
+    {
+        var (singleFile, output) = CreateSingleFileApp();
+        SetOutcome(singleFile, output);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [singleFile.FullName, "--unique-identity", "--no-launch"]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeMsixService.AddLooseLayoutDevelopmentIdentityCalls.Single();
+        Assert.IsNotNull(options);
+        Assert.IsTrue(options.UniqueIdentity);
+        Assert.AreEqual(singleFile.FullName, options.OwnerPath);
+        Assert.AreNotEqual(output.FullName, options.OwnerPath);
+        Assert.AreEqual(SingleFileManifestPlanner.Plan(singleFile, new Dictionary<string, string>()).PackageName,
+            LoadGeneratedManifest(output).Root!.Element(Ns + "Identity")!.Attribute("Name")!.Value,
+            "The generated host manifest must not be rebranded.");
+    }
+
+    [TestMethod]
     public async Task SingleFileMode_BuildsAndRegistersThroughTheSharedLooseLayoutPipeline()
     {
         var (singleFile, outputDir) = CreateSingleFileApp();
@@ -182,6 +202,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
     [TestMethod]
     [DataRow("--with-alias", DisplayName = "--with-alias")]
+    [DataRow("--unique-identity", DisplayName = "--unique-identity")]
     [DataRow("--without-alias", DisplayName = "--without-alias")]
     public async Task SingleFileMode_UnpackagedApp_RejectsBothAliasOptions(string option)
     {
@@ -1079,10 +1100,12 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         // the notice on every inner-loop run would be noise that trains users to stop reading output.
         var (singleFile, outputDir) = CreateSingleFileApp();
         SetOutcome(singleFile, outputDir);
+        var planned = SingleFileManifestPlanner.Plan(singleFile, new Dictionary<string, string>());
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("counter_1.0.0.0_x64__abc", "counter", "1.0.0.0",
-                Path.Join(outputDir.FullName, "AppX"), IsDevelopmentMode: true)
+            new DevPackageInfo($"{planned.PackageName}_1.0.0.0_x64__abc", planned.PackageName, "1.0.0.0",
+                Path.Join(outputDir.FullName, "AppX"), IsDevelopmentMode: true,
+                Publisher: planned.PublisherDN)
         ];
         var command = GetRequiredService<RunCommand>();
 
@@ -1108,7 +1131,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
     [TestMethod]
     [DoNotParallelize]
-    public async Task SingleFileMode_RegisteredFromElsewhere_WarnsAboutReplacingIt()
+    public async Task SingleFileMode_RegisteredFromElsewhere_ReportsConflictWithoutLaunching()
     {
         // A dev registration of this app's identity already exists, installed from a DIFFERENT location.
         // Reachable when two .cs files explicitly share one '#:property WinAppPackageName' — the path hash
@@ -1120,13 +1143,17 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
             new DevPackageInfo("counter_1.0.0.0_x64__abc", "counter", "1.0.0.0",
                 Path.Join(_tempDirectory.FullName, "some_other_app", "AppX"), IsDevelopmentMode: true)
         ];
+        _fakeMsixService.ExceptionToThrow = new InvalidOperationException(
+            "The package is registered from a different layout. Run with --unique-identity to keep both apps.");
         var command = GetRequiredService<RunCommand>();
 
-        var (_, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [singleFile.FullName, "--detach"]);
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, [singleFile.FullName, "--detach"]);
 
-        StringAssert.Contains(ambientOutput, "Replacing the existing registration");
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count);
+        StringAssert.Contains(ambientOutput + ConsoleStdErr + TestAnsiConsole.Output, "--unique-identity");
         Assert.IsFalse(TestAnsiConsole.Output.Contains("stays registered", StringComparison.Ordinal),
-            "The replacement warning already covers this run; a persistence note as well would be noise");
+            "A failed registration must not print a persistence notice");
     }
 
     #endregion
@@ -1226,6 +1253,3 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
 
     #endregion
 }
-
-
-
