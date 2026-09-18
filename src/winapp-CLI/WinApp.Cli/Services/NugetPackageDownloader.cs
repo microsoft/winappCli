@@ -43,6 +43,7 @@ internal sealed class NugetPackageDownloader(NugetSourceProvider sourceProvider)
         var package = identity.Id;
         var version = identity.Version.ToNormalizedString();
         var clientPolicyContext = ClientPolicyContext.GetClientPolicy(_sourceProvider.Settings, Logger);
+        _sourceProvider.EnsureScratchStorage();
         _sourceProvider.ValidatePackagePath(globalPackagesFolder,
             new VersionFolderPathResolver(globalPackagesFolder).GetInstallPath(identity.Id, identity.Version));
 

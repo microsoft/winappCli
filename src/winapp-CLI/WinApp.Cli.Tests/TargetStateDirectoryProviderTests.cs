@@ -17,7 +17,7 @@ public class TargetStateDirectoryProviderTests
     [TestInitialize]
     public void Setup()
     {
-        _testRoot = Path.GetFullPath($"target-state-provider-tests-{Guid.NewGuid():N}");
+        _testRoot = Path.Combine(Path.GetTempPath(), $"target-state-provider-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_testRoot);
         _previousRoot = Environment.GetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable);
         Environment.SetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable, null);

@@ -19,6 +19,7 @@ internal sealed class CacheStorage(
 
     public string DirectoryPath => ResolvePath();
     public bool IsExplicit => directories.IsGlobalCacheOverridden;
+    internal bool IsLocalFallback => _local;
 
     public void Clear(Action<string> clear)
     {

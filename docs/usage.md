@@ -2012,6 +2012,11 @@ that directory. An existing readable cache can be used without requiring writes.
 | Read-only UI observation | Can continue without workflow ordering when shared state is inaccessible |
 | UI mutations, captures and Sandbox management | Require accessible shared coordination; they never silently run without it |
 
+Store CLI and debugger executables/DLLs reused from the automatic local fallback
+must have valid Microsoft signatures. If a local Store tool is rejected, remove
+that tool cache and retry to download a verified copy. Unverifiable debugger
+layouts are skipped without discarding the available crash diagnostics.
+
 An explicit `WINAPP_CLI_CACHE_DIRECTORY` is authoritative: if that location is
 invalid or cannot support the requested operation, fix it or remove the override
 rather than expecting an automatic redirect. To select an allowed directory:
@@ -2044,6 +2049,12 @@ Child `dotnet` commands keep using a readable package cache even when it is read
 If a child later needs to write there and fails, choose a permitted `NUGET_PACKAGES`
 directory before retrying. winapp does not automatically replay builds or applications
 that may already have performed work.
+
+NuGet also requires writable scratch storage for configuration and installation
+locks. If that storage is blocked, winapp stops promptly with `NUGET_SCRATCH`
+guidance rather than entering NuGet's long lock retry. Use one fully qualified,
+permitted scratch directory consistently for every process sharing a package cache.
+winapp does not automatically choose a different lock directory for one process.
 
 Filesystem fallback does not grant access to SDKs, certificate stores, Windows package
 registration, authentication or the desktop. Commands that require those facilities
@@ -2079,6 +2090,8 @@ not require a global cache merely to lock a build output. Processes targeting th
 same layout use the same lock regardless of their cache settings or working directory.
 These lock artifacts are excluded from package and deployment payloads. An inaccessible
 lock is reported as a storage error, not as another process using the layout.
+The lock files can remain after a run; their presence does not mean a process holds
+the layout. Exclude `.winapp-layout-locks/` from version control.
 
 ### Update Checks
 

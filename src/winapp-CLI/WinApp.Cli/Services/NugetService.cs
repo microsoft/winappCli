@@ -338,33 +338,44 @@ internal partial class NugetService : INugetService
         // can leave a partial folder with no ".nupkg.metadata" marker. Accepting that corrupt entry would let
         // ReadDependenciesFromNuspec return an empty set and restore report a truncated graph as success. When
         // the marker is missing, fall through so the downloader re-extracts and completes the entry.
-        if (HasCompletionMarker(packageDir))
+        var downloaded = false;
+        if (!HasCompletionMarker(packageDir))
         {
-            taskContext.AddDebugMessage($"{UiSymbols.Skip} {package} {normalizedVersion} already present");
-            graph.Installed[package] = normalizedVersion;
-            // Still resolve dependencies to populate installed dictionary
-            await ResolveDependenciesAsync(packageDir, package, normalizedVersion, graph, taskContext, cacheContext, cancellationToken);
-            return;
+            var identity = new PackageIdentity(package, ParseVersion(package, normalizedVersion));
+            var packagesFolder = _sourceProvider.GetPackagesDirectory(requireWrite: true).FullName;
+            // Selecting writable storage can switch roots. The fallback may already contain the
+            // complete package from an earlier invocation, even when every feed is now offline.
+            packageDir = GetNuGetPackageDir(package, normalizedVersion);
+            if (!HasCompletionMarker(packageDir))
+            {
+                try
+                {
+                    await _downloader.DownloadPackageAsync(identity, packagesFolder, cacheContext, cancellationToken);
+                    downloaded = true;
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                {
+                    packagesFolder = _sourceProvider.UseLocalPackagesDirectoryAfterFailure(ex, packagesFolder).FullName;
+                    packageDir = GetNuGetPackageDir(package, normalizedVersion);
+                    if (!HasCompletionMarker(packageDir))
+                    {
+                        await _downloader.DownloadPackageAsync(identity, packagesFolder, cacheContext, cancellationToken);
+                        downloaded = true;
+                    }
+                }
+                packageDir = GetNuGetPackageDir(package, normalizedVersion);
+            }
         }
-
-        // Download and extract the package from the user's configured NuGet sources into the
-        // global packages folder (using the standard NuGet on-disk layout). Throws with the
-        // underlying source error if no configured source can provide the package.
-        var identity = new PackageIdentity(package, ParseVersion(package, normalizedVersion));
-        var packagesFolder = _sourceProvider.GetPackagesDirectory(requireWrite: true).FullName;
-        try
-        {
-            await _downloader.DownloadPackageAsync(identity, packagesFolder, cacheContext, cancellationToken);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            packagesFolder = _sourceProvider.UseLocalPackagesDirectoryAfterFailure(ex, packagesFolder).FullName;
-            await _downloader.DownloadPackageAsync(identity, packagesFolder, cacheContext, cancellationToken);
-        }
-        packageDir = GetNuGetPackageDir(package, normalizedVersion);
 
         graph.Installed[package] = normalizedVersion;
-        taskContext.AddStatusMessage($"{UiSymbols.Check} Installed {package} {normalizedVersion}");
+        if (downloaded)
+        {
+            taskContext.AddStatusMessage($"{UiSymbols.Check} Installed {package} {normalizedVersion}");
+        }
+        else
+        {
+            taskContext.AddDebugMessage($"{UiSymbols.Skip} {package} {normalizedVersion} already present");
+        }
 
         // Recursively install dependencies
         await ResolveDependenciesAsync(packageDir, package, normalizedVersion, graph, taskContext, cacheContext, cancellationToken);

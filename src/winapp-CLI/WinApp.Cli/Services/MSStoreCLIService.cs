@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -26,6 +27,8 @@ internal class MSStoreCLIService(
     // Test seam: OS architecture lookup, defaulting to the real runtime value. Lets tests
     // drive both the arch-specific asset selection and the unsupported-architecture path.
     internal Func<Architecture> OsArchitectureProvider { get; set; } = () => RuntimeInformation.OSArchitecture;
+
+    internal Func<string, ILogger, bool> SignatureVerifier { get; set; } = AuthenticodeVerifier.IsTrustedMicrosoftSigned;
 
     private const string ExeName = "msstore.exe";
     private const string GitHubApiLatestRelease = "https://api.github.com/repos/microsoft/msstore-cli/releases/latest";
@@ -72,6 +75,7 @@ internal class MSStoreCLIService(
                 logger.LogDebug("Extracting MSStoreCLI to {InstallDir}", installDir);
                 await ZipFile.ExtractToDirectoryAsync(zipPath, installDir, overwriteFiles: true, cancellationToken: cancellationToken);
 
+                VerifyLocalTool(installDir);
                 logger.LogDebug("MSStoreCLI {Version} installed to {InstallDir}", version, installDir);
             }
             finally
@@ -203,7 +207,11 @@ internal class MSStoreCLIService(
 
     public string GetMSStoreCLIPath()
     {
-        return _cache.Run(root => Path.Combine(root, ExeName));
+        return _cache.Run(root =>
+        {
+            VerifyLocalTool(root);
+            return Path.Combine(root, ExeName);
+        });
     }
 
     private bool IsMSStoreCLIAvailable(string installDir)
@@ -213,8 +221,31 @@ internal class MSStoreCLIService(
         if (exists)
         {
             using var readable = File.Open(exePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            VerifyLocalTool(installDir);
             logger.LogDebug("MSStoreCLI found at {ExePath}", exePath);
         }
         return exists;
+    }
+
+    private void VerifyLocalTool(string installDir)
+    {
+        if (!_cache.IsLocalFallback)
+        {
+            return;
+        }
+
+        // A repository can prepopulate the fallback cache. Verify the actual executable and
+        // co-located native dependencies on every use, not a repository-provided receipt.
+        // The official Windows MSStoreCLI distribution is Microsoft Authenticode-signed.
+        foreach (var path in new[] { Path.Combine(installDir, ExeName) }
+            .Concat(Directory.EnumerateFiles(installDir, "*.dll", SearchOption.AllDirectories)))
+        {
+            if (!SignatureVerifier(path, logger))
+            {
+                throw new InvalidOperationException(
+                    $"MSStoreCLI local cache file '{path}' is not validly signed by Microsoft, so the tool was not run. " +
+                    $"Remove the local tool cache '{installDir}' and retry to download a verified copy.");
+            }
+        }
     }
 }

@@ -590,7 +590,30 @@ internal partial class DotNetService(NugetSourceProvider sourceProvider) : IDotN
             return;
         }
 
-        sourceProvider.ConfigureChildProcessPackages(startInfo);
+        var commandArguments = arguments.TakeWhile(arg => arg != "--").ToArray();
+        var options = commandArguments
+            .Where(arg => arg.StartsWith('-') || arg.StartsWith('/'))
+            .Select(arg => arg.TrimStart('-', '/'))
+            .ToArray();
+        static bool IsOption(string option, string name) =>
+            option.Equals(name, StringComparison.OrdinalIgnoreCase)
+            || option.StartsWith(name + ":", StringComparison.OrdinalIgnoreCase);
+
+        var hasTargetsOrRestore = options.Any(option =>
+            IsOption(option, "target") || IsOption(option, "t")
+            || IsOption(option, "restore") || verb == "msbuild" && IsOption(option, "r")
+            || IsOption(option, "getTargetResult"));
+        var evaluationOnly = verb is "msbuild" or "build"
+            && options.Any(option => IsOption(option, "getProperty") || IsOption(option, "getItem"))
+            && !hasTargetsOrRestore;
+        var restoreDisabled = verb is "build" or "publish" or "run" or "add" or "list" or "package"
+            && (commandArguments.Contains("--no-restore")
+                || verb is "run" or "publish" && commandArguments.Contains("--no-build"))
+            && !hasTargetsOrRestore;
+        // Queries without targets and restore-disabled operations must not acquire a new NuGet
+        // prerequisite. Still propagate storage already selected for this exact project scope.
+        var reuseOnly = (evaluationOnly || restoreDisabled) && !commandArguments.Any(arg => arg.StartsWith('@'));
+        sourceProvider.ConfigureChildProcessPackages(startInfo, selectPackages: !reuseOnly);
     }
 
     private static bool IsStorageAccessFailure(string message) =>

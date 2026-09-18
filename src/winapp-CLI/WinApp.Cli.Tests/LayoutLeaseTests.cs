@@ -2,14 +2,17 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
 
 [TestClass]
 [DoNotParallelize]
-public class LayoutLeaseTests
+public partial class LayoutLeaseTests
 {
     private DirectoryInfo _root = null!;
 
@@ -65,7 +68,7 @@ public class LayoutLeaseTests
         {
             Assert.IsTrue(File.Exists(path));
         }
-        Assert.IsFalse(File.Exists(path));
+        Assert.IsTrue(File.Exists(path));
     }
 
     [TestMethod]
@@ -82,7 +85,7 @@ public class LayoutLeaseTests
                 {
                     attempted.Set();
                     return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                        FileShare.None, 1, FileOptions.DeleteOnClose);
+                        FileShare.None, 1, FileOptions.None);
                 });
             acquired = true;
         }, TestContext.CancellationToken);
@@ -99,7 +102,7 @@ public class LayoutLeaseTests
         }
 
         Assert.IsTrue(acquired);
-        Assert.IsFalse(File.Exists(LayoutLease.GetLockPath(layout)));
+        Assert.IsTrue(File.Exists(LayoutLease.GetLockPath(layout)));
     }
 
     [TestMethod]
@@ -185,7 +188,7 @@ public class LayoutLeaseTests
     }
 
     [TestMethod]
-    public void ExistingUnlockedFile_IsReusable_AndDisposalRemovesOnlyThatFile()
+    public void ExistingUnlockedFile_IsReusable_AndDisposalReleasesOnlyItsLease()
     {
         var layout = new DirectoryInfo(Path.Combine(_root.FullName, "AppX"));
         var lockPath = LayoutLease.GetLockPath(layout);
@@ -200,8 +203,10 @@ public class LayoutLeaseTests
             lease.Dispose();
         }
 
-        Assert.IsFalse(File.Exists(lockPath));
+        Assert.IsTrue(File.Exists(lockPath));
         Assert.IsTrue(File.Exists(LayoutLease.GetLockPath(other)));
+        Assert.ThrowsExactly<TimeoutException>(() =>
+            LayoutLease.Acquire(other, TestContext.CancellationToken, TimeSpan.Zero));
         using var next = LayoutLease.Acquire(layout, TestContext.CancellationToken, TimeSpan.Zero);
     }
 
@@ -217,7 +222,7 @@ public class LayoutLeaseTests
             $ErrorActionPreference = 'Stop'
             $stream = [System.IO.FileStream]::new($env:WINAPP_TEST_LAYOUT_LOCK,
                 [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite,
-                [System.IO.FileShare]::None, 1, [System.IO.FileOptions]::DeleteOnClose)
+                [System.IO.FileShare]::None, 1, [System.IO.FileOptions]::None)
             [Console]::Out.WriteLine('locked')
             [Console]::Out.Flush()
             [Console]::In.ReadLine() | Out-Null
@@ -263,7 +268,23 @@ public class LayoutLeaseTests
         {
             Assert.IsTrue(File.Exists(lockPath));
         }
-        Assert.IsFalse(File.Exists(lockPath));
+        Assert.IsTrue(File.Exists(lockPath));
+    }
+
+    [TestMethod]
+    public void MetadataObserver_DoesNotBreakLeaseHandoff()
+    {
+        var layout = new DirectoryInfo(Path.Combine(_root.FullName, "AppX"));
+        using var first = LayoutLease.Acquire(layout, TestContext.CancellationToken);
+        using var observer = OpenMetadataHandle(
+            LongPathHelper.EnsureExtendedLengthPrefix(LayoutLease.GetLockPath(layout)), 0, (uint)(FileShare.ReadWrite | FileShare.Delete),
+            0, (uint)FileMode.Open, 0, 0);
+        Assert.IsFalse(observer.IsInvalid, $"Metadata open failed with {Marshal.GetLastPInvokeError()}.");
+
+        first.Dispose();
+
+        using var second = LayoutLease.Acquire(layout, TestContext.CancellationToken, TimeSpan.Zero);
+        Assert.IsTrue(File.Exists(LayoutLease.GetLockPath(layout)));
     }
 
     [TestMethod]
@@ -274,4 +295,9 @@ public class LayoutLeaseTests
             LayoutLease.Acquire(layout, TestContext.CancellationToken));
         Assert.IsEmpty(_root.GetFileSystemInfos());
     }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static partial SafeFileHandle OpenMetadataHandle(
+        string path, uint access, uint share, nint security, uint disposition, uint flags, nint template);
 }

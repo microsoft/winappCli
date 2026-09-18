@@ -53,11 +53,14 @@ internal sealed class NugetSourceProvider
     private readonly Dictionary<string, string> _fallbackPackagesFolders;
     private readonly HashSet<string> _writablePackagesFolders;
     private readonly Dictionary<string, NugetSourceProvider> _childProviders = new(StringComparer.OrdinalIgnoreCase);
+    private string? _selectedPackagesPath;
 
     internal Func<string, ISettings> LoadSettings { get; set; } =
         root => NuGet.Configuration.Settings.LoadDefaultSettings(root);
     internal Func<string, string?> GetEnvironmentVariable { get; set; } = Environment.GetEnvironmentVariable;
     internal Func<ISettings, string> ResolveGlobalPackagesFolder { get; set; } = SettingsUtility.GetGlobalPackagesFolder;
+    internal Func<string> ScratchDirectoryProvider { get; set; } =
+        () => NuGetEnvironment.GetFolderPath(NuGetFolderPath.Temp);
     internal Action<string> ReadPackagesDirectory { get; set; } = path =>
     {
         using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
@@ -112,16 +115,18 @@ internal sealed class NugetSourceProvider
     [MemberNotNull(nameof(_settings), nameof(_sourceRepositoryProvider), nameof(_packageSourceMapping), nameof(_configScopeKey), nameof(_packagesLocation))]
     private void InitializeCaches()
     {
+        _selectedPackagesPath = null;
         _settings = new Lazy<ISettings>(() =>
         {
             var root = _configRoot?.FullName ?? _currentDirectoryProvider.GetCurrentDirectory();
             try
             {
+                EnsureScratchStorage();
                 return LoadSettings(root);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NuGetConfigurationException)
             {
-                throw new InvalidOperationException(
+                throw new NugetStorageException(
                     $"Could not load the required NuGet configuration for '{root}': {NugetErrorMessage.Redact(ex.Message)} "
                     + "Restore access to the nuget.config hierarchy; configured feeds and credentials cannot be replaced.");
             }
@@ -137,14 +142,14 @@ internal sealed class NugetSourceProvider
             if (environmentFolder is not null
                 && (string.IsNullOrWhiteSpace(environmentFolder) || !Path.IsPathFullyQualified(environmentFolder)))
             {
-                throw new InvalidOperationException("NUGET_PACKAGES must specify a fully qualified packages directory. Correct the explicit setting.");
+                throw new NugetStorageException("NUGET_PACKAGES must specify a fully qualified packages directory. Correct the explicit setting.");
             }
 
             var configuredFolder = Settings.GetSection("config")?.Items.OfType<AddItem>()
                 .FirstOrDefault(item => string.Equals(item.Key, "globalPackagesFolder", StringComparison.OrdinalIgnoreCase));
             if (environmentFolder is null && configuredFolder is not null && string.IsNullOrWhiteSpace(configuredFolder.Value))
             {
-                throw new InvalidOperationException("globalPackagesFolder in nuget.config must specify a packages directory. Correct the explicit setting.");
+                throw new NugetStorageException("globalPackagesFolder in nuget.config must specify a packages directory. Correct the explicit setting.");
             }
 
             var explicitlyConfigured = environmentFolder is not null || configuredFolder is not null;
@@ -212,6 +217,33 @@ internal sealed class NugetSourceProvider
     /// </summary>
     internal ISettings Settings => _settings.Value;
 
+    /// <summary>NuGet uses this namespace for both configuration and package installation locks.</summary>
+    internal void EnsureScratchStorage()
+    {
+        var scratch = ScratchDirectoryProvider();
+        if (string.IsNullOrWhiteSpace(scratch) || !Path.IsPathFullyQualified(scratch))
+        {
+            throw new NugetStorageException(
+                "NuGet scratch storage must be a fully qualified writable directory. Correct NUGET_SCRATCH before retrying.");
+        }
+
+        var locks = Path.Combine(scratch, "lock");
+        try
+        {
+            Directory.CreateDirectory(locks);
+            using var probe = new FileStream(
+                Path.Combine(locks, $"winapp-probe-{Guid.NewGuid():N}"),
+                FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            throw new NugetStorageException(
+                $"NuGet requires writable scratch locks at '{locks}', but that location is unavailable: {NugetErrorMessage.Redact(ex.Message)} "
+                + "Allow access or set NUGET_SCRATCH to one permitted writable directory used consistently by all processes sharing the same packages cache. "
+                + "winapp does not silently relocate shared NuGet locks.");
+        }
+    }
+
     /// <summary>
     /// A stable fingerprint of the effective configuration (global packages folder, enabled sources in their
     /// configured order and the full <c>&lt;packageSourceMapping&gt;</c> entries). Consumers that maintain a
@@ -237,6 +269,7 @@ internal sealed class NugetSourceProvider
                     path = GetLocalPackagesDirectory().FullName;
                 }
                 EnsurePackagesDirectory(path, requireWrite);
+                _selectedPackagesPath = path;
                 return new DirectoryInfo(path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -259,7 +292,7 @@ internal sealed class NugetSourceProvider
             if (explicitlyConfigured || _fallbackPackagesFolders.ContainsKey(configuredPath))
             {
                 var path = explicitlyConfigured ? configuredPath : _fallbackPackagesFolders[configuredPath];
-                throw new InvalidOperationException(
+                throw new NugetStorageException(
                     $"The {(explicitlyConfigured ? "explicitly configured" : "local fallback")} NuGet packages folder '{path}' is unavailable: "
                     + $"{NugetErrorMessage.Redact(error.Message)} Fix its permissions or the NUGET_PACKAGES/globalPackagesFolder setting.");
             }
@@ -272,12 +305,13 @@ internal sealed class NugetSourceProvider
             }
             catch (Exception fallbackError) when (fallbackError is IOException or UnauthorizedAccessException)
             {
-                throw new InvalidOperationException(
+                throw new NugetStorageException(
                     $"The default NuGet packages folder '{configuredPath}' is unavailable, and the invocation directory's .winapp\\cache\\nuget\\packages could not be used: "
                     + $"{NugetErrorMessage.Redact(fallbackError.Message)} Restore access or configure a writable NUGET_PACKAGES folder.");
             }
 
             _fallbackPackagesFolders[configuredPath] = fallback.FullName;
+            _selectedPackagesPath = fallback.FullName;
             _storageDiagnostics?.Warning("nuget-packages-fallback",
                 $"The default NuGet packages folder '{configuredPath}' is unavailable. Using '{fallback.FullName}' for this invocation.");
             return fallback;
@@ -324,13 +358,26 @@ internal sealed class NugetSourceProvider
         }
     }
 
-    internal void ConfigureChildProcessPackages(ProcessStartInfo startInfo)
+    internal void ConfigureChildProcessPackages(ProcessStartInfo startInfo, bool selectPackages = true)
     {
         NugetSourceProvider child;
         lock (_packagesLock)
         {
-            var root = Path.GetFullPath(startInfo.WorkingDirectory);
-            if (string.Equals(root, _configRoot?.FullName ?? _currentDirectoryProvider.GetCurrentDirectory(), StringComparison.OrdinalIgnoreCase))
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(startInfo.WorkingDirectory));
+            var configuredRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(
+                _configRoot?.FullName ?? _currentDirectoryProvider.GetCurrentDirectory()));
+            if (!selectPackages)
+            {
+                var selected = string.Equals(root, configuredRoot, StringComparison.OrdinalIgnoreCase)
+                    ? _selectedPackagesPath
+                    : _childProviders.GetValueOrDefault(root)?._selectedPackagesPath;
+                if (selected is not null)
+                {
+                    startInfo.Environment["NUGET_PACKAGES"] = selected;
+                }
+                return;
+            }
+            if (string.Equals(root, configuredRoot, StringComparison.OrdinalIgnoreCase))
             {
                 child = this;
             }
@@ -341,6 +388,7 @@ internal sealed class NugetSourceProvider
                     LoadSettings = LoadSettings,
                     GetEnvironmentVariable = GetEnvironmentVariable,
                     ResolveGlobalPackagesFolder = ResolveGlobalPackagesFolder,
+                    ScratchDirectoryProvider = ScratchDirectoryProvider,
                     ReadPackagesDirectory = ReadPackagesDirectory,
                     WritePackagesDirectory = WritePackagesDirectory,
                 };

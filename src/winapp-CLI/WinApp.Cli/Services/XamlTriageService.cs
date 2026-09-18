@@ -67,7 +67,7 @@ internal sealed partial class XamlTriageService(
                 var cacheBinDir = new DirectoryInfo(Path.Combine(dbgToolsRoot.FullName, XamlTriageBinaries.KitsArch));
 
                 ResolvedTriageBinaries? ResolveExisting(DirectoryInfo dir) =>
-                    (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger)))(dir);
+                    (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger, _cache.IsLocalFallback)))(dir);
 
                 // Resolve an existing debugger layout; if none, populate the download-on-first-use cache:
                 // engine bits from NuGet (global cache or download) and JsProvider.dll from the WinDbg bundle.

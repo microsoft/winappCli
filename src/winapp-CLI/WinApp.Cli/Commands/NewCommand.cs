@@ -700,31 +700,40 @@ internal class NewCommand : Command, IShortDescription
             int exitCode;
             string stdout;
             string stderr;
-            if (logger.IsEnabled(LogLevel.Debug))
+            string? preparationError = null;
+            try
             {
-                // Verbose: stream dotnet new's output live so its post-creation actions (restore,
-                // package add, etc.) are visible as they run. Buffering them behind the spinner hides
-                // the very output needed to diagnose a failing post action (#753). The lines are still
-                // captured into stdout/stderr so a non-zero exit can surface a concise failure detail
-                // below, and LogDotnetOutput is skipped to avoid echoing the same text twice. Streaming
-                // the real output also supersedes the spinner's delayed "restoring…" status message.
-                logger.LogDebug("dotnet {Args}", string.Join(' ', args));
-                (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(
-                    workingDir,
-                    args,
-                    onOutputLine: line => logger.LogDebug("{Output}", line),
-                    onErrorLine: line => logger.LogDebug("{Output}", line),
-                    cancellationToken: cancellationToken);
-                logger.LogDebug("dotnet new exited with code {ExitCode}", exitCode);
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    // Verbose: stream dotnet new's output live so its post-creation actions (restore,
+                    // package add, etc.) are visible as they run. Buffering them behind the spinner hides
+                    // the very output needed to diagnose a failing post action (#753). The lines are still
+                    // captured into stdout/stderr so a non-zero exit can surface a concise failure detail
+                    // below, and LogDotnetOutput is skipped to avoid echoing the same text twice. Streaming
+                    // the real output also supersedes the spinner's delayed "restoring…" status message.
+                    logger.LogDebug("dotnet {Args}", string.Join(' ', args));
+                    (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(
+                        workingDir,
+                        args,
+                        onOutputLine: line => logger.LogDebug("{Output}", line),
+                        onErrorLine: line => logger.LogDebug("{Output}", line),
+                        cancellationToken: cancellationToken);
+                    logger.LogDebug("dotnet new exited with code {ExitCode}", exitCode);
+                }
+                else
+                {
+                    (exitCode, stdout, stderr) = await WithSpinnerAsync(
+                        scaffoldStatus,
+                        "Setting up the project; missing NuGet packages are restoring…",
+                        ScaffoldStatusDelay,
+                        () => dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken: cancellationToken));
+                    LogDotnetOutput(args, exitCode, stdout, stderr);
+                }
             }
-            else
+            catch (Exception ex) when (ex is NugetStorageException or IOException or UnauthorizedAccessException)
             {
-                (exitCode, stdout, stderr) = await WithSpinnerAsync(
-                    scaffoldStatus,
-                    "Setting up the project; missing NuGet packages are restoring…",
-                    ScaffoldStatusDelay,
-                    () => dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken: cancellationToken));
-                LogDotnetOutput(args, exitCode, stdout, stderr);
+                preparationError = $"Could not prepare dotnet new: {NugetErrorMessage.Redact(ex.Message)}";
+                (exitCode, stdout, stderr) = (ExitScaffoldFailed, string.Empty, preparationError);
             }
             if (exitCode != 0)
             {
@@ -732,7 +741,7 @@ internal class NewCommand : Command, IShortDescription
                 if (isJson)
                 {
                     PrintJson(false, entry.ShortName, name!, outputDir.FullName,
-                        $"dotnet new failed (exit code {exitCode}): {detail}", entry.IsExperimental);
+                        preparationError ?? $"dotnet new failed (exit code {exitCode}): {detail}", entry.IsExperimental);
                 }
                 else
                 {

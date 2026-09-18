@@ -321,7 +321,7 @@ public sealed class CacheResilienceTests
     }
 
     [TestMethod]
-    public async Task Store_UsesReadableLocalToolWhenDefaultAncestorIsBlocked()
+    public async Task Store_RejectsUnsignedLocalToolWhenDefaultAncestorIsBlocked()
     {
         File.WriteAllText(Global, "blocked");
         var toolDir = Path.Combine(Local, "tools", "msstore");
@@ -329,11 +329,10 @@ public sealed class CacheResilienceTests
         var exe = Path.Combine(toolDir, "msstore.exe");
         File.WriteAllText(exe, "tool");
         using var held = File.Open(exe, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var warnings = new StringWriter();
-        var service = new MSStoreCLIService(_directories, NullLogger<MSStoreCLIService>.Instance, new StorageDiagnostics(warnings));
-        await service.EnsureMSStoreCLIAvailableAsync();
-        Assert.AreEqual(exe, service.GetMSStoreCLIPath());
-        StringAssert.Contains(warnings.ToString(), "default winapp cache is inaccessible");
+        var service = new MSStoreCLIService(_directories, NullLogger<MSStoreCLIService>.Instance);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnsureMSStoreCLIAvailableAsync());
+        StringAssert.Contains(error.Message, "not validly signed by Microsoft");
+        Assert.Throws<InvalidOperationException>(() => service.GetMSStoreCLIPath());
     }
 
     [TestMethod]

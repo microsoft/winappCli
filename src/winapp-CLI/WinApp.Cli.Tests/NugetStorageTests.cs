@@ -103,7 +103,7 @@ public class NugetStorageTests
         provider.GetEnvironmentVariable = key => key == "NUGET_PACKAGES" ? _defaultPackages : null;
         DenyDefaultReads(provider);
 
-        var error = Assert.ThrowsExactly<InvalidOperationException>(() => provider.GetPackagesDirectory());
+        var error = Assert.ThrowsExactly<NugetStorageException>(() => provider.GetPackagesDirectory());
 
         StringAssert.Contains(error.Message, "explicitly configured");
         Assert.IsEmpty(_diagnostics.Messages);
@@ -118,7 +118,7 @@ public class NugetStorageTests
         var provider = CreateProvider();
         provider.GetEnvironmentVariable = key => key == "NUGET_PACKAGES" ? value : null;
 
-        var error = Assert.ThrowsExactly<InvalidOperationException>(() => provider.GetPackagesDirectory());
+        var error = Assert.ThrowsExactly<NugetStorageException>(() => provider.GetPackagesDirectory());
 
         StringAssert.Contains(error.Message, "fully qualified");
         Assert.IsEmpty(_diagnostics.Messages);
@@ -132,7 +132,7 @@ public class NugetStorageTests
         var provider = CreateProvider();
         DenyDefaultReads(provider);
 
-        var error = Assert.ThrowsExactly<InvalidOperationException>(() => provider.GetPackagesDirectory());
+        var error = Assert.ThrowsExactly<NugetStorageException>(() => provider.GetPackagesDirectory());
 
         StringAssert.Contains(error.Message, "explicitly configured");
         Assert.IsEmpty(_diagnostics.Messages);
@@ -145,7 +145,7 @@ public class NugetStorageTests
         WriteConfig(_invocation, """<config><add key="globalPackagesFolder" value=" " /></config>""");
         var provider = CreateProvider();
 
-        var error = Assert.ThrowsExactly<InvalidOperationException>(() => provider.GetPackagesDirectory());
+        var error = Assert.ThrowsExactly<NugetStorageException>(() => provider.GetPackagesDirectory());
 
         StringAssert.Contains(error.Message, "globalPackagesFolder");
         Assert.IsFalse(Directory.Exists(LocalPackages));
@@ -191,7 +191,7 @@ public class NugetStorageTests
         var provider = CreateProvider();
         provider.LoadSettings = _ => throw new UnauthorizedAccessException("private nuget.config denied");
 
-        var error = Assert.ThrowsExactly<InvalidOperationException>(() => provider.GetPackagesDirectory());
+        var error = Assert.ThrowsExactly<NugetStorageException>(() => provider.GetPackagesDirectory());
 
         StringAssert.Contains(error.Message, "required NuGet configuration");
         StringAssert.Contains(error.Message, "configured feeds and credentials cannot be replaced");
@@ -206,7 +206,7 @@ public class NugetStorageTests
         DenyDefaultReads(provider);
         provider.WritePackagesDirectory = _ => throw new UnauthorizedAccessException("local storage denied");
 
-        var error = Assert.ThrowsExactly<InvalidOperationException>(() => provider.GetPackagesDirectory());
+        var error = Assert.ThrowsExactly<NugetStorageException>(() => provider.GetPackagesDirectory());
 
         StringAssert.Contains(error.Message, "default NuGet packages folder");
         StringAssert.Contains(error.Message, ".winapp\\cache\\nuget\\packages could not be used");
@@ -368,13 +368,27 @@ public class NugetStorageTests
     }
 
     [TestMethod]
-    public void ChildNoRestoreBuildInAnotherDirectory_ReusesSelectedFallback()
+    public void ChildNoRestoreBuildInSelectedProjectScope_ReusesFallbackWithoutProbes()
     {
         Directory.CreateDirectory(_defaultPackages);
         var provider = CreateProvider();
+        var forbidProbes = false;
+        var load = provider.LoadSettings;
+        provider.LoadSettings = path =>
+        {
+            Assert.IsFalse(forbidProbes, "An already selected project scope must not reload configuration.");
+            return load(path);
+        };
+        var read = provider.ReadPackagesDirectory;
+        provider.ReadPackagesDirectory = path =>
+        {
+            Assert.IsFalse(forbidProbes, "A no-restore child must not probe previously selected package storage.");
+            read(path);
+        };
         var write = provider.WritePackagesDirectory;
         provider.WritePackagesDirectory = path =>
         {
+            Assert.IsFalse(forbidProbes, "A no-restore child must not probe writes.");
             if (path == _defaultPackages)
             {
                 throw new UnauthorizedAccessException("read only");
@@ -384,12 +398,49 @@ public class NugetStorageTests
         provider.GetPackagesDirectory(requireWrite: true);
         var project = _root.CreateSubdirectory("project");
         WriteConfig(project);
+        var dotnet = new DotNetService(provider);
+        dotnet.ConfigurePackageEnvironment(new ProcessStartInfo("dotnet") { WorkingDirectory = project.FullName }, ["restore"]);
+        forbidProbes = true;
         var child = new ProcessStartInfo("dotnet") { WorkingDirectory = project.FullName };
 
-        new DotNetService(provider).ConfigurePackageEnvironment(child, ["build", "--no-restore"]);
+        dotnet.ConfigurePackageEnvironment(child, ["build", "--no-restore"]);
 
         Assert.AreEqual(LocalPackages, child.Environment["NUGET_PACKAGES"]);
         Assert.HasCount(1, _diagnostics.Messages);
+    }
+
+    [TestMethod]
+    public void EvaluationInUnselectedProjectScope_DoesNotOverrideProjectConfiguration()
+    {
+        var provider = CreateProvider();
+        DenyDefaultReads(provider);
+        provider.GetPackagesDirectory();
+        var project = _root.CreateSubdirectory("project");
+        var projectPackages = Path.Combine(project.FullName, "project-packages");
+        WriteConfig(project, $"""<config><add key="globalPackagesFolder" value="{projectPackages}" /></config>""");
+        provider.LoadSettings = _ => throw new AssertFailedException("Evaluation must leave an unseen project's NuGet configuration to dotnet.");
+        var child = new ProcessStartInfo("dotnet") { WorkingDirectory = project.FullName };
+        child.Environment.Remove("NUGET_PACKAGES");
+
+        new DotNetService(provider).ConfigurePackageEnvironment(child, ["msbuild", "App.csproj", "--getProperty:TargetPath"]);
+
+        Assert.IsFalse(child.Environment.ContainsKey("NUGET_PACKAGES"), "The invocation's fallback must not override an unseen project's explicit package folder.");
+    }
+
+    [TestMethod]
+    public void EvaluationInInvocationScope_ReusesSelectedFallbackWithoutProbes()
+    {
+        var provider = CreateProvider();
+        DenyDefaultReads(provider);
+        provider.GetPackagesDirectory();
+        provider.LoadSettings = _ => throw new AssertFailedException("Evaluation must not reload configuration.");
+        provider.ReadPackagesDirectory = _ => Assert.Fail("Evaluation must not probe storage.");
+        provider.WritePackagesDirectory = _ => Assert.Fail("Evaluation must not probe storage.");
+        var child = new ProcessStartInfo("dotnet") { WorkingDirectory = _invocation.FullName };
+
+        new DotNetService(provider).ConfigurePackageEnvironment(child, ["msbuild", "App.csproj", "--getProperty:TargetPath"]);
+
+        Assert.AreEqual(LocalPackages, child.Environment["NUGET_PACKAGES"]);
     }
 
     [TestMethod]
@@ -402,7 +453,7 @@ public class NugetStorageTests
         WriteConfig(project, $"""<config><add key="globalPackagesFolder" value="{_defaultPackages}" /></config>""");
         var child = new ProcessStartInfo("dotnet") { WorkingDirectory = project.FullName };
 
-        var error = Assert.ThrowsExactly<InvalidOperationException>(
+        var error = Assert.ThrowsExactly<NugetStorageException>(
             () => new DotNetService(provider).ConfigurePackageEnvironment(child, ["publish"]));
 
         StringAssert.Contains(error.Message, "explicitly configured");
@@ -485,12 +536,12 @@ public class NugetStorageTests
     {
         var child = new ProcessStartInfo("dotnet") { WorkingDirectory = _invocation.FullName };
         child.Environment.Remove("NUGET_PACKAGES");
-        var childError = Assert.ThrowsExactly<InvalidOperationException>(
+        var childError = Assert.ThrowsExactly<NugetStorageException>(
             () => new DotNetService(provider).ConfigurePackageEnvironment(child, ["restore"]));
         StringAssert.Contains(childError.Message, "link or reparse point");
         Assert.IsFalse(child.Environment.ContainsKey("NUGET_PACKAGES"), "Unsafe local storage must not be exposed to a child.");
         var service = new NugetService(provider, new NugetPackageDownloader(provider));
-        var inProcessError = Assert.ThrowsExactly<InvalidOperationException>(
+        var inProcessError = Assert.ThrowsExactly<NugetStorageException>(
             () => service.GetNuGetPackageDir("Linked.Package", "1.0.0"));
         StringAssert.Contains(inProcessError.Message, "link or reparse point");
     }
@@ -512,6 +563,186 @@ public class NugetStorageTests
 
         Assert.IsFalse(Directory.Exists(LocalPackages));
         Assert.IsFalse(Directory.Exists(_defaultPackages));
+    }
+
+    [TestMethod]
+    [DataRow("build", "--no-restore")]
+    [DataRow("publish", "--no-restore")]
+    [DataRow("publish", "--no-build")]
+    [DataRow("run", "--no-build")]
+    [DataRow("run", "--no-restore")]
+    [DataRow("msbuild", "--getProperty:TargetPath")]
+    [DataRow("msbuild", "-getProperty:TargetPath")]
+    [DataRow("msbuild", "/getProperty:TargetPath")]
+    [DataRow("msbuild", "--getItem:Compile")]
+    [DataRow("build", "--getProperty:TargetPath")]
+    public void EvaluationOrNoRestore_DoesNotLoadNuGetOrProbeStorage(string verb, string argument)
+    {
+        var provider = CreateProvider();
+        provider.LoadSettings = _ => throw new AssertFailedException("Evaluation without restore must not load NuGet configuration.");
+        provider.ReadPackagesDirectory = _ => Assert.Fail("Evaluation without restore must not probe package storage.");
+        provider.WritePackagesDirectory = _ => Assert.Fail("Evaluation without restore must not probe package storage.");
+        var child = new ProcessStartInfo("dotnet") { WorkingDirectory = _invocation.FullName };
+        child.Environment.Remove("NUGET_PACKAGES");
+
+        new DotNetService(provider).ConfigurePackageEnvironment(child, [verb, "App.csproj", argument]);
+
+        Assert.IsFalse(child.Environment.ContainsKey("NUGET_PACKAGES"));
+        Assert.IsFalse(Directory.Exists(LocalPackages));
+        Assert.IsFalse(Directory.Exists(_defaultPackages));
+    }
+
+    [TestMethod]
+    [DataRow("build")]
+    [DataRow("publish")]
+    [DataRow("run")]
+    public void RestoreDisabledWithRuntimeArgument_DoesNotSelectPackages(string verb)
+    {
+        var provider = CreateProvider();
+        provider.LoadSettings = _ => throw new AssertFailedException("-r is a runtime identifier, not an MSBuild restore request.");
+        var child = new ProcessStartInfo("dotnet") { WorkingDirectory = _invocation.FullName };
+
+        new DotNetService(provider).ConfigurePackageEnvironment(child,
+            [verb, "App.csproj", "--no-restore", "-r", "win-arm64"]);
+
+        Assert.IsFalse(Directory.Exists(_defaultPackages));
+    }
+
+    [TestMethod]
+    public void RunApplicationArguments_DoNotDisablePackagePreparation()
+    {
+        var provider = CreateProvider();
+        var child = new ProcessStartInfo("dotnet") { WorkingDirectory = _invocation.FullName };
+
+        new DotNetService(provider).ConfigurePackageEnvironment(child,
+            ["run", "--", "--no-build", "--no-restore"]);
+
+        Assert.AreEqual(_defaultPackages, child.Environment["NUGET_PACKAGES"]);
+    }
+
+    [TestMethod]
+    [DataRow("-t:Restore")]
+    [DataRow("--target:Build")]
+    [DataRow("/target:Build")]
+    [DataRow("-restore")]
+    [DataRow("/r")]
+    [DataRow("--getTargetResult:Build")]
+    [DataRow("@restore.rsp")]
+    public void PropertyQueryWithTargetOrRestore_StillSelectsPackageStorage(string option)
+    {
+        var provider = CreateProvider();
+        var child = new ProcessStartInfo("dotnet") { WorkingDirectory = _invocation.FullName };
+
+        new DotNetService(provider).ConfigurePackageEnvironment(child,
+            ["msbuild", "App.csproj", "--getProperty:TargetPath", option]);
+
+        Assert.AreEqual(_defaultPackages, child.Environment["NUGET_PACKAGES"]);
+    }
+
+    [TestMethod]
+    [DataRow(false, "msbuild")]
+    [DataRow(true, "msbuild")]
+    [DataRow(false, "build")]
+    [DataRow(true, "build")]
+    public async Task PropertyEvaluation_StandardSdkSucceedsWithoutNuGetConfiguration(bool tokenArguments, string verb)
+    {
+        var project = Path.Combine(_invocation.FullName, "App.csproj");
+        File.WriteAllText(project, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup>
+              <Target Name="MustNotRunTargets" BeforeTargets="Restore;Build"><Error Text="Only evaluation is permitted." /></Target>
+            </Project>
+            """);
+        var direct = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = _invocation.FullName,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            ArgumentList = { verb, project, "--getProperty:TargetPath" },
+        };
+        var baseline = await DotNetService.RunDotnetProcessAsync(direct, TestContext.CancellationToken);
+        Assert.AreEqual(0, baseline.ExitCode, baseline.Error + baseline.Output);
+        StringAssert.Contains(baseline.Output, "App.dll");
+
+        var provider = CreateProvider();
+        provider.LoadSettings = _ => throw new UnauthorizedAccessException("user nuget.config denied");
+        var dotnet = new DotNetService(provider);
+        var result = tokenArguments
+            ? await dotnet.RunDotnetCommandAsync(_invocation, [verb, project, "--getProperty:TargetPath"],
+                cancellationToken: TestContext.CancellationToken)
+            : await dotnet.RunDotnetCommandAsync(_invocation, $"{verb} \"{project}\" --getProperty:TargetPath",
+                TestContext.CancellationToken);
+
+        Assert.AreEqual(0, result.ExitCode, result.Error + result.Output);
+        Assert.AreEqual(baseline.Output, result.Output);
+        Assert.IsFalse(Directory.Exists(LocalPackages));
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CompletedFallbackGraph_IsReusedAfterStorageSwitch(bool failDuringDownload)
+    {
+        var feed = _root.CreateSubdirectory("feed");
+        WritePackage(feed, "Root.Package", "Child.Package");
+        WritePackage(feed, "Child.Package");
+        WriteConfig(_invocation, $"""<packageSources><clear /><add key="private" value="{feed.FullName}" /></packageSources>""");
+        var previousProvider = CreateProvider();
+        DenyDefaultReads(previousProvider);
+        var previous = new NugetService(previousProvider, new NugetPackageDownloader(previousProvider));
+        await previous.InstallPackageAsync("Root.Package", "1.0.0", CreateTaskContext(), TestContext.CancellationToken);
+        WriteConfig(_invocation, $"""
+            <packageSources><clear /><add key="private" value="{feed.FullName}" /></packageSources>
+            <packageSourceMapping><clear /><packageSource key="private"><package pattern="Root.Package" /></packageSource></packageSourceMapping>
+            """);
+
+        Directory.CreateDirectory(_defaultPackages);
+        var provider = CreateProvider();
+        if (failDuringDownload)
+        {
+            File.WriteAllText(Path.Combine(_defaultPackages, "root.package"), "blocks package extraction");
+        }
+        else
+        {
+            feed.Delete(recursive: true);
+            var write = provider.WritePackagesDirectory;
+            provider.WritePackagesDirectory = path =>
+            {
+                if (path == _defaultPackages)
+                {
+                    throw new UnauthorizedAccessException("read only");
+                }
+                write(path);
+            };
+        }
+        var downloadAttempts = 0;
+        var downloader = new NugetPackageDownloader(provider)
+        {
+            DeleteTempFile = path =>
+            {
+                downloadAttempts++;
+                File.Delete(path);
+                if (feed.Exists)
+                {
+                    feed.Delete(recursive: true);
+                }
+            },
+        };
+        var service = new NugetService(provider, downloader);
+
+        var graph = await service.InstallPackageAsync("Root.Package", "1.0", CreateTaskContext(), TestContext.CancellationToken);
+
+        Assert.AreEqual(failDuringDownload ? 1 : 0, downloadAttempts, "No download may be attempted after selecting the completed fallback.");
+        Assert.HasCount(2, graph);
+        Assert.AreEqual(LocalPackages, service.GetNuGetGlobalPackagesDir().FullName);
+        foreach (var package in graph)
+        {
+            Assert.AreEqual("1.0.0", package.Value);
+            Assert.IsTrue(service.IsPackageInstalled(package.Key, package.Value));
+            StringAssert.StartsWith(service.GetNuGetPackageDir(package.Key, package.Value).FullName, LocalPackages);
+        }
     }
 
     [TestMethod]

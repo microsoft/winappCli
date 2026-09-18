@@ -60,7 +60,7 @@ internal sealed class LayoutLease : IDisposable
         var elapsed = Stopwatch.StartNew();
         var waitLimit = timeout ?? DefaultTimeout;
         openLock ??= path => new FileStream(
-            path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+            path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.None);
 
         while (true)
         {
@@ -68,8 +68,9 @@ internal sealed class LayoutLease : IDisposable
 
             try
             {
-                // The kernel releases the handle (and removes the file) even if a process is killed.
-                // Never delete the directory on release: another layout or waiter may be using it.
+                // The kernel releases the exclusive handle even if a process is killed. Keep the
+                // file: DeleteOnClose can make the next opener get access-denied while metadata
+                // handles held by a scanner or watcher keep deletion pending.
                 return new LayoutLease(openLock(lockPath));
             }
             catch (IOException ex) when (IsContention(ex))
