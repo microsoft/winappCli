@@ -374,10 +374,12 @@ internal partial class PackageCommand
             // signing rather than silently ignoring it) and reuse it for the single package or every slice.
             SigningPolicy? resolvedPolicy;
             string? signingError;
+            ProjectPackagePreparation preparation;
             try
             {
-                (resolvedPolicy, signingError) = await ResolveSigningPolicyAsync(
-                    csproj, buildOptions, noSign, certPath, generateCert, installCert, certPassword, cancellationToken);
+                preparation = await PrepareProjectPackageAsync(csproj, buildOptions, selfContainedFlag, cancellationToken);
+                (resolvedPolicy, signingError) = ResolveSigningPolicy(
+                    preparation.Signing, noSign, certPath, generateCert, installCert, certPassword);
             }
             catch (ProjectRunException ex)
             {
@@ -396,35 +398,20 @@ internal partial class PackageCommand
             if (isBundle)
             {
                 return await RunProjectBundleModeAsync(
-                    csproj, resolvedArches, buildOptions, output, name, publisher,
+                    csproj, resolvedArches, buildOptions, preparation, output, name, publisher,
                     signing, selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
             }
 
-            // Fast-fail: an unpackaged app can never be packaged. Reject before paying the publish cost
-            // when the project is definitively WindowsPackageType=None (skipped under --no-build). These
-            // pre-build probes evaluate the project graph and can raise an actionable ProjectRunException
-            // (e.g. an exact -p RuntimeIdentifier a RID-splitting graph cannot honor); surface it as a normal
-            // failure rather than letting it reach the generic "unexpected error" handler.
-            bool isNativeMsix;
-            try
+            if (!noBuild && preparation.IsDefinitivelyUnpackaged)
             {
-                if (!noBuild && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
-                {
-                    return Fail(UnpackagedProjectMessage(csproj.Name));
-                }
-
-                isNativeMsix = await projectRunService.IsNativeMsixProjectAsync(csproj, buildOptions, cancellationToken);
-            }
-            catch (ProjectRunException ex)
-            {
-                return Fail(ex.Message);
+                return Fail(UnpackagedProjectMessage(csproj.Name));
             }
 
             // MSIX-tooling projects (WinUI / EnableMsixTooling): let the Windows App SDK's own MSIX targets
             // produce the package during publish, then sign and deliver it. The SDK owns file selection and
             // Native AOT native/managed filtering, so winapp never repackages the output. A native project
             // that fails to package is reported as-is — never a silent fall back to generic packaging.
-            if (isNativeMsix)
+            if (preparation.IsNativeMsix)
             {
                 if (manifestPath != null)
                 {
@@ -443,17 +430,10 @@ internal partial class PackageCommand
                 packageStagingDir.Create();
                 try
                 {
-                    // --self-contained sets WindowsAppSDKSelfContained=true BEFORE publish so the SDK bundles
-                    // the Windows App SDK runtime into the package (spec §4/§7). Unlike the generic path, there
-                    // is no post-publish runtime injection — the SDK owns it. Absence leaves the project setting.
-                    var nativeOptions = selfContainedFlag
-                        ? buildOptions with { Properties = [.. properties, "WindowsAppSDKSelfContained=true"] }
-                        : buildOptions;
-
                     NativeMsixPublishOutcome nativeOutcome;
                     try
                     {
-                        nativeOutcome = await projectRunService.PublishNativeMsixAsync(csproj, nativeOptions, packageStagingDir, cancellationToken);
+                        nativeOutcome = await projectRunService.PublishNativeMsixAsync(csproj, preparation, packageStagingDir, cancellationToken);
                     }
                     catch (ProjectRunException ex)
                     {
@@ -513,14 +493,14 @@ internal partial class PackageCommand
 
             // Generic publish-layout path: for a project without active MSIX tooling, publish and package the
             // deployment payload (PublishDir) with a resolved distribution manifest. This ALSO serves as the
-            // intentional fallback when native detection is indeterminate (IsNativeMsixProjectAsync returned
+            // intentional fallback when native detection is indeterminate (preparation.IsNativeMsix is
             // false because the cheap evaluate could not run): the resolver's recipe-aware TargetDir handling
             // still packages an MSIX-tooling app correctly rather than failing. Do not remove that recipe
             // handling as "dead code" — it is the safety net for the detection-failure case.
             ProjectBuildOutcome outcome;
             try
             {
-                outcome = await projectRunService.PublishAndResolveAsync(csproj, buildOptions, cancellationToken);
+                outcome = await projectRunService.PublishAndResolveAsync(csproj, preparation, cancellationToken);
             }
             catch (ProjectRunException ex)
             {
@@ -633,6 +613,21 @@ internal partial class PackageCommand
         private readonly record struct SigningPolicy(
             bool ShouldSign, FileInfo? Cert, string CertPassword, bool GenerateCert, bool InstallCert, string? TimestampUrl);
 
+        private async Task<ProjectPackagePreparation> PrepareProjectPackageAsync(
+            FileInfo csproj, ProjectRunOptions options, bool selfContained, CancellationToken cancellationToken)
+        {
+            var preparation = await projectRunService.PreparePackageAsync(csproj, options, cancellationToken);
+            if (preparation.IsNativeMsix && selfContained)
+            {
+                // Native packaging bundles the runtime during publish; generic layouts use runtime
+                // injection after publish. A changed native graph must be restored before reading policy.
+                preparation = await projectRunService.PreparePackageAsync(
+                    csproj, options with { Properties = [.. options.Properties, "WindowsAppSDKSelfContained=true"] },
+                    cancellationToken);
+            }
+            return preparation;
+        }
+
         /// <summary>
         /// Resolves the single signing policy (spec §6): <c>--no-sign</c> → unsigned; an explicit
         /// <c>--cert</c>/<c>--generate-cert</c> → sign with the CLI certificate (overriding project config);
@@ -640,15 +635,13 @@ internal partial class PackageCommand
         /// selected-but-unsupported policy (certificate-store thumbprint / cloud) or an enabled policy with
         /// no usable certificate, rather than silently ignoring it or downgrading to unsigned.
         /// </summary>
-        private async Task<(SigningPolicy? Policy, string? Error)> ResolveSigningPolicyAsync(
-            FileInfo csproj,
-            ProjectRunOptions buildOptions,
+        private static (SigningPolicy? Policy, string? Error) ResolveSigningPolicy(
+            ProjectSigningProperties? props,
             bool noSign,
             FileInfo? certPath,
             bool generateCert,
             bool installCert,
-            string certPassword,
-            CancellationToken cancellationToken)
+            string certPassword)
         {
             var unsigned = new SigningPolicy(false, null, certPassword, false, false, null);
 
@@ -662,7 +655,6 @@ internal partial class PackageCommand
                 return (new SigningPolicy(true, certPath, certPassword, generateCert, installCert, null), null);
             }
 
-            var props = await projectRunService.EvaluateProjectSigningAsync(csproj, buildOptions, cancellationToken);
             if (props is null)
             {
                 // Evaluation could not determine the project's signing configuration (even after a restore).
@@ -715,6 +707,7 @@ internal partial class PackageCommand
             FileInfo csproj,
             List<string> arches,
             ProjectRunOptions baseOptions,
+            ProjectPackagePreparation firstPreparation,
             FileInfo? output,
             string? name,
             string? publisher,
@@ -740,8 +733,18 @@ internal partial class PackageCommand
 
                     var sliceDir = bundleStagingDir.CreateSubdirectory($"slice-{arch}");
                     var sliceOptions = baseOptions with { Architecture = arch };
+                    ProjectPackagePreparation preparation;
+                    try
+                    {
+                        preparation = i == 0 ? firstPreparation
+                            : await PrepareProjectPackageAsync(csproj, sliceOptions, selfContainedFlag, cancellationToken);
+                    }
+                    catch (ProjectRunException ex)
+                    {
+                        return Fail(ex.Message);
+                    }
                     var (sliceMsix, exitCode, error) = await ProduceProjectSliceAsync(
-                        csproj, sliceOptions, sliceDir, selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
+                        csproj, preparation, sliceDir, selfContainedFlag, manifestPath, executable, skipPri, cancellationToken);
 
                     if (error != null)
                     {
@@ -806,7 +809,7 @@ internal partial class PackageCommand
         /// </summary>
         private async Task<(FileInfo? Msix, int ExitCode, string? Error)> ProduceProjectSliceAsync(
             FileInfo csproj,
-            ProjectRunOptions sliceOptions,
+            ProjectPackagePreparation preparation,
             DirectoryInfo sliceDir,
             bool selfContainedFlag,
             FileInfo? manifestPath,
@@ -814,17 +817,12 @@ internal partial class PackageCommand
             bool skipPri,
             CancellationToken cancellationToken)
         {
-            bool isNativeMsix;
-            try
+            if (!preparation.Options.NoBuild && preparation.IsDefinitivelyUnpackaged)
             {
-                isNativeMsix = await projectRunService.IsNativeMsixProjectAsync(csproj, sliceOptions, cancellationToken);
-            }
-            catch (ProjectRunException ex)
-            {
-                return (null, 1, ex.Message);
+                return (null, 1, UnpackagedProjectMessage(csproj.Name));
             }
 
-            if (isNativeMsix)
+            if (preparation.IsNativeMsix)
             {
                 if (manifestPath != null)
                 {
@@ -839,12 +837,9 @@ internal partial class PackageCommand
                     return (null, 1, "--skip-pri is not supported for an MSIX-tooling project; the project's own resource build controls PRI generation.");
                 }
 
-                var nativeOptions = selfContainedFlag
-                    ? sliceOptions with { Properties = [.. sliceOptions.Properties, "WindowsAppSDKSelfContained=true"] }
-                    : sliceOptions;
                 try
                 {
-                    var outcome = await projectRunService.PublishNativeMsixAsync(csproj, nativeOptions, sliceDir, cancellationToken);
+                    var outcome = await projectRunService.PublishNativeMsixAsync(csproj, preparation, sliceDir, cancellationToken);
                     return (outcome.PackagePath, outcome.ExitCode, null);
                 }
                 catch (ProjectRunException ex)
@@ -857,7 +852,7 @@ internal partial class PackageCommand
             ProjectBuildOutcome outcome2;
             try
             {
-                outcome2 = await projectRunService.PublishAndResolveAsync(csproj, sliceOptions, cancellationToken);
+                outcome2 = await projectRunService.PublishAndResolveAsync(csproj, preparation, cancellationToken);
             }
             catch (ProjectRunException ex)
             {

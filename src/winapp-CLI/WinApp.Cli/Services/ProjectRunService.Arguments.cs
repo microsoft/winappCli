@@ -25,7 +25,8 @@ internal sealed partial class ProjectRunService
     internal static string BuildRestorePassArguments(
         FileInfo csproj,
         ProjectRunOptions options,
-        string? verbosity = null)
+        string? verbosity = null,
+        bool pinFramework = false)
     {
         var rid = options.EffectiveRuntimeIdentifier;
         var isSolution = IsSolutionFile(csproj);
@@ -44,6 +45,10 @@ internal sealed partial class ProjectRunService
         // 'dotnet restore' has no -c switch; Configuration flows as a property so config-conditional
         // <PackageReference> lands in project.assets.json before the --no-restore build consumes it.
         tokens.Add($"-p:Configuration={options.Configuration}");
+        if (pinFramework && !isSolution && !string.IsNullOrWhiteSpace(options.Framework))
+        {
+            tokens.Add($"-p:TargetFramework={options.Framework}");
+        }
 
         // Mirror the build pass's injected Platform for project restores so platform-conditional
         // PackageReferences resolve consistently. A solution-scoped restore must omit it: unlike a
@@ -110,16 +115,6 @@ internal sealed partial class ProjectRunService
             tokens.Add("--no-build");
         }
 
-        if (publish)
-        {
-            // Native AOT (and other deployment transforms) replace the managed build output with the
-            // published payload. Without this the Windows SDK MSIX targets default the flag to false for
-            // AOT, so the generated .appxrecipe references the managed build and `winapp pack` would package
-            // the wrong payload. Match the Native AOT publisher and include publish items in the package
-            // output group. Harmless for a plain managed publish (build and publish payloads coincide).
-            tokens.Add("-p:IncludePublishItemsOutputGroup=true");
-        }
-
         if (!options.OmitRuntimeIdentifier)
         {
             tokens.Add("-r");
@@ -173,60 +168,24 @@ internal sealed partial class ProjectRunService
             tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
         }
 
+        if (publish)
+        {
+            tokens.Add("-p:IncludePublishItemsOutputGroup=true");
+        }
+
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
 
-    internal static IReadOnlyList<string> BuildAotPublishArguments(
+    internal static IReadOnlyList<string> BuildPublishArguments(
         FileInfo csproj,
         ProjectRunOptions options,
         string verbosity,
         string? csWinRTMetadataFolder = null)
     {
-        var tokens = new List<string>
-        {
-            "publish",
-            csproj.FullName,
-            "-c",
-            options.Configuration,
-            "-r",
-            options.EffectiveRuntimeIdentifier,
-        };
-
-        if (options.NoRestore)
-        {
-            tokens.Add("--no-restore");
-        }
-
-        if (!string.IsNullOrWhiteSpace(options.Framework))
-        {
-            tokens.Add("-f");
-            tokens.Add(options.Framework);
-        }
-
-        tokens.Add("-v");
-        tokens.Add(verbosity);
-        tokens.Add("-tl:off");
-
-        foreach (var property in ForwardableProperties(options.Properties))
-        {
-            tokens.Add($"-p:{property}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(options.Platform))
-        {
-            tokens.Add($"-p:Platform={options.Platform}");
-        }
-
-        AppendInferredPublishProfile(tokens, csproj, options);
-        AppendSolutionProperties(tokens, options);
-
-        if (!string.IsNullOrEmpty(csWinRTMetadataFolder))
-        {
-            tokens.Add($"-p:CsWinRTWindowsMetadata={csWinRTMetadataFolder}");
-        }
-
-        tokens.Add("-p:IncludePublishItemsOutputGroup=true");
-        foreach (var name in RequestedProperties)
+        var tokens = WindowsCommandLine.SplitArguments(
+            BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, publish: true)).ToList();
+        // Publish output is streamed; signing secrets are only needed by buffered package preparation.
+        foreach (var name in RequestedProperties.Where(name => name != "PackageCertificatePassword"))
         {
             tokens.Add($"--getProperty:{name}");
         }
@@ -341,8 +300,7 @@ internal sealed partial class ProjectRunService
         string? csWinRTMetadataFolder = null,
         bool includeRuntimeIdentifier = true,
         bool includePlatform = true,
-        bool includePublishProfile = true,
-        bool publish = false)
+        bool includePublishProfile = true)
     {
         var rid = options.EffectiveRuntimeIdentifier;
 
@@ -351,16 +309,6 @@ internal sealed partial class ProjectRunService
             "msbuild",
             csproj.FullName,
         };
-
-        // Publish mode evaluates in the publish context: `dotnet publish` sets the global _IsPublishing=true,
-        // so a project that conditions output properties on it (e.g. <PublishDir Condition="'$(_IsPublishing)'
-        // == 'true'">) resolves the SAME PublishDir the publish pass wrote. Without it this evaluate reads the
-        // non-publish default and winapp would package a stale/wrong directory. Emitted as a global -p so a
-        // publish-conditioned property group sees it during evaluation (getProperty runs no targets).
-        if (publish)
-        {
-            tokens.Add("-p:_IsPublishing=true");
-        }
 
         // Drop dedicated-switch dupes (same filter as the build pass) so the two passes stay in lock-step;
         // the dedicated -p: equivalents are emitted below. A user -p:Platform / EDPR flows through.

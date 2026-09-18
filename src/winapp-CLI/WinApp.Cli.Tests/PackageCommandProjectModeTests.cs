@@ -76,6 +76,45 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     // ---- Packaged happy path -------------------------------------------------
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ProjectMode_BundleReusesEachSlicesPreparedInputs(bool native)
+    {
+        var csproj = CreateCsproj();
+        SetPackagedOutcome(csproj, CreateTargetDir(withManifest: true));
+        var nativePackage = new FileInfo(Path.Join(_tempDirectory.FullName, "native.msix"));
+        File.WriteAllText(nativePackage.FullName, "fixture");
+        _fakeProjectRunService.NativeMsixOutcome = new NativeMsixPublishOutcome(nativePackage, 0);
+        var prepared = new List<ProjectRunOptions>();
+        _fakeProjectRunService.PreparePackageHandler = options =>
+        {
+            var resolved = options with
+            {
+                Framework = "net10.0-windows",
+                Platform = options.Architecture,
+                PublishProfile = $"win-{options.Architecture}.pubxml",
+                NoRestore = true,
+            };
+            prepared.Add(resolved);
+            return new ProjectPackagePreparation(resolved, null, false, native, null);
+        };
+
+        var result = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(),
+            [csproj.FullName, "--arch", "x64", "--arch", "arm64", "--no-sign"]);
+
+        Assert.AreEqual(0, result);
+        Assert.HasCount(2, prepared);
+        Assert.HasCount(2, _fakeProjectRunService.BuildOptions);
+        for (var i = 0; i < prepared.Count; i++)
+        {
+            Assert.AreSame(prepared[i], _fakeProjectRunService.BuildOptions[i]);
+        }
+        Assert.IsFalse(_fakeProjectRunService.PreparationOptions[1].NoRestore,
+            "The second architecture must not inherit the first architecture's restored state.");
+        Assert.IsNull(_fakeProjectRunService.PreparationOptions[1].Platform);
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Packaged_PackagesTargetDirWithProjectContext()
     {
         var csproj = CreateCsproj();

@@ -88,7 +88,7 @@ internal interface IProjectRunService
     /// <exception cref="ProjectRunException">Thrown on a guardrail violation (e.g. a non-executable project).</exception>
     Task<ProjectBuildOutcome> PublishAndResolveAsync(
         FileInfo csproj,
-        ProjectRunOptions options,
+        ProjectPackagePreparation preparation,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -107,26 +107,16 @@ internal interface IProjectRunService
     /// </summary>
     Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(
         FileInfo csproj,
-        ProjectRunOptions options,
+        ProjectPackagePreparation preparation,
         DirectoryInfo packageDir,
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Cheap, side-effect-free probe (no build) reporting whether the Windows App SDK MSIX packaging
-    /// targets are active (<c>MsixPackageSupport</c> / <c>EnableMsixTooling</c>). Selects the native
-    /// MSIX packaging path over the generic publish-layout path. Indeterminate → <see langword="false"/>.
+    /// Prepares one architecture's publish inputs, restoring the publish graph unless NoBuild or
+    /// NoRestore is set, then evaluates package type, native tooling and signing in that context.
+    /// Returned inputs are reused unchanged by the publisher.
     /// </summary>
-    Task<bool> IsNativeMsixProjectAsync(
-        FileInfo csproj,
-        ProjectRunOptions options,
-        CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Evaluates the project's MSIX signing configuration (<c>AppxPackageSigningEnabled</c>,
-    /// <c>PackageCertificateKeyFile</c>, etc.) so the caller can resolve one signing policy. Null when
-    /// evaluation could not run.
-    /// </summary>
-    Task<ProjectSigningProperties?> EvaluateProjectSigningAsync(
+    Task<ProjectPackagePreparation> PreparePackageAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         CancellationToken cancellationToken);

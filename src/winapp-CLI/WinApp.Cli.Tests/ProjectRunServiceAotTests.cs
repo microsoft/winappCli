@@ -63,7 +63,7 @@ public sealed class ProjectRunServiceAotTests
             Properties: ["PublishAot=true", "Flavor=Retail"],
             Platform: "ARM64");
 
-        var arguments = ProjectRunService.BuildAotPublishArguments(
+        var arguments = ProjectRunService.BuildPublishArguments(
             project,
             options,
             "minimal");
@@ -75,7 +75,7 @@ public sealed class ProjectRunServiceAotTests
         CollectionAssert.Contains(arguments.ToList(), "-p:PublishAot=true");
         CollectionAssert.Contains(arguments.ToList(), "-p:Flavor=Retail");
         CollectionAssert.Contains(arguments.ToList(), "-p:Platform=ARM64");
-        var withoutAotProperty = ProjectRunService.BuildAotPublishArguments(
+        var withoutAotProperty = ProjectRunService.BuildPublishArguments(
             project,
             options with { Properties = ["Flavor=Retail"] },
             "minimal");
@@ -676,7 +676,8 @@ public sealed class ProjectRunServiceAotTests
         };
         var service = NewService(dotnet);
 
-        var outcome = await service.PublishNativeMsixAsync(project, Options(), packageDir, CancellationToken.None);
+        var preparation = await service.PreparePackageAsync(project, Options(), CancellationToken.None);
+        var outcome = await service.PublishNativeMsixAsync(project, preparation, packageDir, CancellationToken.None);
 
         Assert.AreEqual(0, outcome.ExitCode);
         Assert.AreEqual(producedMsix.FullName, outcome.PackagePath!.FullName);

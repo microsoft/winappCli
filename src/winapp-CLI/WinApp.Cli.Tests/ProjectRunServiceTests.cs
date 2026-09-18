@@ -2008,7 +2008,168 @@ public class ProjectRunServiceTests
         $$"""{ "Properties": { "TargetDir": "{{_tempDir.FullName.Replace("\\", "\\\\")}}", "RunCommand": "", "WindowsPackageType": "MSIX", "OutputType": "WinExe", "WindowsAppSDKSelfContained": "" } }""";
 
     [TestMethod]
-    public async Task EvaluateProjectSigningAsync_UnrestoredProject_RestoresBeforeResolvingSigning()
+    public async Task PublishPreparation_UsesPublishSigningAndNativeCapability()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => (0,
+                args.Contains("-p:_IsPublishing=true", StringComparison.Ordinal)
+                    ? """{"Properties":{"WindowsPackageType":"MSIX","EnableMsixTooling":"true","AppxPackageSigningEnabled":"true","PackageCertificateKeyFile":"publish.pfx"}}"""
+                    : """{"Properties":{"WindowsPackageType":"None","EnableMsixTooling":"false","AppxPackageSigningEnabled":"false"}}""",
+                string.Empty),
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Release", "arm64", null, false, true, []);
+
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+        Assert.AreEqual(true, preparation.Signing!.SigningEnabled);
+        Assert.IsTrue(preparation.IsNativeMsix);
+        Assert.IsFalse(preparation.IsDefinitivelyUnpackaged);
+        Assert.IsTrue(await service.IsDefinitivelyUnpackagedAsync(csproj, options, CancellationToken.None),
+            "Run preflight must retain build-context evaluation.");
+    }
+
+    [TestMethod]
+    public async Task PublishPreparation_StaleAssetsMustRefreshSigning()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var assets = WriteFileAt(Path.Combine("obj", "project.assets.json"), "{}");
+        var restored = false;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restored = true;
+                }
+                return (0, $$"""{"Properties":{"ProjectAssetsFile":"{{assets.FullName.Replace("\\", "\\\\")}}","AppxPackageSigningEnabled":"{{(restored ? "true" : "false")}}"} }""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Release", "arm64", "net10.0", false, false, ["Flavor=Retail"]);
+
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(true, preparation.Signing!.SigningEnabled);
+        Assert.IsTrue(preparation.Options.NoRestore);
+        var restore = dotnet.StreamingCalls.Single();
+        StringAssert.Contains(restore, "-p:_IsPublishing=true");
+        StringAssert.Contains(restore, "-p:Configuration=Release");
+        StringAssert.Contains(restore, "win-arm64");
+        StringAssert.Contains(restore, "-p:TargetFramework=net10.0");
+        StringAssert.Contains(restore, "-p:Flavor=Retail");
+    }
+
+    [TestMethod]
+    public async Task PublishPreparation_NoBuildMustNotRestore()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService { RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty) };
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "arm64", null, true, false, []), CancellationToken.None);
+
+        Assert.IsEmpty(dotnet.StreamingCalls, "--no-build implies no restore.");
+    }
+
+    [TestMethod]
+    public async Task PublishPreparation_RestoreFailureMustNotResolveUnsigned()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (_, _, _) => 42,
+        };
+        var service = NewServiceWith(dotnet, out _);
+
+        await Assert.ThrowsAsync<ProjectRunException>(() => service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "arm64", null, false, false, []), CancellationToken.None));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PublishAndResolve_UsesExecutedTargetProperties(bool noBuild)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var shipping = _tempDir.CreateSubdirectory("shipping").FullName;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetArgumentListHandler = _ => (0,
+                $$"""{"Properties":{"PublishDir":"{{shipping.Replace("\\", "\\\\")}}","WindowsPackageType":"MSIX","PublishAot":"false","OutputType":"Exe"} }""",
+                string.Empty),
+        };
+        var service = NewServiceWith(dotnet, out _);
+
+        var preparation = await service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "x86", "net10.0", noBuild, true, []), CancellationToken.None);
+        var result = await service.PublishAndResolveAsync(csproj, preparation, CancellationToken.None);
+
+        Assert.AreEqual(shipping, result.Resolution!.TargetDir);
+        var publish = dotnet.ArgumentListInvocations.Single();
+        CollectionAssert.Contains(publish.ToList(), "--getProperty:PublishDir");
+        Assert.AreEqual(noBuild, publish.Contains("--no-build"));
+        Assert.IsFalse(publish.Contains("-p:PublishAot=true"));
+        Assert.IsFalse(publish.Contains("--getProperty:PackageCertificatePassword"));
+        Assert.IsEmpty(dotnet.StreamingCalls);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PublishPreparation_CancellationPropagates(bool duringRestore)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        using var cts = new CancellationTokenSource();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (!duringRestore || args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    cts.Cancel();
+                    throw new OperationCanceledException(cts.Token);
+                }
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        await Assert.ThrowsAsync<OperationCanceledException>(() => service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "arm64", null, false, false, []), cts.Token));
+    }
+
+    [TestMethod]
+    public async Task PublishAndResolve_FailureStreamsRedactedDiagnosticsAndPreservesExitCode()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetArgumentListHandler = _ => (37,
+                "{publish message}\nerror PUBLISH: failed https://feed.example/index.json?sig=SECRET",
+                "stderr diagnostic"),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        using (console)
+        {
+            var preparation = await service.PreparePackageAsync(
+                csproj, new ProjectRunOptions("Release", "arm64", null, false, true, []), CancellationToken.None);
+            var result = await service.PublishAndResolveAsync(csproj, preparation, CancellationToken.None);
+            Assert.AreEqual(37, result.ExitCode);
+            Assert.IsNull(result.Resolution);
+            StringAssert.Contains(console.Output, "error PUBLISH");
+            StringAssert.Contains(console.Output, "stderr diagnostic");
+            Assert.IsFalse(console.Output.Contains("SECRET", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
+    public async Task PreparePackageAsync_UnrestoredProject_RestoresBeforeResolvingSigning()
     {
         // A clean checkout evaluates ProjectAssetsFile to a path that does not exist yet, and signing
         // properties imported from a NuGet package's build/*.props are invisible until restore. A
@@ -2038,7 +2199,8 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
 
-        var signing = await service.EvaluateProjectSigningAsync(csproj, options, CancellationToken.None);
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+        var signing = preparation.Signing;
 
         Assert.IsTrue(restored, "an unrestored project must be restored before signing is resolved");
         Assert.IsTrue(evaluateCount >= 2, "signing must be re-evaluated after the restore");
@@ -2048,10 +2210,9 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task EvaluateProjectSigningAsync_RestoredProject_DoesNotRestore()
+    public async Task PreparePackageAsync_RestoredProject_IncrementallyRestoresOnce()
     {
-        // When the project is already restored (its evaluated assets file exists), signing resolution must
-        // not trigger a redundant restore, and an unconfigured project resolves to an unset (unsigned) policy.
+        // Existing assets do not establish the effective publish graph. Refresh once before evaluating policy.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var assets = WriteFileAt(Path.Combine("obj", "project.assets.json"), "{}");
         var restoreCalls = 0;
@@ -2070,15 +2231,16 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
 
-        var signing = await service.EvaluateProjectSigningAsync(csproj, options, CancellationToken.None);
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+        var signing = preparation.Signing;
 
-        Assert.AreEqual(0, restoreCalls, "an already-restored project must not be restored again for signing");
+        Assert.AreEqual(1, restoreCalls);
         Assert.IsNotNull(signing);
         Assert.IsNull(signing!.SigningEnabled, "no signing configured resolves to an unset policy, not a restore loop");
     }
 
     [TestMethod]
-    public async Task EvaluateProjectSigningAsync_NoRestore_DoesNotRestoreEvenIfUnrestored()
+    public async Task PreparePackageAsync_NoRestore_DoesNotRestoreEvenIfUnrestored()
     {
         // --no-restore is the user's promise that the project is already restored; signing resolution must
         // honor it and never inject a restore, even when the assets file is absent.
@@ -2100,7 +2262,7 @@ public class ProjectRunServiceTests
         var service = NewServiceWith(dotnet, out _);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: []);
 
-        await service.EvaluateProjectSigningAsync(csproj, options, CancellationToken.None);
+        await service.PreparePackageAsync(csproj, options, CancellationToken.None);
 
         Assert.AreEqual(0, restoreCalls, "--no-restore must suppress the signing restore");
     }
@@ -2524,7 +2686,7 @@ public class ProjectRunServiceTests
 
         Assert.IsFalse(resolved.OmitRuntimeIdentifier);
         Assert.IsNull(resolved.Platform);
-        var arguments = ProjectRunService.BuildAotPublishArguments(
+        var arguments = ProjectRunService.BuildPublishArguments(
             app,
             resolved,
             "minimal");

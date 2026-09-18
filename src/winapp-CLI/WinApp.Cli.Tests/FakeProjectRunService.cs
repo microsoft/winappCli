@@ -126,10 +126,10 @@ internal sealed class FakeProjectRunService : IProjectRunService
     /// <summary>When set, <see cref="PublishNativeMsixAsync"/> throws it (simulates a guardrail violation).</summary>
     public ProjectRunException? NativeMsixThrows { get; set; }
 
-    public Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(FileInfo csproj, ProjectRunOptions options, DirectoryInfo packageDir, CancellationToken cancellationToken)
+    public Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(FileInfo csproj, ProjectPackagePreparation preparation, DirectoryInfo packageDir, CancellationToken cancellationToken)
     {
         PublishNativeMsixCalls.Add(csproj);
-        BuildOptions.Add(options);
+        BuildOptions.Add(preparation.Options);
         if (NativeMsixThrows != null)
         {
             throw NativeMsixThrows;
@@ -139,27 +139,25 @@ internal sealed class FakeProjectRunService : IProjectRunService
             ?? throw new InvalidOperationException("FakeProjectRunService.NativeMsixOutcome was not configured."));
     }
 
-    /// <summary>Returned from <see cref="IsNativeMsixProjectAsync"/>. Default false = generic publish-layout path.</summary>
+    /// <summary>Default false = generic publish-layout path.</summary>
     public bool IsNativeMsixProject { get; set; }
 
-    /// <summary>Records each <see cref="IsNativeMsixProjectAsync"/> invocation.</summary>
-    public List<FileInfo> IsNativeMsixProjectCalls { get; } = [];
-
-    public Task<bool> IsNativeMsixProjectAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
-    {
-        IsNativeMsixProjectCalls.Add(csproj);
-        return Task.FromResult(IsNativeMsixProject);
-    }
+    public List<ProjectRunOptions> PreparationOptions { get; } = [];
+    public Func<ProjectRunOptions, ProjectPackagePreparation>? PreparePackageHandler { get; set; }
 
     /// <summary>
-    /// Returned from <see cref="EvaluateProjectSigningAsync"/>. Default is a successfully-evaluated project
+    /// Returned from <see cref="PreparePackageAsync"/>. Default is a successfully-evaluated project
     /// with no signing configured (SigningEnabled unset → unsigned). Set to <c>null</c> to model a project
     /// whose signing configuration could not be evaluated (e.g. an unrestored clean checkout).
     /// </summary>
     public ProjectSigningProperties? ProjectSigning { get; set; } = new ProjectSigningProperties(null, null, null, null, null);
 
-    public Task<ProjectSigningProperties?> EvaluateProjectSigningAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
-        => Task.FromResult(ProjectSigning);
+    public Task<ProjectPackagePreparation> PreparePackageAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        PreparationOptions.Add(options);
+        return Task.FromResult(PreparePackageHandler?.Invoke(options)
+            ?? new ProjectPackagePreparation(options, null, DefinitivelyUnpackaged, IsNativeMsixProject, ProjectSigning));
+    }
 
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
@@ -167,10 +165,10 @@ internal sealed class FakeProjectRunService : IProjectRunService
         return Task.FromResult(DefinitivelyUnpackaged);
     }
 
-    public Task<ProjectBuildOutcome> PublishAndResolveAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    public Task<ProjectBuildOutcome> PublishAndResolveAsync(FileInfo csproj, ProjectPackagePreparation preparation, CancellationToken cancellationToken)
     {
         PublishAndResolveCalls.Add(csproj);
-        BuildOptions.Add(options);
+        BuildOptions.Add(preparation.Options);
         if (BuildThrows != null)
         {
             throw BuildThrows;

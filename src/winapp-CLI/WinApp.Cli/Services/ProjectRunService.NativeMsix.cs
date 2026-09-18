@@ -13,16 +13,14 @@ internal sealed partial class ProjectRunService
     /// <inheritdoc />
     public async Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(
         FileInfo csproj,
-        ProjectRunOptions options,
+        ProjectPackagePreparation preparation,
         DirectoryInfo packageDir,
         CancellationToken cancellationToken)
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
 
-        // Resolve the same effective TFM / shim / platform / publish-profile the run and generic-publish
-        // passes use, so the MSIX targets evaluate against the project's intended configuration.
-        (options, _, var csWinRTMetadata) =
-            await PrepareBuildInputsAsync(csproj, options, workingDir, cancellationToken);
+        var options = preparation.Options;
+        var csWinRTMetadata = preparation.CsWinRTMetadata;
 
         var verbosity = ResolveBuildVerbosity(logger, options.Json);
         var arguments = BuildNativeMsixPublishArguments(csproj, options, packageDir, verbosity, csWinRTMetadata);

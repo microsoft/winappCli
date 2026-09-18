@@ -171,6 +171,17 @@ internal sealed record ProjectBuildOutcome(ProjectRunResolution? Resolution, int
 internal sealed record NativeMsixPublishOutcome(FileInfo? PackagePath, int ExitCode);
 
 /// <summary>
+/// Publish inputs and package policy evaluated after restoring that graph, before native packaging
+/// overrides signing for its intermediate artifact.
+/// </summary>
+internal sealed record ProjectPackagePreparation(
+    ProjectRunOptions Options,
+    string? CsWinRTMetadata,
+    bool IsDefinitivelyUnpackaged,
+    bool IsNativeMsix,
+    ProjectSigningProperties? Signing);
+
+/// <summary>
 /// The project's evaluated MSIX signing configuration (spec §6), used to resolve one signing policy for
 /// the final artifact. All values are as MSBuild evaluated them; <see cref="KeyFilePath"/> is resolved to
 /// an absolute path. <see langword="null"/> members mean the property was unset.
