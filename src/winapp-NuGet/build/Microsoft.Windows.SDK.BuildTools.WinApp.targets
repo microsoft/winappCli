@@ -388,9 +388,11 @@
                                was set, so both sides resolve the same output folder either way.
                                Repeating it here would be redundant.
         WinAppRunUseExecutionAlias
-                               already translated into the explicit alias switches below, which
-                               carry extra conditions the raw property does not. Forwarding it too
-                               would re-enable alias behavior the switches deliberately withheld.
+                               a 'true' or 'false' is already translated into the explicit alias
+                               switches below, which carry extra conditions the raw property does
+                               not. Forwarding those would re-enable alias behavior the switches
+                               deliberately withheld. Only an EMPTY value is forwarded, below,
+                               because no switch is emitted to carry it.
 
       Forwarding the EFFECTIVE value is a no-op when the value came from a #:property directive
       or an adjacent Directory.Build.props, because winapp's evaluation reads those too. It only
@@ -428,6 +430,25 @@
       <_WinAppForwardedProperty Include="WinAppManifestPath" Value="$(WinAppManifestPath.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
 
       <!--
+        Packaging mode, forwarded even when empty, because it is the property the gate itself keys
+        off. 'dotnet run app.cs -p:WindowsPackageType=' over a '#:property WindowsPackageType=None'
+        activates the packaged redirect, so winapp has to see the same cleared value; skipping it
+        would leave winapp reading None and treating a run the outer build already routed through
+        packaging as unpackaged. An empty value is also what an ordinary packaged .cs evaluates to,
+        so forwarding it changes nothing in the common case.
+      -->
+      <_WinAppForwardedProperty Include="WindowsPackageType" Value="$(WindowsPackageType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+
+      <!--
+        The alias preference, forwarded ONLY when it has no value. A 'true' or 'false' is already
+        expressed by the switches below, which carry extra conditions the raw property does not, so
+        forwarding those would re-enable alias behavior a launch switch deliberately withheld. An
+        empty value has no switch to carry it, which is how a clear of a #:property directive would
+        otherwise be lost.
+      -->
+      <_WinAppForwardedProperty Include="WinAppRunUseExecutionAlias" Value="" Condition="'$(WinAppRunUseExecutionAlias)' == ''" />
+
+      <!--
         Build inputs, forwarded only when they have a value. These decide WHERE the CLI looks for
         the output dotnet just built and WHAT it finds there, so losing one makes the no-build
         hand-off inspect the wrong folder or the wrong file name. Version is read as the manifest
@@ -443,7 +464,6 @@
       <_WinAppForwardedProperty Include="OutputType" Value="$(OutputType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutputType)' != ''" />
       <_WinAppForwardedProperty Include="TargetFramework" Value="$(TargetFramework.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(TargetFramework)' != ''" />
       <_WinAppForwardedProperty Include="Version" Value="$(Version.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(Version)' != ''" />
-      <_WinAppForwardedProperty Include="WindowsPackageType" Value="$(WindowsPackageType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(WindowsPackageType)' != ''" />
       <_WinAppForwardedProperty Include="WindowsAppSDKSelfContained" Value="$(WindowsAppSDKSelfContained.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(WindowsAppSDKSelfContained)' != ''" />
     </ItemGroup>
 
@@ -680,7 +700,7 @@
     <Message Text="WinAppManifestPath: $(WinAppManifestPath)" Importance="high" />
     <Message Text="_WinAppManifestPathUserSet: $(_WinAppManifestPathUserSet)" Importance="high" />
     <Message Text="WinAppLooseLayoutPath: $(WinAppLooseLayoutPath)" Importance="high" />
-    <Message Text="(For the exact CLI command, query -getProperty:RunArguments.)" Importance="high" />
+    <Message Text="(For the exact CLI command: -t:_WinAppBuildRunArgs -getProperty:_WinAppRunArgs)" Importance="high" />
     <Message Text="======================================" Importance="high" />
   </Target>
 

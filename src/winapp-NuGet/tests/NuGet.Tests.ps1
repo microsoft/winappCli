@@ -1101,11 +1101,33 @@ $ExtraProps  </PropertyGroup>
             $cs = script:New-FileBasedApp -CaseName "inp-alias" -ExtraProps @"
     <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
     <WinAppRunNoLaunch>true</WinAppRunNoLaunch>
-
 "@
             $computed = script:Get-FileBasedRunArgs -CsPath $cs
             $computed | Should -Not -Match '-p "WinAppRunUseExecutionAlias'
             $computed | Should -Not -Match ' --with-alias( |$)'
+        }
+
+        It "Carries an alias clear, which no switch is emitted to express" {
+            # 'true' and 'false' ride on --with-alias/--without-alias, but clearing the property
+            # emits no switch at all. Without forwarding the empty value the CLI re-reads the
+            # #:property directive and keeps using an alias the command line just turned off.
+            $cs = script:New-FileBasedApp -CaseName "inp-alias-clear" -ExtraProps @"
+    <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
+"@
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppRunUseExecutionAlias=')
+            $computed | Should -Not -Match ' --with-alias( |$)'
+            $computed | Should -Match ([regex]::Escape('-p "WinAppRunUseExecutionAlias="'))
+        }
+
+        It "Carries the packaging mode even when empty, because the gate keys off it" {
+            # 'dotnet run app.cs -p:WindowsPackageType=' over a '#:property WindowsPackageType=None'
+            # activates the packaged redirect. Skipping the empty value would leave the CLI reading
+            # None and treating a run the outer build already routed through packaging as
+            # unpackaged.
+            $cs = script:New-FileBasedApp -CaseName "inp-wpt-clear" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0', 'WindowsPackageType=None')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WindowsPackageType=')
+            $computed | Should -Match ([regex]::Escape('-p "WindowsPackageType="'))
         }
 
         It "Does not forward the SDK's derived outputs" {
