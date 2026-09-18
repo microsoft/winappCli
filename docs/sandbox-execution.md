@@ -278,8 +278,8 @@ decide which to close before retrying.
 
 ```powershell
 winapp target exec sandbox -- dotnet --info
-winapp target push sandbox .\setup.ps1 Setup\setup.ps1
-winapp target exec sandbox --cwd C:\WinApp\work\Setup -- powershell -ExecutionPolicy Bypass -File .\setup.ps1
+$copy = winapp target push sandbox .\setup.ps1 Setup\setup.ps1 --json | ConvertFrom-Json
+winapp target exec sandbox --cwd (Split-Path -Parent $copy.targetPath) -- powershell -ExecutionPolicy Bypass -File .\setup.ps1
 winapp target pull sandbox Results .\results
 ```
 
@@ -292,7 +292,10 @@ For `push` and `pull`, **target paths are relative to the `workRoot` reported by
 [`target snapshot`](#inspecting-the-sandbox)**. Absolute,
 rooted, and UNC target paths are refused. A single file lands at exactly the destination
 you name; a directory preserves its structure beneath that destination. Use the
-resolved guest path printed after a push as the next command's `--cwd`.
+resolved guest path printed after a push (JSON `targetPath`) to choose the next
+command's `--cwd`; for a single file, use its parent directory. If the guest does
+not report its managed root, push fails before copying; follow the error's update
+guidance rather than assuming a default path.
 
 Only run setup scripts you trust. The example uses process-scoped
 `-ExecutionPolicy Bypass` because a fresh Sandbox normally refuses scripts under its
