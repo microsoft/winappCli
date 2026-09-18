@@ -567,6 +567,31 @@ public class InteractiveDesktopStoreTests
     // ------------------------------------------------------------------------- lock directory setup
 
     [TestMethod]
+    public void Paths_DefaultDirectory_IsSharedUserStateRegardlessOfCacheOverride()
+    {
+        var previousCache = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
+        Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, null);
+        try
+        {
+            var expected = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp", "state", "ui");
+
+            foreach (var cache in new[] { Path.Join(_lockDirectory, "cache-one"), Path.Join(_lockDirectory, "cache-two") })
+            {
+                Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", cache);
+                var paths = new InteractiveDesktopPaths(_inspector);
+
+                Assert.AreEqual(expected, paths.LockDirectory);
+                Assert.AreEqual(Path.Join(expected, "participants"), paths.ParticipantsDirectory);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", previousCache);
+        }
+    }
+
+    [TestMethod]
     public void EnsureDirectories_RepairsAnExistingDirectoryWithInheritedPermissions()
     {
         // A WINAPP_UI_LOCK_DIRECTORY pointed at a shared location can already exist with inherited

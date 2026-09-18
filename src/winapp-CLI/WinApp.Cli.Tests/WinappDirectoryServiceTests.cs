@@ -203,4 +203,53 @@ public class WinappDirectoryServiceTests : BaseCommandTests
         Assert.AreEqual(topWinAppDir.FullName, result.FullName,
             "Should return the top .winapp directory when local and global are the same");
     }
+
+    [TestMethod]
+    public void GetLocalWinappDirectory_WithRelocatedCache_SkipsProfileStateDirectory()
+    {
+        var profile = _tempDirectory.CreateSubdirectory("profile");
+        profile.CreateSubdirectory(".winapp").CreateSubdirectory("state");
+        var project = profile.CreateSubdirectory("project");
+        var directoryService = new WinappDirectoryService(GetRequiredService<ICurrentDirectoryProvider>())
+        {
+            UserProfileProvider = () => profile.FullName,
+        };
+        directoryService.SetCacheDirectoryForTesting(_tempDirectory.CreateSubdirectory("cache"));
+
+        var result = directoryService.GetLocalWinappDirectory(project);
+
+        Assert.AreEqual(_testWinappDirectory.FullName, result.FullName,
+            "Creating shared state must not make the home .winapp a project workspace.");
+    }
+
+    [TestMethod]
+    public void GetUserStateDirectory_ResolvesWithoutCreatingDirectories()
+    {
+        var profile = Path.Join(_tempDirectory.FullName, "unused-profile");
+
+        Assert.AreEqual(Path.Join(profile, ".winapp", "state"), WinappDirectoryService.GetUserStateDirectory(profile));
+        Assert.IsFalse(Directory.Exists(profile));
+    }
+
+    [TestMethod]
+    [DataRow(@"\\?\")]
+    [DataRow(@"\\.\")]
+    public void ValidateStateDirectory_AcceptsExtendedLocalDrivePaths(string prefix)
+    {
+        var path = prefix + Path.Join(_tempDirectory.FullName, ".winapp", "state");
+
+        Assert.AreEqual(Path.GetFullPath(path), WinappDirectoryService.ValidateStateDirectory(path));
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow("relative\\profile")]
+    [DataRow(@"C:profile")]
+    [DataRow(@"\\server\share\profile")]
+    [DataRow(@"\\?\UNC\server\share\profile")]
+    public void GetUserStateDirectory_RejectsUnavailableOrNonlocalProfile(string profile)
+    {
+        Assert.ThrowsExactly<IOException>(() => WinappDirectoryService.GetUserStateDirectory(profile));
+    }
 }

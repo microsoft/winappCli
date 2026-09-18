@@ -114,6 +114,9 @@ other, dismiss a menu the other just opened, or move a target out from under a p
 turn, with no setup and no way to switch it off, so two agents can never type into each other's
 windows. Read-only commands keep running concurrently.
 
+Coordination uses [shared runtime state](usage.md#shared-runtime-state), independently
+of the configured cache directory.
+
 **Continuity between commands is opt-in.** By default each command is a self-contained one-shot: it
 waits its turn, does its work, and releases the desktop immediately. To keep the desktop across
 several commands, give them all the same workflow id:

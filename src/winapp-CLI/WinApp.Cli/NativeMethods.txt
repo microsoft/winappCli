@@ -44,6 +44,8 @@ DBG_CONTINUE
 DBG_EXCEPTION_NOT_HANDLED
 GetShortPathName
 GetFullPathName
+GetDriveType
+DRIVE_REMOTE
 GetForegroundWindow
 GetDpiForWindow
 GetWindowDpiAwarenessContext

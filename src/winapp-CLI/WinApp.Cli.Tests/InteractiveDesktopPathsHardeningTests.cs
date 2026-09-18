@@ -83,6 +83,30 @@ public class InteractiveDesktopPathsHardeningTests
     }
 
     [TestMethod]
+    public void SecuringUiState_DoesNotChangeCacheOrSiblingTargetPermissions()
+    {
+        var cache = Directory.CreateDirectory(Path.Join(_root, ".winapp"));
+        var targets = Directory.CreateDirectory(Path.Join(cache.FullName, "state", "targets"));
+        var cacheMarker = Path.Join(cache.FullName, "cache-marker.txt");
+        var targetMarker = Path.Join(targets.FullName, "target-state.json");
+        File.WriteAllText(cacheMarker, "cache");
+        File.WriteAllText(targetMarker, "target");
+        var cachePermissions = cache.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        var targetPermissions = targets.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        Environment.SetEnvironmentVariable(
+            InteractiveDesktopPaths.LockDirectoryOverrideVariable, Path.Join(cache.FullName, "state", "ui"));
+
+        var paths = new InteractiveDesktopPaths(new ProcessInspector());
+        paths.EnsureDirectories();
+
+        Assert.IsTrue(new DirectoryInfo(paths.LockDirectory).GetAccessControl().AreAccessRulesProtected);
+        Assert.AreEqual(cachePermissions, cache.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access));
+        Assert.AreEqual(targetPermissions, targets.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access));
+        Assert.AreEqual("cache", File.ReadAllText(cacheMarker));
+        Assert.AreEqual("target", File.ReadAllText(targetMarker));
+    }
+
+    [TestMethod]
     public void APreSeededStateFileWithAnEveryoneGrantIsDiscarded()
     {
         // The reported repro. The directory's DACL is inherited, so it will be repaired — and the

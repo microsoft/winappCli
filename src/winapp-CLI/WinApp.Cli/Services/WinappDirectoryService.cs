@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.Helpers;
+
 namespace WinApp.Cli.Services;
 
 /// <summary>
@@ -9,6 +11,9 @@ namespace WinApp.Cli.Services;
 internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectoryProvider) : IWinappDirectoryService
 {
     private DirectoryInfo? _globalOverride;
+
+    internal Func<string> UserProfileProvider { get; set; } =
+        () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>
     /// Method to override the cache directory for testing purposes
@@ -34,9 +39,41 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
             return new DirectoryInfo(cacheDirectory);
         }
 
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var userProfile = UserProfileProvider();
         var winappDir = Path.Combine(userProfile, ".winapp");
         return new DirectoryInfo(winappDir);
+    }
+
+    /// <summary>
+    /// Shared operational state, independent of cache overrides and package identity.
+    /// Unlike LocalAppData, the profile-root .winapp directory is not MSIX-virtualized.
+    /// </summary>
+    internal static string GetUserStateDirectory(string? userProfile = null)
+    {
+        userProfile ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile) || !Path.IsPathFullyQualified(userProfile))
+        {
+            throw new IOException("The user profile folder could not be resolved to a fully qualified path.");
+        }
+
+        return ValidateStateDirectory(Path.Combine(userProfile, ".winapp", "state"));
+    }
+
+    internal static string ValidateStateDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+        {
+            throw new IOException("The state directory must be a fully qualified local path.");
+        }
+
+        if (PathSafety.IsNetworkPath(path)
+            || PathSafety.RedirectsToNetwork(path))
+        {
+            throw new IOException(
+                $"The state directory '{path}' is not a verifiable local path. Network storage cannot safely coordinate winapp processes.");
+        }
+
+        return Path.GetFullPath(path);
     }
 
     public DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null)
@@ -44,6 +81,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         baseDirectory ??= new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
 
         DirectoryInfo globalWinappDirectory = GetGlobalWinappDirectory();
+        var userWinappDirectory = Path.Combine(UserProfileProvider(), ".winapp");
 
         var originalBaseDir = new DirectoryInfo(baseDirectory.FullName);
         var dir = originalBaseDir;
@@ -53,7 +91,8 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
             if (Directory.Exists(winappDirectory))
             {
                 bool isGlobalWinAppDir =
-                    string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase);
+                    string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(winappDirectory, userWinappDirectory, StringComparison.OrdinalIgnoreCase);
                 if (isGlobalWinAppDir)
                 {
                     // We don't currently allow the global winapp directory to be used as a local winapp directory,

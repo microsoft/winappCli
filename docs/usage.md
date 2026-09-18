@@ -1987,6 +1987,26 @@ $env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 
 Winapp will create this directory automatically when you run commands like `init` or `restore`.
 
+### Shared Runtime State
+
+`winapp ui` and commands using `--on sandbox` keep shared state under
+`%USERPROFILE%\.winapp\state`:
+
+| Directory | Contents |
+|---|---|
+| `ui` | Desktop coordination state and locks, separated by Windows sign-in session |
+| `targets\<target-key>` | Sandbox ownership, connection and deployment records, bootstrap files, and lifecycle locks |
+
+This location is fixed independently of `WINAPP_CLI_CACHE_DIRECTORY`. Changing the
+cache location does not give a process a separate desktop or Sandbox. Packaged and
+unpackaged winapp installations use the same state location.
+
+Keep this directory on a writable local drive; network paths are rejected. If winapp
+cannot access it, check the directory's permissions and any filesystem links that
+redirect it. Do not delete shared state while UI workflows or a managed Sandbox are
+running. Save guest work and [end the Sandbox](sandbox-execution.md#removing-an-app-and-ending-the-sandbox)
+before removing its state.
+
 ### Update Checks
 
 The winapp CLI periodically checks for new versions and displays a one-line notice when an update is available. This check runs in the background and adds no latency to commands.
