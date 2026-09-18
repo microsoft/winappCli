@@ -187,13 +187,16 @@ The hand-off also differs. A `.csproj` passes its output folder, which the CLI t
 winapp run <app.cs> --no-build --configuration "Debug" -p "RuntimeIdentifier=<rid>" ...
 ```
 
-Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, the identity-shaping properties are carried across explicitly when they have a value: `WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, and `WinAppManifestPath`. This is what makes a command-line override take effect:
+Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, every property the CLI reads is carried across explicitly when it has a value. That covers the identity-shaping ones (`WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, `WinAppManifestPath`) as well as the build inputs that decide which file is packaged (`AssemblyName`, `OutputPath`, `OutputType`, `TargetFramework`, `Version`, `WindowsPackageType`, `WindowsAppSDKSelfContained`). This is what makes a command-line override take effect:
 
 ```bash
 dotnet run app.cs -p:WinAppPackageName=Contoso    # registers as Contoso
+dotnet run app.cs -p:AssemblyName=Contoso         # packages Contoso.exe
 ```
 
-Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. Empty values are never forwarded, because the CLI treats a named property as an explicit request and an empty one would override a directive back to the inferred default.
+Values are percent-escaped on the way across (`%`, `;`, `,`, `"` and `\`), so a capability list such as `internetClient;privateNetworkClientServer` or a publisher containing a comma survives intact; MSBuild decodes them again on the other side.
+
+Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. Empty values are never forwarded, because the CLI treats a named property as an explicit request and an empty one would override a directive back to the inferred default. The SDK's derived outputs (`TargetDir`, `RunCommand`, `RunArguments`, `ProjectAssetsFile`) are also left alone so the CLI still derives them itself.
 
 ## Build Scripts
 

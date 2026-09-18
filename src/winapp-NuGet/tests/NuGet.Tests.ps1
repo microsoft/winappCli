@@ -756,12 +756,13 @@ $ExtraProps  </PropertyGroup>
 
         # Runs _WinAppBuildRunArgs and returns the winapp command line 'dotnet run app.cs' would
         # be redirected to. Targets _WinAppRunArgs rather than the final RunArguments so the
-        # assertion does not depend on actually compiling the app.
+        # assertion does not depend on actually compiling the app. -Property reads a sibling the
+        # same target computes, such as the Exec-transport spelling of the same arguments.
         function script:Get-FileBasedRunArgs {
-            param([string]$CsPath, [string[]]$Overrides = @())
-            $out = & dotnet build $CsPath @Overrides -t:_WinAppBuildRunArgs -getProperty:_WinAppRunArgs -nologo 2>&1
+            param([string]$CsPath, [string[]]$Overrides = @(), [string]$Property = '_WinAppRunArgs')
+            $out = & dotnet build $CsPath @Overrides -t:_WinAppBuildRunArgs "-getProperty:$Property" -nologo 2>&1
             if ($LASTEXITCODE -ne 0) {
-                throw "Failed to compute _WinAppRunArgs for ${CsPath}:`n$($out -join [Environment]::NewLine)"
+                throw "Failed to compute $Property for ${CsPath}:`n$($out -join [Environment]::NewLine)"
             }
             ($out | Select-Object -Last 1).ToString().Trim()
         }
@@ -1011,6 +1012,122 @@ $ExtraProps  </PropertyGroup>
             # Winapp treats a named property as an explicit request, so forwarding empties would
             # override a directive back to the inferred default instead of leaving it alone.
             $script:fbArgs | Should -Not -Match '-p "WinApp'
+        }
+    }
+
+    Context "Forwarding build inputs" {
+        # winapp runs with no-build, so it re-evaluates the .cs purely to find what dotnet already
+        # built. An override that moved or renamed that output has to travel with the hand-off or
+        # winapp inspects the default location and reports a missing build.
+        It "Carries a renamed assembly so the CLI looks for the file that was built" {
+            $cs = script:New-FileBasedApp -CaseName "inp-assembly"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:AssemblyName=Foo') |
+                Should -Match ([regex]::Escape('-p "AssemblyName=Foo"'))
+        }
+
+        It "Carries a redirected output path" {
+            $cs = script:New-FileBasedApp -CaseName "inp-outputpath"
+            # TargetDir is derived from OutputPath, so forwarding the input keeps both sides agreed
+            # without pinning the SDK's own computed value.
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutputPath=custom_out\') |
+                Should -Match ([regex]::Escape('-p "OutputPath=custom_out%5C"'))
+        }
+
+        It "Carries the standard Version, which the CLI reads when WinAppVersion is absent" {
+            $cs = script:New-FileBasedApp -CaseName "inp-version"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:Version=2.3.4.5') |
+                Should -Match ([regex]::Escape('-p "Version=2.3.4.5"'))
+        }
+
+        It "Carries the remaining properties the CLI's evaluate pass reads" {
+            $cs = script:New-FileBasedApp -CaseName "inp-rest"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WindowsAppSDKSelfContained=true')
+            $computed | Should -Match ([regex]::Escape('-p "OutputType=Exe"'))
+            $computed | Should -Match ([regex]::Escape('-p "TargetFramework=net10.0-windows10.0.19041.0"'))
+            $computed | Should -Match ([regex]::Escape('-p "WindowsAppSDKSelfContained=true"'))
+        }
+
+        It "Leaves RuntimeIdentifier valueless so host RID injection stays suppressed" {
+            # Naming it is the whole point; giving it a value would defeat the suppression.
+            $script:fbArgs | Should -Match ([regex]::Escape('-p "RuntimeIdentifier="'))
+            $script:fbArgs | Should -Not -Match '-p "RuntimeIdentifier=[^"]'
+        }
+
+        It "Does not forward the alias property the switches already express" {
+            # The switches carry extra conditions the raw property does not, so forwarding it too
+            # would re-enable alias behavior they deliberately withheld.
+            $cs = script:New-FileBasedApp -CaseName "inp-alias" -ExtraProps @"
+    <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
+    <WinAppRunNoLaunch>true</WinAppRunNoLaunch>
+
+"@
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs
+            $computed | Should -Not -Match '-p "WinAppRunUseExecutionAlias'
+            $computed | Should -Not -Match ' --with-alias( |$)'
+        }
+
+        It "Does not forward the SDK's derived outputs" {
+            # Forcing these as global properties would override the CLI's own evaluation with the
+            # outer build's answer instead of letting it derive them.
+            foreach ($derived in 'TargetDir', 'RunCommand', 'RunArguments', 'ProjectAssetsFile') {
+                $script:fbArgs | Should -Not -Match ([regex]::Escape("-p `"$derived="))
+            }
+        }
+    }
+
+    Context "Escaping forwarded values" {
+        # The CLI rejects a -p token containing ';' or ',' outright, and the value is spliced into a
+        # quoted command-line argument, so both the MSBuild separator contract and the command-line
+        # quoting have to survive the hand-off.
+        It "Percent-escapes a semicolon so a capability list survives" {
+            # 'a;b' is how capability lists are written, so raw forwarding failed every such run.
+            $cs = script:New-FileBasedApp -CaseName "esc-semicolon" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WinAppCapabilities=internetClient;privateNetworkClientServer')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs
+            $computed | Should -Match ([regex]::Escape('-p "WinAppCapabilities=internetClient%3BprivateNetworkClientServer"'))
+            $computed | Should -Not -Match ([regex]::Escape('internetClient;privateNetworkClientServer'))
+        }
+
+        It "Percent-escapes a comma" {
+            $cs = script:New-FileBasedApp -CaseName "esc-comma"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDescription=Fast, small') |
+                Should -Match ([regex]::Escape('-p "WinAppDescription=Fast%2C small"'))
+        }
+
+        It "Escapes percent first so the escaping stays reversible" {
+            # Without percent going first, the '%' of an escape this code just wrote would itself be
+            # escaped, and '%' in the original value would decode as the start of an escape.
+            # MSBuild unescapes a command-line value, so '%25%3B' below is the literal '%;'.
+            $cs = script:New-FileBasedApp -CaseName "esc-percent"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDescription=50%25%3Boff')
+            $computed | Should -Match ([regex]::Escape('-p "WinAppDescription=50%25%3Boff"'))
+        }
+
+        It "Escapes a quote so a value cannot end the argument early" {
+            # Unescaped, 'foo" --no-launch' would close the quote and be parsed as an option.
+            $cs = script:New-FileBasedApp -CaseName "esc-quote"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDisplayName=foo" --no-launch')
+            $computed | Should -Match ([regex]::Escape('-p "WinAppDisplayName=foo%22 --no-launch"'))
+            $computed | Should -Not -Match ([regex]::Escape('foo" --no-launch'))
+        }
+
+        It "Escapes a trailing backslash so it cannot escape the closing quote" {
+            # OutputPath always ends with one, so this is the common case rather than an edge case.
+            $cs = script:New-FileBasedApp -CaseName "esc-backslash"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppManifestPath=sub\dir\') |
+                Should -Match ([regex]::Escape('-p "WinAppManifestPath=sub%5Cdir%5C"'))
+        }
+
+        It "Doubles percent signs for the Exec transport only" {
+            # Exec writes a .cmd file where cmd.exe eats '%3' as a batch parameter; dotnet run starts
+            # RunCommand directly and must keep the undoubled form.
+            $cs = script:New-FileBasedApp -CaseName "esc-exec" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WinAppCapabilities=internetClient;privateNetworkClientServer')
+            $exec = script:Get-FileBasedRunArgs -CsPath $cs -Property '_WinAppRunArgsForExec'
+            $exec | Should -Match ([regex]::Escape('internetClient%%3BprivateNetworkClientServer'))
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Match ([regex]::Escape('internetClient%3BprivateNetworkClientServer'))
         }
     }
 

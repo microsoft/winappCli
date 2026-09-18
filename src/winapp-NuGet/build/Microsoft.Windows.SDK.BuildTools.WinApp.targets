@@ -361,13 +361,29 @@
     </PropertyGroup>
 
     <!--
-      Carry the identity-shaping properties into winapp's own evaluation of the .cs file.
+      Carry the build inputs into winapp's own evaluation of the .cs file.
 
-      winapp re-evaluates the file to plan the manifest, and that evaluation sees the file's
-      own directives but not the properties the outer build was invoked with. Without this,
-      'dotnet run app.cs -p:WinAppPackageName=Contoso' builds with WinAppPackageName=Contoso
-      and then registers the inferred hashed identity instead, silently discarding the request
-      and disagreeing with 'winapp run app.cs -p WinAppPackageName=Contoso'.
+      winapp re-evaluates the file to locate the already-built output and plan the manifest, and
+      that evaluation sees the file's own directives but not the properties the outer build was
+      invoked with. Without this, 'dotnet run app.cs -p:WinAppPackageName=Contoso' builds with
+      WinAppPackageName=Contoso and then registers the inferred hashed identity instead, silently
+      discarding the request and disagreeing with 'winapp run app.cs -p WinAppPackageName=Contoso'.
+
+      The set below is the CLI's own SingleFileRequestedProperties, minus three deliberate
+      exclusions:
+
+        derived outputs        TargetDir, RunCommand, RunArguments and ProjectAssetsFile are
+                               computed by the SDK, not supplied by the consumer. Forcing them as
+                               global properties would override the CLI's evaluation with the outer
+                               build's answer instead of letting it derive its own. OutputPath IS
+                               forwarded, and TargetDir follows from it.
+        RuntimeIdentifier      already passed by name with an empty value above, which is what
+                               suppresses the CLI's host RID injection. Giving it a value here
+                               would defeat that.
+        WinAppRunUseExecutionAlias
+                               already translated into the explicit alias switches below, which
+                               carry extra conditions the raw property does not. Forwarding it too
+                               would re-enable alias behavior the switches deliberately withheld.
 
       Forwarding the EFFECTIVE value is a no-op when the value came from a #:property directive
       or an adjacent Directory.Build.props, because winapp's evaluation reads those too. It only
@@ -389,6 +405,37 @@
         above, so this is empty unless it was explicitly requested.
       -->
       <_WinAppForwardedProperty Include="WinAppManifestPath" Value="$(WinAppManifestPath)" Condition="'$(WinAppManifestPath)' != ''" />
+
+      <!--
+        Build inputs. These decide WHERE the CLI looks for the output dotnet just built and WHAT
+        it finds there, so losing one makes the no-build hand-off inspect the wrong folder or the
+        wrong file name. Version is read as the manifest version when WinAppVersion is absent.
+      -->
+      <_WinAppForwardedProperty Include="AssemblyName" Value="$(AssemblyName)" Condition="'$(AssemblyName)' != ''" />
+      <_WinAppForwardedProperty Include="OutputPath" Value="$(OutputPath)" Condition="'$(OutputPath)' != ''" />
+      <_WinAppForwardedProperty Include="OutputType" Value="$(OutputType)" Condition="'$(OutputType)' != ''" />
+      <_WinAppForwardedProperty Include="TargetFramework" Value="$(TargetFramework)" Condition="'$(TargetFramework)' != ''" />
+      <_WinAppForwardedProperty Include="Version" Value="$(Version)" Condition="'$(Version)' != ''" />
+      <_WinAppForwardedProperty Include="WindowsPackageType" Value="$(WindowsPackageType)" Condition="'$(WindowsPackageType)' != ''" />
+      <_WinAppForwardedProperty Include="WindowsAppSDKSelfContained" Value="$(WindowsAppSDKSelfContained)" Condition="'$(WindowsAppSDKSelfContained)' != ''" />
+
+      <!--
+        Percent-escape every forwarded value, matching the CLI's own property escaping.
+
+        Two separate hazards, one fix. The CLI REJECTS a property token containing ';' or ',',
+        because MSBuild would split it into several properties and smuggle one past the name-only
+        filter that protects the architecture; a capability list is written 'a;b', so forwarding it
+        raw fails the run outright. And the value is spliced into a quoted command-line argument,
+        where an embedded quote ends the argument early and a trailing backslash (OutputPath always
+        has one) escapes the closing quote, swallowing the rest of the command line.
+
+        Escaping '%' FIRST keeps the rest reversible. MSBuild unescapes '%XX' when it reads the
+        property back on the other side, so every one of these round-trips to the original value.
+
+        Written one level deeper than it reads: '%2525' is how this file spells a literal '%25'.
+      -->
+      <_WinAppForwardedProperty Update="@(_WinAppForwardedProperty)"
+                                Value="$([System.String]::Copy('%(Value)').Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
     </ItemGroup>
 
     <PropertyGroup>
@@ -428,6 +475,22 @@
       -->
       <_WinAppRunArgs Condition="'$(WinAppRunArgs)' != ''">$(_WinAppRunArgs) $(WinAppRunArgs)</_WinAppRunArgs>
     </PropertyGroup>
+
+    <!--
+      The same arguments, spelled for the Exec task's transport.
+
+      Exec writes its command to a temporary .cmd file, where cmd.exe reads '%N' as a batch
+      parameter. A percent-escaped property value ('a%3Bb') would arrive as 'aBb' with the '%3'
+      silently eaten, so every '%' is doubled to survive that one hop. This also covers a path
+      containing a literal '%', which cmd would otherwise mangle the same way.
+
+      dotnet run does NOT go through cmd: it starts RunCommand directly, so RunArguments keeps the
+      undoubled form below. Diagnostics print the undoubled form too, since that is what winapp
+      actually receives.
+    -->
+    <PropertyGroup>
+      <_WinAppRunArgsForExec>$(_WinAppRunArgs.Replace('%','%25%25'))</_WinAppRunArgsForExec>
+    </PropertyGroup>
   </Target>
 
   <!--
@@ -448,7 +511,7 @@
     <Message Text="[WinAppRunSupport] Command: &quot;$(WinAppCliPath)&quot; $(_WinAppRunArgs)" Importance="normal" />
     
     <!-- Execute the CLI to run the packaged app -->
-    <Exec Command="&quot;$(WinAppCliPath)&quot; $(_WinAppRunArgs)"
+    <Exec Command="&quot;$(WinAppCliPath)&quot; $(_WinAppRunArgsForExec)"
           WorkingDirectory="$(MSBuildProjectDirectory)"
           IgnoreExitCode="false"
           ConsoleToMSBuild="false">
