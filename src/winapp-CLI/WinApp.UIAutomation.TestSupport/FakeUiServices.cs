@@ -12,6 +12,8 @@ public class FakeUiAutomationService : IUiAutomation
     public UiElement[] InspectResult { get; set; } = [];
     public UiElement[] SearchResult { get; set; } = [];
     public UiElement? FindSingleResult { get; set; }
+    public Exception? FindUniqueThrow { get; set; }
+    public List<bool> FindSingleRequireUniqueCalls { get; } = [];
     public List<UiSelector> Queries { get; } = [];
 
     /// <summary>
@@ -35,6 +37,16 @@ public class FakeUiAutomationService : IUiAutomation
     private readonly Dictionary<string, UiElement?> _lastMoving = new();
     public Dictionary<string, object?> PropertiesResult { get; set; } = [];
     public string InvokeResult { get; set; } = "InvokePattern";
+    /// <summary>Optional explicit-action response; otherwise defaults to the requested action's matching pattern.</summary>
+    public UiInvokeActionResult? ExplicitInvokeResult { get; set; }
+    /// <summary>Failure for explicit actions only, independent of the legacy invoke failure knobs.</summary>
+    public Exception? ExplicitInvokeThrow { get; set; }
+    /// <summary>The last explicit action requested, or null after a legacy invoke call.</summary>
+    public UiInvokeAction? LastInvokeAction { get; private set; }
+    /// <summary>Explicit-action calls, including configured failures but excluding invalid/canceled requests.</summary>
+    public int ExplicitInvokeCalls { get; private set; }
+    /// <summary>Legacy automatic invoke calls, including configured failures and ancestor retries.</summary>
+    public int AutomaticInvokeCalls { get; private set; }
     public (byte[] Pixels, int Width, int Height) ScreenshotResult { get; set; } = (new byte[4], 1, 1);
 
     /// <summary>
@@ -145,6 +157,13 @@ public class FakeUiAutomationService : IUiAutomation
         return Task.FromResult(SearchResult.Take(maxResults).ToArray());
     }
 
+    public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
+    {
+        FindSingleRequireUniqueCalls.Add(requireUnique);
+        if (requireUnique && FindUniqueThrow is not null) { throw FindUniqueThrow; }
+        return FindSingleElementAsync(uiTarget, selector, ct);
+    }
+
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
         Queries.Add(selector);
@@ -218,6 +237,8 @@ public class FakeUiAutomationService : IUiAutomation
 
     public Task<string> InvokeAsync(UiTarget uiTarget, UiElement element, CancellationToken ct)
     {
+        AutomaticInvokeCalls++;
+        LastInvokeAction = null;
         if (InvokeThrow is not null) { throw InvokeThrow; }
         if (InvokeThrowsForAncestorFallback && element.InvokableAncestor is not null)
         {
@@ -225,6 +246,25 @@ public class FakeUiAutomationService : IUiAutomation
         }
         LastInvokedElement = element;
         return Task.FromResult(InvokeResult);
+    }
+
+    public Task<UiInvokeActionResult> InvokeAsync(UiTarget uiTarget, UiElement element, UiInvokeAction action, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var result = action switch
+        {
+            UiInvokeAction.Invoke => new UiInvokeActionResult("InvokePattern", "invoke"),
+            UiInvokeAction.Select => new UiInvokeActionResult("SelectionItemPattern", "select"),
+            UiInvokeAction.Toggle or UiInvokeAction.ToggleOn or UiInvokeAction.ToggleOff => new UiInvokeActionResult("TogglePattern", "toggle"),
+            UiInvokeAction.Expand => new UiInvokeActionResult("ExpandCollapsePattern", "expand"),
+            UiInvokeAction.Collapse => new UiInvokeActionResult("ExpandCollapsePattern", "collapse"),
+            _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown UI invoke action."),
+        };
+        LastInvokeAction = action;
+        LastInvokedElement = element;
+        ExplicitInvokeCalls++;
+        if (ExplicitInvokeThrow is not null) { throw ExplicitInvokeThrow; }
+        return Task.FromResult(ExplicitInvokeResult ?? result);
     }
 
     /// <summary>Last element passed to <see cref="InvokeAsync"/>.</summary>

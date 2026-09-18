@@ -21,7 +21,7 @@ namespace WinApp.Cli.Commands;
 
 internal partial class RunCommand : Command, IShortDescription, ITargetAwareCommand
 {
-    public string ShortDescription => "Run a Windows app: build and launch from a .cs file-based app, a .csproj/.sln, or launch an existing build-output folder.";
+    public string ShortDescription => "Run a Windows app from a project, .NET file-based app, or build-output folder.";
 
     public static Argument<FileSystemInfo> InputArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }
@@ -45,6 +45,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
     public static Option<string?> FrameworkOption { get; }
     public static Option<bool> NoBuildOption { get; }
     public static Option<bool> NoRestoreOption { get; }
+    public static Option<bool> AotOption { get; }
     public static Option<string[]> PropertyOption { get; }
     public static Option<string?> ProjectOption { get; }
 
@@ -178,7 +179,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         NoRestoreOption = new Option<bool>("--no-restore")
         {
-            Description = "Project and single-file mode: skip restoring before building. Ignored in folder mode."
+            Description = "Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode."
+        };
+
+        AotOption = new Option<bool>("--aot")
+        {
+            Description = "Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true."
         };
 
         PropertyOption = new Option<string[]>("--property")
@@ -228,7 +234,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         return true;
     }
 
-    public RunCommand() : base("run", "Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
+    public RunCommand() : base("run", "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
@@ -251,6 +257,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(FrameworkOption);
         Options.Add(NoBuildOption);
         Options.Add(NoRestoreOption);
+        Options.Add(AotOption);
         Options.Add(PropertyOption);
         Options.Add(ProjectOption);
         Options.Add(WinAppRootCommand.JsonOption);
@@ -339,6 +346,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             var executable = parseResult.GetValue(ExecutableOption);
             var executionTarget = ExecutionTargetSelection.Resolve(parseResult);
             var isJson = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            var aot = parseResult.GetValue(AotOption);
 
             if (!TryResolveLayoutOutput(parseResult, out var layoutOutput, out var layoutOutputError))
             {
@@ -582,12 +590,21 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
             if (inputResolution.Mode == WinAppRunMode.SingleFile)
             {
+                if (aot)
+                {
+                    return Fail("--aot requires a .csproj or solution; .cs file-based apps are not supported.", isJson);
+                }
                 return await RunSingleFileModeAsync(parseResult, inputResolution.SingleFile!, layoutOutput, appArgs, isJson, executionTarget, cancellationToken);
             }
 
             if (inputResolution.Mode == WinAppRunMode.Project)
             {
                 return await RunProjectModeAsync(parseResult, inputResolution.Csproj!, inputResolution.Solution, inputResolution.SelectionReason, appArgs, isJson, executionTarget, cancellationToken);
+            }
+
+            if (aot)
+            {
+                return Fail("--aot requires a .csproj, solution, or source directory that resolves to project mode.", isJson);
             }
 
             // Folder mode: the FileSystemInfo converter yields a DirectoryInfo for an existing
@@ -709,7 +726,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             ExecutionTargetRef executionTarget,
             CancellationToken cancellationToken,
             Action? onRegistered = null,
-            PackageGraphSource? packageGraph = null)
+            PackageGraphSource? packageGraph = null,
+            FileInfo? appxRecipe = null)
         {
             // A non-local target diverges here rather than later: everything below this point registers a
             // package and launches a process on this machine, which is exactly what running
@@ -719,7 +737,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 return await ExecutePackagedTargetRunAsync(
                     inputFolder, manifest, layoutOutput, appArgs,
                     noLaunch, aliasDecision, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
-                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, cancellationToken);
+                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe, cancellationToken);
             }
 
             uint processId = 0;
@@ -844,6 +862,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         selfContained,
                         effectiveAlias.UseAlias,
                         packageGraph,
+                        appxRecipe,
                         cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;

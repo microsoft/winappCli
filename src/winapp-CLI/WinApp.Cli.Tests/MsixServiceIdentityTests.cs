@@ -1976,6 +1976,52 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task AddLooseLayoutIdentityAsync_ExplicitExternalRecipeWinsOverPublishDirectoryManifest()
+    {
+        var publishDirectory = _tempDirectory.CreateSubdirectory("publish-output");
+        await File.WriteAllTextAsync(
+            Path.Join(publishDirectory.FullName, "Package.appxmanifest"),
+            BuildRawManifest("StalePackage", "stale.exe"),
+            TestContext.CancellationToken);
+
+        var generatedDirectory = _tempDirectory.CreateSubdirectory("generated-output");
+        var generatedManifest = new FileInfo(
+            Path.Join(generatedDirectory.FullName, "AppxManifest.xml"));
+        var nativeExe = new FileInfo(Path.Join(generatedDirectory.FullName, "native.exe"));
+        await File.WriteAllTextAsync(
+            generatedManifest.FullName,
+            BuildMSBuildManifest(),
+            TestContext.CancellationToken);
+        await File.WriteAllTextAsync(
+            nativeExe.FullName,
+            "native",
+            TestContext.CancellationToken);
+        var recipe = new FileInfo(WriteRecipe(
+            generatedManifest,
+            (nativeExe.FullName, "TestApp.exe")));
+        var output = new DirectoryInfo(Path.Join(publishDirectory.FullName, "AppX"));
+
+        await _msixService.AddLooseLayoutIdentityAsync(
+            generatedManifest,
+            publishDirectory,
+            output,
+            TestTaskContext,
+            selfContained: true,
+            appxRecipe: recipe,
+            cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual(
+            "native",
+            await File.ReadAllTextAsync(
+                Path.Join(output.FullName, "TestApp.exe"),
+                TestContext.CancellationToken));
+        Assert.IsFalse(File.Exists(Path.Join(output.FullName, "Package.appxmanifest")));
+        Assert.AreEqual(
+            Path.Join(output.FullName, "appxmanifest.xml"),
+            _fakeRegistration.RegisterLooseLayoutCalls.Single());
+    }
+
+    [TestMethod]
     public async Task AddLooseLayoutIdentityAsync_RecipeLayoutWithStaleManifest_RegistersTheRecipeManifest()
     {
         // The recipe copy does not delete stale files, so a reused layout can still hold a
