@@ -212,6 +212,25 @@ public class PackageCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_RepeatedRuntimeIdentifier_HonorsLastValue()
+    {
+        // MSBuild uses the last assignment of a repeated property, so winapp must derive the architecture
+        // from the LAST -p RuntimeIdentifier, not the first — otherwise it silently builds the wrong arch.
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir, arch: "arm64");
+        var command = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            [csproj.FullName, "-p", "RuntimeIdentifier=win-x64", "-p", "RuntimeIdentifier=win-arm64"]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeProjectRunService.BuildOptions[0];
+        Assert.AreEqual("arm64", options.Architecture, "the last -p RuntimeIdentifier must win, matching MSBuild");
+        Assert.AreEqual("win-arm64", options.ExactRuntimeIdentifier);
+    }
+
+    [TestMethod]
     public async Task ProjectMode_LoneNonWindowsRuntimeIdentifier_Rejected()
     {
         // A non-Windows RID cannot resolve a Windows architecture; reject before any build.

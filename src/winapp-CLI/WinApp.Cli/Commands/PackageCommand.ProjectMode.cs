@@ -97,23 +97,26 @@ internal partial class PackageCommand
 
         /// <summary>
         /// Returns the value of a lone explicit <c>-p RuntimeIdentifier=&lt;rid&gt;</c>, or <c>null</c> when none
-        /// is present. Property packing that could smuggle a <c>RuntimeIdentifier</c> segment is already
-        /// rejected upstream by <see cref="MsBuildPropertyValidator"/>, so each property carries at most one
-        /// name; a leading/trailing-space padded name is tolerated the same way the forwarding filter does.
+        /// is present. When the property is repeated, the LAST value wins, matching MSBuild's last-assignment
+        /// semantics — so winapp derives the same architecture the build would. Property packing that could
+        /// smuggle a <c>RuntimeIdentifier</c> segment is already rejected upstream by
+        /// <see cref="MsBuildPropertyValidator"/>, so each property carries at most one name; a
+        /// leading/trailing-space padded name is tolerated the same way the forwarding filter does.
         /// </summary>
         private static string? TryGetLoneRuntimeIdentifier(IReadOnlyList<string> properties)
         {
+            string? value = null;
             foreach (var property in properties)
             {
                 var separator = property.IndexOf('=');
                 if (separator > 0 &&
                     property[..separator].Trim().Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
                 {
-                    return property[(separator + 1)..].Trim();
+                    value = property[(separator + 1)..].Trim();
                 }
             }
 
-            return null;
+            return value;
         }
         /// <c>winapp run</c>, then package its build output (<c>TargetDir</c>) through the existing
         /// MSIX pipeline. Folder/bundle/sparse inputs never reach here.

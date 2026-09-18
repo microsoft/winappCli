@@ -518,7 +518,7 @@ internal sealed partial class ProjectRunService(
     /// Non-throwing counterpart to the Native AOT resolver's <c>ResolveEvaluatedFile</c>, used for the
     /// optional packaged-app manifest/recipe where absence is a normal (non-packaged / non-recipe) case.
     /// </summary>
-    private static string? ResolveEvaluatedFileIfPresent(
+    internal static string? ResolveEvaluatedFileIfPresent(
         IReadOnlyDictionary<string, string> properties,
         string name,
         string projectDirectory)
@@ -535,6 +535,17 @@ internal sealed partial class ProjectRunService(
             resolved = Path.GetFullPath(value, projectDirectory);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        // These paths (WinAppManifestPath / FinalAppxManifestName / AppxPackageRecipe) come from the
+        // project's evaluated properties — untrusted input. Probing a UNC / mapped-network-drive /
+        // reparse-redirected path with File.Exists can trigger outbound SMB authentication, so treat a
+        // network location as "not present" without probing it (matching the project-keyfile guard).
+        if (PathSafety.IsNetworkPath(resolved)
+            || PathSafety.IsNetworkDriveRoot(resolved)
+            || PathSafety.RedirectsToNetwork(resolved))
         {
             return null;
         }
