@@ -1268,6 +1268,27 @@ $ExtraProps  </PropertyGroup>
             $output | Should -Match ([regex]::Escape('WinAppDescription'))
         }
 
+        It "Applies the same escape to every forwarded value" {
+            # The escape chain is repeated per property, so the risk is divergence: a property added
+            # later, or an existing one edited, that misses a character. This drives one hostile
+            # value through the whole forwarded set at once and asserts nothing arrives raw, so a
+            # gap shows up here rather than as a mangled command line in the field.
+            $hostile = 'a;b,c%d\e'
+            $escaped = 'a%3Bb%2Cc%25d%5Ce'
+            $names = @('WinAppPackageName', 'WinAppDisplayName', 'WinAppPublisher',
+                'WinAppDescription', 'WinAppCapabilities')
+            $cs = script:New-FileBasedApp -CaseName "esc-all" -Directives (
+                @('OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0') +
+                ($names | ForEach-Object { "$_=$hostile" }))
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs
+
+            foreach ($name in $names) {
+                $computed | Should -Match ([regex]::Escape("-p `"$name=$escaped`"")) -Because "$name must be escaped"
+            }
+            # Nothing may carry a raw separator: the CLI rejects such a token outright.
+            $computed | Should -Not -Match ([regex]::Escape($hostile))
+        }
+
         It "Percent-escapes a semicolon so a capability list survives" {
             # 'a;b' is how capability lists are written, so raw forwarding failed every such run.
             $cs = script:New-FileBasedApp -CaseName "esc-semicolon" -Directives @(
