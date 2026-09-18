@@ -47,7 +47,7 @@ internal class BundleService(
                     taskContext.AddDebugMessage($"{UiSymbols.Warning} Bundle slice name collision on '{msixFile.Name}'; staged as '{destName}' so no architecture is dropped.");
                 }
 
-                var destPath = Path.Combine(bundleStagingDir.FullName, destName);
+                var destPath = Path.Join(bundleStagingDir.FullName, Path.GetFileName(destName));
                 msixFile.CopyTo(destPath, overwrite: true);
                 taskContext.AddDebugMessage($"Staged for bundle: {destName}");
             }
