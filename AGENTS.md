@@ -258,8 +258,9 @@ rerun Node unit tests.
 
 `scripts\test-cli-shard.ps1` partitions the CLI suite using a class predicate and
 its exact complement: package-command tests versus all remaining tests. New tests
-always enter one shard. Each invocation checks discovery counts, the minimum
-expected test count, and its unique TRX/coverage outputs. Keep the combined
+always enter one shard. Each invocation requires at least one executed test,
+accounts for every discovered case in TRX (including intentional skips), and
+checks its unique TRX/coverage outputs. Keep the combined
 `test-results` artifact and union source-line coverage across reports; do not
 average shard percentages or double-count shared source lines.
 

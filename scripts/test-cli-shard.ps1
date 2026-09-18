@@ -70,7 +70,9 @@ Write-Host "[SHARD] $Shard selects $expected of $allCount tests ($filter)."
     shardCounts = $counts
 } | ConvertTo-Json | Set-Content $manifestPath
 
-& dotnet @runArgs --filter $filter --minimum-expected-tests $expected --no-ansi `
+# MTP's minimum counts executed tests, not intentional skips. The TRX total below
+# must still account for every discovered case, including skipped parameterized rows.
+& dotnet @runArgs --filter $filter --minimum-expected-tests 1 --no-ansi `
     --results-directory $ResultsDirectory --report-trx --report-trx-filename "$reportName.trx" `
     --coverage --coverage-settings $CoverageSettings --coverage-output-format cobertura `
     --coverage-output "$reportName.cobertura.xml"
@@ -92,5 +94,16 @@ if ($testExitCode -ne 0) { exit $testExitCode }
 if ([int]$counters[0].Attribute('failed').Value -gt 0 -or
     [string]$report.Root.Element($ns + 'ResultSummary').Attribute('outcome').Value -ne 'Completed') {
     throw "CLI shard $Shard reported an unsuccessful test run despite a zero exit code."
+}
+$executed = [int]$counters[0].Attribute('executed').Value
+$passed = [int]$counters[0].Attribute('passed').Value
+$skipped = [int]$counters[0].Attribute('notExecuted').Value
+if ($executed -lt 1 -or $passed -ne $executed -or ($executed + $skipped) -ne $expected) {
+    throw "CLI shard $Shard has incomplete execution accounting: expected $expected, executed $executed, passed $passed, skipped $skipped."
+}
+foreach ($state in @('error', 'timeout', 'aborted', 'inconclusive', 'passedButRunAborted', 'notRunnable', 'disconnected', 'inProgress', 'pending')) {
+    if ([int]$counters[0].Attribute($state).Value -ne 0) {
+        throw "CLI shard $Shard reported an unsuccessful test state: $state."
+    }
 }
 Write-Host "[SHARD] $Shard reported all $expected expected tests and coverage."
