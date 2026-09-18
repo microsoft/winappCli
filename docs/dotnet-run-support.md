@@ -187,12 +187,15 @@ The hand-off also differs. A `.csproj` passes its output folder, which the CLI t
 winapp run <app.cs> --no-build --configuration "Debug" -p "RuntimeIdentifier=<rid>" ...
 ```
 
-Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, every property the CLI reads is carried across explicitly. That covers the identity-shaping ones (`WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, `WinAppManifestPath`), the packaging mode (`WindowsPackageType`), and the build inputs that decide which file is packaged (`AssemblyName`, `OutputPath`, `OutputType`, `TargetFramework`, `Version`, `WindowsAppSDKSelfContained`). This is what makes a command-line override take effect:
+Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, every property the CLI reads is carried across explicitly. That covers the identity-shaping ones (`WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, `WinAppManifestPath`), the packaging mode (`WindowsPackageType`), and the build inputs that decide which file is packaged (`AssemblyName`, `OutputPath`, `OutDir`, `OutputType`, `TargetFramework`, `Version`, `WindowsAppSDKSelfContained`). This is what makes a command-line override take effect:
 
 ```bash
 dotnet run app.cs -p:WinAppPackageName=Contoso    # registers as Contoso
 dotnet run app.cs -p:AssemblyName=Contoso         # packages Contoso.exe
+dotnet run app.cs -p:OutDir=.\out\                # launches what was built in .\out\
 ```
+
+`OutDir` is carried alongside `OutputPath` because it is the property MSBuild actually writes the executable to. Setting it moves the output while leaving `OutputPath` at its default, so forwarding `OutputPath` alone would point the CLI at a directory the build never wrote to.
 
 Values are percent-escaped on the way across (`%`, `;`, `,`, `"` and `\`), so a capability list such as `internetClient;privateNetworkClientServer` or a publisher containing a comma survives intact; MSBuild decodes them again on the other side.
 

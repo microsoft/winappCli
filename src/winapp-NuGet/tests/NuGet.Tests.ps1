@@ -1058,10 +1058,37 @@ $ExtraProps  </PropertyGroup>
 
         It "Carries a redirected output path" {
             $cs = script:New-FileBasedApp -CaseName "inp-outputpath"
-            # TargetDir is derived from OutputPath, so forwarding the input keeps both sides agreed
-            # without pinning the SDK's own computed value.
+            # OutDir, and therefore TargetDir, defaults to OutputPath, so forwarding the input keeps
+            # both sides agreed without pinning the SDK's own computed value.
             script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutputPath=custom_out\') |
                 Should -Match ([regex]::Escape('-p "OutputPath=custom_out%5C"'))
+        }
+
+        It "Carries a redirected OutDir, which moves the output without moving OutputPath" {
+            # OutDir is the property MSBuild actually writes the executable to. Setting it leaves
+            # OutputPath at the default, so forwarding OutputPath alone would send the CLI to a
+            # directory the build never wrote to. Both tokens are asserted because it is their
+            # DIVERGENCE that the older, OutputPath-only hand-off got wrong.
+            $cs = script:New-FileBasedApp -CaseName "inp-outdir"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutDir=custom_out\')
+            $computed | Should -Match ([regex]::Escape('-p "OutDir=custom_out%5C"'))
+            $computed | Should -Match ([regex]::Escape('bin%5Cdebug%5C"'))
+        }
+
+        It "Sends the CLI to the folder a redirected OutDir actually wrote to" {
+            # The point of forwarding OutDir: the CLI resolves the layout from TargetDir, which is
+            # the absolute form of OutDir. Replaying only the forwarded token has to land on the
+            # same folder the build wrote, or the no-build hand-off inspects a directory that does
+            # not exist. This also pins the percent-escaping round-trip for a path value.
+            $cs = script:New-FileBasedApp -CaseName "inp-outdir-roundtrip"
+            $built = script:Invoke-FileBasedDotnet -CsPath $cs -What "resolve TargetDir" -Arguments @(
+                '-p:OutDir=custom_out\', '-getProperty:TargetDir')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutDir=custom_out\')
+            $forwarded = [regex]::Match($computed, '-p "OutDir=([^"]*)"').Groups[1].Value
+            $forwarded | Should -Not -BeNullOrEmpty
+            $replayed = script:Invoke-FileBasedDotnet -CsPath $cs -What "replay TargetDir" -Arguments @(
+                '-p', "OutDir=$forwarded", '-getProperty:TargetDir')
+            $replayed | Should -Be $built
         }
 
         It "Carries the standard Version, which the CLI reads when WinAppVersion is absent" {

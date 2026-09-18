@@ -380,8 +380,9 @@
         derived outputs        TargetDir, RunCommand, RunArguments and ProjectAssetsFile are
                                computed by the SDK, not supplied by the consumer. Forcing them as
                                global properties would override the CLI's evaluation with the outer
-                               build's answer instead of letting it derive its own. OutputPath IS
-                               forwarded, and TargetDir follows from it.
+                               build's answer instead of letting it derive its own. OutDir IS
+                               forwarded, and TargetDir is just its resolved absolute form, so it
+                               follows without being named.
         RuntimeIdentifier      already carried by the leading tokens above, which pass the effective
                                value through: empty when the build set no RID, which is what
                                suppresses the CLI's host RID injection, and the RID itself when one
@@ -461,6 +462,19 @@
       -->
       <_WinAppForwardedProperty Include="AssemblyName" Value="$(AssemblyName.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(AssemblyName)' != ''" />
       <_WinAppForwardedProperty Include="OutputPath" Value="$(OutputPath.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutputPath)' != ''" />
+      <!--
+        OutDir, not just OutputPath, because OutDir is the property MSBuild actually writes the
+        executable to. It DEFAULTS to OutputPath, but '-p:OutDir=.\custom-output\' moves the output
+        while leaving OutputPath at bin\debug\, so forwarding OutputPath alone would send the CLI to
+        a directory the build never wrote ("The build output directory does not exist", or worse, a
+        stale build from an earlier run). The CLI resolves the layout from TargetDir, which is just
+        the absolute form of OutDir, so naming OutDir is what steers it.
+
+        The effective value is forwarded as-is even when relative: MSBuild resolves it against the
+        project directory, which for a file-based app is the directory holding the .cs, so both
+        passes resolve the same folder no matter where either was launched from.
+      -->
+      <_WinAppForwardedProperty Include="OutDir" Value="$(OutDir.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutDir)' != ''" />
       <_WinAppForwardedProperty Include="OutputType" Value="$(OutputType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutputType)' != ''" />
       <_WinAppForwardedProperty Include="TargetFramework" Value="$(TargetFramework.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(TargetFramework)' != ''" />
       <_WinAppForwardedProperty Include="Version" Value="$(Version.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(Version)' != ''" />
