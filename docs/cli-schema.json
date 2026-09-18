@@ -3828,7 +3828,7 @@
           }
         },
         "focus": {
-          "description": "Move keyboard focus to the specified element using UIA SetFocus.",
+          "description": "Activate the specified element's window, focus the element, and verify foreground and keyboard focus. Fails if Windows refuses activation or focus cannot be confirmed.",
           "hidden": false,
           "arguments": {
             "selector": {
@@ -3838,7 +3838,7 @@
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
-                "minimum": 0,
+                "minimum": 1,
                 "maximum": 1
               }
             }

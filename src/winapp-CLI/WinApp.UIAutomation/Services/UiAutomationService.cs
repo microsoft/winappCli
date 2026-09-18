@@ -1054,12 +1054,13 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         _logger.LogDebug("Focusing element {ElementId}", element.Id);
 
-        var comElement = GetAutomationElement(uiTarget, element, ct: CancellationToken.None);
+        var comElement = GetAutomationElement(uiTarget, element, strictIdentity: true, requireCurrentIdentity: true, ct: ct);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
         }
 
+        ct.ThrowIfCancellationRequested();
         comElement.SetFocus();
         return Task.CompletedTask;
     }

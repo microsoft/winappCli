@@ -206,8 +206,11 @@ public class FakeUiAutomationService : IUiAutomation
     {
         if (ReadFailures.TryDequeue(out var failure)) { throw failure; }
         if (PropertiesThrow is not null) { throw PropertiesThrow; }
+        OnGetProperties?.Invoke(element, propertyName);
         return Task.FromResult(PropertiesResult);
     }
+
+    public Action<UiElement, string?>? OnGetProperties { get; set; }
 
     public Task<(byte[] Pixels, int Width, int Height)> ScreenshotAsync(UiTarget uiTarget, string? elementId, bool captureScreen, bool focus, CancellationToken ct)
     {
@@ -453,6 +456,7 @@ public class FakeKeyboardInput : IKeyboardInput
 /// </summary>
 public class FakeForegroundGuard : IForegroundGuard
 {
+    public Func<long, ForegroundCheck>? CheckResult { get; set; }
     public record EnsureCall(long TargetHwnd);
 
     public List<EnsureCall> Calls { get; } = [];
@@ -476,6 +480,7 @@ public class FakeForegroundGuard : IForegroundGuard
     public ForegroundCheck CheckForeground(long targetHwnd)
     {
         Calls.Add(new(targetHwnd));
+        if (CheckResult is not null) { return CheckResult(targetHwnd); }
 
         var deny = DenyOnCallNumber is int n ? Calls.Count == n : !Allow;
         return deny ? DenyReason : ForegroundCheck.Proceed;
