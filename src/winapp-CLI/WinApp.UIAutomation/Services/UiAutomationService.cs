@@ -45,6 +45,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         (service, root, query, maxResults, ct) => service.ManualTreeSearchCore(root, query, maxResults, ct);
     internal static Func<UiAutomationService, IUIAutomationElement, IUIAutomationElement, IUIAutomationElement?> s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getFocusedElement = service => service._automation.GetFocusedElement();
+    internal static Func<UiAutomationService, IUIAutomationTreeWalker> s_getRawViewWalker = service => service._automation.get_RawViewWalker();
     internal static Func<IUIAutomationElement, int> s_getElementProcessId = element => element.get_CurrentProcessId();
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getDesktopRootElement = service => service._automation.GetRootElement();
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
@@ -66,6 +67,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             (service, root, query, maxResults, ct) => service.ManualTreeSearchCore(root, query, maxResults, ct);
         s_findInvokableAncestor = (service, element, root) => service.FindInvokableAncestorCore(element, root);
         s_getFocusedElement = service => service._automation.GetFocusedElement();
+        s_getRawViewWalker = service => service._automation.get_RawViewWalker();
         s_getElementProcessId = element => element.get_CurrentProcessId();
         s_getDesktopRootElement = service => service._automation.GetRootElement();
         s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
@@ -1352,31 +1354,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         _logger.LogDebug("Getting focused element for process {Pid}", uiTarget.ProcessId);
 
-        IUIAutomationElement? focused;
-        try
-        {
-            focused = s_getFocusedElement(this);
-        }
-        catch
-        {
-            return Task.FromResult<UiElement?>(null);
-        }
-
-        if (focused is null)
-        {
-            return Task.FromResult<UiElement?>(null);
-        }
-
-        // Verify the focused element belongs to the target process
-        try
-        {
-            var pid = s_getElementProcessId(focused);
-            if (pid != uiTarget.ProcessId)
-            {
-                return Task.FromResult<UiElement?>(null);
-            }
-        }
-        catch
+        var focused = s_getFocusedElement(this);
+        if (focused is null || !FocusedElementBelongsToTarget(focused, uiTarget, ct))
         {
             return Task.FromResult<UiElement?>(null);
         }
@@ -1384,6 +1363,64 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var nextElementId = 0;
         var result = ToUiElement(focused, "", ref nextElementId);
         return Task.FromResult<UiElement?>(result);
+    }
+
+    private bool FocusedElementBelongsToTarget(IUIAutomationElement focused, UiTarget target, CancellationToken ct)
+    {
+        if (target.ProcessId <= 0 || (target.IsExplicitWindow && target.WindowHandle == 0))
+        {
+            return false;
+        }
+
+        var pid = s_getElementProcessId(focused);
+        if (pid != 0)
+        {
+            if (pid != target.ProcessId) { return false; }
+            if (!target.IsExplicitWindow) { return true; }
+        }
+
+        // Some providers (including WinUI in Sandbox) omit PID on the entire UIA branch.
+        // The first native window provides independently verifiable ownership; never walk
+        // past a foreign window to find a more convenient ancestor.
+        var walker = s_getRawViewWalker(this);
+        IUIAutomationElement? current = focused;
+        for (var depth = 0; current is not null && depth < 40; depth++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (depth > 0)
+            {
+                pid = s_getElementProcessId(current);
+                if (pid != 0 && pid != target.ProcessId) { return false; }
+            }
+
+            var hwnd = (long)(nint)current.get_CurrentNativeWindowHandle();
+            if (hwnd != 0)
+            {
+                var nativePid = SystemUiQuery.s_getProcessIdForWindow(hwnd);
+                var root = SystemUiQuery.s_getRootWindow(hwnd);
+                if (nativePid == 0 || root == 0)
+                {
+                    throw new InvalidOperationException("The focused element's window is no longer available. Retry 'get-focused'.");
+                }
+                if (nativePid != target.ProcessId) { return false; }
+                if (target.IsExplicitWindow && root != target.WindowHandle) { return false; }
+
+                // Check the root as well: a stale/reused handle cannot authorize another process.
+                var rootPid = SystemUiQuery.s_getProcessIdForWindow(root);
+                if (rootPid == 0)
+                {
+                    throw new InvalidOperationException("The focused element's root window is no longer available. Retry 'get-focused'.");
+                }
+                return rootPid == target.ProcessId;
+            }
+            current = walker.GetParentElement(current);
+        }
+
+        if (current is not null)
+        {
+            throw new InvalidOperationException("Could not verify focused element ownership within 40 ancestors. Retry 'get-focused'.");
+        }
+        return false;
     }
 
     /// <summary>

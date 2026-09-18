@@ -524,7 +524,7 @@ public partial class RealUiAutomationTests
         var uiTarget = SessionFor(fx);
 
         UiAutomationService.s_getFocusedElement = _ => throw new COMException("focus failed");
-        Assert.IsNull(await svc.GetFocusedElementAsync(uiTarget, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<COMException>(() => svc.GetFocusedElementAsync(uiTarget, CancellationToken.None));
 
         UiAutomationService.s_getFocusedElement = _ => null;
         Assert.IsNull(await svc.GetFocusedElementAsync(uiTarget, CancellationToken.None));
@@ -532,7 +532,7 @@ public partial class RealUiAutomationTests
         UiAutomationService.s_getFocusedElement = _ =>
             CUIAutomation8.CreateInstance<IUIAutomation>().ElementFromHandle(new HWND(fx.Hwnd));
         UiAutomationService.s_getElementProcessId = _ => throw new COMException("pid failed");
-        Assert.IsNull(await svc.GetFocusedElementAsync(uiTarget, CancellationToken.None));
+        await Assert.ThrowsExactlyAsync<COMException>(() => svc.GetFocusedElementAsync(uiTarget, CancellationToken.None));
     }
 
     [TestMethod]

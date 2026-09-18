@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Tests;
@@ -204,6 +205,29 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiGetFocusedCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task GetFocused_QueryFailure_JsonDoesNotEmitFocusNegative(bool comFailure)
+    {
+        var previousError = Console.Error;
+        try
+        {
+            Console.SetError(ConsoleStdErr);
+            _fakeUia.GetFocusedThrow = comFailure ? FakeComException : FakeGenericException;
+            var exitCode = await ParseAndInvokeWithCaptureAsync(
+                GetRequiredService<UiGetFocusedCommand>(), ["-a", "TestApp", "--json"]);
+
+            Assert.AreEqual(1, exitCode);
+            AssertJsonErrorCode(comFailure ? UiJsonError.CodeStaleElement : UiJsonError.CodeInternalError);
+            Assert.DoesNotContain("hasFocus", TestAnsiConsole.Output);
+        }
+        finally
+        {
+            Console.SetError(previousError);
+        }
     }
 
     // ---------- get-property ----------
