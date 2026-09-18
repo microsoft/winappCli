@@ -76,7 +76,7 @@ internal static class MsBuildPropertyReader
         // JSON shape: { "Properties": { "Name": "Value", ... } }. Tolerant of a diagnostic preamble/trailer;
         // only an object that actually carries a "Properties" object is accepted, so a scalar containing '{'
         // is never misread.
-        if (TryReadPropertiesObject(trimmed, result))
+        if (TryReadLastPropertiesObject(trimmed, result))
         {
             return result;
         }
@@ -148,24 +148,70 @@ internal static class MsBuildPropertyReader
     /// Scans <paramref name="text"/> for the first <c>{ "Properties": {...} }</c> envelope and, if found,
     /// fills <paramref name="result"/> and returns <c>true</c>.
     /// </summary>
-    private static bool TryReadPropertiesObject(string text, Dictionary<string, string> result)
+    private static bool TryReadLastPropertiesObject(string text, Dictionary<string, string> result)
     {
-        return TryScanJsonObject(text, root =>
+        Dictionary<string, string>? last = null;
+        ScanJsonObjects(text, root =>
         {
             if (!root.TryGetProperty("Properties", out var props) || props.ValueKind != JsonValueKind.Object)
             {
-                return false;
+                return;
             }
 
+            var candidate = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var prop in props.EnumerateObject())
             {
-                result[prop.Name] = prop.Value.ValueKind == JsonValueKind.String
+                candidate[prop.Name] = prop.Value.ValueKind == JsonValueKind.String
                     ? prop.Value.GetString() ?? string.Empty
                     : prop.Value.ToString();
             }
-
-            return true;
+            last = candidate;
         });
+        if (last is null)
+        {
+            return false;
+        }
+
+        foreach (var (name, value) in last)
+        {
+            result[name] = value;
+        }
+        return true;
+    }
+
+    private static void ScanJsonObjects(string text, Action<JsonElement> handle)
+    {
+        var searchStart = 0;
+        while (searchStart < text.Length)
+        {
+            var braceIndex = text.IndexOf('{', searchStart);
+            if (braceIndex < 0)
+            {
+                return;
+            }
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(text[braceIndex..]);
+            var reader = new Utf8JsonReader(bytes, isFinalBlock: true, state: default);
+            try
+            {
+                if (JsonDocument.TryParseValue(ref reader, out var doc))
+                {
+                    using (doc)
+                    {
+                        if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                        {
+                            handle(doc.RootElement);
+                        }
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // Try the next opening brace.
+            }
+
+            searchStart = braceIndex + 1;
+        }
     }
 
     /// <summary>
