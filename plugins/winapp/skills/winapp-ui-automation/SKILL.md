@@ -320,6 +320,10 @@ winapp ui get-property Document -a myapp --property FontWeight --json
 winapp ui get-focused -a myapp
 ```
 
+To check a blank or cleared field, use `wait-for SearchBox -a myapp --value ""`.
+See [empty-value behavior](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#get-value)
+for JSON output and reading the accessibility label separately.
+
 `get-property` also accepts `FontName`, `FontSize`, `ForegroundColor`, `IsItalic`,
 and `StrikethroughStyle`. Omit `--property` to include all six formatting attributes.
 Treat `Mixed`, `NotSupported`, and `Unavailable` as distinct states, not formatting

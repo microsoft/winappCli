@@ -1085,10 +1085,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             patternAcquired = true;
             var range = pattern.get_DocumentRange();
             var text = range.GetText(-1);
-            if (text.Length > 0)
-            {
-                return Task.FromResult<string?>(text.ToString());
-            }
+            return Task.FromResult<string?>(text.ToString());
         }
         catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
@@ -1100,11 +1097,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             ArgumentNullException.ThrowIfNull(pattern);
             patternAcquired = true;
             var bstr = pattern.get_CurrentValue();
-            var text = bstr.ToString();
-            if (!string.IsNullOrEmpty(text))
-            {
-                return Task.FromResult<string?>(text);
-            }
+            return Task.FromResult<string?>(bstr.ToString());
         }
         catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 

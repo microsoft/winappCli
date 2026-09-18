@@ -786,6 +786,16 @@ winapp ui get-value sld-volume-b2c3 -a myapp                # read Slider value
 winapp ui get-value lbl-title-a1b2 -a myapp --json          # JSON: { "elementId": "...", "text": "..." }
 ```
 
+```powershell
+winapp ui get-value SearchBox -a myapp --json
+winapp ui wait-for SearchBox -a myapp --value "" --timeout 5000
+```
+
+A successfully read empty text field returns `"text": ""`, not its accessibility
+label. Whitespace-only content is also preserved in JSON. `wait-for --value ""`
+matches an empty field, whether it is fresh or was cleared after editing. To read
+the accessibility label instead, use `get-property --property Name`.
+
 ### focus
 Move keyboard focus to an element.
 ```bash
