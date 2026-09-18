@@ -267,6 +267,10 @@ that fact and exits successfully. To start one, use `winapp run . --on sandbox -
 The report distinguishes what the guest supports from what the current client can do;
 a minimized client can prevent input or capture even when the guest supports both.
 Use the guest window list for UI PIDs, not a deployment's tracked launcher process.
+The JSON `workRoot` field (shown as `Work root` in text output) is the absolute base
+for relative file-transfer paths, normally `C:\WinApp\work`. It is separate from
+`capabilities.managedRoot`, normally `C:\WinApp`, and is omitted when the guest
+does not report its managed root.
 If several client windows prevent an unambiguous capture, the error lists candidates;
 decide which to close before retrying.
 
@@ -284,7 +288,8 @@ standard streams, and returns the command's exit code. It is not a full interact
 terminal; console applications see redirected pipes. `--json` formats winapp errors,
 not the child command's stdout.
 
-For `push` and `pull`, **target paths are relative to `C:\WinApp\work`**. Absolute,
+For `push` and `pull`, **target paths are relative to the `workRoot` reported by
+[`target snapshot`](#inspecting-the-sandbox)**. Absolute,
 rooted, and UNC target paths are refused. A single file lands at exactly the destination
 you name; a directory preserves its structure beneath that destination. Use the
 resolved guest path printed after a push as the next command's `--cwd`.
