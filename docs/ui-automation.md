@@ -847,8 +847,8 @@ Show the element that currently has keyboard focus in the selected app, includin
 controls whose app ownership is available only through their parent window.
 With `-w`, focus must belong to that window, not another window or an owned popup
 in the same process. With `-a`, other windows in the selected process are included.
-JSON output has `hasFocus:false` when no focused element belongs to the target.
-If focus or window ownership cannot be queried, the command exits nonzero instead;
+JSON output has `hasFocus:false` when no focused element can be verified as belonging
+to the target. If a focus or window-ownership query fails, the command exits nonzero instead;
 retry `get-focused`, and rediscover the window with `list-windows` if it has closed.
 
 ### list-windows
