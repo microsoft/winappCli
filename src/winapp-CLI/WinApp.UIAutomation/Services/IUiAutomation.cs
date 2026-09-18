@@ -63,6 +63,16 @@ public interface IUiAutomation
     /// <exception cref="UiAmbiguousSelectorException">More than one element matched.</exception>
     Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct);
 
+    /// <summary>Finds one element, optionally requiring complete, unambiguous selection.</summary>
+    /// <param name="uiTarget">The app or window to search.</param>
+    /// <param name="selector">What to match. Exact AutomationId matches take precedence over name or AutomationId substrings.</param>
+    /// <param name="requireUnique">When true, checks the complete ControlView without preferring invokable matches.
+    /// Slugs retain their exact resolution behavior. The returned element retains the selected provider for subsequent actions.</param>
+    /// <param name="ct">Cancels the search.</param>
+    /// <returns>The match, or <see langword="null"/> when nothing matched.</returns>
+    /// <exception cref="UiAmbiguousSelectorException">More than one element matched.</exception>
+    Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct);
+
     /// <summary>Reads an element's UIA properties.</summary>
     /// <param name="uiTarget">The app or window that owns the element.</param>
     /// <param name="element">The element to read.</param>
@@ -86,6 +96,26 @@ public interface IUiAutomation
     /// <param name="ct">Cancels the call.</param>
     /// <returns>The pattern that was used, such as "Invoke" or "Toggle".</returns>
     Task<string> InvokeAsync(UiTarget uiTarget, UiElement element, CancellationToken ct);
+
+    /// <summary>
+    /// Performs only the requested action's matching pattern on the supplied element. Never tries
+    /// another pattern or an ancestor. Toggle runs once; toggle-on/off read first and verify after
+    /// changing state (at most two toggles when initially indeterminate, otherwise at most one).
+    /// </summary>
+    /// <param name="uiTarget">The app or window that owns the element.</param>
+    /// <param name="element">The selected element. In-process models act on their retained live provider,
+    /// never a replacement after a failure. When Selector equals AutomationId, that ID must still be
+    /// unique and identify the retained provider. Runtime-slug models use the retained provider directly.
+    /// Serialized or externally-created
+    /// models require a runtime slug or unique AutomationId. A missing identity fails without trying
+    /// another identity or matching by Name and Type.</param>
+    /// <param name="action">The explicit action to perform.</param>
+    /// <param name="ct">Cancels the operation.</param>
+    /// <returns>The matching pattern and performed action, or <c>none</c> for an already-correct toggle state.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The action is not a defined value.</exception>
+    /// <exception cref="InvalidOperationException">The element cannot be resolved, the matching pattern is unavailable or fails, or the requested toggle state cannot be reached.</exception>
+    /// <exception cref="System.Runtime.InteropServices.COMException">UIA reports that the element is no longer available.</exception>
+    Task<UiInvokeActionResult> InvokeAsync(UiTarget uiTarget, UiElement element, UiInvokeAction action, CancellationToken ct);
 
     /// <summary>Replaces an editable element's text through its ValuePattern.</summary>
     /// <param name="uiTarget">The app or window that owns the element.</param>

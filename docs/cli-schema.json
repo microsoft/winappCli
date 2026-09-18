@@ -4645,7 +4645,7 @@
           }
         },
         "invoke": {
-          "description": "Activate an element by slug or text search. Tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order.",
+          "description": "Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element.",
           "hidden": false,
           "arguments": {
             "selector": {
@@ -4661,6 +4661,18 @@
             }
           },
           "options": {
+            "--action": {
+              "description": "Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--app": {
               "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
               "hidden": false,

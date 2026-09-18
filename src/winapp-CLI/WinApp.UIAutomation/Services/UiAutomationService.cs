@@ -49,6 +49,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
     internal static Func<UiAutomationService, IUIAutomationElement?> s_getDesktopRootElement = service => service._automation.GetRootElement();
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
     internal static Func<int, nint> s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
+    internal static Func<UiAutomationService, IUIAutomationTreeWalker> s_getExplicitIdentityWalker = service => service._automation.get_ControlViewWalker();
     internal static Func<IUIAutomationElement, UIA_PROPERTY_ID, global::Windows.Win32.Foundation.BSTR> s_getCurrentBstr = GetCurrentBstr;
 
     internal static void ResetNativeSeams()
@@ -69,6 +70,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_getDesktopRootElement = service => service._automation.GetRootElement();
         s_elementFromHandle = (service, hwnd) => service._automation.ElementFromHandle(new global::Windows.Win32.Foundation.HWND(hwnd));
         s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
+        s_getExplicitIdentityWalker = service => service._automation.get_ControlViewWalker();
         s_getCurrentBstr = GetCurrentBstr;
         s_captureFromWindow = CaptureFromWindow;
         s_captureFromScreenScaled = CaptureFromScreenScaled;
@@ -207,7 +209,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 var slugResult = FindElementBySlug(elementId, root);
                 if (slugResult is not null)
                 {
-                    target = GetAutomationElement(uiTarget, slugResult);
+                    target = GetAutomationElement(uiTarget, slugResult, ct: CancellationToken.None);
                 }
             }
             else
@@ -384,7 +386,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var slugResult = FindElementBySlug(elementId, root);
             if (slugResult is not null)
             {
-                target = GetAutomationElement(uiTarget, slugResult);
+                target = GetAutomationElement(uiTarget, slugResult, ct: CancellationToken.None);
             }
         }
         else
@@ -469,7 +471,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         ct.ThrowIfCancellationRequested();
         if (selector.HasConstraints)
         {
-            return Task.FromResult(SearchConstrained(uiTarget, selector, maxResults, ct));
+            return Task.FromResult(SearchConstrained(uiTarget, selector, maxResults, ct: ct));
         }
 
         _logger.LogDebug("Searching in process {Pid}", uiTarget.ProcessId);
@@ -567,12 +569,99 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return Task.FromResult(results);
     }
 
+    public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (requireUnique && (selector.HasConstraints || selector.IsSlug))
+        {
+            var constrainedMatches = SearchConstrained(uiTarget, selector, 2, requireUnique: true, ct: ct);
+            return Task.FromResult(constrainedMatches.FirstOrDefault());
+        }
+        if (!requireUnique)
+        {
+            return FindSingleElementAsync(uiTarget, selector, ct);
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (selector.Query is null) { return Task.FromResult<UiElement?>(null); }
+
+        // An explicit HWND must not fall back to a different root after a provider failure.
+        var root = uiTarget.WindowHandle != 0
+            ? s_elementFromHandle(this, (nint)uiTarget.WindowHandle)
+            : GetRootElement(uiTarget);
+        if (root is null) { return Task.FromResult<UiElement?>(null); }
+
+        var matches = CollectExplicitMatches(root, uiTarget, selector.Query, allowSubstring: true, ct);
+        if (matches.Count == 0) { return Task.FromResult<UiElement?>(null); }
+        if (matches.Count > 1)
+        {
+            var listing = new System.Text.StringBuilder();
+            listing.AppendLine($"Selector matched {matches.Count} elements:");
+            var nextId = 0;
+            foreach (var candidate in matches.Take(5))
+            {
+                var suggestion = ToUiElement(candidate.Element, "", ref nextId);
+                listing.AppendLine($"  {suggestion.Type} \"{suggestion.Name}\"  -> {suggestion.Selector ?? "(run inspect for an exact selector)"}");
+            }
+            listing.Append("Use a slug from 'inspect' to target a specific element.");
+            throw new UiAmbiguousSelectorException(listing.ToString());
+        }
+
+        var id = 0;
+        var result = ToUiElement(matches[0].Element, "", ref id);
+        SetResolvedWindowHandle(result, matches[0].Element, matches[0].Hwnd);
+        return Task.FromResult<UiElement?>(result);
+    }
+
+    private List<(IUIAutomationElement Element, long Hwnd)> CollectExplicitMatches(
+        IUIAutomationElement root, UiTarget? uiTarget, string query, bool allowSubstring, CancellationToken ct)
+    {
+        var exactMatches = new List<(IUIAutomationElement Element, long Hwnd)>();
+        var substringMatches = new List<(IUIAutomationElement Element, long Hwnd)>();
+        CollectQueryMatches(root, uiTarget?.WindowHandle ?? 0);
+        if (uiTarget is { IsExplicitWindow: false })
+        {
+            foreach (var (hwnd, _, _) in GetAllAppWindows(uiTarget))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (hwnd == uiTarget.WindowHandle) { continue; }
+                var windowRoot = s_elementFromHandle(this, hwnd)
+                    ?? throw new InvalidOperationException(
+                        $"Cannot verify selector uniqueness because HWND {hwnd} could not be read. Re-run 'inspect' or 'search'.");
+                CollectQueryMatches(windowRoot, hwnd);
+            }
+        }
+        ct.ThrowIfCancellationRequested();
+        return exactMatches.Count > 0 ? exactMatches : substringMatches;
+
+        void CollectQueryMatches(IUIAutomationElement windowRoot, long hwnd)
+        {
+            foreach (var candidate in EnumerateExplicitControlView(windowRoot, ct))
+            {
+                // Failed identity reads must not turn a partial traversal into a unique match.
+                var automationId = GetBstr(() => candidate.get_CurrentAutomationId());
+                var name = allowSubstring ? GetBstr(() => candidate.get_CurrentName()) : string.Empty;
+                var destination = automationId == query ? exactMatches
+                    : allowSubstring && (automationId.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                      name.Contains(query, StringComparison.OrdinalIgnoreCase)) ? substringMatches : null;
+                if (destination is null) { continue; }
+
+                // An owned provider can appear in both the main ControlView and its own HWND.
+                if (destination.Any(match => match.Hwnd != hwnd && s_compareElements(this, match.Element, candidate)))
+                {
+                    continue;
+                }
+                destination.Add((candidate, hwnd));
+            }
+        }
+    }
+
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (selector.HasConstraints)
         {
-            var constrainedMatches = SearchConstrained(uiTarget, selector, 2, ct);
+            var constrainedMatches = SearchConstrained(uiTarget, selector, 2, ct: ct);
             if (constrainedMatches.Length > 1)
             {
                 throw new UiAmbiguousSelectorException(
@@ -764,7 +853,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         }
 
         // Query the live COM element for additional properties
-        var comElement = GetAutomationElement(uiTarget, element, requireCurrentIdentity: true);
+        var comElement = GetAutomationElement(uiTarget, element, requireCurrentIdentity: true, ct: ct);
         if (comElement is not null)
         {
             // General UIA properties (convert COM BOOL to C# bool)
@@ -876,7 +965,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         _logger.LogDebug("Invoking element {ElementId}", element.Id);
 
-        var comElement = GetAutomationElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element, ct: CancellationToken.None);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -926,13 +1015,27 @@ internal sealed partial class UiAutomationService : IUiAutomation
             $"Element {element.Selector ?? element.Id} ({element.Type}) does not support any invoke pattern. {hint}");
     }
 
+    public Task<UiInvokeActionResult> InvokeAsync(UiTarget uiTarget, UiElement element, UiInvokeAction action, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        _ = ExplicitUiInvoker.Describe(action); // Reject invalid values before resolving/touching UIA.
+
+        var comElement = GetAutomationElement(uiTarget, element, strictIdentity: true, ct: ct);
+        if (comElement is null)
+        {
+            throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
+        }
+
+        return Task.FromResult(ExplicitUiInvoker.Apply(new ComExplicitUiInvokePatterns(comElement, element), element, action, ct));
+    }
+
     public Task SetValueAsync(UiTarget uiTarget, UiElement element, string text, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
         _logger.LogDebug("Setting value on element {ElementId}", element.Id);
 
-        var comElement = GetAutomationElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element, ct: CancellationToken.None);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -951,7 +1054,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         _logger.LogDebug("Focusing element {ElementId}", element.Id);
 
-        var comElement = GetAutomationElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element, ct: CancellationToken.None);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -967,7 +1070,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         _logger.LogDebug("Getting text from element {ElementId}", element.Id);
 
-        var comElement = GetAutomationElement(uiTarget, element, requireCurrentIdentity: true);
+        var comElement = GetAutomationElement(uiTarget, element, requireCurrentIdentity: true, ct: ct);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -1057,7 +1160,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         _logger.LogDebug("Scrolling element {ElementId} into view", element.Id);
 
-        var comElement = GetAutomationElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element, ct: CancellationToken.None);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -1129,7 +1232,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         _logger.LogDebug("Scrolling container {ElementId}", element.Id);
 
-        var comElement = GetAutomationElement(uiTarget, element);
+        var comElement = GetAutomationElement(uiTarget, element, ct: CancellationToken.None);
         if (comElement is null)
         {
             throw new InvalidOperationException($"Element {element.Id} is stale. Re-run 'inspect' or 'search'.");
@@ -1286,12 +1389,14 @@ internal sealed partial class UiAutomationService : IUiAutomation
     /// <summary>
     /// Resolves a slug selector by walking the tree, regenerating slugs for each element,
     /// and matching + validating the RuntimeId hash.
-    /// Returns both the UiElement model and the live COM element.
+    /// Returns both the UiElement model and the live COM element, or only the COM element for strict uniqueness checks.
     /// </summary>
     private (UiElement? Model, IUIAutomationElement? ComElement) FindElementBySlugWithCom(
         string targetSlug, IUIAutomationElement root, bool includeRoot = true,
-        bool throwOnHashMismatch = true, bool requireCurrentIdentity = false, CancellationToken ct = default)
+        bool throwOnHashMismatch = true, bool requireCurrentIdentity = false,
+        bool requireUnique = false, Func<IUIAutomationElement, bool>? matches = null, CancellationToken ct = default)
     {
+        requireCurrentIdentity |= requireUnique;
         var parsed = SlugGenerator.ParseSlug(targetSlug);
         if (parsed is null)
         {
@@ -1310,6 +1415,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         foreach (var element in candidates)
         {
             ct.ThrowIfCancellationRequested();
+            if (requireUnique && matches is not null && !matches(element)) { continue; }
             string type;
             try { type = GetControlTypeName(element.get_CurrentControlType()); }
             catch (Exception ex) when (!requireCurrentIdentity && ex is COMException or InvalidCastException)
@@ -1335,6 +1441,16 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         var hash = SlugGenerator.ComputeHashFromSafeArray(runtimeId);
                         if (hash == targetHash)
                         {
+                            if (requireUnique)
+                            {
+                                if (matchedCom is not null && !s_compareElements(this, matchedCom, element))
+                                {
+                                    throw new UiAmbiguousSelectorException(
+                                        $"Slug '{targetSlug}' matched multiple elements. Narrow the selector with a root, class, or window and re-run 'inspect'.");
+                                }
+                                matchedCom ??= element;
+                                continue;
+                            }
                             matchedCom = element;
                             matchedUi = ToUiElement(element, "", ref nextElementId, requireCurrentIdentity);
                             break;
@@ -1350,7 +1466,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
 
             // Also handle nameless elements: prefix-hash (no name slug)
-            if (targetNameSlug is null && prefix == targetPrefix)
+            if (!requireUnique && targetNameSlug is null && prefix == targetPrefix)
             {
                 try
                 {
@@ -1371,6 +1487,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
 
         }
+
+        // Strict callers need the exact provider, not a model that probes patterns before
+        // uniqueness is established. Query callers materialize it after selection.
+        if (requireUnique && matchedCom is not null) { return (null, matchedCom); }
 
         if (matchedUi is not null)
         {
@@ -1416,13 +1536,26 @@ internal sealed partial class UiAutomationService : IUiAutomation
     /// returning it keeps stale/provider failures explicit even in operation paths that probe
     /// optional properties or patterns inside narrow fallback catches.
     /// </summary>
-    private IUIAutomationElement? GetAutomationElement(UiTarget uiTarget, UiElement element, bool requireCurrentIdentity = false)
+    private IUIAutomationElement? GetAutomationElement(UiTarget uiTarget, UiElement element,
+        bool strictIdentity = false, bool requireCurrentIdentity = false, CancellationToken ct = default)
     {
         if (element.Context is { } context)
         {
             try
             {
                 _ = s_getElementProcessId(context.AutomationElement);
+                if (strictIdentity && !string.IsNullOrEmpty(element.AutomationId) &&
+                    element.Selector == element.AutomationId)
+                {
+                    // A caller committing to an AutomationId requires uniqueness even when initial
+                    // selection retained a provider. Validate that identity, but never replace it.
+                    var match = ResolveComElement(uiTarget, element, strictIdentity: true, ct: ct);
+                    if (match is null || !s_compareElements(this, context.AutomationElement, match))
+                    {
+                        throw new InvalidOperationException(
+                            $"Element {element.Id} is stale or AutomationId '{element.AutomationId}' now identifies a different element. Re-run 'inspect' or 'search'.");
+                    }
+                }
             }
             catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == UiaElementNotAvailable)
             {
@@ -1437,15 +1570,17 @@ internal sealed partial class UiAutomationService : IUiAutomation
             return context.AutomationElement;
         }
 
-        return ResolveComElement(uiTarget, element, requireCurrentIdentity);
+        return ResolveComElement(uiTarget, element, strictIdentity, requireCurrentIdentity, ct);
     }
 
     /// <summary>
     /// Re-finds a live COM UIA element from our serialized UiElement model.
     /// Uses slug-based resolution first (most precise), then falls back to
-    /// AutomationId or Name+Type property matching.
+    /// AutomationId or Name+Type property matching. Explicit actions use strictIdentity:
+    /// resolve only the supplied slug or unique AutomationId, without rebinding on a miss.
     /// </summary>
-    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element, bool requireCurrentIdentity = false)
+    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element,
+        bool strictIdentity = false, bool requireCurrentIdentity = false, CancellationToken ct = default)
     {
         Interlocked.Increment(ref _serializedElementResolutionCount);
 
@@ -1460,16 +1595,28 @@ internal sealed partial class UiAutomationService : IUiAutomation
         {
             throw new UiElementNotFoundException(element.AutomationId ?? element.Name ?? element.Type);
         }
-        // Use the element's source HWND if it came from a different window (popup/dialog)
+        // Strict identity must not recover a closed source or target HWND onto a sibling window.
         IUIAutomationElement? root;
-        if (element.WindowHandle is { } elHwnd && elHwnd != 0 && elHwnd != uiTarget.WindowHandle)
+        try
         {
-            root = GetRootElementForHwnd((nint)elHwnd, requireCurrentIdentity);
-            _logger.LogDebug("Resolving element on source HWND {Hwnd}", elHwnd);
+            if (element.WindowHandle is { } elHwnd && elHwnd != 0 && (strictIdentity || elHwnd != uiTarget.WindowHandle))
+            {
+                root = GetRootElementForHwnd((nint)elHwnd, strictIdentity || requireCurrentIdentity);
+                _logger.LogDebug("Resolving element on source HWND {Hwnd}", elHwnd);
+            }
+            else if (strictIdentity && uiTarget.WindowHandle != 0)
+            {
+                root = GetRootElementForHwnd((nint)uiTarget.WindowHandle, requireCurrentIdentity: true);
+            }
+            else
+            {
+                root = GetRootElement(uiTarget, requireCurrentIdentity);
+            }
         }
-        else
+        catch (COMException ex) when (strictIdentity && !requireCurrentIdentity && ex.HResult == UiaElementNotAvailable &&
+            (element.WindowHandle is not null and not 0 || uiTarget.WindowHandle != 0))
         {
-            root = GetRootElement(uiTarget, requireCurrentIdentity);
+            return null;
         }
 
         if (root is null)
@@ -1478,11 +1625,30 @@ internal sealed partial class UiAutomationService : IUiAutomation
             return null;
         }
 
+        // Explicit actions commit to one identity. A promoted selector equals AutomationId;
+        // otherwise a selector must be a runtime slug, never a query to reinterpret on a miss.
+        if (strictIdentity && !string.IsNullOrEmpty(element.Selector) &&
+            element.Selector != element.AutomationId)
+        {
+            if (SlugGenerator.ParseSlug(element.Selector) is null)
+            {
+                throw new InvalidOperationException(
+                    $"Element selector '{element.Selector}' is not an exact runtime slug or matching AutomationId. Re-run 'inspect' or 'search'.");
+            }
+            if (element.WindowHandle is null or 0 && !uiTarget.IsExplicitWindow)
+            {
+                // With no source boundary, prove uniqueness across the app before probing patterns.
+                return QueryConstrained(uiTarget, new UiSelector { Slug = element.Selector }, 2,
+                    requireUnique: true, ct: ct, windowRoot: root).FirstOrDefault().Element;
+            }
+            return FindElementBySlugWithCom(element.Selector, root, ct: ct, requireUnique: true).ComElement;
+        }
+
         // Try slug-based resolution first (most precise — uses RuntimeId hash)
-        if (element.Selector is not null)
+        if (!strictIdentity && element.Selector is not null)
         {
             var (_, comElement) = FindElementBySlugWithCom(element.Selector, root,
-                throwOnHashMismatch: !requireCurrentIdentity, requireCurrentIdentity: requireCurrentIdentity);
+                throwOnHashMismatch: !requireCurrentIdentity, ct: ct, requireCurrentIdentity: requireCurrentIdentity);
             if (comElement is not null)
             {
                 return comElement;
@@ -1493,6 +1659,16 @@ internal sealed partial class UiAutomationService : IUiAutomation
         // Fall back to AutomationId (stable but not unique across duplicates)
         if (element.AutomationId is not null)
         {
+            if (strictIdentity && element.AutomationId.Length == 0)
+            {
+                throw new InvalidOperationException("Explicit actions require a runtime slug or a nonempty AutomationId. Re-run 'inspect' or 'search'.");
+            }
+            if (strictIdentity)
+            {
+                // Without a recorded source HWND, an app target commits to app-wide uniqueness.
+                var appTarget = element.WindowHandle is null or 0 && !uiTarget.IsExplicitWindow ? uiTarget : null;
+                return FindUniqueExplicitAutomationId(root, element.AutomationId, appTarget, ct);
+            }
             var condition = _automation.CreatePropertyCondition(
                 UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
                 ComVariant.Create(element.AutomationId));
@@ -1501,6 +1677,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
             {
                 return found;
             }
+        }
+
+        if (strictIdentity)
+        {
+            throw new InvalidOperationException(
+                "Explicit actions require a runtime slug or a nonempty AutomationId; Name and Type cannot identify an exact element. Re-run 'inspect' or 'search'.");
         }
 
         // Fall back to Name + ControlType
@@ -1532,6 +1714,49 @@ internal sealed partial class UiAutomationService : IUiAutomation
         }
 
         return null;
+    }
+
+    private IUIAutomationElement? FindUniqueExplicitAutomationId(
+        IUIAutomationElement root, string automationId, UiTarget? appTarget, CancellationToken ct)
+    {
+        // FindAll can return a nonempty but incomplete result across provider boundaries.
+        // A bounded/best-effort search cannot prove uniqueness either. Walk the entire ControlView
+        // iteratively, and never return a candidate after a traversal or property-read failure.
+        try
+        {
+            var matches = CollectExplicitMatches(root, appTarget, automationId, allowSubstring: false, ct);
+            if (matches.Count > 1)
+            {
+                throw new InvalidOperationException(
+                    $"AutomationId '{automationId}' is no longer unique. Re-run 'inspect' or 'search' for an exact selector.");
+            }
+            return matches.Count == 0 ? null : matches[0].Element;
+        }
+        catch (COMException ex) when (ex.HResult != unchecked((int)0x80040201)) // UIA_E_ELEMENTNOTAVAILABLE remains stale.
+        {
+            throw new InvalidOperationException(
+                $"Cannot verify AutomationId '{automationId}' is unique because the ControlView could not be read completely. Re-run 'inspect' or 'search'.", ex);
+        }
+    }
+
+    private IEnumerable<IUIAutomationElement> EnumerateExplicitControlView(IUIAutomationElement root, CancellationToken ct)
+    {
+        var walker = s_getExplicitIdentityWalker(this);
+        var pending = new Stack<IUIAutomationElement>();
+        pending.Push(root);
+        while (pending.TryPop(out var parent))
+        {
+            ct.ThrowIfCancellationRequested();
+            var child = walker.GetFirstChildElement(parent);
+            while (child is not null)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return child;
+                ct.ThrowIfCancellationRequested();
+                pending.Push(child);
+                child = walker.GetNextSiblingElement(child);
+            }
+        }
     }
 
     /// <summary>
