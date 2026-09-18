@@ -355,9 +355,47 @@
         whole resolution order (explicit path, #:property WinAppManifestPath, <stem>.appxmanifest,
         generated), so 'dotnet run app.cs' and 'winapp run app.cs' register the same identity.
       -->
-      <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' == 'true'">run "$(EntryPointFilePath)" --no-build --configuration $(Configuration) -p RuntimeIdentifier=$(RuntimeIdentifier)</_WinAppRunArgs>
+      <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' == 'true'">run "$(EntryPointFilePath)" --no-build --configuration "$(Configuration)" -p "RuntimeIdentifier=$(RuntimeIdentifier)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' != 'true'">run "$(_WinAppInputFolderArg)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(_WinAppManifestPathArg)' != ''">$(_WinAppRunArgs) --manifest "$(_WinAppManifestPathArg)"</_WinAppRunArgs>
+    </PropertyGroup>
+
+    <!--
+      Carry the identity-shaping properties into winapp's own evaluation of the .cs file.
+
+      winapp re-evaluates the file to plan the manifest, and that evaluation sees the file's
+      own directives but not the properties the outer build was invoked with. Without this,
+      'dotnet run app.cs -p:WinAppPackageName=Contoso' builds with WinAppPackageName=Contoso
+      and then registers the inferred hashed identity instead, silently discarding the request
+      and disagreeing with 'winapp run app.cs -p WinAppPackageName=Contoso'.
+
+      Forwarding the EFFECTIVE value is a no-op when the value came from a #:property directive
+      or an adjacent Directory.Build.props, because winapp's evaluation reads those too. It only
+      changes the outcome when an outer override would otherwise have been lost.
+
+      Empty values are skipped rather than forwarded. Winapp treats a named property as an
+      explicit request, so passing an empty one would override a directive back to the inferred
+      default instead of leaving it alone.
+    -->
+    <ItemGroup Condition="'$(_WinAppFileBasedApp)' == 'true'">
+      <_WinAppForwardedProperty Include="WinAppPackageName" Value="$(WinAppPackageName)" Condition="'$(WinAppPackageName)' != ''" />
+      <_WinAppForwardedProperty Include="WinAppDisplayName" Value="$(WinAppDisplayName)" Condition="'$(WinAppDisplayName)' != ''" />
+      <_WinAppForwardedProperty Include="WinAppPublisher" Value="$(WinAppPublisher)" Condition="'$(WinAppPublisher)' != ''" />
+      <_WinAppForwardedProperty Include="WinAppVersion" Value="$(WinAppVersion)" Condition="'$(WinAppVersion)' != ''" />
+      <_WinAppForwardedProperty Include="WinAppDescription" Value="$(WinAppDescription)" Condition="'$(WinAppDescription)' != ''" />
+      <_WinAppForwardedProperty Include="WinAppCapabilities" Value="$(WinAppCapabilities)" Condition="'$(WinAppCapabilities)' != ''" />
+      <!--
+        Only ever set by the consumer for a file-based app: manifest auto-detection is skipped
+        above, so this is empty unless it was explicitly requested.
+      -->
+      <_WinAppForwardedProperty Include="WinAppManifestPath" Value="$(WinAppManifestPath)" Condition="'$(WinAppManifestPath)' != ''" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_WinAppRunArgs Condition="'@(_WinAppForwardedProperty)' != ''">$(_WinAppRunArgs) @(_WinAppForwardedProperty->'-p "%(Identity)=%(Value)"', ' ')</_WinAppRunArgs>
+    </PropertyGroup>
+
+    <PropertyGroup>
       <_WinAppRunArgs Condition="'$(_WinAppLooseLayoutPathArg)' != ''">$(_WinAppRunArgs) --output-appx-directory "$(_WinAppLooseLayoutPathArg)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppLaunchArgs)' != ''">$(_WinAppRunArgs) --args "$(WinAppLaunchArgs)"</_WinAppRunArgs>
       <!--

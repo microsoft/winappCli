@@ -674,6 +674,12 @@ $preCompiledItem  <Import Project="$($script:propsPath)" />
             $sharedArgs | Should -Match ' --caller nuget-package$'
             $sharedArgs | Should -Not -Match ' --$'
         }
+
+        It "Forwards no identity properties for a project" {
+            # A .csproj hands winapp its output folder and winapp never re-evaluates the project, so
+            # the property forwarding that file-based apps need must not leak onto this path.
+            Get-ComputedRunArgs -CaseName 'run-no-property-forwarding' | Should -Not -Match '-p "WinApp'
+        }
     }
 }
 
@@ -752,8 +758,8 @@ $ExtraProps  </PropertyGroup>
         # be redirected to. Targets _WinAppRunArgs rather than the final RunArguments so the
         # assertion does not depend on actually compiling the app.
         function script:Get-FileBasedRunArgs {
-            param([string]$CsPath)
-            $out = & dotnet build $CsPath -t:_WinAppBuildRunArgs -getProperty:_WinAppRunArgs -nologo 2>&1
+            param([string]$CsPath, [string[]]$Overrides = @())
+            $out = & dotnet build $CsPath @Overrides -t:_WinAppBuildRunArgs -getProperty:_WinAppRunArgs -nologo 2>&1
             if ($LASTEXITCODE -ne 0) {
                 throw "Failed to compute _WinAppRunArgs for ${CsPath}:`n$($out -join [Environment]::NewLine)"
             }
@@ -909,11 +915,18 @@ $ExtraProps  </PropertyGroup>
             # Naming the property is what suppresses the CLI's own host-RID injection. Without it
             # the CLI would look in bin\debug_win-x64\ while dotnet run wrote bin\debug\, and with
             # 'no-build' it would silently run a stale layout left by an earlier 'winapp run'.
-            $script:fbArgs | Should -Match ([regex]::Escape('-p RuntimeIdentifier='))
+            $script:fbArgs | Should -Match ([regex]::Escape('-p "RuntimeIdentifier='))
         }
 
         It "Forwards the configuration" {
-            $script:fbArgs | Should -Match ' --configuration Debug( |$)'
+            $script:fbArgs | Should -Match ' --configuration "Debug"( |$)'
+        }
+
+        It "Quotes the configuration so a name with spaces survives" {
+            # 'dotnet run app.cs -c "Debug Custom"' would otherwise hand winapp
+            # '--configuration Debug Custom', and 'Custom' would be parsed as a stray argument.
+            $cs = script:New-FileBasedApp -CaseName "args-spaced-config" -ExtraProps "    <Configuration>Debug Custom</Configuration>`n"
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Match ([regex]::Escape('--configuration "Debug Custom"'))
         }
 
         It "Points the loose layout at the configuration's output folder" {
@@ -946,6 +959,58 @@ $ExtraProps  </PropertyGroup>
 
         It "Reports itself as a nuget-package caller" {
             $script:fbArgs | Should -Match ' --caller nuget-package$'
+        }
+    }
+
+    Context "Forwarding identity properties" {
+        # winapp re-evaluates the .cs to plan the manifest, and that evaluation cannot see the
+        # properties the outer build was invoked with. Anything identity-shaping therefore has to
+        # be carried across explicitly, or 'dotnet run app.cs -p:WinAppPackageName=Contoso' builds
+        # with Contoso and then registers the inferred hashed identity instead.
+        It "Carries a command-line package name into the hand-off" {
+            $cs = script:New-FileBasedApp -CaseName "fwd-cmdline"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppPackageName=Contoso') |
+                Should -Match ([regex]::Escape('-p "WinAppPackageName=Contoso"'))
+        }
+
+        It "Carries a directive-supplied package name into the hand-off" {
+            # Redundant for winapp, which reads the directive itself, but it must not conflict.
+            $cs = script:New-FileBasedApp -CaseName "fwd-directive" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0', 'WinAppPackageName=FromDirective')
+            script:Get-FileBasedRunArgs -CsPath $cs |
+                Should -Match ([regex]::Escape('-p "WinAppPackageName=FromDirective"'))
+        }
+
+        It "Quotes values so a display name with spaces survives" {
+            $cs = script:New-FileBasedApp -CaseName "fwd-spaces"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDisplayName=My Cool App') |
+                Should -Match ([regex]::Escape('-p "WinAppDisplayName=My Cool App"'))
+        }
+
+        It "Carries every identity property winapp reads" {
+            $cs = script:New-FileBasedApp -CaseName "fwd-all"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @(
+                '-p:WinAppPackageName=N', '-p:WinAppDisplayName=D', '-p:WinAppPublisher=CN=P',
+                '-p:WinAppVersion=1.2.3.4', '-p:WinAppDescription=Desc', '-p:WinAppCapabilities=internetClient')
+            foreach ($pair in 'WinAppPackageName=N', 'WinAppDisplayName=D', 'WinAppPublisher=CN=P',
+                              'WinAppVersion=1.2.3.4', 'WinAppDescription=Desc', 'WinAppCapabilities=internetClient') {
+                $computed | Should -Match ([regex]::Escape("-p `"$pair`""))
+            }
+        }
+
+        It "Carries an explicitly requested manifest path" {
+            # Distinct from the manifest switch, which stays absent: this is the consumer's own
+            # request flowing into winapp's resolution order, not the targets pinning a manifest.
+            $cs = script:New-FileBasedApp -CaseName "fwd-manifest" -ManifestFileName "custom.appxmanifest"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppManifestPath=custom.appxmanifest')
+            $computed | Should -Match ([regex]::Escape('-p "WinAppManifestPath=custom.appxmanifest"'))
+            $computed | Should -Not -Match ' --manifest '
+        }
+
+        It "Forwards nothing when no identity property is set" {
+            # Winapp treats a named property as an explicit request, so forwarding empties would
+            # override a directive back to the inferred default instead of leaving it alone.
+            $script:fbArgs | Should -Not -Match '-p "WinApp'
         }
     }
 

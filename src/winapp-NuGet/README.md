@@ -41,7 +41,7 @@ If you ship a library that you want to expose this package's behavior to its con
                   IncludeAssets="build;buildTransitive" />
 ```
 
-The package ships its props and targets in both `build/` and `buildTransitive/`, so consumers of your library will pick them up automatically. The targets only activate when the consuming project is a packaged Windows app (has an appxmanifest, OutputType is not `Library`, target platform is `windows`); they are no-ops in unrelated TFMs (e.g. the `net*-android` / `net*-ios` TFMs of a multi-targeted MAUI app), libraries, and test projects.
+The package ships its props and targets in both `build/` and `buildTransitive/`, so consumers of your library will pick them up automatically. The targets only activate when the consuming project is a packaged Windows app (has an appxmanifest, OutputType is not `Library`, target platform is `windows`); they are no-ops in unrelated TFMs (e.g. the `net*-android` / `net*-ios` TFMs of a multi-targeted MAUI app), libraries, and test projects. The appxmanifest requirement applies to project-based consumers; a [.NET file-based app](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/sdk#file-based-apps) has no authored manifest by design and activates without one, as described under [Troubleshooting](#dotnet-run-appcs-is-not-intercepted-file-based-app-runs-unpackaged).
 
 ## How It Works
 
@@ -144,7 +144,7 @@ The gate (`_WinAppRunSupportActive`) requires **all five** of these to be true:
 
 Look at the `WinAppRunSupportInfo` output — the property whose value disagrees with the list above is the one that's keeping the gate inactive.
 
-### `dotnet run app.cs` is not intercepted
+### `dotnet run app.cs` is not intercepted (file-based app runs unpackaged)
 
 A [file-based app](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/sdk#file-based-apps) has to declare a Windows target framework for condition 4 above to hold. Without one, the gate stays inactive and the app runs unpackaged:
 
@@ -154,10 +154,10 @@ A [file-based app](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/s
 #:property OutputType=Exe
 ```
 
-To see the gate inputs for a `.cs`, pass the file to the diagnostic target:
+To see the gate inputs for a `.cs`, pass the file to the diagnostic target. Use `dotnet build`, not `dotnet msbuild` — only `dotnet build` synthesizes the virtual project that a file-based app is compiled through:
 
 ```bash
-dotnet msbuild app.cs -t:WinAppRunSupportInfo
+dotnet build app.cs -t:WinAppRunSupportInfo
 ```
 
 ### Application fails to launch

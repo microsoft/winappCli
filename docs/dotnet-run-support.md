@@ -164,7 +164,7 @@ The package only activates when **all** of the following are true (gated by the 
 4. The target platform identifier is `windows` (derived from `$(TargetPlatformIdentifier)` if set, else from `$(TargetFramework)`). In multi-targeted projects (e.g. MAUI `net*-android;net*-ios;net*-windows10.0.19041.0`), the targets are inert for non-Windows TFMs.
 5. `WinAppManifestPath` resolves to an existing file, **or** the project is a .NET file-based app. The targets auto-detect the manifest by checking the output directory first (`$(OutputPath)AppxManifest.xml`, `$(OutputPath)Package.appxmanifest`, `$(OutputPath)appxmanifest.xml`) and then the project directory (`AppxManifest.xml`, `Package.appxmanifest`, `appxmanifest.xml`); a consumer-supplied `WinAppManifestPath` is honored as-is. Output-directory paths are accepted because frameworks like MAUI generate the manifest at build time into `$(OutputPath)` from platform / msbuild props; without that the gate could never activate for transitive MAUI head apps.
 
-This gating ensures the package is safe to consume transitively (e.g. when re-exported by a library): unrelated projects (libraries, test projects, console apps without manifests, non-Windows TFMs) see no winapp activity and no impact on `dotnet run`.
+This gating ensures the package is safe to consume transitively (e.g. when re-exported by a library): unrelated projects (libraries, test projects, project-based console apps without manifests, non-Windows TFMs) see no winapp activity and no impact on `dotnet run`. The manifest requirement is a project-based one; a file-based app activates without an authored manifest, as described next.
 
 ### File-based apps
 
@@ -181,8 +181,16 @@ Manifest auto-detection is skipped entirely for a file-based app and resolution 
 The hand-off also differs. A `.csproj` passes its output folder, which the CLI treats as a pre-built layout. A `.cs` has to be passed as the input, because manifest inference is only reachable from the CLI's single-file mode — so `no-build` is added to keep `dotnet run`'s build the only one, and `RuntimeIdentifier` is forwarded so the CLI reads the same output folder `dotnet run` wrote to rather than injecting a host RID of its own:
 
 ```
-winapp run <app.cs> --no-build --configuration Debug -p RuntimeIdentifier=<rid> ...
+winapp run <app.cs> --no-build --configuration "Debug" -p "RuntimeIdentifier=<rid>" ...
 ```
+
+Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, the identity-shaping properties are carried across explicitly when they have a value: `WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, and `WinAppManifestPath`. This is what makes a command-line override take effect:
+
+```bash
+dotnet run app.cs -p:WinAppPackageName=Contoso    # registers as Contoso
+```
+
+Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. Empty values are never forwarded, because the CLI treats a named property as an explicit request and an empty one would override a directive back to the inferred default.
 
 ## Build Scripts
 

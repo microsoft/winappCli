@@ -1063,10 +1063,12 @@ Set `#:property EnableWinAppRunSupport=false` to opt out of the redirect entirel
 #:property WinAppRunUnregisterOnExit=true
 ```
 
-If `dotnet run` runs the app unpackaged when you expected identity, ask MSBuild why:
+If `dotnet run` runs the app unpackaged when you expected identity, ask MSBuild why. Use
+`dotnet build`, not `dotnet msbuild` — only `dotnet build` synthesizes the virtual project that a
+file-based app is compiled through:
 
 ```bash
-dotnet msbuild counter.cs -t:WinAppRunSupportInfo
+dotnet build counter.cs -t:WinAppRunSupportInfo
 ```
 
 Single-file mode requires the **.NET SDK 10.0.300 or newer**.
