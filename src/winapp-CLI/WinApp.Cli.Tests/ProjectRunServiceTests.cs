@@ -2008,6 +2008,104 @@ public class ProjectRunServiceTests
         $$"""{ "Properties": { "TargetDir": "{{_tempDir.FullName.Replace("\\", "\\\\")}}", "RunCommand": "", "WindowsPackageType": "MSIX", "OutputType": "WinExe", "WindowsAppSDKSelfContained": "" } }""";
 
     [TestMethod]
+    public async Task EvaluateProjectSigningAsync_UnrestoredProject_RestoresBeforeResolvingSigning()
+    {
+        // A clean checkout evaluates ProjectAssetsFile to a path that does not exist yet, and signing
+        // properties imported from a NuGet package's build/*.props are invisible until restore. A
+        // --getProperty evaluate SUCCEEDS on that clean checkout but returns them empty, so signing
+        // resolution must restore and re-evaluate rather than silently treat the project as unsigned.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var absentAssets = Path.Combine(_tempDir.FullName, "obj", "project.assets.json"); // never created
+        var keyFile = WriteFile("dev.pfx", "not-a-real-key");
+        var restored = false;
+        var evaluateCount = 0;
+        string SigningJson(bool signing) =>
+            $$"""{ "Properties": { "ProjectAssetsFile": "{{absentAssets.Replace("\\", "\\\\")}}", "AppxPackageSigningEnabled": "{{(signing ? "true" : "")}}", "PackageCertificateKeyFile": "{{(signing ? keyFile.FullName.Replace("\\", "\\\\") : "")}}" } }""";
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restored = true;
+                    return (0, string.Empty, string.Empty);
+                }
+                evaluateCount++;
+                // The package-imported signing requirement only becomes visible once restore has run.
+                return (0, SigningJson(signing: restored), string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var signing = await service.EvaluateProjectSigningAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsTrue(restored, "an unrestored project must be restored before signing is resolved");
+        Assert.IsTrue(evaluateCount >= 2, "signing must be re-evaluated after the restore");
+        Assert.IsNotNull(signing);
+        Assert.AreEqual(true, signing!.SigningEnabled, "the NuGet-imported signing requirement must be seen after restore");
+        Assert.AreEqual(keyFile.FullName, signing.KeyFilePath);
+    }
+
+    [TestMethod]
+    public async Task EvaluateProjectSigningAsync_RestoredProject_DoesNotRestore()
+    {
+        // When the project is already restored (its evaluated assets file exists), signing resolution must
+        // not trigger a redundant restore, and an unconfigured project resolves to an unset (unsigned) policy.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var assets = WriteFileAt(Path.Combine("obj", "project.assets.json"), "{}");
+        var restoreCalls = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restoreCalls++;
+                    return (0, string.Empty, string.Empty);
+                }
+                return (0, $$"""{ "Properties": { "ProjectAssetsFile": "{{assets.FullName.Replace("\\", "\\\\")}}", "AppxPackageSigningEnabled": "", "PackageCertificateKeyFile": "" } }""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var signing = await service.EvaluateProjectSigningAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(0, restoreCalls, "an already-restored project must not be restored again for signing");
+        Assert.IsNotNull(signing);
+        Assert.IsNull(signing!.SigningEnabled, "no signing configured resolves to an unset policy, not a restore loop");
+    }
+
+    [TestMethod]
+    public async Task EvaluateProjectSigningAsync_NoRestore_DoesNotRestoreEvenIfUnrestored()
+    {
+        // --no-restore is the user's promise that the project is already restored; signing resolution must
+        // honor it and never inject a restore, even when the assets file is absent.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var absentAssets = Path.Combine(_tempDir.FullName, "obj", "project.assets.json");
+        var restoreCalls = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restoreCalls++;
+                    return (0, string.Empty, string.Empty);
+                }
+                return (0, $$"""{ "Properties": { "ProjectAssetsFile": "{{absentAssets.Replace("\\", "\\\\")}}", "AppxPackageSigningEnabled": "", "PackageCertificateKeyFile": "" } }""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: []);
+
+        await service.EvaluateProjectSigningAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(0, restoreCalls, "--no-restore must suppress the signing restore");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_ShimResolvesFolder_InjectsMetadataIntoBuildPass()
     {
         // SHIM threading: when the shim resolves a folder (SDK absent), the build pass args must carry

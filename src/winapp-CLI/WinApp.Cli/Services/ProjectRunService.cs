@@ -639,12 +639,15 @@ internal sealed partial class ProjectRunService(
         CancellationToken cancellationToken)
     {
         var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
-        if (props is null && !options.NoRestore)
+        if (!options.NoRestore && !IsProjectRestored(props))
         {
-            // On a clean checkout obj/<project>.nuget.g.props does not exist yet, so signing properties
-            // imported from a referenced NuGet package (AppxPackageSigningEnabled / PackageCertificateKeyFile)
-            // are invisible and this evaluate fails. Restore once and retry, so a project that requires
-            // signing is not silently resolved as unsigned on its first (unrestored) packaging run.
+            // Signing configuration is frequently imported from a referenced NuGet package's build/*.props,
+            // which are present only via obj/<project>.nuget.g.props AFTER restore. A --getProperty evaluate on
+            // an unrestored clean checkout does NOT fail — it succeeds and returns those imported properties
+            // empty — so restoring only when the evaluate returns null would miss this case and silently
+            // resolve to unsigned. Restore and re-evaluate whenever the project has not been restored (its
+            // evaluated ProjectAssetsFile is absent), so a project that requires signing is not silently
+            // delivered unsigned on its first (unrestored) packaging run.
             var restoreWorkingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
             await RunRestorePassAsync(csproj, options, restoreWorkingDir, cancellationToken);
             props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
@@ -680,6 +683,23 @@ internal sealed partial class ProjectRunService(
             GetProp(props, "PackageCertificatePassword") is { Length: > 0 } pwd ? pwd : null,
             GetProp(props, "PackageCertificateThumbprint") is { Length: > 0 } tp ? tp : null,
             GetProp(props, "AppxPackageSigningTimestampServerUrl") is { Length: > 0 } ts ? ts : null);
+    }
+
+    /// <summary>
+    /// Whether the project has been restored, judged by the presence of its evaluated
+    /// <c>ProjectAssetsFile</c> (<c>obj/&lt;project&gt;.nuget.g.props</c> and its sibling
+    /// <c>project.assets.json</c> are written together by restore). A clean checkout evaluates the
+    /// <c>ProjectAssetsFile</c> path but the file does not yet exist. Returns <see langword="false"/> when
+    /// evaluation could not run at all, so the caller restores and retries.
+    /// </summary>
+    private static bool IsProjectRestored(IReadOnlyDictionary<string, string>? props)
+    {
+        if (props is null)
+        {
+            return false;
+        }
+        var assetsFile = GetProp(props, "ProjectAssetsFile");
+        return !string.IsNullOrWhiteSpace(assetsFile) && File.Exists(assetsFile);
     }
 
     /// <summary>
