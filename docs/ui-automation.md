@@ -485,22 +485,24 @@ For example, the formatting portion of `properties` is:
 ```
 
 ### screenshot
-Capture a window or element as PNG. When multiple windows exist (e.g., app + open dialog), they are composited into a single PNG with each window stitched in.
+Capture a window or element as PNG.
 ```bash
 winapp ui screenshot -a notepad                     # saves screenshot.png in cwd
 winapp ui screenshot -a notepad --output my.png     # custom filename
 winapp ui screenshot -a notepad --json              # returns file path as JSON
 winapp ui screenshot -w 131906                      # target specific HWND (+ its dialogs)
 winapp ui screenshot txt-searchbox-e5f6 -a myapp          # crop to element bounds
-winapp ui screenshot -a myapp --capture-screen      # capture from screen (includes popups/overlays; foregrounds window)
+winapp ui screenshot -w 131906 --capture-screen     # one screen region, with visible overlays in place; foregrounds window
 winapp ui screenshot -a myapp --focus               # bring window to foreground first, then capture (default WGC path)
 ```
 
-When dialogs or popups are open, all windows are composited into one PNG so you can see the full UI state in a single image.
+Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` includes the app's windows and their owned windows; `-w` includes only that window and its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
+
+With `--on sandbox`, `--output` names the host destination. Successful plain output and `--json` report that host path after the image is delivered.
 
 The default capture path uses **Windows.Graphics.Capture (WGC)**, reading the actual DWM-composited surface — preserving rounded corners, transparency, and working even while the window is occluded by other windows. If WGC is unavailable (older Windows builds) the CLI falls back to **PrintWindow**.
 
-Use `--capture-screen` when you need to capture popup menus, dropdowns, flyouts, or tooltip overlays that aren't owned by the target window. `--capture-screen` reads from the screen DC and brings the window to the foreground first. Use `--focus` if you just want to foreground the window without switching capture modes (e.g., to ensure the screenshot matches what the user is currently looking at).
+Use `--capture-screen -w <hwnd>` when you need visible popups or tooltips in their on-screen positions, including overlays that aren't owned by the target window. It reads that window's screen region rather than composing labeled panels, and brings the window to the foreground first. With `-a`, it requires exactly one matching window; if several top-level or owned windows match, use `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. Use `--focus` if you just want to foreground the window without switching capture modes (e.g., to ensure the screenshot matches what the user is currently looking at).
 
 > Because the screen DC captures whatever is actually in front, `--capture-screen` **verifies the target reached the foreground immediately before capturing** and fails with **`foreground_not_target`** if it didn't (focus-stealing prevention, a UAC prompt, or another window activating itself). No image is written in that case — previously the command exited 0 and handed back a picture of the wrong window. `ui record --capture-screen` applies the same check before the first frame.
 

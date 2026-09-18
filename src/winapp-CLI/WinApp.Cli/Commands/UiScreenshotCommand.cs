@@ -21,8 +21,9 @@ internal class UiScreenshotCommand : Command, IShortDescription
 
     public UiScreenshotCommand()
         : base("screenshot", "Capture the target window or element as a PNG image. " +
-               "When multiple windows exist (e.g., dialogs), captures each to a separate file. " +
-               "With --json, returns file path and dimensions. Use --capture-screen for popup overlays.")
+               "Without an element selector, combines multiple windows into one labeled composite: " +
+               "--app includes the app's windows and their owned windows; --window includes that window and its owned windows. " +
+               "With --json, returns file path and dimensions. Use --capture-screen with --window to capture one screen region, including visible overlays in place.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -505,7 +506,9 @@ internal class UiScreenshotCommand : Command, IShortDescription
 
             if (pass.IsComposite && !json)
             {
-                ansiConsole.MarkupLine($"  [green]✓[/] Saved composite: {absolutePath}");
+                // Keep paths intact on the wire: the host translates them after artifact delivery.
+                // Spectre rendering inserts line breaks before that translation can happen.
+                ansiConsole.Profile.Out.Writer.WriteLine($"  ✓ Saved composite: {absolutePath}");
             }
 
             if (json)
@@ -526,11 +529,10 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 return 0;
             }
 
-            if (!pass.IsComposite)
+            if (!pass.IsComposite && logger.IsEnabled(LogLevel.Information))
             {
-                logger.LogInformation(
-                    "Screenshot of \"{WindowTitle}\" (PID {ProcessId}) saved to {Path} ({Width}x{Height}, {Size}KB)",
-                    pass.Target.WindowTitle, pass.Target.ProcessId, absolutePath, width, height, pngBytes.Length / 1024);
+                ansiConsole.Profile.Out.Writer.WriteLine(
+                    $"Screenshot of \"{TerminalText.Sanitize(pass.Target.WindowTitle)}\" (PID {pass.Target.ProcessId}) saved to {absolutePath} ({width}x{height}, {pngBytes.Length / 1024}KB)");
             }
 
             return 0;
