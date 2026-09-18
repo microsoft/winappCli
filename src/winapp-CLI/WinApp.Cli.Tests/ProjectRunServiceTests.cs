@@ -2313,6 +2313,41 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void RidSplit_ConcreteRidMode_UsesRidWithoutInjectedPlatform()
+    {
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+
+        var resolved = ProjectRunService.ResolvePlatformInjection(
+            app,
+            PlatformOptions("arm64"),
+            requireConcreteRid: true);
+
+        Assert.IsFalse(resolved.OmitRuntimeIdentifier);
+        Assert.IsNull(resolved.Platform);
+        var arguments = ProjectRunService.BuildAotPublishArguments(
+            app,
+            resolved,
+            "minimal");
+        CollectionAssert.Contains(arguments.ToList(), "win-arm64");
+        Assert.IsFalse(
+            arguments.Contains("-p:Platform=ARM64"));
+    }
+
+    [TestMethod]
+    public void RidSplit_ConcreteRidMode_RejectsExplicitPlatform()
+    {
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+
+        var error = Assert.ThrowsExactly<ProjectRunException>(() =>
+            ProjectRunService.ResolvePlatformInjection(
+                app,
+                PlatformOptions("arm64", "Platform=arm64"),
+                requireConcreteRid: true));
+
+        StringAssert.Contains(error.Message, "Remove -p:Platform");
+    }
+
+    [TestMethod]
     public void RidSplit_UndefinePropertiesSpelling_IsDetected()
     {
         WriteFile("Shared.csproj", SharedLibCsproj);

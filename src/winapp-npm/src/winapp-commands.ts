@@ -870,6 +870,8 @@ export interface RunOptions extends CommonOptions {
   inputFolder?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
+  /** Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. */
+  aot?: boolean;
   /** Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. */
   arch?: string;
   /** Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). */
@@ -894,7 +896,7 @@ export interface RunOptions extends CommonOptions {
   noBuild?: boolean;
   /** Only create the debug identity and register the package without launching the application */
   noLaunch?: boolean;
-  /** Project and single-file mode: skip restoring before building. Ignored in folder mode. */
+  /** Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode. */
   noRestore?: boolean;
   /** Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. */
   outputAppxDirectory?: string;
@@ -917,13 +919,14 @@ export interface RunOptions extends CommonOptions {
 }
 
 /**
- * Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
+ * Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
  */
 export async function run(options: RunOptions = {}): Promise<WinappResult> {
   const args: string[] = ['run'];
   const inputValue = options.input ?? options.inputFolder;
   if (inputValue) args.push(inputValue);
   if (options.on) args.push('--on', options.on);
+  if (options.aot) args.push('--aot');
   if (options.arch) args.push('--arch', options.arch);
   if (options.args) args.push('--args', options.args);
   if (options.clean) args.push('--clean');

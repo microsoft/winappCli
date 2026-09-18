@@ -24,6 +24,13 @@ internal sealed partial class ProjectRunService(
     private static readonly string[] RequestedProperties =
     [
         "TargetDir",
+        "MSBuildProjectDirectory",
+        "PublishDir",
+        "FinalAppxManifestName",
+        "AppxPackageRecipe",
+        "AssemblyName",
+        "TargetName",
+        "NativeBinary",
         "RunCommand",
         "RunArguments",
         // The project.assets.json restore wrote for THESE build inputs. Package discovery reads it rather
@@ -175,7 +182,8 @@ internal sealed partial class ProjectRunService(
             FileInfo csproj,
             ProjectRunOptions options,
             DirectoryInfo workingDir,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool aotPublish = false)
     {
         // Pin an effective single TFM for a multi-targeted project (default = first declared) BEFORE any
         // pass so build/evaluate/packaging/provisioning all agree. No-op when single-targeted / --framework set.
@@ -194,13 +202,16 @@ internal sealed partial class ProjectRunService(
         // only when the target AND its whole ProjectReference closure declare a <Platforms> including the
         // arch, so it can't desync a no-<Platforms> reference (MSB3030/PRI252). Threaded into every pass
         // below (restore/build/evaluate) via `options`, keeping them in lock-step.
-        options = ResolvePlatformInjection(csproj, options);
-        options = await ResolveRequiredPublishProfileAsync(
-            csproj,
-            options,
-            workingDir,
-            csWinRTMetadata,
-            cancellationToken);
+        options = ResolvePlatformInjection(csproj, options, requireConcreteRid: aotPublish);
+        if (!aotPublish)
+        {
+            options = await ResolveRequiredPublishProfileAsync(
+                csproj,
+                options,
+                workingDir,
+                csWinRTMetadata,
+                cancellationToken);
+        }
         var buildOptions = options;
 
         // When the target lives in a solution, restore the whole solution's managed projects up front so
