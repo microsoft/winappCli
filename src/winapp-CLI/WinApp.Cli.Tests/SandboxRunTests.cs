@@ -8,6 +8,7 @@ using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Services;
 using WinApp.Cli.Models;
+using WinApp.Cli.Helpers;
 
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 
@@ -28,6 +29,8 @@ public class SandboxRunTests
     private const string ManagedRoot = @"C:\WinAppGuest";
 
     private static readonly ExecutionTargetEpoch Epoch = ExecutionTargetEpoch.Create("sandbox-1", "nonce-a");
+
+    private static readonly string[] OwnedDeploymentIds = ["own-original", "own-unique"];
 
     private static readonly string[] RegistrationArguments =
     [
@@ -383,6 +386,283 @@ public class SandboxRunTests
     // ---- Ownership -----------------------------------------------------------------
 
     [TestMethod]
+    public async Task FindOwnedDeployments_UsesHostOwnerAndLayoutAndCurrentEpoch()
+    {
+        await using var harness = new Harness(_guestManaged, _stateRoot);
+        var owner = DevelopmentIdentityHelper.CanonicalizePath(_hostSource);
+        var hostLayout = DevelopmentIdentityHelper.CanonicalizePath(Path.Join(_hostSource, "AppX"));
+        foreach (var (id, candidateOwner, candidateLayout, epoch) in new[]
+        {
+            ("own-original", owner, hostLayout, Epoch.Value),
+            ("own-unique", owner, hostLayout, Epoch.Value),
+            ("own-other-layout", owner, hostLayout + "-other", Epoch.Value),
+            ("other-owner", owner + "-other", hostLayout, Epoch.Value),
+            ("old-epoch", owner, hostLayout, "old-epoch"),
+        })
+        {
+            var layout = GuestPaths.Resolve(harness.Target.Capabilities, GuestPaths.LayoutScope(id));
+            var package = Ownership(layout) with
+            {
+                HostLayoutPath = candidateLayout,
+                Identity = IdentityContext(layout) with
+                {
+                    OwnerPath = candidateOwner,
+                    Mode = id == "own-unique" ? "Unique" : "Original",
+                },
+            };
+            harness.States.Commit(WindowsSandboxTarget.Default, new DeploymentState
+            {
+                SchemaVersion = DeploymentStateStore.CurrentSchemaVersion,
+                Revision = 0,
+                DeploymentId = id,
+                TargetEpoch = epoch,
+                Dirty = false,
+                Package = package,
+            }, 0);
+        }
+
+        var matched = harness.Runner.FindOwnedDeployments(harness.Target, owner, hostLayout);
+        CollectionAssert.AreEquivalent(OwnedDeploymentIds,
+            matched.Select(state => state.DeploymentId).ToArray());
+        Assert.HasCount(3, harness.Runner.FindOwnedDeployments(harness.Target, owner, hostLayout: null));
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ReconcileBeforeRegistration_DifferentHostOwnerOrLayoutRefusesWithoutMutation(bool changeOwner)
+    {
+        await WriteHostFileAsync("app.exe", "v1");
+        await using var harness = new Harness(_guestManaged, _stateRoot);
+        var deployment = await CreateOwnedDeploymentAsync(harness, "dep-1");
+        harness.AppLauncher.FakeRegisteredLocation = deployment.LayoutPath;
+        var previous = harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!;
+        var desired = previous.Package! with
+        {
+            HostLayoutPath = changeOwner ? previous.Package!.HostLayoutPath : @"C:\Host\another-layout",
+            Identity = previous.Package!.Identity! with
+            {
+                OwnerPath = changeOwner ? @"C:\Host\another-owner" : previous.Package.Identity!.OwnerPath,
+            },
+        };
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Runner.ReconcilePackageBeforeRegistrationAsync(
+                harness.Target, "dep-1", desired, clean: true, TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.PackageConflict, error.Error.Code);
+        StringAssert.Contains(error.Error.UserAction, "--unique-identity");
+        Assert.AreEqual(previous.Revision, harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!.Revision);
+        Assert.HasCount(0, harness.AppLauncher.StopPackageCalls);
+        Assert.HasCount(0, harness.PackageRegistration.UnregisterByFullNameCalls);
+        Assert.AreEqual("v1", await File.ReadAllTextAsync(
+            TestPaths.Under(_guestManaged, "deployments", "dep-1", "app.exe"), TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    [DataRow("version")]
+    [DataRow("mode")]
+    [DataRow("clean")]
+    public async Task ReconcileBeforeRegistration_RemovesExactPriorPackageBeforeDeploying(string change)
+    {
+        await WriteHostFileAsync("app.exe", "v1");
+        await using var harness = new Harness(_guestManaged, _stateRoot);
+        var deployment = await CreateOwnedDeploymentAsync(harness, "dep-1");
+        harness.AppLauncher.FakeRegisteredLocation = deployment.LayoutPath;
+        var fullName = harness.AppLauncher.FakePackageFullName!;
+        var prior = harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!.Package!;
+        var desired = prior with
+        {
+            Identity = prior.Identity! with
+            {
+                Version = change == "version" ? "2.0.0.0" : prior.Identity!.Version,
+                Mode = change == "mode" ? "Unique" : prior.Identity!.Mode,
+            },
+        };
+        var payload = TestPaths.Under(_guestManaged, "deployments", "dep-1", "app.exe");
+        harness.PackageRegistration.OnUnregisterByFullName = (removed, _) =>
+        {
+            Assert.AreEqual(fullName, removed);
+            Assert.AreEqual("v1", File.ReadAllText(payload), "Unregister must precede writes.");
+            harness.AppLauncher.FakePackageFullName = null;
+        };
+        await WriteHostFileAsync("app.exe", "v2");
+
+        await harness.Runner.ReconcilePackageBeforeRegistrationAsync(
+            harness.Target, "dep-1", desired, clean: change == "clean", TestContext.CancellationToken);
+        Assert.IsNull(harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!.Package);
+        await harness.Runner.DeployAsync(
+            harness.Target, "dep-1", new DirectoryInfo(_hostSource), clean: change == "clean",
+            TestContext.CancellationToken);
+
+        Assert.AreEqual((fullName, false), harness.PackageRegistration.UnregisterByFullNameCalls.Single());
+        Assert.AreEqual("v2", await File.ReadAllTextAsync(payload, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task ReconcileBeforeRegistration_FailedRemovalPreservesExactOwnershipAndGuestFiles()
+    {
+        await WriteHostFileAsync("app.exe", "v1");
+        await using var harness = new Harness(_guestManaged, _stateRoot);
+        var deployment = await CreateOwnedDeploymentAsync(harness, "dep-1");
+        harness.AppLauncher.FakeRegisteredLocation = deployment.LayoutPath;
+        var desired = Ownership(deployment.LayoutPath);
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Runner.ReconcilePackageBeforeRegistrationAsync(
+                harness.Target, "dep-1", desired, clean: true, TestContext.CancellationToken));
+
+        var retained = harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!;
+        Assert.AreEqual(harness.AppLauncher.FakePackageFullName, retained.Package!.PackageFullName);
+        Assert.AreEqual(harness.AppLauncher.FakePackageFullName, retained.Package.Identity!.PackageFullName);
+        Assert.AreEqual("v1", await File.ReadAllTextAsync(
+            TestPaths.Under(_guestManaged, "deployments", "dep-1", "app.exe"), TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ReconcileBeforeRegistration_ModeSwitchRemovesPreviousEffectiveFamily(bool uniqueFirst)
+    {
+        await WriteHostFileAsync("app.exe", "v1");
+        var inventory = new FamilyInventoryAppLauncher();
+        await using var harness = new Harness(_guestManaged, _stateRoot, appLauncher: inventory);
+        var deployment = await CreateOwnedDeploymentAsync(harness, "dep-1");
+        var state = harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!;
+        var original = state.Package!;
+        var unique = original with
+        {
+            PackageName = "Contoso.MyApp.w123",
+            PackageFamilyName = "Contoso.MyApp.w123_abc",
+            Identity = original.Identity! with
+            {
+                Mode = "Unique",
+                EffectivePackageName = "Contoso.MyApp.w123",
+                PackageFamilyName = "Contoso.MyApp.w123_abc",
+            },
+        };
+        var previous = uniqueFirst ? unique : original;
+        var desired = uniqueFirst ? original : unique;
+        var observedFullName = $"{previous.PackageName}_1.0.0.0_arm64__abc";
+        harness.Runner.CommitPackage(WindowsSandboxTarget.Default, state,
+            previous with { PackageFullName = observedFullName });
+        inventory.Packages[previous.PackageFamilyName] = new RegisteredPackage(
+            observedFullName, previous.PackageName, previous.Publisher, deployment.LayoutPath, true);
+        harness.PackageRegistration.OnUnregisterByFullName = (fullName, _) =>
+        {
+            Assert.AreEqual(observedFullName, fullName);
+            Assert.AreEqual("v1", File.ReadAllText(
+                TestPaths.Under(_guestManaged, "deployments", "dep-1", "app.exe")));
+            inventory.Packages.Remove(previous.PackageFamilyName);
+        };
+
+        await harness.Runner.ReconcilePackageBeforeRegistrationAsync(
+            harness.Target, "dep-1", desired, clean: false, TestContext.CancellationToken);
+
+        Assert.AreEqual((observedFullName, false), harness.PackageRegistration.UnregisterByFullNameCalls.Single());
+        Assert.IsNull(harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!.Package);
+        Assert.HasCount(0, inventory.Packages);
+    }
+
+    [TestMethod]
+    public async Task ReconcileBeforeRegistration_DestinationConflictDoesNotRemovePriorMode()
+    {
+        var inventory = new FamilyInventoryAppLauncher();
+        await using var harness = new Harness(_guestManaged, _stateRoot, appLauncher: inventory);
+        var deployment = await CreateOwnedDeploymentAsync(harness, "dep-1");
+        var state = harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!;
+        var previous = state.Package!;
+        var desired = previous with
+        {
+            PackageName = "Contoso.MyApp.w123",
+            PackageFamilyName = "Contoso.MyApp.w123_abc",
+            Identity = previous.Identity! with
+            {
+                Mode = "Unique",
+                EffectivePackageName = "Contoso.MyApp.w123",
+                PackageFamilyName = "Contoso.MyApp.w123_abc",
+            },
+        };
+        inventory.Packages[previous.PackageFamilyName] = new RegisteredPackage(
+            "Contoso.MyApp_1.0.0.0_arm64__abc",
+            previous.PackageName, previous.Publisher, deployment.LayoutPath, true);
+        inventory.Packages[desired.PackageFamilyName] = new RegisteredPackage(
+            "Contoso.MyApp.w123_1.0.0.0_arm64__abc",
+            desired.PackageName, desired.Publisher, @"C:\Guest\external", true);
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Runner.ReconcilePackageBeforeRegistrationAsync(
+                harness.Target, "dep-1", desired, clean: true, TestContext.CancellationToken));
+
+        Assert.HasCount(0, harness.PackageRegistration.UnregisterByFullNameCalls);
+        Assert.AreEqual(state.Revision, harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!.Revision);
+        Assert.HasCount(2, inventory.Packages);
+    }
+
+    [TestMethod]
+    public async Task ReconcileRegistration_ObservedGuestReceiptPreservesHostContext()
+    {
+        await using var harness = new Harness(_guestManaged, _stateRoot);
+        var deployment = await CreateOwnedDeploymentAsync(harness, "dep-1");
+        harness.AppLauncher.FakeRegisteredLocation = deployment.LayoutPath;
+        var hostOwner = DevelopmentIdentityHelper.CanonicalizePath(_hostSource);
+        var hostLayout = DevelopmentIdentityHelper.CanonicalizePath(Path.Join(_hostSource, "AppX"));
+        var state = harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!;
+        harness.Runner.CommitPackage(WindowsSandboxTarget.Default, state, state.Package! with
+        {
+            HostLayoutPath = hostLayout,
+            Identity = state.Package!.Identity! with
+            {
+                Mode = "Unique",
+                OriginalPackageName = "Contoso.Original",
+                OwnerPath = hostOwner,
+                LayoutPath = hostLayout,
+                Aliases = new Dictionary<string, string> { ["app.exe"] = "app.w123.exe" },
+            },
+        });
+
+        var reconciled = await harness.Runner.ReconcileRegistrationAttemptAsync(
+            harness.Target, "dep-1", "Contoso.MyApp", "CN=Contoso", "Contoso.MyApp_abc",
+            registrationSucceeded: true, TestContext.CancellationToken);
+        var identity = reconciled!.Package!.Identity!;
+
+        Assert.AreEqual("Unique", identity.Mode);
+        Assert.AreEqual("Contoso.Original", identity.OriginalPackageName);
+        Assert.AreEqual(hostOwner, identity.OwnerPath);
+        Assert.AreEqual(hostLayout, reconciled.Package.HostLayoutPath);
+        Assert.AreEqual(deployment.LayoutPath, identity.LayoutPath);
+        Assert.AreEqual(harness.AppLauncher.FakePackageFullName, identity.PackageFullName);
+        Assert.AreEqual(reconciled.Revision, identity.Revision);
+        Assert.AreEqual("app.w123.exe", identity.Aliases["app.exe"]);
+    }
+
+    [TestMethod]
+    public void DeploymentIdentity_IsStableAcrossModesAndBuildOutputsButNotOwners()
+    {
+        var original = IdentityContext(@"C:\Host\AppX");
+        var unique = original with
+        {
+            Mode = "Unique",
+            EffectivePackageName = "Contoso.MyApp.w123",
+            PackageFamilyName = "Contoso.MyApp.w123_abc",
+        };
+        var originalResult = new MsixIdentityResult(original.EffectivePackageName, original.Publisher, "App")
+        {
+            Identity = original,
+        };
+        var uniqueResult = new MsixIdentityResult(unique.EffectivePackageName, unique.Publisher, "App")
+        {
+            Identity = unique,
+        };
+        var first = RunCommand.Handler.DeploymentIdFor(new DirectoryInfo(@"C:\Host\bin\x64"), originalResult);
+        var second = RunCommand.Handler.DeploymentIdFor(new DirectoryInfo(@"C:\Host\bin\arm64"), uniqueResult);
+        var otherOwner = uniqueResult with { Identity = unique with { OwnerPath = @"C:\Host\another-project" } };
+
+        Assert.AreEqual(first, second);
+        Assert.AreNotEqual(first, RunCommand.Handler.DeploymentIdFor(new DirectoryInfo(@"C:\Host\bin\x64"), otherOwner));
+    }
+
+    [TestMethod]
     public async Task ReconcilePackage_TwoClaims_SelectsTheActualRegisteredLocation()
     {
         await WriteHostFileAsync("app.exe", "binary");
@@ -505,9 +785,9 @@ public class SandboxRunTests
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
             harness.Runner.ReconcilePackageBeforeRegistrationAsync(
                 harness.Target,
-                "Contoso.MyApp",
-                "CN=Contoso",
-                "Contoso.MyApp_abc",
+                "dep-1",
+                Ownership(@"C:\WinAppGuest\deployments\dep-1-layout"),
+                clean: false,
                 TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.PackageConflict, failure.Error.Code);
@@ -515,7 +795,7 @@ public class SandboxRunTests
     }
 
     [TestMethod]
-    public async Task ReconcileRegistration_SuccessTransfersOwnershipAndClearsStaleClaims()
+    public async Task ReconcileRegistration_RecordsObservedRegistrationAndClearsStaleClaims()
     {
         await WriteHostFileAsync("app.exe", "binary");
         await using var harness = new Harness(_guestManaged, _stateRoot);
@@ -742,6 +1022,23 @@ public class SandboxRunTests
         Assert.IsNotNull(harness.States.Read(WindowsSandboxTarget.Default, "dep-owner")!.Package);
     }
 
+    [TestMethod]
+    public async Task UnregisterOwnedPackage_OlderRevisionCannotClearNewerPendingJournal()
+    {
+        await using var harness = new Harness(_guestManaged, _stateRoot);
+        await CreateOwnedDeploymentAsync(harness, "dep-owner");
+        var older = harness.States.Read(WindowsSandboxTarget.Default, "dep-owner")!;
+        harness.Runner.CommitPackage(WindowsSandboxTarget.Default, older, older.Package!);
+        harness.AppLauncher.FakePackageFullName = null;
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Runner.UnregisterOwnedPackageAsync(
+                harness.Target, "Contoso.MyApp", "CN=Contoso", "Contoso.MyApp_abc",
+                older.DeploymentId, older.Revision, TestContext.CancellationToken));
+
+        Assert.IsNotNull(harness.States.Read(WindowsSandboxTarget.Default, "dep-owner")!.Package);
+    }
+
     // ---- Stop before redeploy -------------------------------------------------------
 
     [TestMethod]
@@ -800,7 +1097,7 @@ public class SandboxRunTests
     /// unrelated application.
     /// </summary>
     [TestMethod]
-    public async Task Deploy_RepairsAStalePreRegistrationJournalWithoutStoppingTheActualOwner()
+    public async Task Deploy_ConflictingJournalCannotTransferOwnershipOrStopTheActualOwner()
     {
         await WriteHostFileAsync("app.exe", "v1");
 
@@ -821,22 +1118,22 @@ public class SandboxRunTests
 
         await WriteHostFileAsync("app.exe", "v2");
 
-        await harness.Runner.ReconcilePackageBeforeRegistrationAsync(
-            harness.Target,
-            "Contoso.MyApp",
-            "CN=Contoso",
-            "Contoso.MyApp_abc",
-            TestContext.CancellationToken);
-        var retried = await harness.Runner.DeployAsync(
-            harness.Target, "dep-b", new DirectoryInfo(_hostSource), clean: false, TestContext.CancellationToken);
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Runner.ReconcilePackageBeforeRegistrationAsync(
+                harness.Target,
+                "dep-b",
+                Ownership(depB.LayoutPath),
+                clean: false,
+                TestContext.CancellationToken));
 
-        // A's legitimate registration was never touched. B's false journal was cleared before its
-        // payload was safely updated, so the caller can proceed to retry registration.
+        Assert.AreEqual(ExecutionTargetErrorCodes.PackageConflict, failure.Error.Code);
+        StringAssert.Contains(failure.Error.UserAction, "--unique-identity");
         Assert.AreEqual(0, harness.AppLauncher.StopPackageCalls.Count);
-        Assert.AreEqual("v2", await File.ReadAllTextAsync(
+        Assert.AreEqual("v1", await File.ReadAllTextAsync(
             TestPaths.Under(_guestManaged, "deployments", "dep-b", "app.exe"), TestContext.CancellationToken));
         Assert.IsNotNull(harness.States.Read(WindowsSandboxTarget.Default, "dep-a")!.Package);
-        Assert.IsNull(retried.State.Package);
+        Assert.IsNotNull(harness.States.Read(WindowsSandboxTarget.Default, "dep-b")!.Package);
+        Assert.HasCount(0, harness.PackageRegistration.UnregisterByFullNameCalls);
     }
 
     [TestMethod]
@@ -1229,6 +1526,43 @@ public class SandboxRunTests
     // ---- Additive JSON -------------------------------------------------------------
 
     [TestMethod]
+    public void AugmentGuestJson_UsesHostIdentityAndPreservesGuestLaunchAndCleanupErrors()
+    {
+        var guestIdentity = IdentityContext(@"C:\Guest\AppX") with { OwnerPath = @"C:\Guest\payload" };
+        var guest = new RunCommandResult
+        {
+            AUMID = "Contoso.MyApp_abc!App",
+            ProcessId = 42,
+            Identity = guestIdentity,
+            Error = "App failed.",
+        };
+        var payload = JsonSerializer.SerializeToUtf8Bytes(guest, RunCommandJsonContext.Default.RunCommandResult);
+        var hostIdentity = guestIdentity with
+        {
+            Mode = "Unique",
+            OriginalPackageName = "Contoso.Original",
+            OwnerPath = @"C:\Host\project",
+            LayoutPath = @"C:\WinAppGuest\deployments\dep-1-layout",
+            PackageFullName = "Contoso.MyApp_1.0.0.0_arm64__abc",
+            Aliases = new Dictionary<string, string> { ["app.exe"] = "app.w123.exe" },
+        };
+
+        var augmented = RunCommand.Handler.TryAugmentGuestJson(
+            payload, TargetInfo(), hostIdentity, "Cleanup failed.");
+        var result = JsonSerializer.Deserialize(augmented!, RunCommandJsonContext.Default.RunCommandResult)!;
+
+        Assert.AreEqual("Unique", result.Identity!.Mode);
+        Assert.AreEqual(hostIdentity.OwnerPath, result.Identity.OwnerPath);
+        Assert.AreEqual(hostIdentity.OriginalPackageName, result.Identity.OriginalPackageName);
+        Assert.AreEqual(hostIdentity.PackageFullName, result.Identity.PackageFullName);
+        Assert.AreEqual("app.w123.exe", result.Identity.Aliases["app.exe"]);
+        Assert.AreEqual(guest.AUMID, result.AUMID);
+        Assert.AreEqual(guest.ProcessId, result.ProcessId);
+        Assert.AreEqual("App failed. Cleanup failed.", result.Error);
+        Assert.AreEqual("--on sandbox -a 42", result.UiTargetArgs);
+    }
+
+    [TestMethod]
     public void AugmentGuestJson_AddsTheExecutionTargetWithoutDisturbingTheGuestPayload()
     {
         var guestPayload = """{"AUMID":"Contoso.MyApp_abc!App","ProcessId":4212}"""u8.ToArray();
@@ -1326,6 +1660,23 @@ public class SandboxRunTests
         Publisher = "CN=Contoso",
         PackageFamilyName = "Contoso.MyApp_abc",
         RegisteredLocation = layoutPath,
+        HostLayoutPath = DevelopmentIdentityHelper.CanonicalizePath(@"C:\Host\AppX"),
+        Identity = IdentityContext(layoutPath),
+    };
+
+    private static DevelopmentIdentity IdentityContext(string layoutPath) => new()
+    {
+        Mode = "Original",
+        OriginalPackageName = "Contoso.MyApp",
+        EffectivePackageName = "Contoso.MyApp",
+        Publisher = "CN=Contoso",
+        Version = "1.0.0.0",
+        Architecture = "arm64",
+        ResourceId = "",
+        PackageFamilyName = "Contoso.MyApp_abc",
+        ApplicationId = "App",
+        OwnerPath = DevelopmentIdentityHelper.CanonicalizePath(@"C:\Host\project"),
+        LayoutPath = layoutPath,
     };
 
     private async Task<GuestDeployment> CreateOwnedDeploymentAsync(Harness harness, string deploymentId)
@@ -1351,7 +1702,24 @@ public class SandboxRunTests
             "Contoso.MyApp_abc",
             TestContext.CancellationToken);
 
-    private static ExecutionTargetCapabilities Capabilities(string? managedRoot = ManagedRoot) => new()
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(2)]
+    public void UniqueIdentity_RequiresCompatibleGuestRegistrationSupport(int version)
+    {
+        var error = Assert.Throws<ExecutionTargetException>(() =>
+            GuestRunPlanner.EnsureUniqueIdentitySupported(Capabilities(identityVersion: version), uniqueIdentity: true));
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentIncompatible, error.Error.Code);
+        StringAssert.Contains(error.Error.UserAction, "Save any guest work");
+    }
+
+    [TestMethod]
+    public void OrdinaryRun_DoesNotRequireUniqueGuestSupport()
+    {
+        GuestRunPlanner.EnsureUniqueIdentitySupported(Capabilities(identityVersion: 0), uniqueIdentity: false);
+    }
+
+    private static ExecutionTargetCapabilities Capabilities(string? managedRoot = ManagedRoot, int identityVersion = 1) => new()
     {
         Architecture = "arm64",
         SupportsInteractiveDesktop = true,
@@ -1359,6 +1727,7 @@ public class SandboxRunTests
         SupportsScreenCapture = true,
         CooperativeUiTurnsVersion = 1,
         SupportsInternalSystemSetup = true,
+        DevelopmentIdentityVersion = identityVersion,
         PersistentStorage = false,
         ManagedRoot = managedRoot,
     };
@@ -1394,10 +1763,11 @@ public class SandboxRunTests
         private readonly GuestCommandChannel _channel;
         private readonly TargetMutationLease _mutationLease;
 
-        public Harness(string guestManagedRoot, string stateRoot, string? guestWinapp = GuestWinappPath)
+        public Harness(string guestManagedRoot, string stateRoot, string? guestWinapp = GuestWinappPath,
+            FakeAppLauncherService? appLauncher = null)
         {
             var pair = new LoopbackTransportPair();
-            AppLauncher = new FakeAppLauncherService();
+            AppLauncher = appLauncher ?? new FakeAppLauncherService();
             PackageRegistration = new FakePackageRegistrationService();
 
             Server = new GuestCommandServer(
@@ -1464,6 +1834,14 @@ public class SandboxRunTests
             await _channel.DisposeAsync();
             _cancellation.Dispose();
         }
+    }
+
+    private sealed class FamilyInventoryAppLauncher : FakeAppLauncherService, IAppLauncherService
+    {
+        public Dictionary<string, RegisteredPackage> Packages { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        RegisteredPackage? IAppLauncherService.GetRegisteredPackageOrThrow(string packageFamilyName) =>
+            Packages.GetValueOrDefault(packageFamilyName);
     }
 
     /// <summary>A state directory provider rooted at a test-owned folder.</summary>

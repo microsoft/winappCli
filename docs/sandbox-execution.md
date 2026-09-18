@@ -60,6 +60,12 @@ winapp run .\publish --on sandbox --detach
 winapp run . --on sandbox --clean --detach
 ```
 
+For parallel copies of a packaged app in the same Sandbox, opt into
+`winapp run . --unique-identity --on sandbox --detach`. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts)
+for owner selection, effective aliases, JSON identity fields, supported packages,
+and what remains shared.
+
 Build options such as `--configuration`, `--arch`, `--framework`, `--property`,
 `--no-build`, and `--no-restore` apply on the host. Registration, launch, and debugging
 happen in the guest; the app is not registered on your machine.
@@ -301,15 +307,17 @@ a link is refused. Copy the real files or directories instead.
 ## Removing an app and ending the Sandbox
 
 ```powershell
-winapp unregister --on sandbox --manifest .\Package.appxmanifest
+winapp unregister . --on sandbox
+winapp unregister .\counter.cs --on sandbox
 ```
 
-With a manifest in the current directory, you can omit `--manifest`. This removes only
-the matching development package registered by winapp in the current Sandbox.
+Select the source used by `run`; normal and unique mode are discovered automatically.
+This removes only the matching development package registered by winapp in the current Sandbox.
 An externally installed package is left alone, even if its identity matches.
 `--force` is not supported with `--on`; it cannot bypass ownership checks.
-This is manifest-based package cleanup, not an unregister command for unpackaged apps
-or a `.cs` input.
+See [unregister](usage.md#unregister) for project, solution, folder, and explicit-layout
+selectors, including cleanup after deleting the source. Unpackaged apps have no
+package registration to remove.
 
 The Sandbox remains running. Manage its lifetime with Windows Sandbox's own CLI:
 

@@ -48,6 +48,13 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
 5. Rediscover targets after the Sandbox is recreated. A detached unpackaged app can
    also end during guest-agent repair; rerun it if it disappears.
 
+For parallel packaged worktrees, opt into
+`winapp run . --unique-identity --on sandbox --detach --json`. Use the returned
+effective identity and `UiTargetArgs`. Read
+[unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts)
+for supported packages, owner selection, resource restrictions, and shared-state limits;
+do not promise a separate Sandbox per identity.
+
 ## Coordinate a recording with actions
 
 Choose one explicit workflow ID and inject the **same value into every cooperating
@@ -131,12 +138,15 @@ linked sources and paths through destination links are rejected. Deployment reje
 ## Cleanup and recovery
 
 ```powershell
-winapp unregister --on sandbox --manifest .\Package.appxmanifest
+winapp unregister . --on sandbox
+winapp unregister .\counter.cs --on sandbox
 ```
 
-This removes only the matching winapp-owned development registration. It needs a
-manifest, does not support `--force`, and does not stop the Sandbox. Do not suggest
-`.cs` input cleanup through target unregister.
+Use the same source selector as `run`; normal and unique registrations are discovered
+automatically. This does not stop the Sandbox. See
+[unregister](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unregister)
+for all selectors and cleanup by explicit host layout after source deletion.
+Never use `--force` to bypass target ownership.
 
 Follow the error's `userAction`, not just its exit number: infrastructure failures and
 an application's own exit can both be `70`. Human setup progress goes to stderr and is

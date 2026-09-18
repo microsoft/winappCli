@@ -35,6 +35,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
     public static Option<bool> UnregisterOnExitOption { get; }
     public static Option<bool> DetachOption { get; }
     public static Option<bool> CleanOption { get; }
+    public static Option<bool> UniqueIdentityOption { get; }
     public static Option<bool> SymbolsOption { get; }
     public static Option<string?> ExecutableOption { get; }
 
@@ -135,6 +136,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         CleanOption = new Option<bool>("--clean")
         {
             Description = "Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments."
+        };
+
+        UniqueIdentityOption = new Option<bool>("--unique-identity")
+        {
+            Description = "Use a stable, path-derived package identity and execution aliases so packaged apps in separate worktrees can coexist. Changes only the staged layout. Not supported for unpackaged apps, sparse packages, bundles, multiple applications, or unsupported public activation contracts."
         };
 
         SymbolsOption = new Option<bool>("--symbols")
@@ -249,6 +255,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(UnregisterOnExitOption);
         Options.Add(DetachOption);
         Options.Add(CleanOption);
+        Options.Add(UniqueIdentityOption);
         Options.Add(SymbolsOption);
         Options.Add(ExecutableOption);
         Options.Add(ConfigurationOption);
@@ -281,6 +288,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         IWinappDirectoryService winappDirectoryService,
         ILogger<RunCommand> logger) : AsynchronousCommandLineAction
     {
+        private bool _uniqueIdentityRequested;
+        private DevelopmentIdentity? _runIdentity;
+
         // Test seams for the execution-alias launch path. They isolate the two operating-system
         // boundaries — resolving the Windows App Execution Alias proxy location and starting the
         // resolved process — so tests can exercise all of the surrounding validation, debug,
@@ -318,6 +328,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
+            _runIdentity = null;
+            _uniqueIdentityRequested = false;
             // GuestLaunchCommand shares this handler (it needs the same app-launcher/package-
             // registration/debug-output dependencies and the extracted post-launch logic) but is a
             // structurally distinct verb with its own option set, so it is dispatched before any of
@@ -342,6 +354,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             var unregisterOnExit = parseResult.GetValue(UnregisterOnExitOption);
             var detach = parseResult.GetValue(DetachOption);
             var clean = parseResult.GetValue(CleanOption);
+            _uniqueIdentityRequested = parseResult.GetValue(UniqueIdentityOption);
             var useSymbols = parseResult.GetValue(SymbolsOption);
             var executable = parseResult.GetValue(ExecutableOption);
             var executionTarget = ExecutionTargetSelection.Resolve(parseResult);
@@ -490,9 +503,16 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             // long-path message before any file system operations are attempted.
             try
             {
+                if (_uniqueIdentityRequested)
+                {
+                    var physicalInput = DevelopmentIdentityHelper.ResolvePathForIo(inputFsi.FullName);
+                    inputFsi = inputFsi is DirectoryInfo
+                        ? new DirectoryInfo(physicalInput)
+                        : new FileInfo(physicalInput);
+                }
                 LongPathHelper.ValidatePathLength(inputFsi.FullName);
             }
-            catch (InvalidOperationException ex)
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or ArgumentException)
             {
                 // Route through Fail so this run-local validation emits the structured error
                 // envelope under --json instead of a suppressed-logger silent exit (Change 2 / L5).
@@ -520,6 +540,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             try
             {
                 var projectSelector = parseResult.GetValue(ProjectOption);
+                if (_uniqueIdentityRequested && projectSelector is not null &&
+                    Path.IsPathFullyQualified(projectSelector) && File.Exists(projectSelector))
+                {
+                    projectSelector = DevelopmentIdentityHelper.ResolvePathForIo(projectSelector);
+                }
                 // Classify candidates (multi-.csproj / solution) under the SAME effective build inputs
                 // the subsequent build uses, so a project whose OutputType/test markers are conditional
                 // on Configuration/arch/TFM/user -p is picked the way it will build (e.g.
@@ -558,6 +583,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 }
             }
             catch (ProjectRunException ex)
+            {
+                return Fail(ex.Message, isJson);
+            }
+            catch (Exception ex) when (_uniqueIdentityRequested &&
+                ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or ArgumentException)
             {
                 return Fail(ex.Message, isJson);
             }
@@ -727,8 +757,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             CancellationToken cancellationToken,
             Action? onRegistered = null,
             PackageGraphSource? packageGraph = null,
+            DevelopmentIdentityOptions? developmentIdentity = null,
             FileInfo? appxRecipe = null)
         {
+            developmentIdentity ??= new DevelopmentIdentityOptions(
+                projectFile?.FullName ?? inputFolder.FullName,
+                _uniqueIdentityRequested);
             // A non-local target diverges here rather than later: everything below this point registers a
             // package and launches a process on this machine, which is exactly what running
             // somewhere else must not do.
@@ -737,7 +771,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 return await ExecutePackagedTargetRunAsync(
                     inputFolder, manifest, layoutOutput, appArgs,
                     noLaunch, aliasDecision, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
-                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe, cancellationToken);
+                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe, cancellationToken, developmentIdentity);
             }
 
             uint processId = 0;
@@ -797,7 +831,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // from it. That travels with the path from the call site (see LayoutOutput):
                     // once the default is filled in, the cases are indistinguishable from the path.
                     var outputAppXDirectory = layoutOutput.Resolve(
-                        () => new DirectoryInfo(Path.Combine(inputFolder.FullName, "AppX")));
+                        () => new DirectoryInfo(Path.Join(inputFolder.FullName, "AppX")));
                     resolvedOutputDir = outputAppXDirectory;
 
                     // Validate that the manifest and output paths are usable (check long path support if needed)
@@ -819,7 +853,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // launches something else — checking here means the run never reaches that state.
                     var effectiveAlias = aliasDecision;
                     string? resolvedAliasName = null;
-                    if (effectiveAlias.UseAlias)
+                    if (effectiveAlias.UseAlias && !developmentIdentity.UniqueIdentity)
                     {
                         var probe = AppxManifestDocument.Load(resolvedManifest.FullName);
                         var probeFamily = string.IsNullOrEmpty(probe.IdentityName) || string.IsNullOrEmpty(probe.IdentityPublisher)
@@ -862,19 +896,37 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         selfContained,
                         effectiveAlias.UseAlias,
                         packageGraph,
-                        appxRecipe,
-                        cancellationToken);
+                        developmentIdentity: developmentIdentity,
+                        appxRecipe: appxRecipe,
+                        cancellationToken: cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;
+                    _runIdentity = identityResult.Identity;
 
-                    packageFamilyName = appLauncherService.ComputePackageFamilyName(
+                    packageFamilyName = _runIdentity?.PackageFamilyName ?? appLauncherService.ComputePackageFamilyName(
                         identityResult.PackageName,
                         identityResult.Publisher);
-                    packageFullName = appLauncherService.GetPackageFullName(packageFamilyName);
+                    packageFullName = _runIdentity?.PackageFullName ?? appLauncherService.GetPackageFullName(packageFamilyName);
                     packageName = identityResult.PackageName;
                     publisher = identityResult.Publisher;
                     applicationId = identityResult.ApplicationId;
                     aumid = $"{packageFamilyName}!{applicationId}";
+
+                    if (_runIdentity is { Mode: "Unique" } unique)
+                    {
+                        taskContext.AddStatusMessage($"Unique identity: {unique.PackageFamilyName} (AUMID: {aumid})");
+                        foreach (var (originalAlias, effectiveName) in unique.Aliases)
+                        {
+                            taskContext.AddStatusMessage($"Execution alias: {originalAlias} -> {effectiveName}");
+                        }
+                        if (effectiveAlias.UseAlias)
+                        {
+                            var stagedManifest = AppxManifestDocument.Load(
+                                Path.Join(outputAppXDirectory.FullName, "appxmanifest.xml"));
+                            var stagedAliases = stagedManifest.GetExecutionAliases();
+                            resolvedAliasName = stagedAliases.Count > 0 ? stagedAliases[0] : null;
+                        }
+                    }
 
                     taskContext.AddDebugMessage($"{UiSymbols.Package} Package: {identityResult.PackageName}");
                     taskContext.AddDebugMessage($"{UiSymbols.User} Publisher: {publisher}");
@@ -1006,7 +1058,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 {
                     if (unregisterOnExit && packageName != null)
                     {
-                        await UnregisterDevPackageAsync(packageName, packageFullName);
+                        var cleanupError = await UnregisterDevPackageAsync(packageName, packageFullName, resolvedOutputDir);
+                        if (cleanupError is not null && code == 0)
+                        {
+                            return 1;
+                        }
                     }
                     return code;
                 }
@@ -1017,7 +1073,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 }
             }
 
-            if (isJson)
+            if (isJson && !unregisterOnExit)
             {
                 PrintJson(aumid, processId, errorMessage: null);
             }
@@ -1034,7 +1090,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 }
                 if (unregisterOnExit && packageName != null)
                 {
-                    await UnregisterDevPackageAsync(packageName, packageFullName);
+                    var cleanupError = await UnregisterDevPackageAsync(packageName, packageFullName, resolvedOutputDir);
+                    if (cleanupError is not null && exitCode == 0)
+                    {
+                        return 1;
+                    }
                 }
                 return exitCode;
             }
@@ -1069,12 +1129,17 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 }
             }
 
+            string? finalCleanupError = null;
             if (unregisterOnExit && packageName != null)
             {
-                await UnregisterDevPackageAsync(packageName, packageFullName);
+                finalCleanupError = await UnregisterDevPackageAsync(packageName, packageFullName, resolvedOutputDir);
+            }
+            if (isJson && unregisterOnExit)
+            {
+                PrintJson(aumid, processId, finalCleanupError);
             }
 
-            return appExitCode;
+            return finalCleanupError is not null && appExitCode == 0 ? 1 : appExitCode;
         }
 
         void PrintJson(string? aumid, uint? processId, string? errorMessage)
@@ -1083,7 +1148,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 AUMID = aumid,
                 ProcessId = processId,
-                Error = errorMessage
+                Error = errorMessage,
+                Identity = _runIdentity
             };
 
             var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);
@@ -1131,37 +1197,60 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         /// deleting someone else's data is not.
         /// </para>
         /// </remarks>
-        private async Task UnregisterDevPackageAsync(string packageName, string? packageFullName)
+        private async Task<string?> UnregisterDevPackageAsync(string packageName, string? packageFullName, DirectoryInfo layout)
         {
             if (string.IsNullOrEmpty(packageFullName))
             {
-                logger.LogWarning(
-                    "{UISymbol} Could not determine which package '{PackageName}' registered, so it was left registered. Remove it with 'winapp unregister'.",
-                    UiSymbols.Warning, packageName);
-                return;
+                var message = $"Could not determine which package '{packageName}' registered, so it was left registered. Remove it with 'winapp unregister'.";
+                logger.LogWarning("{UISymbol} {Message}", UiSymbols.Warning, message);
+                return message;
             }
 
             using var cleanupCts = new CancellationTokenSource(UnregisterOnExitTimeout);
 
             try
             {
-                // Windows reports a refused removal as error text rather than an exception, so the return
-                // value is the only signal. Logging success regardless would contradict the service's own
-                // warning under --verbose and tell the user a registration is gone when it is still there.
-                if (await packageRegistrationService.UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cleanupCts.Token))
+                if (_runIdentity is { } receipt)
                 {
-                    logger.LogDebug("Unregistered package {FullName} on exit.", packageFullName);
+                    var ownedLayout = new DirectoryInfo(DevelopmentIdentityHelper.ResolvePathForIo(receipt.LayoutPath));
+                    var registration = DevelopmentRegistrationStore.Read(ownedLayout)
+                        ?? throw new InvalidOperationException($"Ownership metadata for '{packageFullName}' is missing. Nothing was removed.");
+                    if (registration.Identity.Revision != receipt.Revision ||
+                        !string.Equals(registration.Identity.PackageFullName, packageFullName, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException($"A newer run replaced '{packageFullName}'. Its registration was left intact.");
+                    }
+                    var removed = await DevelopmentRegistrationStore.RemoveOwnedAsync(
+                        packageRegistrationService, winappDirectoryService.GetGlobalWinappDirectory(),
+                        registration, false, cleanupCts.Token);
+                    if (!removed)
+                    {
+                        throw new InvalidOperationException($"The ownership of '{packageFullName}' changed before cleanup. Nothing was removed.");
+                    }
                 }
                 else
                 {
-                    logger.LogWarning(
-                        "{UISymbol} Could not remove '{FullName}' on exit, so it is still registered. Remove it with 'winapp unregister'.",
-                        UiSymbols.Warning, packageFullName);
+                    var live = packageRegistrationService.FindDevPackages(packageName)
+                        .SingleOrDefault(package => string.Equals(package.FullName, packageFullName, StringComparison.Ordinal));
+                    if (live is not { IsDevelopmentMode: true, InstallLocation: { Length: > 0 } location } ||
+                        !string.Equals(DevelopmentIdentityHelper.CanonicalizePath(location),
+                            DevelopmentIdentityHelper.CanonicalizePath(layout.FullName), StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException($"Cannot verify the development registration '{packageFullName}' at '{layout.FullName}'. Nothing was removed.");
+                    }
+                    if (!await packageRegistrationService.UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cleanupCts.Token))
+                    {
+                        throw new InvalidOperationException($"Windows refused to remove '{packageFullName}'; it is still registered.");
+                    }
                 }
+                logger.LogDebug("Unregistered package {FullName} on exit.", packageFullName);
+                return null;
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Failed to unregister package on exit: {Message}", ex.Message);
+                var message = $"Could not unregister '{packageFullName}' on exit: {ex.Message} Use 'winapp unregister' to retry.";
+                logger.LogWarning("{UISymbol} {Message}", UiSymbols.Warning, message);
+                return message;
             }
         }
 
@@ -1488,6 +1577,7 @@ internal sealed class RunCommandResult
     public string? AUMID { get; set; }
     public uint? ProcessId { get; set; }
     public string? Error { get; set; }
+    public DevelopmentIdentity? Identity { get; set; }
 
     /// <summary>True when the app ran on an execution target rather than on this machine.</summary>
     /// <remarks>

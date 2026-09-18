@@ -3,6 +3,7 @@
 
 using System.Security.Cryptography;
 using System.Text;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -46,15 +47,18 @@ internal sealed class LayoutLease : IDisposable
         CancellationToken cancellationToken,
         TimeSpan? timeout = null)
     {
-        var stateDirectory = Path.Combine(winappStateRoot.FullName, "layout-locks");
+        var canonical = DevelopmentIdentityHelper.CanonicalizePath(layoutDirectory.FullName);
+        return AcquireKey("layout", canonical, cancellationToken, timeout);
+    }
+
+    private static LayoutLease AcquireKey(string kind, string canonical, CancellationToken cancellationToken, TimeSpan? timeout = null)
+    {
+        // Shared across worktrees: different project state roots can refer to the same layout or family.
+        var stateDirectory = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "winapp", kind + "-locks");
+        DevelopmentRegistrationStore.EnsureRealPath(stateDirectory);
         Directory.CreateDirectory(stateDirectory);
-
-        // Hashed so the name is a fixed length no matter how deep the layout is, and
-        // case-insensitively, so two spellings of one Windows path do not become two locks.
-        var canonical = Path.TrimEndingDirectorySeparator(Path.GetFullPath(layoutDirectory.FullName));
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToUpperInvariant())));
-        var lockPath = Path.Combine(stateDirectory, key + ".lock");
-
+        var lockPath = Path.Join(stateDirectory, key + ".lock");
         var deadline = DateTime.UtcNow + (timeout ?? DefaultTimeout);
 
         while (true)
@@ -63,6 +67,7 @@ internal sealed class LayoutLease : IDisposable
 
             try
             {
+                DevelopmentRegistrationStore.EnsureRealPath(lockPath);
                 // DeleteOnClose keeps the state directory from growing a file per layout ever built.
                 return new LayoutLease(new FileStream(
                     lockPath,
@@ -77,7 +82,7 @@ internal sealed class LayoutLease : IDisposable
                 if (DateTime.UtcNow >= deadline)
                 {
                     throw new TimeoutException(
-                        $"Another winapp process is using the app layout at '{canonical}'. Wait for it to finish, " +
+                        $"Another winapp process is using the app {kind} '{canonical}'. Wait for it to finish, " +
                         $"or use --output-appx-directory to give this run a layout of its own.");
                 }
 
@@ -87,4 +92,36 @@ internal sealed class LayoutLease : IDisposable
     }
 
     public void Dispose() => _stream.Dispose();
+
+    internal static IDisposable AcquireFamilies(IEnumerable<string> familyNames, CancellationToken cancellationToken)
+    {
+        var leases = new List<LayoutLease>();
+        try
+        {
+            foreach (var family in familyNames.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+            {
+                leases.Add(AcquireKey("family", family, cancellationToken));
+            }
+            return new FamilyLeases(leases);
+        }
+        catch
+        {
+            foreach (var lease in leases)
+            {
+                lease.Dispose();
+            }
+            throw;
+        }
+    }
+
+    private sealed class FamilyLeases(List<LayoutLease> leases) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var lease in leases.AsEnumerable().Reverse())
+            {
+                lease.Dispose();
+            }
+        }
+    }
 }

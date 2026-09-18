@@ -17,7 +17,7 @@ public class UnregisterCommandTests : BaseCommandTests
 
     [TestMethod]
     [DoNotParallelize]
-    public async Task UnregisterCommand_SingleFileOnTarget_RejectsBeforeEvaluatingOrRemoving()
+    public async Task UnregisterCommand_SingleFileOnTarget_WithForce_RejectsBeforeEvaluatingOrRemoving()
     {
         var input = CreateSingleFile();
         var command = GetRequiredService<WinAppRootCommand>();
@@ -28,7 +28,7 @@ public class UnregisterCommandTests : BaseCommandTests
         try
         {
             exitCode = await ParseAndInvokeWithCaptureAsync(command,
-                ["unregister", input.FullName, "--on", "sandbox", "--json"]);
+                ["unregister", input.FullName, "--on", "sandbox", "--force", "--json"]);
         }
         finally
         {
@@ -37,7 +37,7 @@ public class UnregisterCommandTests : BaseCommandTests
 
         Assert.AreEqual(TargetOutput.InvalidCommandLineExitCode, exitCode);
         StringAssert.Contains(error.ToString(), "target_invalid_arguments");
-        StringAssert.Contains(error.ToString(), "manifest");
+        StringAssert.Contains(error.ToString(), "--force");
         Assert.IsEmpty(_fakeProjectRunService.ResolveSingleFileIdentityInputs);
         Assert.IsEmpty(_fakePackageRegistrationService.UnregisterByFullNameCalls);
     }

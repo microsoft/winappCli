@@ -385,6 +385,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
                     SupportsScreenCapture = readiness == GuestReadinessFailure.None,
                     CooperativeUiTurnsVersion = GuestOwnerContext.CooperativeUiTurnsVersion,
                     SupportsInternalSystemSetup = true,
+                    DevelopmentIdentityVersion = ExecutionTargetCapabilities.CurrentDevelopmentIdentityVersion,
 
                     // Windows Sandbox discards everything on teardown, so deployments and runtimes
                     // must be reconciled after every new epoch.

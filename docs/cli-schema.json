@@ -2819,6 +2819,19 @@
           "required": false,
           "recursive": false
         },
+        "--unique-identity": {
+          "description": "Use a stable, path-derived package identity and execution aliases so packaged apps in separate worktrees can coexist. Changes only the staged layout. Not supported for unpackaged apps, sparse packages, bundles, multiple applications, or unsupported public activation contracts.",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
         "--unregister-on-exit": {
           "description": "Unregister the development package after the application exits. Only removes packages registered in development mode.",
           "hidden": false,
@@ -6393,7 +6406,7 @@
       "hidden": false,
       "arguments": {
         "input": {
-          "description": "Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest.",
+          "description": "App directory, .csproj, .sln, .slnx, or .cs file whose development package should be unregistered. Resolves the same app as 'winapp run' without building it. Recorded normal and unique identities are discovered automatically. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest.",
           "order": 0,
           "hidden": false,
           "valueType": "System.IO.FileInfo",
@@ -6406,7 +6419,7 @@
       },
       "options": {
         "--arch": {
-          "description": "Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input.",
+          "description": "Target architecture (x64, arm64, x86) used to classify project/solution inputs or resolve a legacy .cs app's identity (default: the current process architecture). Pass the same architecture the run used.",
           "hidden": false,
           "valueType": "System.String",
           "hasDefaultValue": false,
@@ -6418,7 +6431,7 @@
           "recursive": false
         },
         "--configuration": {
-          "description": "Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input.",
+          "description": "Configuration used to classify project/solution inputs or resolve a legacy .cs app's identity (default: Debug). Pass the same configuration the run used.",
           "hidden": false,
           "aliases": [
             "-c"
@@ -6433,7 +6446,7 @@
           "recursive": false
         },
         "--force": {
-          "description": "Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt.",
+          "description": "Skip the install-location directory check for legacy registrations without managed ownership metadata. Never bypasses managed ownership or live-registration checks. Legacy candidates are matched by Identity/@Name alone, so a same-named legacy package from another publisher can also be removed with its app data. With --prune, skips the confirmation prompt.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,
@@ -6471,7 +6484,7 @@
           "recursive": false
         },
         "--output-appx-directory": {
-          "description": "The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped.",
+          "description": "Select the AppX layout to unregister, including when several deployments belong to the same app. A recorded layout can be selected without the original source or manifest. For --on, pass the host layout used by the run.",
           "hidden": false,
           "valueType": "System.IO.DirectoryInfo",
           "hasDefaultValue": false,
@@ -6483,7 +6496,7 @@
           "recursive": false
         },
         "--property": {
-          "description": "MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input.",
+          "description": "MSBuild property (Name=Value) used to classify project/solution inputs or resolve a legacy .cs app's identity. Repeatable. For legacy .cs registrations, pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...). Managed registrations are selected by recorded app ownership.",
           "hidden": false,
           "aliases": [
             "-p"
@@ -6497,7 +6510,7 @@
           "recursive": false
         },
         "--prune": {
-          "description": "Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest.",
+          "description": "Remove legacy development-mode registrations whose files are gone. Lists what it found and asks before removing; pass --force to skip the prompt. Managed deployments require an app input or --output-appx-directory instead, so ownership can be verified. Cannot be combined with an input or --manifest.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,
@@ -6526,7 +6539,7 @@
           "recursive": false
         },
         "--runtime": {
-          "description": "Target .NET runtime identifier (e.g. win-x64) used when resolving a .cs file-based app's identity. Only its architecture is used, and it overrides --arch. Only applies to a .cs input.",
+          "description": "Target .NET runtime identifier (e.g. win-x64) used to classify project/solution inputs or resolve a legacy .cs app's identity. Only its architecture is used, and it overrides --arch.",
           "hidden": false,
           "aliases": [
             "-r"
