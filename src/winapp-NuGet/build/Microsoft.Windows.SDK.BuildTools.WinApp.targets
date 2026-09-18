@@ -295,11 +295,19 @@
            Text="[WinAppRunSupport] WinAppCLI tool not found at '$(WinAppCliPath)'. The NuGet package may be corrupted." />
     
     <!--
-      Validate manifest exists. Skipped for a file-based app, which has none by
-      design — winapp infers its identity from the #:property directives in the
-      .cs file, or from a <stem>.appxmanifest next to it.
+      Validate the manifest.
+
+      The existence check applies to a file-based app too. Auto-detection above is skipped entirely
+      for one, so a non-empty WinAppManifestPath there is always something the consumer set, by
+      '-p:WinAppManifestPath=' or a '#:property' directive. Pointing it at a path that is not there
+      is a typo worth catching here, where the message can name the resolved path, rather than
+      several seconds later inside winapp.
+
+      The "no manifest at all" error stays suppressed for a file-based app, which has none by
+      design - winapp infers its identity from the #:property directives in the .cs file, or from a
+      <stem>.appxmanifest next to it.
     -->
-    <Error Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' != '' And !Exists('$(WinAppManifestPath)')"
+    <Error Condition="'$(WinAppManifestPath)' != '' And !Exists('$(WinAppManifestPath)')"
            Text="[WinAppRunSupport] AppxManifest not found at '$(WinAppManifestPath)'. Ensure Package.appxmanifest or appxmanifest.xml exists at the resolved manifest path, in your project directory, or in the build output directory, as applicable." />
     <Error Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == ''"
            Text="[WinAppRunSupport] No AppxManifest found. Ensure Package.appxmanifest or appxmanifest.xml exists in your project or build output directory. Run 'winapp init' to generate one." />
@@ -452,6 +460,20 @@
       <_WinAppForwardedProperty Include="WindowsPackageType" Value="$(WindowsPackageType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
 
       <!--
+        Self-contained mode, forwarded even when empty. Unlike the build inputs below, nothing gives
+        this property a default: it is absent unless the consumer asks for it, so an empty value is
+        a real answer rather than a sign the outer build is broken.
+
+        That makes a clear meaningful. 'dotnet run app.cs -p:WindowsAppSDKSelfContained=' over a
+        '#:property WindowsAppSDKSelfContained=true' directive has to reach winapp, because winapp
+        re-reads the directives from the .cs. Dropping the empty token would leave it generating a
+        manifest that still declares the Windows App Runtime dependency for a build that no longer
+        carries the runtime, and the app fails at startup with a class-not-registered error instead
+        of running framework-dependent as asked.
+      -->
+      <_WinAppForwardedProperty Include="WindowsAppSDKSelfContained" Value="$(WindowsAppSDKSelfContained.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" />
+
+      <!--
         The alias preference, forwarded ONLY when it has no value. A 'true' or 'false' is already
         expressed by the switches below, which carry extra conditions the raw property does not, so
         forwarding those would re-enable alias behavior a launch switch deliberately withheld. An
@@ -504,7 +526,6 @@
       <_WinAppForwardedProperty Include="OutputType" Value="$(OutputType.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(OutputType)' != ''" />
       <_WinAppForwardedProperty Include="TargetFramework" Value="$(TargetFramework.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(TargetFramework)' != ''" />
       <_WinAppForwardedProperty Include="Version" Value="$(Version.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(Version)' != ''" />
-      <_WinAppForwardedProperty Include="WindowsAppSDKSelfContained" Value="$(WindowsAppSDKSelfContained.Replace('%','%2525').Replace(';','%253B').Replace(',','%252C').Replace('&quot;','%2522').Replace('\','%255C'))" Condition="'$(WindowsAppSDKSelfContained)' != ''" />
     </ItemGroup>
 
     <PropertyGroup>
@@ -544,6 +565,37 @@
       -->
       <_WinAppRunArgs Condition="'$(WinAppRunArgs)' != ''">$(_WinAppRunArgs) $(WinAppRunArgs)</_WinAppRunArgs>
     </PropertyGroup>
+
+    <!--
+      Reject a line break before either transport sees it.
+
+      Exec writes its command to a temporary .cmd file, so a CR or LF inside any forwarded value
+      does not stay data: it ends that batch line and turns the remainder into SEPARATE COMMANDS.
+      A WinAppDescription of "first{LF}echo pwned{LF}rem " runs the echo. MSBuild takes properties
+      from the environment, so a variable of the matching name is enough - no authored target is
+      needed. The dotnet run path starts RunCommand directly and so cannot execute the tail, but a
+      split argument list corrupts the launch there too.
+
+      No metadata this package forwards is meaningfully multi-line: a manifest display name,
+      description, publisher or capability list is a single line by definition. So this refuses the
+      build rather than silently stripping, which would register an identity the consumer did not
+      ask for. The test runs on the ASSEMBLED string to cover every source at once, including paths
+      and the WinAppRunArgs / WinAppLaunchArgs escape hatches.
+
+      '%0D' and '%0A' are MSBuild's escapes for the characters themselves, so these properties hold
+      one real character each. The result is kept in a boolean property rather than compared inline
+      because a Condition that expands the value would break on an apostrophe, the same hazard that
+      shapes the per-property escaping above.
+    -->
+    <PropertyGroup>
+      <_WinAppCarriageReturn>%0D</_WinAppCarriageReturn>
+      <_WinAppLineFeed>%0A</_WinAppLineFeed>
+      <_WinAppRunArgsHaveLineBreak>$(_WinAppRunArgs.Contains('$(_WinAppCarriageReturn)'))</_WinAppRunArgsHaveLineBreak>
+      <_WinAppRunArgsHaveLineBreak Condition="!$(_WinAppRunArgsHaveLineBreak)">$(_WinAppRunArgs.Contains('$(_WinAppLineFeed)'))</_WinAppRunArgsHaveLineBreak>
+    </PropertyGroup>
+
+    <Error Condition="$(_WinAppRunArgsHaveLineBreak)"
+           Text="[WinAppRunSupport] A value forwarded to winapp contains a line break, which would split the launch command into separate shell commands. Remove the newline from the app metadata - check WinAppDisplayName, WinAppDescription, WinAppPublisher, WinAppPackageName, WinAppCapabilities, WinAppLaunchArgs and WinAppRunArgs, including any environment variable of the same name." />
 
     <!--
       The same arguments, spelled for the Exec task's transport.

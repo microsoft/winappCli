@@ -768,6 +768,23 @@ $ExtraProps  </PropertyGroup>
             }
         }
 
+        # Runs a build that is EXPECTED to fail and returns its output, so a guard can be asserted
+        # on. Anchors the current directory the same way as the helper above.
+        function script:Invoke-FileBasedDotnetExpectingFailure {
+            param([string]$CsPath, [string[]]$Arguments = @())
+            Push-Location (Split-Path -Path $CsPath -Parent)
+            try {
+                $out = & dotnet build $CsPath @Arguments -nologo 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    throw "Expected a failure for ${CsPath} but the build succeeded:`n$($out -join [Environment]::NewLine)"
+                }
+                ($out | Out-String)
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
         # Evaluates a single property of the app's virtual project. With no -t: switch MSBuild only
         # evaluates, so the gate can be read without a restore or a build.
         function script:Get-FileBasedProperty {
@@ -886,6 +903,27 @@ $ExtraProps  </PropertyGroup>
             $cs = script:New-FileBasedApp -CaseName "manifest-declared" -ManifestFileName "my.appxmanifest" -Directives @(
                 'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0', 'WinAppManifestPath=my.appxmanifest')
             script:Get-FileBasedProperty -CsPath $cs -Property "WinAppManifestPath" | Should -Be "my.appxmanifest"
+        }
+
+        It "Validates that a declared manifest actually exists" {
+            # Auto-detection is skipped entirely for a file-based app, so a non-empty
+            # WinAppManifestPath is always something the consumer set. A typo should fail here,
+            # naming the resolved path, rather than several seconds later inside winapp.
+            $cs = script:New-FileBasedApp -CaseName "manifest-missing" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0')
+            $output = script:Invoke-FileBasedDotnetExpectingFailure -CsPath $cs -Arguments @(
+                '-p:WinAppManifestPath=does-not-exist.appxmanifest', '-t:_WinAppValidateRunSupport')
+            $output | Should -Match 'AppxManifest not found'
+            $output | Should -Match ([regex]::Escape('does-not-exist.appxmanifest'))
+        }
+
+        It "Still allows a file-based app to declare no manifest at all" {
+            # The 'no manifest found' error stays suppressed: winapp infers the identity from the
+            # #:property directives instead, so validation must not demand a file that by design
+            # does not exist.
+            $cs = script:New-FileBasedApp -CaseName "manifest-none"
+            script:Invoke-FileBasedDotnet -CsPath $cs -What "validate run support" -Arguments @(
+                '-t:_WinAppValidateRunSupport') | Should -Not -BeNullOrEmpty
         }
 
         It "Leaves the per-file <stem>.appxmanifest to the CLI" {
@@ -1173,6 +1211,21 @@ $ExtraProps  </PropertyGroup>
             $computed | Should -Match ([regex]::Escape('-p "WindowsPackageType="'))
         }
 
+        It "Carries self-contained mode even when empty, so a clear is not undone" {
+            # Nothing gives WindowsAppSDKSelfContained a default, so an empty value is a real answer
+            # rather than a broken build. 'dotnet run app.cs -p:WindowsAppSDKSelfContained=' over a
+            # '#:property WindowsAppSDKSelfContained=true' has to reach the CLI, which otherwise
+            # re-reads the directive and writes a manifest declaring a Windows App Runtime
+            # dependency for a build that no longer carries the runtime.
+            $cs = script:New-FileBasedApp -CaseName "inp-selfcontained-clear" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WindowsAppSDKSelfContained=true')
+            script:Get-FileBasedRunArgs -CsPath $cs |
+                Should -Match ([regex]::Escape('-p "WindowsAppSDKSelfContained=true"'))
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WindowsAppSDKSelfContained=') |
+                Should -Match ([regex]::Escape('-p "WindowsAppSDKSelfContained="'))
+        }
+
         It "Does not forward the SDK's derived outputs" {
             # Forcing these as global properties would override the CLI's own evaluation with the
             # outer build's answer instead of letting it derive them.
@@ -1195,6 +1248,24 @@ $ExtraProps  </PropertyGroup>
             $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:Configuration=Debug\')
             $computed | Should -Match ([regex]::Escape('--configuration "Debug%5C"'))
             $computed | Should -Not -Match ([regex]::Escape('--configuration "Debug\"'))
+        }
+
+        It "Refuses a line break instead of letting it split the launch command" {
+            # RunPackagedApp hands the arguments to Exec, which writes them to a temporary .cmd
+            # file. A newline inside a value does not stay data there: it ends the batch line and
+            # turns the remainder into a SEPARATE COMMAND. MSBuild reads properties from the
+            # environment, so a variable of the matching name is enough to plant one. No manifest
+            # metadata is legitimately multi-line, so the build is refused rather than silently
+            # stripped, which would register an identity the consumer never asked for.
+            #
+            # The guard lives in _WinAppBuildRunArgs, which RunPackagedApp depends on, so asserting
+            # on the argument build alone covers both transports without launching anything.
+            $cs = script:New-FileBasedApp -CaseName "esc-linebreak"
+            $injected = "first`r`necho pwned`r`nrem "
+            $output = script:Invoke-FileBasedDotnetExpectingFailure -CsPath $cs -Arguments @(
+                "-p:WinAppDescription=$injected", '-t:_WinAppBuildRunArgs')
+            $output | Should -Match 'contains a line break'
+            $output | Should -Match ([regex]::Escape('WinAppDescription'))
         }
 
         It "Percent-escapes a semicolon so a capability list survives" {
@@ -1231,10 +1302,10 @@ $ExtraProps  </PropertyGroup>
         }
 
         It "Escapes a trailing backslash so it cannot escape the closing quote" {
-            # OutputPath always ends with one, so this is the common case rather than an edge case.
+            # OutDir always ends with one, so this is the common case rather than an edge case.
             $cs = script:New-FileBasedApp -CaseName "esc-backslash"
-            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppManifestPath=sub\dir\') |
-                Should -Match ([regex]::Escape('-p "WinAppManifestPath=sub%5Cdir%5C"'))
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutDir=sub\dir\') |
+                Should -Match ([regex]::Escape('-p "OutDir=sub%5Cdir%5C"'))
         }
 
         It "Survives an apostrophe in the value" {
