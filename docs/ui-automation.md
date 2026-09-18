@@ -787,10 +787,22 @@ winapp ui get-value lbl-title-a1b2 -a myapp --json          # JSON: { "elementId
 ```
 
 ### focus
-Move keyboard focus to an element.
 ```bash
 winapp ui focus txt-textbox-a4b1 -a notepad
 ```
+
+Activates the selected control's window when needed, then focuses the control.
+The selector is required; use `-a <app>` or `-w <HWND>` to choose the target.
+Success means that window was foreground and the selected control confirmed
+`HasKeyboardFocus` before the command returned. An owned dialog in front of the
+main window is not enough: select a control in the dialog if that is your target.
+
+This command needs an unlocked, interactive desktop and does not bypass Windows
+activation restrictions. If it fails with `foreground_not_target`, manually
+activate the intended window and check for a blocking dialog before retrying.
+For `focus_not_acquired`, inspect the current UI and choose a focusable control.
+For `stale_element`, rediscover the target with `inspect` or `search`.
+Keep the same `--on` target on discovery and retry commands.
 
 ### scroll-into-view
 Scroll an element into the visible area.
