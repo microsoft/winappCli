@@ -716,7 +716,8 @@ Move the mouse to an element's center to trigger hover effects (tooltips, flyout
 ```bash
 winapp ui hover btn-info-a1b2 -a myapp                          # hover with default 800ms dwell
 winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200        # longer dwell for slow tooltips
-winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -a myapp --capture-screen  # hover then capture tooltip
+winapp ui list-windows -a myapp                              # use the main window's HWND below
+winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture-screen  # hover then capture tooltip in place
 ```
 
 **Options:**
@@ -988,7 +989,8 @@ winapp ui search '#Image' -a myapp; winapp ui invoke itm-image-a2b3 -a myapp
 
 ### Screenshot with popup overlays
 ```powershell
-winapp ui set-value txt-searchbox-e5f6 "query" -a myapp; winapp ui screenshot -a myapp --capture-screen
+winapp ui list-windows -a myapp # use the main window's HWND below
+winapp ui set-value txt-searchbox-e5f6 "query" -a myapp; winapp ui screenshot -w <hwnd> --capture-screen
 ```
 
 ### Navigate, wait, and verify (single chain)

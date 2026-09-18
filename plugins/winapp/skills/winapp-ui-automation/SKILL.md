@@ -183,6 +183,7 @@ winapp ui screenshot -a myapp --output page.png
 
 # Crop to element; capture with popups visible
 winapp ui screenshot txt-searchbox-e5f6 -a myapp --output search.png
+winapp ui list-windows -a myapp # use the main window's HWND below
 winapp ui screenshot -w <hwnd> --capture-screen --output with-popups.png
 
 # Bring window to foreground first (matches what the user is currently seeing)
@@ -221,11 +222,13 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 ### Hover (for tooltips, flyouts, hover states)
 `--dwell-time <ms>` sets how long to wait after hovering (default: 800, range: 0–10000).
 ```powershell
+winapp ui list-windows -a myapp # use the main window's HWND below, not the tooltip's
+
 # Hover to trigger tooltip, then capture it (default 800ms dwell)
-winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -a myapp --capture-screen --output tooltip.png
+winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture-screen --output tooltip.png
 
 # Longer dwell for apps with slow tooltip timers
-winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200; winapp ui screenshot -a myapp --capture-screen
+winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200; winapp ui screenshot -w <hwnd> --capture-screen
 ```
 
 ### Send keyboard input
