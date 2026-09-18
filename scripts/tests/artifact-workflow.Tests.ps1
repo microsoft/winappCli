@@ -5,6 +5,7 @@ BeforeAll {
     $script:buildWorkflow = Get-Content (Join-Path $repoRoot '.github\workflows\build-package.yml') -Raw
     $script:sampleWorkflow = Get-Content (Join-Path $repoRoot '.github\workflows\test-samples.yml') -Raw
     $script:collectAction = Get-Content (Join-Path $repoRoot '.github\actions\collect-metrics\action.yml') -Raw
+    $script:reportAction = Get-Content (Join-Path $repoRoot '.github\actions\report-metrics\action.yml') -Raw
     $script:npmPackaging = Get-Content (Join-Path $repoRoot 'scripts\package-npm.ps1') -Raw
     $script:testReportWorkflow = Get-Content (Join-Path $repoRoot '.github\workflows\test-report.yml') -Raw
 
@@ -23,6 +24,22 @@ BeforeAll {
         $match = [regex]::Match($tail, "(?m)^ {$($indent + 2)}run: \|\r?\n(?<body>(?:^ {$($indent + 4)}.*(?:\r?\n|\z)|^\r?\n)+)")
         if (-not $match.Success) { throw "Inline script not found: $Step" }
         $match.Groups['body'].Value -replace "(?m)^ {$($indent + 4)}", ''
+    }
+
+    function Get-UploadSteps([string]$Text) {
+        @([regex]::Matches($Text, '(?ms)^    - (?:name|uses):.*?(?=^    - (?:name|uses):|\z)') |
+            ForEach-Object Value | Where-Object { $_ -match 'uses: actions/upload-artifact@' })
+    }
+
+    function Test-MetricsCondition {
+        param([string]$Condition, [string]$Event, [string]$Artifacts, [string]$Validation, [bool]$Cancelled = $false)
+        $expression = $Condition.Replace('${{', '').Replace('}}', '').Trim().
+            Replace('github.event_name', '$Event').
+            Replace('needs.build-artifacts.result', '$Artifacts').
+            Replace('needs.validate-tests.result', '$Validation').
+            Replace('!cancelled()', '(-not $Cancelled)').
+            Replace('==', '-eq').Replace('&&', '-and').Replace('||', '-or')
+        & ([scriptblock]::Create("param(`$Event, `$Artifacts, `$Validation, `$Cancelled) ($expression)")) $Event $Artifacts $Validation $Cancelled
     }
 
     $script:buildGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'build-and-package') 'Require all build and validation jobs'))
@@ -136,12 +153,93 @@ Describe 'Artifact-first workflow dependencies' {
     It 'joins package and test artifacts before collecting and reporting metrics' {
         $metrics = Get-JobText $buildWorkflow 'metrics'
         $metrics | Should -Match 'needs: \[build-artifacts, validate-tests\]'
-        $metrics | Should -Match ([regex]::Escape("needs.validate-tests.result == 'success' || (github.event_name == 'pull_request' && needs.validate-tests.result == 'failure')"))
+        $metrics | Should -Match ([regex]::Escape("needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure'"))
         foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Cli-1', 'validation-results-Cli-2', 'validation-results-Auxiliary', 'validation-results-UIAutomation', 'test-results')) {
             $metrics | Should -Match "(?m)^\s+name: $artifact\r?$"
         }
         $metrics.IndexOf('name: test-results') | Should -BeLessThan $metrics.IndexOf('uses: ./.github/actions/collect-metrics')
         $metrics | Should -Match 'path: artifacts/TestResults'
+    }
+}
+
+Describe 'Partial reruns replace only owned artifacts' {
+    It 'makes every upload in the build, sample and metrics paths rerunnable' {
+        $uploads = @(
+            Get-UploadSteps $buildWorkflow
+            Get-UploadSteps $sampleWorkflow
+            Get-UploadSteps $reportAction
+        )
+        $uploads.Count | Should -Be 12
+        foreach ($upload in $uploads) {
+            $upload | Should -Match '(?m)^        overwrite: true\r?$' -Because $upload
+        }
+    }
+
+    It 'gives each concurrent PR producer a distinct name so a retry cannot replace siblings' {
+        $names = @(
+            foreach ($job in @('build-artifacts', 'metrics', 'e2e-test-ui')) {
+                foreach ($step in (Get-UploadSteps (Get-JobText $buildWorkflow $job))) {
+                    [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
+                }
+            }
+            $laneUpload = @(Get-UploadSteps (Get-JobText $buildWorkflow 'validate-tests'))
+            $laneUpload.Count | Should -Be 1
+            $laneName = [regex]::Match($laneUpload[0], '(?m)^        name: (.+?)\r?$').Groups[1].Value
+            foreach ($lane in @('Cli-1', 'Cli-2', 'Auxiliary', 'UIAutomation')) {
+                $laneName.Replace('${{ matrix.lane }}', $lane)
+            }
+            $sampleUpload = @(Get-UploadSteps (Get-JobText $sampleWorkflow 'test-sample'))
+            $sampleUpload.Count | Should -Be 1
+            $sampleName = [regex]::Match($sampleUpload[0], '(?m)^        name: (.+?)\r?$').Groups[1].Value
+            $matrix = [regex]::Match($sampleWorkflow, '(?m)^        sample: \[(.+)\]').Groups[1].Value
+            foreach ($sample in ($matrix -split ', ')) {
+                $sampleName.Replace('${{ matrix.sample }}', $sample)
+            }
+            foreach ($step in (Get-UploadSteps $reportAction)) {
+                [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
+            }
+        )
+        $names.Count | Should -Be 26
+        @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
+        @($names | Group-Object | Where-Object Count -GT 1).Count | Should -Be 0
+        (Get-JobText $sampleWorkflow 'build') | Should -Match 'if: \$\{\{ !inputs.use-existing-artifacts \}\}'
+    }
+}
+
+Describe 'Failed validation reports without promoting the main baseline' {
+    BeforeAll {
+        $script:metricsJob = Get-JobText $buildWorkflow 'metrics'
+        $script:metricsCondition = [regex]::Match($metricsJob, '(?m)^    if: (.+?)\r?$').Groups[1].Value
+        $reportStep = [regex]::Match($metricsJob, '(?ms)^    - name: Report build metrics\r?\n(?<body>.*?)(?=^    - |\z)').Groups['body'].Value
+        $script:reportCondition = [regex]::Match($reportStep, '(?m)^      if: (.+?)\r?$').Groups[1].Value
+    }
+
+    It 'publishes complete reports for successful or failed validation on PR, main and manual runs' {
+        foreach ($event in @('pull_request', 'push', 'workflow_dispatch')) {
+            foreach ($validation in @('success', 'failure', 'cancelled', 'skipped')) {
+                $actual = Test-MetricsCondition $metricsCondition $event 'success' $validation
+                $actual | Should -Be ($validation -in @('success', 'failure'))
+                Test-MetricsCondition $metricsCondition $event 'failure' $validation | Should -BeFalse
+                Test-MetricsCondition $metricsCondition $event 'success' $validation -Cancelled $true | Should -BeFalse
+            }
+        }
+        $metricsJob.IndexOf('name: Upload combined test results') |
+            Should -BeLessThan $metricsJob.IndexOf('name: Collect build metrics')
+        $metricsJob | Should -Match '(?ms)- name: Upload combined test results\r?\n      if: \$\{\{ !cancelled\(\) \}\}'
+    }
+
+    It 'permits failed PR metrics but only successful non-PR runs can invoke baseline promotion' {
+        $reportCondition | Should -Not -BeNullOrEmpty
+        foreach ($event in @('pull_request', 'push', 'workflow_dispatch')) {
+            foreach ($validation in @('success', 'failure', 'cancelled', 'skipped')) {
+                $actual = Test-MetricsCondition $reportCondition $event 'success' $validation
+                $actual | Should -Be ($event -eq 'pull_request' -or $validation -eq 'success')
+            }
+        }
+        $metricsJob | Should -Match 'uses: \./\.github/actions/report-metrics'
+        foreach ($step in @('Save metrics baseline', 'Delete old metrics baseline cache', 'Cache metrics baseline')) {
+            $reportAction | Should -Match "(?m)- name: $step"
+        }
     }
 }
 

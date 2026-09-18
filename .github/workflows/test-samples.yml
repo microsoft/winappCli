@@ -58,11 +58,13 @@ jobs:
         name: npm-package
         path: artifacts/*.tgz
         if-no-files-found: error
+        overwrite: true
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: nuget-packages
         path: artifacts/nuget/*.nupkg
         if-no-files-found: error
+        overwrite: true
 
   test-sample:
     needs: [build]
@@ -246,6 +248,7 @@ jobs:
         name: test-results-${{ matrix.sample }}
         path: test-results-${{ matrix.sample }}.xml
         if-no-files-found: error
+        overwrite: true
 
   # Summary job to provide a single check status for branch protection
   test-samples-result:

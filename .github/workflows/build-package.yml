@@ -47,6 +47,7 @@ jobs:
         name: cli-binaries
         path: artifacts/cli/
         if-no-files-found: error
+        overwrite: true
     
     - name: Upload npm package
       id: npm
@@ -55,6 +56,7 @@ jobs:
         name: npm-package
         path: artifacts/*.tgz
         if-no-files-found: error
+        overwrite: true
 
     - name: Upload MSIX packages
       id: msix
@@ -63,6 +65,7 @@ jobs:
         name: msix-packages
         path: artifacts/msix-packages/
         if-no-files-found: error
+        overwrite: true
 
     # CLI tools, both UI Automation libraries, and the WinUI analyzer.
     - name: Upload NuGet packages
@@ -72,6 +75,7 @@ jobs:
         name: nuget-packages
         path: artifacts/nuget/*.nupkg
         if-no-files-found: error
+        overwrite: true
 
     - name: Link downloads awaiting validation
       env:
@@ -159,6 +163,7 @@ jobs:
         name: validation-results-${{ matrix.lane }}
         path: artifacts/TestResults/
         if-no-files-found: error
+        overwrite: true
 
   validate-docs:
     needs: build-artifacts
@@ -203,7 +208,7 @@ jobs:
 
   metrics:
     needs: [build-artifacts, validate-tests]
-    if: ${{ !cancelled() && needs.build-artifacts.result == 'success' && (needs.validate-tests.result == 'success' || (github.event_name == 'pull_request' && needs.validate-tests.result == 'failure')) }}
+    if: ${{ !cancelled() && needs.build-artifacts.result == 'success' && (needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure') }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -271,11 +276,15 @@ jobs:
         name: test-results
         path: artifacts/TestResults
         if-no-files-found: error
+        overwrite: true
 
     - name: Collect build metrics
       uses: ./.github/actions/collect-metrics
 
     - name: Report build metrics
+      # Failed main/manual validation still publishes test-results above, but
+      # must not promote failed measurements to the main comparison baseline.
+      if: github.event_name == 'pull_request' || needs.validate-tests.result == 'success'
       uses: ./.github/actions/report-metrics
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -324,6 +333,7 @@ jobs:
         name: ui-coordination-test-results
         path: artifacts/TestResults/ui-coordination/
         if-no-files-found: warn
+        overwrite: true
 
     - name: Upload screenshots
       if: always()
@@ -332,6 +342,7 @@ jobs:
         name: ui-test-screenshots
         path: artifacts/screenshots/
         if-no-files-found: warn
+        overwrite: true
 
   # Retain the original required check, but only turn it green after every lane.
   build-and-package:

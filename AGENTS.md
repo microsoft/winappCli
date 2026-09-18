@@ -273,7 +273,11 @@ Keep `build-and-package` and `test-samples-result` as top-level aggregate check
 names for branch protection. They must fail on failures, cancellations, and
 unexpected skips, not just test failures. Metrics join package artifacts with
 the validation job's TRX and coverage reports; never report zero tests just
-because the packages were uploaded first. Fork PR code runs only with the PR's
+because the packages were uploaded first. Publish combined test results even
+when validation fails on main, but promote metrics to the main baseline only
+after successful validation. Each job owns a distinct artifact name and
+overwrites only that artifact on rerun; preserve other jobs' artifacts for
+partial reruns. Fork PR code runs only with the PR's
 token; the privileged comment workflow reads metrics as data, never executes it.
 
 ## Where to look first
