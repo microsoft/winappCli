@@ -31,7 +31,7 @@ internal partial class PriService
         ValidatePriIdentityName(effectivePackageName);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var sourcePath = Path.Combine(layout.FullName, "resources.pri");
+        var sourcePath = Path.Join(layout.FullName, "resources.pri");
         EnsureLocalPriPath(sourcePath);
         if (!File.Exists(sourcePath))
         {
@@ -40,7 +40,7 @@ internal partial class PriService
 
         // A sibling is outside the payload but on the same volume for atomic replacement.
         var parent = layout.Parent ?? throw new InvalidOperationException("The PRI layout cannot be a volume root.");
-        var work = new DirectoryInfo(Path.Combine(parent.FullName, $".winapp-pri-identity-{Guid.NewGuid():N}"));
+        var work = new DirectoryInfo(Path.Join(parent.FullName, $".winapp-pri-identity-{Guid.NewGuid():N}"));
         EnsureLocalPriPath(work.FullName);
         if (work.Exists)
         {
@@ -52,11 +52,11 @@ internal partial class PriService
         {
             var input = work.CreateSubdirectory("input");
             var output = work.CreateSubdirectory("output");
-            var originalPath = Path.Combine(input.FullName, "original.pri");
-            var resultPath = Path.Combine(output.FullName, "resources.pri");
-            var configPath = Path.Combine(work.FullName, "reindex.xml");
-            var originalDump = Path.Combine(work.FullName, "original.xml");
-            var resultDump = Path.Combine(work.FullName, "result.xml");
+            var originalPath = Path.Join(input.FullName, "original.pri");
+            var resultPath = Path.Join(output.FullName, "resources.pri");
+            var configPath = Path.Join(work.FullName, "reindex.xml");
+            var originalDump = Path.Join(work.FullName, "original.xml");
+            var resultDump = Path.Join(work.FullName, "result.xml");
 
             await using (var source = File.OpenRead(sourcePath))
             await using (var copy = new FileStream(originalPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -72,7 +72,7 @@ internal partial class PriService
             var before = await PriIdentityValidation.ReadAsync(
                 originalDump, layout, originalPackageName, unsupportedAuthority, cancellationToken);
 
-            var arguments = $@"new /pr ""{PriToolPath(input.FullName)}"" /cf ""{PriToolPath(configPath)}"" /in ""{effectivePackageName}"" /of ""{PriToolPath(resultPath)}"" /il ""{PriToolPath(Path.Combine(work.FullName, "indexlog.xml"))}"" /o";
+            var arguments = $@"new /pr ""{PriToolPath(input.FullName)}"" /cf ""{PriToolPath(configPath)}"" /in ""{effectivePackageName}"" /of ""{PriToolPath(resultPath)}"" /il ""{PriToolPath(Path.Join(work.FullName, "indexlog.xml"))}"" /o";
             await buildToolsService.RunBuildToolAsync(new MakePriTool(), arguments, taskContext, cancellationToken: cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 

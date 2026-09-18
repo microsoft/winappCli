@@ -54,7 +54,7 @@ internal partial class MsixService
         {
             throw new InvalidOperationException($"The layout '{layout.FullName}' has an interrupted registration for another owner. Use a separate output directory.");
         }
-        var staging = new DirectoryInfo(Path.Combine(layout.Parent!.FullName, "." + layout.Name + ".winapp-stage-" + Guid.NewGuid().ToString("N")));
+        var staging = new DirectoryInfo(Path.Join(layout.Parent!.FullName, "." + layout.Name + ".winapp-stage-" + Guid.NewGuid().ToString("N")));
         try
         {
             // Build only the candidate. The materializer cannot provision or register on the host.
@@ -89,7 +89,7 @@ internal partial class MsixService
             document.Save(stagedManifest.FullName);
             if (options.UniqueIdentity)
             {
-                if (File.Exists(Path.Combine(staging.FullName, "resources.pri")))
+                if (File.Exists(Path.Join(staging.FullName, "resources.pri")))
                 {
                     await priService.ReindexIdentityAsync(staging, identity.OriginalPackageName, identity.EffectivePackageName, taskContext, cancellationToken);
                 }
@@ -111,7 +111,7 @@ internal partial class MsixService
                     var assets = MrtAssetHelper.GetExpandedManifestReferencedFiles(stagedManifest, taskContext);
                     await priService.CreatePriConfigAsync(staging, taskContext, assets.Select(asset => asset.RelativePath), cancellationToken: cancellationToken);
                     await priService.GeneratePriFileAsync(staging, taskContext, cancellationToken: cancellationToken);
-                    if (!File.Exists(Path.Combine(staging.FullName, "resources.pri")))
+                    if (!File.Exists(Path.Join(staging.FullName, "resources.pri")))
                     {
                         throw new InvalidOperationException("Image resource generation did not produce resources.pri. The original layout was not changed.");
                     }
@@ -167,7 +167,7 @@ internal partial class MsixService
             {
                 // First adoption is allowed only for an exact, unambiguous existing development
                 // identity, proved against its old manifest before anything is overwritten.
-                var oldDocument = AppxManifestDocument.Load(Path.Combine(layout.FullName, "appxmanifest.xml"));
+                var oldDocument = AppxManifestDocument.Load(Path.Join(layout.FullName, "appxmanifest.xml"));
                 if (!string.Equals(DevelopmentIdentityHelper.ComputeFullName(oldDocument), installed.FullName, StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException("The existing layout does not prove ownership of its live package. Use a separate output directory.");
@@ -213,7 +213,7 @@ internal partial class MsixService
             DevelopmentRegistrationStore.VerifyManifest(candidate);
             if (!skip)
             {
-                await RegisterLooseLayoutPackageAsync(new FileInfo(Path.Combine(layout.FullName, "appxmanifest.xml")), taskContext, cancellationToken);
+                await RegisterLooseLayoutPackageAsync(new FileInfo(Path.Join(layout.FullName, "appxmanifest.xml")), taskContext, cancellationToken);
                 if (clean && installed is null)
                 {
                     // A previously unregistered family may still have preserved application data.
@@ -222,7 +222,7 @@ internal partial class MsixService
                         ?? throw new InvalidOperationException("Windows did not report the package to clean. The pending registration journal has been retained.");
                     DevelopmentRegistrationStore.VerifyLive(cleanTarget, candidate.Identity);
                     await DevelopmentRegistrationStore.RemoveExactAsync(packageRegistrationService, candidate.Identity, preserveData: false, cancellationToken);
-                    await RegisterLooseLayoutPackageAsync(new FileInfo(Path.Combine(layout.FullName, "appxmanifest.xml")), taskContext, cancellationToken);
+                    await RegisterLooseLayoutPackageAsync(new FileInfo(Path.Join(layout.FullName, "appxmanifest.xml")), taskContext, cancellationToken);
                 }
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -340,7 +340,7 @@ internal partial class MsixService
         ValidateRegistrationSelection(layout, pending.Candidate, pending.Prior);
         var candidateLive = DevelopmentRegistrationStore.FindExact(packageRegistrationService, pending.Candidate.Identity);
         var priorLive = pending.Prior is null ? null : DevelopmentRegistrationStore.FindExact(packageRegistrationService, pending.Prior.Identity);
-        var actualHash = File.Exists(Path.Combine(layout.FullName, "appxmanifest.xml"))
+        var actualHash = File.Exists(Path.Join(layout.FullName, "appxmanifest.xml"))
             ? DevelopmentRegistrationStore.HashManifest(layout) : null;
         if (candidateLive is not null && actualHash == pending.Candidate.ManifestHash)
         {
@@ -373,8 +373,8 @@ internal partial class MsixService
         var files = EnumerateInputFilesForLayout(candidate, layout, cancellationToken: cancellationToken);
         layout.Create();
         var desired = CopyRecipeEntries(files, layout, enforceRealPaths: true, out _, out _, cancellationToken);
-        EnsureDestinationIsInsideLayout(layout, Path.Combine(layout.FullName, "appxmanifest.xml"));
-        AtomicFile.Copy(Path.Combine(candidate.FullName, "appxmanifest.xml"), Path.Combine(layout.FullName, "appxmanifest.xml"));
+        EnsureDestinationIsInsideLayout(layout, Path.Join(layout.FullName, "appxmanifest.xml"));
+        AtomicFile.Copy(Path.Join(candidate.FullName, "appxmanifest.xml"), Path.Join(layout.FullName, "appxmanifest.xml"));
         cancellationToken.ThrowIfCancellationRequested();
         if (reconciliation == LayoutReconciliation.Exact)
         {

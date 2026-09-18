@@ -831,7 +831,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // from it. That travels with the path from the call site (see LayoutOutput):
                     // once the default is filled in, the cases are indistinguishable from the path.
                     var outputAppXDirectory = layoutOutput.Resolve(
-                        () => new DirectoryInfo(Path.Combine(inputFolder.FullName, "AppX")));
+                        () => new DirectoryInfo(Path.Join(inputFolder.FullName, "AppX")));
                     resolvedOutputDir = outputAppXDirectory;
 
                     // Validate that the manifest and output paths are usable (check long path support if needed)

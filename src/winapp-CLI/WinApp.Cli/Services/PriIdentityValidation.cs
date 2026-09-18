@@ -153,7 +153,7 @@ internal static class PriIdentityValidation
         }
         var fullPath = Path.GetFullPath(Path.Combine(layout.FullName, path));
         if (PathSafety.HasReparsePointOnPath(fullPath, layout.FullName)
-            || string.Equals(fullPath, Path.Combine(layout.FullName, "resources.pri"), StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fullPath, Path.Join(layout.FullName, "resources.pri"), StringComparison.OrdinalIgnoreCase)
             || !File.Exists(fullPath))
         {
             throw Invalid($"resource candidate path '{path}' must refer to an existing file inside the layout, without links or temporary PRI input dependencies");

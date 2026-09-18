@@ -54,11 +54,11 @@ internal sealed class LayoutLease : IDisposable
     private static LayoutLease AcquireKey(string kind, string canonical, CancellationToken cancellationToken, TimeSpan? timeout = null)
     {
         // Shared across worktrees: different project state roots can refer to the same layout or family.
-        var stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "winapp", kind + "-locks");
+        var stateDirectory = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "winapp", kind + "-locks");
         DevelopmentRegistrationStore.EnsureRealPath(stateDirectory);
         Directory.CreateDirectory(stateDirectory);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToUpperInvariant())));
-        var lockPath = Path.Combine(stateDirectory, key + ".lock");
+        var lockPath = Path.Join(stateDirectory, key + ".lock");
         var deadline = DateTime.UtcNow + (timeout ?? DefaultTimeout);
 
         while (true)
