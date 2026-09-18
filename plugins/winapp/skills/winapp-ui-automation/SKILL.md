@@ -178,16 +178,19 @@ winapp ui search image -a myapp               # case-insensitive substring match
 
 ### Screenshot
 ```powershell
-# Full window screenshot
+# App screenshot (may include owned windows in a labeled composite)
 winapp ui screenshot -a myapp --output page.png
 
 # Crop to element; capture with popups visible
 winapp ui screenshot txt-searchbox-e5f6 -a myapp --output search.png
-winapp ui screenshot -a myapp --capture-screen --output with-popups.png
+winapp ui list-windows -a myapp # use the main window's HWND below
+winapp ui screenshot -w <hwnd> --capture-screen --output with-popups.png
 
 # Bring window to foreground first (matches what the user is currently seeing)
 winapp ui screenshot -a myapp --focus --output focused.png
 ```
+
+Default capture includes owned windows even with an explicit main HWND; it produces one labeled composite, not separate image files. For scope and on-screen overlay placement, see [Screenshot](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#screenshot). With `--on sandbox`, the reported screenshot path is the delivered host destination.
 
 ### Record video (H.264 MP4)
 Record a window or element region to MP4. Prefer a positive `--duration-sec N` for
@@ -219,11 +222,13 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 ### Hover (for tooltips, flyouts, hover states)
 `--dwell-time <ms>` sets how long to wait after hovering (default: 800, range: 0–10000).
 ```powershell
+winapp ui list-windows -a myapp # use the main window's HWND below, not the tooltip's
+
 # Hover to trigger tooltip, then capture it (default 800ms dwell)
-winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -a myapp --capture-screen --output tooltip.png
+winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture-screen --output tooltip.png
 
 # Longer dwell for apps with slow tooltip timers
-winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200; winapp ui screenshot -a myapp --capture-screen
+winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200; winapp ui screenshot -w <hwnd> --capture-screen
 ```
 
 ### Send keyboard input

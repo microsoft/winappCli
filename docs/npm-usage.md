@@ -1045,7 +1045,7 @@ function uiPen(options?: UiPenOptions): Promise<WinappResult>
 
 ### `uiScreenshot()`
 
-Capture the target window or element as a PNG image. When multiple windows exist (e.g., dialogs), captures each to a separate file. With --json, returns file path and dimensions. Use --capture-screen for popup overlays.
+Capture the target window or element as a PNG image. Without an element selector, combines multiple windows into one labeled composite: --app includes the app's windows and their owned windows; --window includes that window and its owned windows. With --json, returns file path and dimensions. Use --capture-screen with --window to capture one screen region, including visible overlays in place.
 
 ```typescript
 function uiScreenshot(options?: UiScreenshotOptions): Promise<WinappResult>
