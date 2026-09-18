@@ -2063,6 +2063,54 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task PublishPreparation_SolutionRestoreDoesNotCoverSelectedProjectConfiguration(bool noBuild, bool noRestore)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var selectedProjectRestored = false;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal))
+                {
+                    selectedProjectRestored = true;
+                }
+                // A successful solution restore may have mapped Release to Debug for this project.
+                return (0, selectedProjectRestored
+                    ? """{"Properties":{"AppxPackageSigningEnabled":"true","PackageCertificateKeyFile":"release.pfx"}}"""
+                    : """{"Properties":{"AppxPackageSigningEnabled":"false"}}""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out var console);
+        using (console)
+        {
+            var preparation = await service.PreparePackageAsync(
+                csproj, new ProjectRunOptions("Release", "arm64", null, noBuild, noRestore, [], Solution: solution),
+                CancellationToken.None);
+
+            if (noBuild || noRestore)
+            {
+                Assert.IsEmpty(dotnet.StreamingCalls, "Neither restore may run when the user opted out.");
+                return;
+            }
+
+            Assert.AreEqual(true, preparation.Signing!.SigningEnabled,
+                "Signing must reflect the selected project's Release graph, not the solution's mapped Debug graph.");
+            Assert.HasCount(2, dotnet.StreamingCalls);
+            StringAssert.StartsWith(dotnet.StreamingCalls[0], $"restore {solution.FullName}");
+            StringAssert.StartsWith(dotnet.StreamingCalls[1], $"restore {csproj.FullName}");
+            StringAssert.Contains(dotnet.StreamingCalls[1], "-p:Configuration=Release");
+            StringAssert.Contains(dotnet.StreamingCalls[1], "-p:_IsPublishing=true");
+            StringAssert.Contains(dotnet.StreamingCalls[1], "-r win-arm64");
+            Assert.IsTrue(preparation.Options.NoRestore);
+        }
+    }
+
+    [TestMethod]
     public async Task PublishPreparation_NoBuildMustNotRestore()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);

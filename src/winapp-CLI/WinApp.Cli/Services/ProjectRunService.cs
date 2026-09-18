@@ -241,23 +241,20 @@ internal sealed partial class ProjectRunService(
         // (else NETSDK1004) — matching VS / `dotnet build <sln>`. Gated on actually building + restore not opted out.
         if (!options.NoBuild && !options.NoRestore)
         {
-            // (1) Restore the owning solution's managed siblings. An all-managed whole-solution restore also
-            // covered the target, so the passes below can skip their own restore.
+            // (1) Restore the owning solution's managed siblings. Build mode may reuse this restore;
+            // package preparation must also restore the selected project's exact publish inputs.
             var restoredWholeSolution = await RestoreSolutionSiblingsAsync(csproj, options, workingDir, cancellationToken, publish);
 
             if (publish)
             {
-                // Existing assets may describe Debug or another RID. An incremental restore with the
-                // publish globals refreshes imports before signing and capability decisions.
-                if (!restoredWholeSolution || HasEffectivePlatform(options) || !string.IsNullOrWhiteSpace(options.Framework))
+                // A solution can map Release to Debug for this project. Always refresh its publish
+                // graph directly before reading signing policy, even after a successful solution restore.
+                var restoreArgs = BuildRestorePassArguments(csproj, options, ResolveRestoreVerbosity(logger, options.Json), pinFramework: true);
+                var restoreExit = await RunRestoreCommandAsync(
+                    restoreArgs, $"Restoring {csproj.Name} dependencies...", options, workingDir, cancellationToken);
+                if (restoreExit != 0)
                 {
-                    var restoreArgs = BuildRestorePassArguments(csproj, options, ResolveRestoreVerbosity(logger, options.Json), pinFramework: true);
-                    var restoreExit = await RunRestoreCommandAsync(
-                        restoreArgs, $"Restoring {csproj.Name} dependencies...", options, workingDir, cancellationToken);
-                    if (restoreExit != 0)
-                    {
-                        throw new ProjectRunException($"Publish restore failed for '{csproj.Name}' (exit code {restoreExit}).");
-                    }
+                    throw new ProjectRunException($"Publish restore failed for '{csproj.Name}' (exit code {restoreExit}).");
                 }
                 csWinRTMetadata ??= ResolveCsWinRTMetadataShim(options, shimFramework);
                 return (options, options with { NoRestore = true }, csWinRTMetadata);
