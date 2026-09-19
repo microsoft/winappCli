@@ -485,26 +485,51 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         {
             using (process)
             {
-                process.Refresh();
-
-                if (process.MainWindowHandle != 0)
+                if (ReadCurrentWindow(process) is { } window)
                 {
-                    var window = new SandboxClientWindow(
-                        process.MainWindowHandle, process.Id, TryReadStartTicks(process));
                     var surface = SandboxClientErrorProbe.Inspect(window);
-                    process.Refresh();
-                    if (process.MainWindowHandle != window.Handle ||
-                        TryReadStartTicks(process) != window.StartTicksUtc)
+                    var candidate = new SandboxClientCandidate(window, ParentProcessId.TryGet(process.Id), surface);
+                    if (RevalidateCandidate(candidate, ReadCurrentWindow(process)) is { } revalidated)
                     {
-                        surface = SandboxClientSurface.Unknown;
+                        clients.Add(revalidated);
                     }
-
-                    clients.Add(new SandboxClientCandidate(window, ParentProcessId.TryGet(process.Id), surface));
                 }
             }
         }
 
         return clients;
+    }
+
+    internal static SandboxClientCandidate? RevalidateCandidate(
+        SandboxClientCandidate candidate, SandboxClientWindow? current)
+    {
+        if (current is null || current.Handle == 0)
+        {
+            return null;
+        }
+
+        return current == candidate.Window
+            ? candidate
+            : new SandboxClientCandidate(current, ParentProcessId: null, SandboxClientSurface.Unknown);
+    }
+
+    private static SandboxClientWindow? ReadCurrentWindow(Process process)
+    {
+        try
+        {
+            process.Refresh();
+            if (process.HasExited || process.MainWindowHandle == 0)
+            {
+                return null;
+            }
+
+            return new SandboxClientWindow(process.MainWindowHandle, process.Id, TryReadStartTicks(process));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Trace.TraceWarning($"Sandbox client exited while reading its window identity: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>UTC start ticks, or 0 when Windows will not say.</summary>

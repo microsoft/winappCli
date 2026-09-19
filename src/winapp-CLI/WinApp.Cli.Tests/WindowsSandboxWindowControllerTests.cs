@@ -304,6 +304,51 @@ public class WindowsSandboxWindowControllerTests
     }
 
     [TestMethod]
+    public void RevalidateCandidate_VanishedWindow_DoesNotCauseFalseAmbiguity()
+    {
+        var original = Candidate(12, 200, OtherLauncher);
+        var session = Candidate(13, 300, OurLauncher);
+        var afterProbe = WindowsSandboxWindowController.RevalidateCandidate(original, current: null);
+        Assert.IsNull(afterProbe, "A vanished window is not an unknown live viewer.");
+        var controller = new WindowsSandboxWindowController(
+            () => afterProbe is null ? [session] : [afterProbe, session], isIconic: _ => false);
+        Assert.AreEqual(session.Window, controller.InspectClient(null).Window);
+    }
+
+    [TestMethod]
+    [DataRow(400, ClientStartTicks)]
+    [DataRow(200, ClientStartTicks + 1)]
+    public void RevalidateCandidate_ReplacedWindow_KeepsFreshUnknownIdentity(int handle, long startTicks)
+    {
+        var original = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var replacement = Client(12, handle, startTicks);
+        var afterProbe = WindowsSandboxWindowController.RevalidateCandidate(original, replacement);
+        Assert.IsNotNull(afterProbe);
+        Assert.AreEqual(replacement, afterProbe.Window);
+        Assert.AreEqual(SandboxClientSurface.Unknown, afterProbe.Surface);
+        Assert.IsNull(afterProbe.ParentProcessId, "Replacement identity must not inherit launcher proof.");
+        var controller = new WindowsSandboxWindowController(
+            () => [afterProbe, Candidate(13, 300, OtherLauncher)], isIconic: _ => false);
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(() => controller.InspectClient(null));
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
+    }
+
+    [TestMethod]
+    public void RevalidateCandidate_UnchangedUnknown_RemainsConservative()
+    {
+        var original = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.Unknown };
+        Assert.AreEqual(original, WindowsSandboxWindowController.RevalidateCandidate(original, original.Window));
+    }
+
+    [TestMethod]
+    public void RevalidateCandidate_ZeroHandle_IsNotALiveCandidate()
+    {
+        var original = Candidate(12, 200, OurLauncher);
+        Assert.IsNull(WindowsSandboxWindowController.RevalidateCandidate(
+            original, original.Window with { Handle = 0 }));
+    }
+
+    [TestMethod]
     public void EnsureClientReady_ClientBecomesErrorDuringRestore_FailsCapture()
     {
         var restored = false;
