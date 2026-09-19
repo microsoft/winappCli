@@ -225,6 +225,146 @@ public class WindowsSandboxWindowControllerTests
     }
 
     [TestMethod]
+    public void InspectClient_ErrorAlongsideSession_DoesNotCauseAmbiguityOrMoveWindows()
+    {
+        var error = Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var session = Candidate(13, 300, OurLauncher);
+        var moves = 0;
+        var controller = new WindowsSandboxWindowController(
+            () => [error, session], (_, _) => moves++, _ => false);
+
+        Assert.AreEqual(session.Window, controller.InspectClient(null).Window);
+        Assert.AreEqual(0, moves);
+    }
+
+    [TestMethod]
+    public void InspectClient_RememberedErrorOnly_FailsInsteadOfClaimingRenderedDesktop()
+    {
+        var error = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var controller = new WindowsSandboxWindowController(() => [error], isIconic: _ => false);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => controller.InspectClient(error.Window));
+        Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, failure.Error.Code);
+    }
+
+    [TestMethod]
+    public void InspectClient_UnknownAlongsideSession_StillFailsAmbiguous()
+    {
+        var unknown = Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.Unknown };
+        var controller = new WindowsSandboxWindowController(
+            () => [unknown, Candidate(13, 300, OurLauncher)], isIconic: _ => false);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(() => controller.InspectClient(null));
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
+    }
+
+    [TestMethod]
+    public void InspectClient_UnknownRememberedClient_DoesNotClaimReadiness()
+    {
+        var unknown = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.Unknown };
+        var controller = new WindowsSandboxWindowController(() => [unknown], isIconic: _ => false);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => controller.InspectClient(unknown.Window));
+        Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, failure.Error.Code);
+    }
+
+    [TestMethod]
+    public void InspectClient_RememberedTerminalError_DoesNotOverrideWorkingSession()
+    {
+        var error = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var session = Candidate(13, 300, OtherLauncher);
+        var controller = new WindowsSandboxWindowController(() => [error, session], isIconic: _ => false);
+
+        Assert.AreEqual(session.Window, controller.InspectClient(error.Window).Window);
+    }
+
+    [TestMethod]
+    public void SelectOwnedClient_ErrorOrUnknown_IsNeverParkedAsConnected()
+    {
+        foreach (var surface in new[] { SandboxClientSurface.TerminalError, SandboxClientSurface.Unknown })
+        {
+            var candidate = Candidate(12, 200, OurLauncher) with { Surface = surface };
+            var (client, ambiguous) = WindowsSandboxWindowController.SelectOwnedClient(Ownership(), [candidate]);
+            Assert.IsNull(client);
+            Assert.IsFalse(ambiguous);
+        }
+    }
+
+    [TestMethod]
+    public void SelectOwnedClient_TerminalErrorDoesNotDisplaceItsLaunchersSession()
+    {
+        var error = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var session = Candidate(13, 300, OurLauncher);
+        var (client, ambiguous) = WindowsSandboxWindowController.SelectOwnedClient(Ownership(), [error, session]);
+
+        Assert.AreEqual(session.Window, client);
+        Assert.IsFalse(ambiguous);
+    }
+
+    [TestMethod]
+    public void RevalidateCandidate_VanishedWindow_DoesNotCauseFalseAmbiguity()
+    {
+        var original = Candidate(12, 200, OtherLauncher);
+        var session = Candidate(13, 300, OurLauncher);
+        var afterProbe = WindowsSandboxWindowController.RevalidateCandidate(original, current: null);
+        Assert.IsNull(afterProbe, "A vanished window is not an unknown live viewer.");
+        var controller = new WindowsSandboxWindowController(
+            () => afterProbe is null ? [session] : [afterProbe, session], isIconic: _ => false);
+        Assert.AreEqual(session.Window, controller.InspectClient(null).Window);
+    }
+
+    [TestMethod]
+    [DataRow(400, ClientStartTicks)]
+    [DataRow(200, ClientStartTicks + 1)]
+    public void RevalidateCandidate_ReplacedWindow_KeepsFreshUnknownIdentity(int handle, long startTicks)
+    {
+        var original = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var replacement = Client(12, handle, startTicks);
+        var afterProbe = WindowsSandboxWindowController.RevalidateCandidate(original, replacement);
+        Assert.IsNotNull(afterProbe);
+        Assert.AreEqual(replacement, afterProbe.Window);
+        Assert.AreEqual(SandboxClientSurface.Unknown, afterProbe.Surface);
+        Assert.IsNull(afterProbe.ParentProcessId, "Replacement identity must not inherit launcher proof.");
+        var controller = new WindowsSandboxWindowController(
+            () => [afterProbe, Candidate(13, 300, OtherLauncher)], isIconic: _ => false);
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(() => controller.InspectClient(null));
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
+    }
+
+    [TestMethod]
+    public void RevalidateCandidate_UnchangedUnknown_RemainsConservative()
+    {
+        var original = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.Unknown };
+        Assert.AreEqual(original, WindowsSandboxWindowController.RevalidateCandidate(original, original.Window));
+    }
+
+    [TestMethod]
+    public void RevalidateCandidate_ZeroHandle_IsNotALiveCandidate()
+    {
+        var original = Candidate(12, 200, OurLauncher);
+        Assert.IsNull(WindowsSandboxWindowController.RevalidateCandidate(
+            original, original.Window with { Handle = 0 }));
+    }
+
+    [TestMethod]
+    public void EnsureClientReady_ClientBecomesErrorDuringRestore_FailsCapture()
+    {
+        var restored = false;
+        var session = Candidate(12, 200, OurLauncher);
+        var controller = new WindowsSandboxWindowController(
+            () => [session with { Surface = restored ? SandboxClientSurface.TerminalError : SandboxClientSurface.Session }],
+            (_, _) => restored = true,
+            _ => !restored,
+            () => Snapshot(900).ForegroundWindow);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
+            controller.EnsureClientReady(session.Window, TargetDesktopUse.PixelCapture));
+        Assert.AreEqual(ExecutionTargetErrorCodes.ArtifactFailed, failure.Error.Code);
+    }
+
+    [TestMethod]
     public void EnsureClientReady_Minimized_RestoresWithoutChangingForeground()
     {
         var minimized = true;
@@ -497,7 +637,7 @@ public class WindowsSandboxWindowControllerTests
         nint handle,
         int? parentProcessId,
         long startTicksUtc = ClientStartTicks) =>
-        new(Client(processId, handle, startTicksUtc), parentProcessId);
+        new(Client(processId, handle, startTicksUtc), parentProcessId, SandboxClientSurface.Session);
 
     /// <summary>
     /// A desktop whose client windows change on a script, with time advancing only when the
