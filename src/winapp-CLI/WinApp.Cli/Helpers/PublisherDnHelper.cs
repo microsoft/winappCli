@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 
 namespace WinApp.Cli.Helpers;
@@ -37,12 +38,36 @@ internal static class PublisherDnHelper
     /// If the input is already a valid DN, it is returned as-is.
     /// Bare names (without an attribute type prefix) are wrapped with CN=.
     /// </summary>
-    /// <exception cref="ArgumentException">Thrown when input is empty or whitespace.</exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when the input is empty, contains an empty-valued DN component (e.g. "CN="),
+    /// or looks like a distinguished name but cannot be parsed as one (e.g. "CN=A,,O=B").
+    /// </exception>
     public static string Normalize(string publisher)
     {
+        if (!TryNormalize(publisher, out var normalized, out var error))
+        {
+            throw new ArgumentException(error, nameof(publisher));
+        }
+        return normalized;
+    }
+
+    /// <summary>
+    /// Attempts to normalize publisher input to a valid X.500 distinguished name without throwing.
+    /// Returns false with a user-facing <paramref name="error"/> message (naming the offending
+    /// component where applicable) when the input cannot be turned into a usable publisher DN.
+    /// </summary>
+    public static bool TryNormalize(
+        string? publisher,
+        [NotNullWhen(true)] out string? normalized,
+        [NotNullWhen(false)] out string? error)
+    {
+        normalized = null;
+        error = null;
+
         if (string.IsNullOrWhiteSpace(publisher))
         {
-            throw new ArgumentException("Publisher name cannot be empty.", nameof(publisher));
+            error = "Publisher name cannot be empty.";
+            return false;
         }
 
         // Strip wrapper quotes only if the entire value is enclosed in matching quotes.
@@ -58,19 +83,114 @@ internal static class PublisherDnHelper
 
         if (string.IsNullOrWhiteSpace(trimmed))
         {
-            throw new ArgumentException("Publisher name cannot be empty.", nameof(publisher));
+            error = "Publisher name cannot be empty.";
+            return false;
         }
 
         if (IsDistinguishedName(trimmed))
         {
-            return trimmed;
+            // A DN can parse yet still carry an empty value (e.g. "CN=" or "CN=A, O="), or use a
+            // multi-valued RDN (e.g. "CN=A+O="). Such a publisher can never match a manifest
+            // Identity/@Publisher, so reject it rather than accept it silently.
+            if (!TryValidateDnComponents(trimmed, out var componentError))
+            {
+                error = componentError;
+                return false;
+            }
+
+            normalized = trimmed;
+            return true;
         }
 
-        // Use X500DistinguishedNameBuilder to properly escape the bare name value
-        // (handles commas, special chars, etc.) instead of raw string interpolation.
+        // Not a valid DN. If the input begins with a distinguished-name attribute assignment
+        // (e.g. "CN=..." or a leading "="), it is a malformed DN attempt — reject it instead of
+        // silently wrapping the whole string as a literal CN value (which produced a certificate
+        // matching nothing the user asked for). A plain name that merely contains '=' further in
+        // (e.g. "R&D = Team") is treated as a bare name and wrapped.
+        if (LooksLikeDistinguishedNameAttempt(trimmed))
+        {
+            error = $"Publisher '{trimmed}' is not a valid distinguished name (DN). " +
+                    "Use a plain name (wrapped as CN=<name>) or a valid DN such as 'CN=Contoso, O=Contoso, C=US'.";
+            return false;
+        }
+
+        // Bare name: wrap with CN= using the builder to properly escape commas, special chars, etc.
         var builder = new X500DistinguishedNameBuilder();
         builder.AddCommonName(trimmed);
-        return builder.Build().Name;
+        normalized = builder.Build().Name;
+        return true;
+    }
+
+    /// <summary>
+    /// Validates that every component of an already-parsed distinguished name carries a value and
+    /// is single-valued. Returns false with a user-facing <paramref name="error"/> naming the
+    /// offending component (or the multi-valued RDN) otherwise.
+    /// </summary>
+    private static bool TryValidateDnComponents(string distinguishedName, [NotNullWhen(false)] out string? error)
+    {
+        error = null;
+        try
+        {
+            var x500 = new X500DistinguishedName(distinguishedName);
+            foreach (var rdn in x500.EnumerateRelativeDistinguishedNames())
+            {
+                // Multi-valued RDNs (a+b) are never used for a certificate publisher and can hide an
+                // empty value inside them, so reject them outright rather than trying to match one.
+                if (rdn.HasMultipleElements)
+                {
+                    error = $"Publisher '{distinguishedName}' uses a multi-valued relative distinguished " +
+                            "name (RDN), which is not supported for a certificate publisher. " +
+                            "Use single-valued components such as 'CN=Contoso, O=Contoso'.";
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(rdn.GetSingleElementValue()))
+                {
+                    var type = rdn.GetSingleElementType();
+                    error = $"Publisher '{distinguishedName}' has an empty '{type.FriendlyName ?? type.Value ?? "?"}' value. " +
+                            $"Provide a value, for example '{type.FriendlyName ?? "CN"}=Contoso'.";
+                    return false;
+                }
+            }
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            // IsDistinguishedName accepted the string but decoding an individual component failed
+            // (e.g. an ill-formed character). Treat it as an unusable DN rather than throwing out of
+            // this non-throwing API.
+            error = $"Publisher '{distinguishedName}' is not a valid distinguished name (DN). " +
+                    "Use a plain name (wrapped as CN=<name>) or a valid DN such as 'CN=Contoso, O=Contoso, C=US'.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true when the input begins like an X.500 distinguished name — a leading attribute
+    /// type (e.g. "CN", "O", or a numeric OID) immediately followed by '=', or a leading '=' with
+    /// an empty attribute type. A plain name whose first '=' is preceded by non-attribute text
+    /// (e.g. "R&amp;D = Team") returns false so it is wrapped as a bare CN.
+    /// </summary>
+    private static bool LooksLikeDistinguishedNameAttempt(string value)
+    {
+        var equalsIndex = value.IndexOf('=');
+        if (equalsIndex < 0)
+        {
+            return false;
+        }
+
+        var attributeType = value[..equalsIndex].Trim();
+        if (attributeType.Length == 0)
+        {
+            return true; // e.g. "=Contoso"
+        }
+
+        // X.500 attribute types are short alphabetic keywords (CN, O, OU, DC, ...) or a numeric OID
+        // (2.5.4.3). Anything else before the first '=' is part of a bare name, not a DN attempt.
+        var isAlphaKeyword = attributeType.All(char.IsAsciiLetter);
+        var isOid = attributeType.All(c => char.IsAsciiDigit(c) || c == '.') && attributeType.Any(char.IsAsciiDigit);
+        return isAlphaKeyword || isOid;
     }
 
     /// <summary>

@@ -44,6 +44,41 @@ public class CertGenerateCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("CN=", DisplayName = "Empty CN value")]
+    [DataRow("=Contoso", DisplayName = "Leading equals")]
+    [DataRow("CN=A,,O=B", DisplayName = "Unparseable DN")]
+    public async Task MalformedPublisher_NonJson_ReturnsErrorWithoutGenerating(string publisher)
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Join(_tempDirectory.FullName, "malformed-publisher.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", publisher, "--output", pfxPath, "--password", "testpw"]);
+
+        Assert.AreEqual(1, exitCode, "A malformed --publisher must be rejected before generating a PFX.");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Publisher");
+        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for a malformed publisher.");
+    }
+
+    [TestMethod]
+    [DataRow("", DisplayName = "Empty string")]
+    [DataRow("   ", DisplayName = "Whitespace only")]
+    public async Task ExplicitEmptyPublisher_NonJson_ReturnsErrorWithoutGenerating(string publisher)
+    {
+        // An explicitly supplied empty --publisher must fail loudly rather than silently fall back
+        // to the inferred/default publisher and generate a certificate for the wrong identity.
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Join(_tempDirectory.FullName, "empty-publisher.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", publisher, "--output", pfxPath, "--password", "testpw"]);
+
+        Assert.AreEqual(1, exitCode, "An explicitly empty --publisher must be rejected.");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Publisher name cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty publisher.");
+    }
+
+    [TestMethod]
     public void OutputOption_AcceptsPlainFileName()
     {
         // Arrange
@@ -423,6 +458,22 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
         StringAssert.Contains(errorProp.GetString(), "password cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath));
+    }
+
+    [TestMethod]
+    public async Task MalformedPublisher_Json_OutputsJsonError()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Join(_tempDirectory.FullName, "malformed-publisher-json.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", "CN=A,,O=B", "--output", pfxPath, "--password", "testpw", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+        Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
+        StringAssert.Contains(errorProp.GetString(), "distinguished name");
         Assert.IsFalse(File.Exists(pfxPath));
     }
 }

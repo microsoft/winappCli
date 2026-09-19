@@ -131,6 +131,21 @@ internal class CertGenerateCommand : Command, IShortDescription
                 return 1;
             }
 
+            // Validate an explicit publisher up front so a malformed distinguished name — or an
+            // explicitly empty value — fails with a clear, actionable message instead of silently
+            // generating a certificate that can never match the manifest Identity/@Publisher.
+            // `publisher` is null only when --publisher was omitted (inference then applies); a
+            // supplied-but-empty value must still be rejected rather than fall through to a default.
+            if (publisher is not null && !PublisherDnHelper.TryNormalize(publisher, out _, out var publisherError))
+            {
+                if (json)
+                {
+                    return JsonErrorOutput.Write(ansiConsole, publisherError);
+                }
+                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, publisherError);
+                return 1;
+            }
+
             CertificateService.CertificateResult? certResult = null;
 
             var returnCode = await statusService.ExecuteWithStatusAsync("Generating development certificate...", async (taskContext, ct) =>

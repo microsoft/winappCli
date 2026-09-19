@@ -1357,7 +1357,7 @@ winapp cert generate [options]
 **Options:**
 
 - `--manifest <Package.appxmanifest>` - Extract publisher information from Package.appxmanifest 
-- `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`
+- `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`. A malformed distinguished name (e.g. `CN=` or `CN=A,,O=B`) is rejected with a non-zero exit and an error naming the problem, rather than producing a certificate that can never match the manifest publisher.
 - `--output <path>` - Output certificate file path (supports absolute and relative paths)
 - `--password <password>` - Certificate password (default: "password")
 - `--valid-days <valid-days>` - Number of days the certificate is valid (default: 365)

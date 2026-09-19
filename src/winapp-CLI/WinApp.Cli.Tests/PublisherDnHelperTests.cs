@@ -74,6 +74,68 @@ public class PublisherDnHelperTests
     }
 
     [TestMethod]
+    [DataRow("CN=", "CN", DisplayName = "Empty CN value")]
+    [DataRow("CN=A, O=", "O", DisplayName = "Empty trailing component value")]
+    public void Normalize_RejectsEmptyValuedComponent(string input, string componentName)
+    {
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, componentName, "The error must name the offending empty component.");
+    }
+
+    [TestMethod]
+    [DataRow("=Contoso", DisplayName = "Leading equals")]
+    [DataRow("CN=A,,O=B", DisplayName = "Empty RDN between components")]
+    public void Normalize_RejectsMalformedDnAttempt(string input)
+    {
+        // Inputs that look like a DN (start with an attribute assignment) but do not parse must be
+        // rejected rather than silently wrapped as a literal CN value.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "distinguished name");
+    }
+
+    [TestMethod]
+    [DataRow("CN=A+O=", DisplayName = "Multi-valued RDN with an empty value")]
+    [DataRow("CN=Foo+OU=Bar", DisplayName = "Multi-valued RDN with values")]
+    public void Normalize_RejectsMultiValuedRdn(string input)
+    {
+        // A multi-valued RDN (a+b) is never used for a publisher and can hide an empty value, so it
+        // is rejected outright rather than accepted.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "multi-valued");
+    }
+
+    [TestMethod]
+    [DataRow("R&D = Team", DisplayName = "Ampersand and spaces around equals")]
+    [DataRow("Contoso (a=b)", DisplayName = "Equals inside parentheses")]
+    public void Normalize_BareNameContainingEquals_WrapsAsCn(string input)
+    {
+        // A plain name whose first '=' is preceded by non-attribute text is a bare name, not a DN
+        // attempt, so it is wrapped as CN=<name> (the documented behavior) rather than rejected.
+        var result = PublisherDnHelper.Normalize(input);
+        Assert.IsTrue(PublisherDnHelper.IsDistinguishedName(result), $"Result should be a valid DN: {result}");
+        StringAssert.StartsWith(result, "CN=");
+    }
+
+    [TestMethod]
+    public void TryNormalize_ValidBareName_WrapsAsCn()
+    {
+        Assert.IsTrue(PublisherDnHelper.TryNormalize("Contoso", out var normalized, out var error));
+        Assert.AreEqual("CN=Contoso", normalized);
+        Assert.IsNull(error);
+    }
+
+    [TestMethod]
+    [DataRow("CN=", DisplayName = "Empty CN value")]
+    [DataRow("CN=A,,O=B", DisplayName = "Unparseable DN")]
+    [DataRow("CN=A+O=", DisplayName = "Multi-valued RDN with an empty value")]
+    public void TryNormalize_MalformedInput_ReturnsFalseWithMessage(string input)
+    {
+        Assert.IsFalse(PublisherDnHelper.TryNormalize(input, out var normalized, out var error));
+        Assert.IsNull(normalized);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(error), "A user-facing error message must be provided.");
+    }
+
+    [TestMethod]
     public void Normalize_PreservesInternalQuotes()
     {
         // A DN with quoted value should NOT have its quotes stripped
