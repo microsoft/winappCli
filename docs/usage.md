@@ -903,6 +903,8 @@ own manifest — see [Bring your own manifest](#bring-your-own-manifest) below.
 winapp run counter.cs
 ```
 
+Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
+
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
 ```csharp
@@ -1070,6 +1072,58 @@ launches the `.exe` directly. (A packaged app is launched through its execution 
 activation — see the console note above; that choice is separate from whether it is packaged.) The
 identity options (`--no-launch`, `--with-alias`, `--without-alias`, `--clean`, `--unregister-on-exit`,
 `--manifest`, `--output-appx-directory`) apply to packaged apps only.
+
+##### Running with `dotnet run`
+
+You don't have to type `winapp` at all. Reference the
+[`Microsoft.Windows.SDK.BuildTools.WinApp`](../src/winapp-NuGet/README.md) package from the file and
+plain `dotnet run` gives you the same packaged launch:
+
+```csharp
+#:package Microsoft.Windows.SDK.BuildTools.WinApp@*
+#:property OutputType=Exe
+#:property TargetFramework=net10.0-windows10.0.19041.0
+
+System.Console.WriteLine(Windows.ApplicationModel.Package.Current.Id.FamilyName);
+```
+
+```bash
+dotnet run counter.cs
+```
+
+The package's MSBuild targets redirect the run to winapp, which packages, registers, and launches the
+app that `dotnet run` just built — it is not rebuilt. Manifest handling is unchanged: winapp resolves
+it exactly as it does for `winapp run`, so `#:property WinAppManifestPath=…` and a
+`<filename>.appxmanifest` beside the `.cs` are both honoured (see
+[Bring your own manifest](#bring-your-own-manifest)), a directory-wide `Package.appxmanifest` is still
+ignored, and otherwise one is generated from your `#:property` directives and refreshed every run.
+
+Two conditions have to hold for the redirect to happen:
+
+| Directive | Why |
+|-----------|-----|
+| `#:package Microsoft.Windows.SDK.BuildTools.WinApp@*` | the targets doing the redirect ship in this package |
+| `#:property TargetFramework=net10.0-windows…` | a plain `net10.0` file is left alone, so it runs unpackaged |
+
+Adding `#:property WindowsPackageType=None` also leaves the file alone: `dotnet run` then runs the
+`.exe` directly, without identity. Use `winapp run` for the unpackaged path if you want the matching
+Windows App Runtime installed first.
+
+Set `#:property EnableWinAppRunSupport=false` to opt out of the redirect entirely, and the
+`WinAppRun*` properties described under
+[Configuration](../src/winapp-NuGet/README.md#configuration) to shape the launch — for example:
+
+```csharp
+#:property WinAppRunUnregisterOnExit=true
+```
+
+If `dotnet run` runs the app unpackaged when you expected identity, ask MSBuild why. Use
+`dotnet build`, not `dotnet msbuild` — only `dotnet build` synthesizes the virtual project that a
+file-based app is compiled through:
+
+```bash
+dotnet build counter.cs -t:WinAppRunSupportInfo
+```
 
 Single-file mode requires the **.NET SDK 10.0.300 or newer**.
 
