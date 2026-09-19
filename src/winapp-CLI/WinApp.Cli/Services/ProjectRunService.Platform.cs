@@ -81,6 +81,18 @@ internal sealed partial class ProjectRunService
         var platformInEffect = userPlatform || token is not null;
         var omitRid = !requireConcreteRid && platformInEffect && ridSplit;
 
+        // A lone -p RuntimeIdentifier (ExactRuntimeIdentifier) is an explicit exact-RID request. If this graph
+        // would otherwise drop the RID, honoring the request by forcing it back in reintroduces the APPX1101
+        // duplicate-output failure, and silently dropping it contradicts the request — so reject explicitly.
+        if (omitRid && !string.IsNullOrEmpty(options.ExactRuntimeIdentifier))
+        {
+            throw new ProjectRunException(
+                $"-p RuntimeIdentifier={options.ExactRuntimeIdentifier} cannot be honored for this project: its " +
+                "ProjectReference graph removes RuntimeIdentifier when a Platform is in effect, which would drop " +
+                "the requested RID. Select the architecture with --arch instead, or stop removing " +
+                "RuntimeIdentifier from the ProjectReference.");
+        }
+
         return options with
         {
             Platform = token ?? options.Platform,
