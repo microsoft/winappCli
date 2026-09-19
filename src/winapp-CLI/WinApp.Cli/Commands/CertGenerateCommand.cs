@@ -131,6 +131,30 @@ internal class CertGenerateCommand : Command, IShortDescription
                 return 1;
             }
 
+            // When --manifest is named explicitly (and no --publisher overrides it), the caller is
+            // asking the certificate to match that manifest's Identity/@Publisher. Resolve it up front
+            // so a manifest that can't yield a publisher fails with a clear error here — before the
+            // status task — instead of silently falling back to the system default and producing a
+            // certificate that can never match the manifest (issue #839).
+            if (manifestPath != null && string.IsNullOrWhiteSpace(publisher))
+            {
+                try
+                {
+                    publisher = await MsixService.ExtractPublisherFromPathAsync(manifestPath, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    var message = $"Could not extract the publisher from the manifest '{manifestPath}': {ex.Message}. " +
+                        "Fix the manifest's Identity Publisher attribute, or pass --publisher explicitly.";
+                    if (json)
+                    {
+                        return JsonErrorOutput.Write(ansiConsole, message);
+                    }
+                    logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
+                    return 1;
+                }
+            }
+
             CertificateService.CertificateResult? certResult = null;
 
             var returnCode = await statusService.ExecuteWithStatusAsync("Generating development certificate...", async (taskContext, ct) =>

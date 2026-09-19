@@ -43,6 +43,55 @@ public class CertGenerateCommandTests : BaseCommandTests
         Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created for an empty password.");
     }
 
+    // ── explicit --manifest publisher resolution (issue #839) ───────────
+
+    [TestMethod]
+    public async Task ExplicitManifest_MissingPublisher_NonJson_ReturnsError()
+    {
+        // A named --manifest that has no usable Identity/@Publisher must fail with an actionable
+        // error instead of silently falling back to the OS user name (issue #839).
+        var command = GetRequiredService<CertGenerateCommand>();
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "NoPublisher.appxmanifest");
+        await File.WriteAllTextAsync(manifestPath, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Version="1.0.0.0" />
+            </Package>
+            """);
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "no-publisher.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Could not extract the publisher from the manifest");
+        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created when the manifest has no publisher.");
+    }
+
+    [TestMethod]
+    public async Task ExplicitManifest_PublisherOnly_UsesManifestPublisher()
+    {
+        // A partially-complete manifest (valid Identity/@Publisher, no Applications element) is common
+        // mid-development. The certificate must use that publisher, not the OS user name (issue #839).
+        var command = GetRequiredService<CertGenerateCommand>();
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "Partial.appxmanifest");
+        await File.WriteAllTextAsync(manifestPath, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Publisher="CN=FlowHarnessPublisher, O=Fabrikam Inc, C=US" Version="1.0.0.0" />
+            </Package>
+            """);
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "partial.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw"]);
+
+        Assert.AreEqual(0, exitCode, "A manifest with a valid publisher but no Applications element must still succeed.");
+        Assert.IsTrue(File.Exists(pfxPath), "The certificate should be created.");
+        using var cert = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12FromFile(pfxPath, "testpw");
+        StringAssert.Contains(cert.Subject, "FlowHarnessPublisher");
+    }
+
     [TestMethod]
     public void OutputOption_AcceptsPlainFileName()
     {
@@ -423,6 +472,32 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
         Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
         StringAssert.Contains(errorProp.GetString(), "password cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath));
+    }
+
+    [TestMethod]
+    public async Task ExplicitManifest_MissingPublisher_Json_OutputsSingleJsonError()
+    {
+        // The VS Code extension passes --manifest with --json. A manifest that can't yield a publisher
+        // must produce exactly one structured error document — not empty stdout, and not two documents
+        // (issue #839). JsonDocument.Parse over the full output verifies it is a single JSON document.
+        var command = GetRequiredService<CertGenerateCommand>();
+        var manifestPath = Path.Combine(_tempDirectory.FullName, "NoPublisher.appxmanifest");
+        await File.WriteAllTextAsync(manifestPath, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Version="1.0.0.0" />
+            </Package>
+            """);
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "no-publisher-json.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+        Assert.IsTrue(root.TryGetProperty("error", out var errorProp), "JSON error output should contain 'error' property");
+        StringAssert.Contains(errorProp.GetString(), "Could not extract the publisher from the manifest");
         Assert.IsFalse(File.Exists(pfxPath));
     }
 }

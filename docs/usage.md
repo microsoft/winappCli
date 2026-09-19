@@ -1356,7 +1356,7 @@ winapp cert generate [options]
 
 **Options:**
 
-- `--manifest <Package.appxmanifest>` - Extract publisher information from Package.appxmanifest 
+- `--manifest <Package.appxmanifest>` - Extract the certificate publisher from the manifest's `Identity/@Publisher`. Only the publisher is required, so a partially-complete manifest still works. If the manifest has no usable publisher, the command fails instead of substituting a default, so the certificate can never silently mismatch the manifest.
 - `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`
 - `--output <path>` - Output certificate file path (supports absolute and relative paths)
 - `--password <password>` - Certificate password (default: "password")
