@@ -145,8 +145,8 @@ internal partial class CertificateService(
                 try
                 {
                     // Load the certificate to get its thumbprint/subject for comparison
-                    using var certToCheck = X509CertificateLoader.LoadPkcs12FromFile(
-                        certPath.FullName,
+                    using var certToCheck = LoadCertificateForInstall(
+                        certPath,
                         password,
                         X509KeyStorageFlags.Exportable);
 
@@ -164,12 +164,15 @@ internal partial class CertificateService(
                 }
             }
 
-            // Install to TrustedPeople store (required for MSIX sideloading)
-            // Load the certificate from the PFX file. The key-storage flags are seamed so unit
-            // tests load with EphemeralKeySet (no persisted key container); production uses the
-            // default MachineKeySet|PersistKeySet so the installed certificate stays usable.
-            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                certPath.FullName,
+            // Install to TrustedPeople store (required for MSIX sideloading).
+            // A PFX carries a private key; a public-only .cer (e.g. one produced by
+            // `cert generate --export-cer`) is loaded as a certificate-only object. Either is
+            // valid to trust — the TrustedPeople store only needs the public certificate. The
+            // key-storage flags are seamed so unit tests load a PFX with EphemeralKeySet (no
+            // persisted key container); production uses the default MachineKeySet|PersistKeySet
+            // so an installed PFX stays usable.
+            using var cert = LoadCertificateForInstall(
+                certPath,
                 password,
                 InstallKeyStorageFlags);
 
@@ -193,6 +196,26 @@ internal partial class CertificateService(
         {
             throw new InvalidOperationException($"Failed to install development certificate: {error.Message}", error);
         }
+    }
+
+    /// <summary>
+    /// Loads a certificate for a trust-store install, accepting either a PKCS#12 (.pfx) file or a
+    /// public-only DER/PEM (.cer) file. The format is detected up front with
+    /// <see cref="X509Certificate2.GetCertContentType(string)"/> — which classifies PFX and
+    /// certificate files without needing the password — so a PKCS#12 file always loads through the
+    /// PFX path. A public-only .cer (e.g. one produced by `cert generate --export-cer`) loads as a
+    /// certificate-only object, which is all the TrustedPeople store needs to trust it. Detecting
+    /// rather than catch-and-fallback keeps a genuine PFX error (such as a wrong password) as the
+    /// error the user sees instead of masking it with a certificate-decoding failure.
+    /// </summary>
+    private static X509Certificate2 LoadCertificateForInstall(
+        FileInfo certPath,
+        string password,
+        X509KeyStorageFlags pfxKeyStorageFlags)
+    {
+        return X509Certificate2.GetCertContentType(certPath.FullName) == X509ContentType.Pfx
+            ? X509CertificateLoader.LoadPkcs12FromFile(certPath.FullName, password, pfxKeyStorageFlags)
+            : X509CertificateLoader.LoadCertificateFromFile(certPath.FullName);
     }
 
     /// <summary>
