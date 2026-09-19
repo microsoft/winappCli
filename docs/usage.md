@@ -1368,7 +1368,7 @@ winapp cert generate [options]
 
 #### cert info
 
-Display certificate details from a PFX file. Useful for verifying a certificate matches your manifest before signing.
+Display certificate details from a PFX or CER file. Useful for verifying a certificate matches your manifest before signing.
 
 ```bash
 winapp cert info <cert-path> [options]
@@ -1376,11 +1376,11 @@ winapp cert info <cert-path> [options]
 
 **Arguments:**
 
-- `cert-path` - Path to the certificate file (PFX)
+- `cert-path` - Path to the certificate file (PFX or CER)
 
 **Options:**
 
-- `--password <password>` - Password for the PFX file (default: "password")
+- `--password <password>` - Password for the PFX file, ignored for a public CER (default: "password")
 - `--json` - Format output as JSON
 
 #### cert install

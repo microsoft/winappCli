@@ -145,7 +145,7 @@ internal partial class CertificateService(
                 try
                 {
                     // Load the certificate to get its thumbprint/subject for comparison
-                    using var certToCheck = LoadCertificateForInstall(
+                    using var certToCheck = LoadCertificate(
                         certPath,
                         password,
                         X509KeyStorageFlags.Exportable);
@@ -171,7 +171,7 @@ internal partial class CertificateService(
             // key-storage flags are seamed so unit tests load a PFX with EphemeralKeySet (no
             // persisted key container); production uses the default MachineKeySet|PersistKeySet
             // so an installed PFX stays usable.
-            using var cert = LoadCertificateForInstall(
+            using var cert = LoadCertificate(
                 certPath,
                 password,
                 InstallKeyStorageFlags);
@@ -199,16 +199,17 @@ internal partial class CertificateService(
     }
 
     /// <summary>
-    /// Loads a certificate for a trust-store install, accepting either a PKCS#12 (.pfx) file or a
-    /// public-only DER/PEM (.cer) file. The format is detected up front with
-    /// <see cref="X509Certificate2.GetCertContentType(string)"/> — which classifies PFX and
-    /// certificate files without needing the password — so a PKCS#12 file always loads through the
-    /// PFX path. A public-only .cer (e.g. one produced by `cert generate --export-cer`) loads as a
-    /// certificate-only object, which is all the TrustedPeople store needs to trust it. Detecting
-    /// rather than catch-and-fallback keeps a genuine PFX error (such as a wrong password) as the
-    /// error the user sees instead of masking it with a certificate-decoding failure.
+    /// Loads a certificate from either a PKCS#12 (.pfx) file or a public-only DER/PEM (.cer) file.
+    /// The format is detected up front with <see cref="X509Certificate2.GetCertContentType(string)"/>
+    /// — which classifies PFX and certificate files without needing the password — so a PKCS#12
+    /// file always loads through the PFX path. A public-only .cer (e.g. one produced by
+    /// `cert generate --export-cer`) loads as a certificate-only object. Detecting rather than
+    /// catch-and-fallback keeps a genuine PFX error (such as a wrong password) as the error the
+    /// user sees instead of masking it with a certificate-decoding failure. <paramref name="pfxKeyStorageFlags"/>
+    /// applies only to the PFX path; a .cer carries no private key, so the flags and password are
+    /// ignored for it.
     /// </summary>
-    private static X509Certificate2 LoadCertificateForInstall(
+    internal static X509Certificate2 LoadCertificate(
         FileInfo certPath,
         string password,
         X509KeyStorageFlags pfxKeyStorageFlags)

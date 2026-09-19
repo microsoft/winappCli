@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
@@ -99,6 +101,28 @@ public class CertInfoCommandTests : BaseCommandTests
         StringAssert.Contains(output, "Not Before:");
         StringAssert.Contains(output, "Not After:");
         StringAssert.Contains(output, "Has Private Key: True");
+    }
+
+    [TestMethod]
+    public async Task Invoke_DisplaysPublicCerDetails()
+    {
+        // A public-only .cer (as produced by `cert generate --export-cer`) must be readable by
+        // `cert info` — it has no private key, so the password is irrelevant.
+        var cerPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "public-info.cer"));
+        using (var rsa = RSA.Create(2048))
+        {
+            var req = new CertificateRequest("CN=CertInfoCerPublisher", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(30));
+            File.WriteAllBytes(cerPath.FullName, cert.Export(X509ContentType.Cert));
+        }
+
+        var command = GetRequiredService<CertInfoCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [cerPath.FullName]);
+        Assert.AreEqual(0, exitCode, "cert info should read a public .cer");
+
+        var output = TestAnsiConsole.Output;
+        StringAssert.Contains(output, "CertInfoCerPublisher");
+        StringAssert.Contains(output, "Has Private Key: False");
     }
 
     // ── Invocation tests: JSON output ───────────────────────────────────
