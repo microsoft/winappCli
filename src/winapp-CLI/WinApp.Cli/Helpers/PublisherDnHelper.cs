@@ -87,6 +87,18 @@ internal static class PublisherDnHelper
             return false;
         }
 
+        // The MSIX package manifest publisher type (ST_Publisher_2010_v2) has no escape sequences,
+        // so a backslash — whether a literal character or an X.500 escape (e.g. "CN=Contoso\Bar" or
+        // "CN=Contoso\, Inc") — can never match Identity/@Publisher. Reject it before both the
+        // parsed-DN and bare-name paths rather than emit a certificate that silently will not match.
+        if (trimmed.Contains('\\'))
+        {
+            error = $"Publisher '{trimmed}' contains a backslash, which the MSIX package manifest " +
+                    "publisher cannot represent. Remove the backslash so the certificate can match " +
+                    "the manifest Identity/@Publisher.";
+            return false;
+        }
+
         if (IsDistinguishedName(trimmed))
         {
             // A DN can parse yet still carry an empty value (e.g. "CN=" or "CN=A, O="), or use a
@@ -168,9 +180,9 @@ internal static class PublisherDnHelper
 
     /// <summary>
     /// Returns true when the input begins like an X.500 distinguished name — a leading attribute
-    /// type (e.g. "CN", "O", or a numeric OID) immediately followed by '=', or a leading '=' with
-    /// an empty attribute type. A plain name whose first '=' is preceded by non-attribute text
-    /// (e.g. "R&amp;D = Team") returns false so it is wrapped as a bare CN.
+    /// type (e.g. "CN", "O", a numeric OID, or an "OID."-prefixed OID) immediately followed by '=',
+    /// or a leading '=' with an empty attribute type. A plain name whose first '=' is preceded by
+    /// non-attribute text (e.g. "R&amp;D = Team") returns false so it is wrapped as a bare CN.
     /// </summary>
     private static bool LooksLikeDistinguishedNameAttempt(string value)
     {
@@ -186,10 +198,14 @@ internal static class PublisherDnHelper
             return true; // e.g. "=Contoso"
         }
 
-        // X.500 attribute types are short alphabetic keywords (CN, O, OU, DC, ...) or a numeric OID
-        // (2.5.4.3). Anything else before the first '=' is part of a bare name, not a DN attempt.
+        // X.500 attribute types are short alphabetic keywords (CN, O, OU, DC, ...) or an object
+        // identifier, which .NET accepts either bare (2.5.4.3) or with the standard "OID." prefix
+        // (OID.2.5.4.3). Anything else before the first '=' is part of a bare name, not a DN attempt.
         var isAlphaKeyword = attributeType.All(char.IsAsciiLetter);
-        var isOid = attributeType.All(c => char.IsAsciiDigit(c) || c == '.') && attributeType.Any(char.IsAsciiDigit);
+        var oidBody = attributeType.StartsWith("OID.", StringComparison.OrdinalIgnoreCase)
+            ? attributeType[4..]
+            : attributeType;
+        var isOid = oidBody.Length > 0 && oidBody.All(c => char.IsAsciiDigit(c) || c == '.') && oidBody.Any(char.IsAsciiDigit);
         return isAlphaKeyword || isOid;
     }
 

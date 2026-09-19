@@ -85,12 +85,26 @@ public class PublisherDnHelperTests
     [TestMethod]
     [DataRow("=Contoso", DisplayName = "Leading equals")]
     [DataRow("CN=A,,O=B", DisplayName = "Empty RDN between components")]
+    [DataRow("OID.2.5.4.3=A,,O=B", DisplayName = "OID.-prefixed malformed DN")]
+    [DataRow("2.5.4.3=A,,O=B", DisplayName = "Bare-OID malformed DN")]
     public void Normalize_RejectsMalformedDnAttempt(string input)
     {
-        // Inputs that look like a DN (start with an attribute assignment) but do not parse must be
-        // rejected rather than silently wrapped as a literal CN value.
+        // Inputs that look like a DN (start with an attribute assignment, incl. an OID or "OID."
+        // prefix) but do not parse must be rejected rather than silently wrapped as a literal CN.
         var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
         StringAssert.Contains(ex.Message, "distinguished name");
+    }
+
+    [TestMethod]
+    [DataRow("CN=Contoso\\Bar", DisplayName = "Literal backslash in a DN value")]
+    [DataRow("CN=Contoso\\, Inc", DisplayName = "X.500 escaped comma")]
+    [DataRow("Contoso\\Bar", DisplayName = "Backslash in a bare name")]
+    public void Normalize_RejectsBackslash(string input)
+    {
+        // The MSIX manifest publisher type cannot represent a backslash, so any publisher containing
+        // one can never match Identity/@Publisher and is rejected up front.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "backslash");
     }
 
     [TestMethod]
