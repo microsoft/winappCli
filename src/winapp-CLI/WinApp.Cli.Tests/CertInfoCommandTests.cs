@@ -108,7 +108,7 @@ public class CertInfoCommandTests : BaseCommandTests
     {
         // A public-only .cer (as produced by `cert generate --export-cer`) must be readable by
         // `cert info` — it has no private key, so the password is irrelevant.
-        var cerPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "public-info.cer"));
+        var cerPath = new FileInfo(Path.Join(_tempDirectory.FullName, "public-info.cer"));
         using (var rsa = RSA.Create(2048))
         {
             var req = new CertificateRequest("CN=CertInfoCerPublisher", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);

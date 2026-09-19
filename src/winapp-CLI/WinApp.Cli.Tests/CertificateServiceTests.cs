@@ -44,7 +44,7 @@ public class CertificateServiceTests : BaseCommandTests
 
     private static FileInfo CreatePfx(string dir, string fileName, string subject, string password)
     {
-        var path = Path.Combine(dir, Path.GetFileName(fileName));
+        var path = Path.Join(dir, fileName);
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(2));
@@ -54,7 +54,7 @@ public class CertificateServiceTests : BaseCommandTests
 
     private static FileInfo CreateCer(string dir, string fileName, string subject)
     {
-        var path = Path.Combine(dir, Path.GetFileName(fileName));
+        var path = Path.Join(dir, fileName);
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(2));
@@ -65,7 +65,7 @@ public class CertificateServiceTests : BaseCommandTests
 
     private static FileInfo CreateManifest(string dir, string fileName, string publisher)
     {
-        var path = Path.Combine(dir, Path.GetFileName(fileName));
+        var path = Path.Join(dir, fileName);
         var xml = $"""
             <?xml version="1.0" encoding="utf-8"?>
             <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
