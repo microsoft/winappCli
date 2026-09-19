@@ -94,7 +94,7 @@ public class MsixServicePackagingTests : BaseCommandTests
     [TestMethod]
     public async Task ExtractPublisherFromPathAsync_NonexistentFile_ThrowsFileNotFoundException()
     {
-        var missing = new FileInfo(Path.Combine(_tempDirectory.FullName, "does-not-exist.xml"));
+        var missing = new FileInfo(Path.Join(_tempDirectory.FullName, "does-not-exist.xml"));
 
         var ex = await Assert.ThrowsExactlyAsync<FileNotFoundException>(
             () => MsixService.ExtractPublisherFromPathAsync(missing, TestContext.CancellationToken));
@@ -115,7 +115,7 @@ public class MsixServicePackagingTests : BaseCommandTests
               <Identity Name="FlowHarnessApp" Publisher="CN=FlowHarnessPublisher, O=Fabrikam Inc, C=US" Version="1.0.0.0" />
             </Package>
             """;
-        var manifestPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "Partial.appxmanifest"));
+        var manifestPath = new FileInfo(Path.Join(_tempDirectory.FullName, "Partial.appxmanifest"));
         await File.WriteAllTextAsync(manifestPath.FullName, manifest, TestContext.CancellationToken);
 
         var publisher = await MsixService.ExtractPublisherFromPathAsync(manifestPath, TestContext.CancellationToken);
@@ -133,7 +133,7 @@ public class MsixServicePackagingTests : BaseCommandTests
               <Identity Name="FlowHarnessApp" Version="1.0.0.0" />
             </Package>
             """;
-        var manifestPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "NoPublisher.appxmanifest"));
+        var manifestPath = new FileInfo(Path.Join(_tempDirectory.FullName, "NoPublisher.appxmanifest"));
         await File.WriteAllTextAsync(manifestPath.FullName, manifest, TestContext.CancellationToken);
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
@@ -154,7 +154,7 @@ public class MsixServicePackagingTests : BaseCommandTests
               <Identity Name="FlowHarnessApp" Publisher="   " Version="1.0.0.0" />
             </Package>
             """;
-        var manifestPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "EmptyPublisher.appxmanifest"));
+        var manifestPath = new FileInfo(Path.Join(_tempDirectory.FullName, "EmptyPublisher.appxmanifest"));
         await File.WriteAllTextAsync(manifestPath.FullName, manifest, TestContext.CancellationToken);
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(

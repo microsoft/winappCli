@@ -51,14 +51,14 @@ public class CertGenerateCommandTests : BaseCommandTests
         // A named --manifest that has no usable Identity/@Publisher must fail with an actionable
         // error instead of silently falling back to the OS user name (issue #839).
         var command = GetRequiredService<CertGenerateCommand>();
-        var manifestPath = Path.Combine(_tempDirectory.FullName, "NoPublisher.appxmanifest");
+        var manifestPath = Path.Join(_tempDirectory.FullName, "NoPublisher.appxmanifest");
         await File.WriteAllTextAsync(manifestPath, """
             <?xml version="1.0" encoding="utf-8"?>
             <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
               <Identity Name="FlowHarnessApp" Version="1.0.0.0" />
             </Package>
             """);
-        var pfxPath = Path.Combine(_tempDirectory.FullName, "no-publisher.pfx");
+        var pfxPath = Path.Join(_tempDirectory.FullName, "no-publisher.pfx");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
             command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw"]);
@@ -74,14 +74,14 @@ public class CertGenerateCommandTests : BaseCommandTests
         // A partially-complete manifest (valid Identity/@Publisher, no Applications element) is common
         // mid-development. The certificate must use that publisher, not the OS user name (issue #839).
         var command = GetRequiredService<CertGenerateCommand>();
-        var manifestPath = Path.Combine(_tempDirectory.FullName, "Partial.appxmanifest");
+        var manifestPath = Path.Join(_tempDirectory.FullName, "Partial.appxmanifest");
         await File.WriteAllTextAsync(manifestPath, """
             <?xml version="1.0" encoding="utf-8"?>
             <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
               <Identity Name="FlowHarnessApp" Publisher="CN=FlowHarnessPublisher, O=Fabrikam Inc, C=US" Version="1.0.0.0" />
             </Package>
             """);
-        var pfxPath = Path.Combine(_tempDirectory.FullName, "partial.pfx");
+        var pfxPath = Path.Join(_tempDirectory.FullName, "partial.pfx");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
             command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw"]);
@@ -90,6 +90,33 @@ public class CertGenerateCommandTests : BaseCommandTests
         Assert.IsTrue(File.Exists(pfxPath), "The certificate should be created.");
         using var cert = System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12FromFile(pfxPath, "testpw");
         StringAssert.Contains(cert.Subject, "FlowHarnessPublisher");
+    }
+
+    [TestMethod]
+    public async Task ExplicitManifest_Canceled_DoesNotReportAsManifestError()
+    {
+        // Cancellation during manifest reading must not be translated into a "Could not extract the
+        // publisher" input error by the broad catch around extraction — that would misreport a
+        // cancellation as bad user input (especially for manifests on slow/unavailable paths).
+        var command = GetRequiredService<CertGenerateCommand>();
+        var manifestPath = Path.Join(_tempDirectory.FullName, "Cancel.appxmanifest");
+        await File.WriteAllTextAsync(manifestPath, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Publisher="CN=CancelPublisher" Version="1.0.0.0" />
+            </Package>
+            """);
+        var pfxPath = Path.Join(_tempDirectory.FullName, "cancel.pfx");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw"], cts.Token);
+
+        Assert.AreNotEqual(0, exitCode, "A canceled operation must not report success.");
+        StringAssert.DoesNotMatch(ConsoleStdErr.ToString(), new System.Text.RegularExpressions.Regex("Could not extract the publisher from the manifest"),
+            "Cancellation must not be misreported as a manifest extraction error.");
+        Assert.IsFalse(File.Exists(pfxPath), "No certificate should be created when the operation is canceled.");
     }
 
     [TestMethod]
@@ -482,14 +509,14 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         // must produce exactly one structured error document — not empty stdout, and not two documents
         // (issue #839). JsonDocument.Parse over the full output verifies it is a single JSON document.
         var command = GetRequiredService<CertGenerateCommand>();
-        var manifestPath = Path.Combine(_tempDirectory.FullName, "NoPublisher.appxmanifest");
+        var manifestPath = Path.Join(_tempDirectory.FullName, "NoPublisher.appxmanifest");
         await File.WriteAllTextAsync(manifestPath, """
             <?xml version="1.0" encoding="utf-8"?>
             <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
               <Identity Name="FlowHarnessApp" Version="1.0.0.0" />
             </Package>
             """);
-        var pfxPath = Path.Combine(_tempDirectory.FullName, "no-publisher-json.pfx");
+        var pfxPath = Path.Join(_tempDirectory.FullName, "no-publisher-json.pfx");
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
             command, ["--manifest", manifestPath, "--output", pfxPath, "--password", "testpw", "--json"]);

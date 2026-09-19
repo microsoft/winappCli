@@ -142,7 +142,7 @@ internal class CertGenerateCommand : Command, IShortDescription
                 {
                     publisher = await MsixService.ExtractPublisherFromPathAsync(manifestPath, cancellationToken);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     var message = $"Could not extract the publisher from the manifest '{manifestPath}': {ex.Message}. " +
                         "Fix the manifest's Identity Publisher attribute, or pass --publisher explicitly.";
