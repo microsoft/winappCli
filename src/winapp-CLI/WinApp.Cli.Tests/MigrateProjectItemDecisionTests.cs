@@ -1614,6 +1614,150 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task DecideProjectItem_CopiedContentResolvesSingleMsBuildExpression()
+    {
+        var (sourceContent, target) =
+            await CreateExpressionSourceMigrationAsync(
+                "ExpressionEvidenceApp");
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <Content Include="Assets\Payload.json" />
+              </ItemGroup>
+            </Project>
+            """);
+        var targetContent = Path.Combine(
+            target.FullName,
+            "Assets",
+            "Payload.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(targetContent)!);
+        File.Copy(sourceContent, targetContent);
+        var items = await ReadReviewItemsAsync(target);
+        var item = ItemId(items, @"$(SharedContentDir)\Payload.json");
+
+        var explicitItem = await InvokeDecisionAsync(
+            target,
+            "--item", item,
+            "--strategy", "explicit-target-item",
+            "--target-path", @"Assets\Payload.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "An expression-backed source requires byte verification.");
+        var copiedItem = await InvokeDecisionAsync(
+            target,
+            "--item", item,
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Assets\Payload.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "The resolved source content was copied into the target.");
+
+        Assert.AreEqual(1, explicitItem.ExitCode, explicitItem.Output);
+        StringAssert.Contains(
+            explicitItem.Output,
+            "must use copied-linked-content");
+        Assert.AreEqual(0, copiedItem.ExitCode, copiedItem.Output);
+        using var report = await ReadReportAsync(target);
+        Assert.IsFalse(report.RootElement
+            .GetProperty("todos")
+            .EnumerateArray()
+            .Any(todo => todo.GetProperty("id").GetString() == "UWMIG012"));
+        var decision = report.RootElement
+            .GetProperty("projectItemDecisions")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual(
+            "verified",
+            decision.GetProperty("verification").GetProperty("status").GetString());
+        Assert.IsTrue(
+            decision.GetProperty("verification").GetProperty("contentMatches").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task Verify_RejectsTargetFileItemsOutsideMigrationRoot()
+    {
+        var (sourceContent, target) =
+            await CreateExpressionSourceMigrationAsync(
+                "ExternalTargetEvidenceApp");
+        await AppendTargetProjectXmlAsync(
+            target,
+            $$"""
+              <PropertyGroup>
+                <ExternalContentDir>{{Path.GetDirectoryName(sourceContent)}}</ExternalContentDir>
+              </PropertyGroup>
+              <ItemGroup>
+                <Content Include="$(ExternalContentDir)\Payload.json">
+                  <Link>Assets\Payload.json</Link>
+                </Content>
+              </ItemGroup>
+            """);
+
+        var result = await InvokeVerifyAsync(target);
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        using var report = await ReadReportAsync(target);
+        var targetGraph = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("targetProjectGraph");
+        Assert.AreEqual(
+            "failed",
+            targetGraph.GetProperty("status").GetString());
+        Assert.IsTrue(targetGraph
+            .GetProperty("issues")
+            .EnumerateArray()
+            .Any(issue =>
+                issue.GetProperty("kind").GetString()
+                    == "target-external-file-items"));
+        Assert.IsTrue(report.RootElement
+            .GetProperty("todos")
+            .EnumerateArray()
+            .Any(todo => todo.GetProperty("id").GetString() == "UWMIG013"));
+    }
+
+    [TestMethod]
+    public async Task DecideProjectItem_UnsupportedMsBuildExpressionFailsClosed()
+    {
+        var (sourceContent, target) =
+            await CreateExpressionSourceMigrationAsync(
+                "UnsupportedExpressionEvidenceApp",
+                useSupportedExpression: false);
+        await WriteAsync(
+            target,
+            "Directory.Build.targets",
+            """
+            <Project>
+              <ItemGroup>
+                <Content Include="Assets\Payload.json" />
+              </ItemGroup>
+            </Project>
+            """);
+        var targetContent = Path.Combine(
+            target.FullName,
+            "Assets",
+            "Payload.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(targetContent)!);
+        File.Copy(sourceContent, targetContent);
+        var items = await ReadReviewItemsAsync(target);
+
+        var result = await InvokeDecisionAsync(
+            target,
+            "--item", ItemId(items, @"$(SharedContentDir)\Payload.json"),
+            "--strategy", "copied-linked-content",
+            "--target-path", @"Assets\Payload.json",
+            "--target-item-type", "Content",
+            "--evidence-file", "Directory.Build.targets",
+            "--rationale", "Unsupported source expressions must remain unresolved.");
+
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(
+            result.Output,
+            "cannot be resolved deterministically");
+    }
+
+    [TestMethod]
     public async Task DecideProjectItem_AbsoluteExternalItemsRequireMatchingContent()
     {
         var (source, target, externalContent, externalResource) =
@@ -2351,6 +2495,53 @@ public sealed class MigrateProjectItemDecisionTests : MigrateCommandTestBase
         var (exit, output) = await InvokeMigrateAsync(source, target);
         Assert.AreEqual(0, exit, output);
         return (source, target, externalContent, externalResource);
+    }
+
+    private async Task<(string SourceContent, DirectoryInfo Target)>
+        CreateExpressionSourceMigrationAsync(
+            string name,
+            bool useSupportedExpression = true)
+    {
+        var repository = _tempDirectory.CreateSubdirectory(
+            $"{name}-repository");
+        await WriteAsync(repository, "LICENSE.txt", "test marker");
+        var source = repository.CreateSubdirectory(
+            Path.Combine("Samples", name));
+        var shared = repository.CreateSubdirectory("SharedContent");
+        var sourceContent = Path.Combine(
+            shared.FullName,
+            "Payload.json");
+        await File.WriteAllTextAsync(
+            sourceContent,
+            """{"source":"expression"}""",
+            TestContext.CancellationToken);
+        var sharedContentExpression = useSupportedExpression
+            ? "$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), LICENSE.txt))\\SharedContent"
+            : "$([System.IO.Path]::Combine($(MSBuildThisFileDirectory), '..', '..', 'SharedContent'))";
+        await WriteAsync(
+            source,
+            $"{name}.csproj",
+            $$"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <SharedContentDir>{{sharedContentExpression}}</SharedContentDir>
+              </PropertyGroup>
+              <ItemGroup>
+                <Content Include="$(SharedContentDir)\Payload.json">
+                  <Link>Assets\Payload.json</Link>
+                </Content>
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(source, "Package.appxmanifest", SourceManifest);
+
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            $"{name}-output"));
+        ArrangeTemplateCreation(target, $"{name}App");
+        var (exit, output) = await InvokeMigrateAsync(source, target);
+        Assert.AreEqual(0, exit, output);
+        return (sourceContent, target);
     }
 
     private async Task AddAbsoluteTargetEvidenceAsync(

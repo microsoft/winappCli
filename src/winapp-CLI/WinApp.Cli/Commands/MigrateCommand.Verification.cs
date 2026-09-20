@@ -703,6 +703,10 @@ internal partial class MigrateCommand
             var targetProjectGraph = AnalyzeTargetProjectGraph(
                 targetRoot,
                 targetProject);
+            AddTargetPortabilityIssues(
+                targetRoot,
+                targetProject,
+                targetProjectGraph);
             RefreshMechanicalTodos(
                 report,
                 residuals,
@@ -768,6 +772,10 @@ internal partial class MigrateCommand
             var targetProjectGraph = AnalyzeTargetProjectGraph(
                 targetRoot,
                 targetProject);
+            AddTargetPortabilityIssues(
+                targetRoot,
+                targetProject,
+                targetProjectGraph);
             RefreshMechanicalTodos(
                 report,
                 residuals,
@@ -971,9 +979,9 @@ internal partial class MigrateCommand
                     Category = "target-project-graph",
                     Priority = "required",
                     Summary =
-                        "Resolve nested target project files consumed by the entry project",
+                        "Resolve target project ownership or portability issues",
                     Reason =
-                        $"{targetProjectGraph.Issues.Count} target project ownership issue(s) require moving nested projects outside the entry default-item root or adding active exclusions/removals for their source and obj/bin content while retaining ProjectReference ownership.",
+                        $"{targetProjectGraph.Issues.Count} target project issue(s) require contained, target-relative file ownership. Move nested projects outside the entry default-item root or add active exclusions/removals where applicable, and copy external file items under the migration target instead of depending on source-checkout or machine-specific paths.",
                     Locations = targetProjectGraph.Issues
                         .SelectMany(issue => issue.SamplePaths)
                         .Distinct(StringComparer.OrdinalIgnoreCase)

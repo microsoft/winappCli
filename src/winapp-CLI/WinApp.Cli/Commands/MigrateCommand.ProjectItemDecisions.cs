@@ -145,12 +145,19 @@ internal partial class MigrateCommand
             if (sourceItem.ReviewReason is
                 "conditional"
                 or "wildcard"
-                or "msbuild-expression"
                 or "unmodeled-ancestor")
             {
                 verification.Status = "invalid";
                 verification.Reason =
                     $"Source item reason '{sourceItem.ReviewReason}' cannot be resolved by a single deterministic target path.";
+                return verification;
+            }
+            if (sourceItem.ReviewReason == "msbuild-expression"
+                && decision.Strategy != CopiedLinkedContentStrategy)
+            {
+                verification.Status = "invalid";
+                verification.Reason =
+                    "A deterministically resolvable MSBuild expression must use copied-linked-content so source and target bytes can be verified.";
                 return verification;
             }
             if (!TryCanonicalizeMigratedProjectItemKind(
@@ -165,7 +172,7 @@ internal partial class MigrateCommand
 
             var sourceContentAvailable = TryResolveSourceItemPath(
                 sourceRoot,
-                sourceItem.Include,
+                sourceItem,
                 out var availableSourcePath,
                 out var sourcePathError);
             var sourceContentExternal = sourceContentAvailable
@@ -434,34 +441,6 @@ internal partial class MigrateCommand
                 out _,
                 out _,
                 out _);
-        }
-
-        private static bool TryResolveSourceItemPath(
-            string sourceRoot,
-            string include,
-            out string fullPath,
-            out string error)
-        {
-            error = string.Empty;
-            try
-            {
-                fullPath = Path.GetFullPath(Path.Combine(sourceRoot, include));
-            }
-            catch (Exception exception) when (
-                exception is ArgumentException
-                or NotSupportedException
-                or PathTooLongException)
-            {
-                fullPath = string.Empty;
-                error = $"Source content path is invalid: {exception.Message}";
-                return false;
-            }
-            if (!File.Exists(fullPath))
-            {
-                error = $"Source content is unavailable: {include}.";
-                return false;
-            }
-            return true;
         }
 
         private static string NormalizeProjectItemPath(string path) =>
