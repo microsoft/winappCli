@@ -10,6 +10,7 @@ permissions:
   checks: write
 jobs:
   report:
+    if: github.event.workflow_run.conclusion != 'cancelled'
     name: Test
     runs-on: windows-latest
     steps:
