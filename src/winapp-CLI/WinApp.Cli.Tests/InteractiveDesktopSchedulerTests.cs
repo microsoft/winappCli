@@ -205,6 +205,43 @@ public class InteractiveDesktopSchedulerTests
     }
 
     [TestMethod]
+    [DataRow(InteractiveDesktopScheduler.IdleGraceMs - 1, false)]
+    [DataRow(InteractiveDesktopScheduler.IdleGraceMs, true)]
+    [DataRow(InteractiveDesktopScheduler.IdleGraceMs + 1, true)]
+    public void BeginObserve_AfterReplay_OnlyPinsBeforeTheIdleDeadline(int elapsedMs, bool detached)
+    {
+        var state = InteractiveDesktopState.CreateFresh();
+        var first = Participant(100);
+        _scheduler.BeginParticipating(state, _probe, OwnerA, first, UiTurnMode.DesktopExclusive);
+        _scheduler.CompleteCommand(state, _probe, first, OwnerA, renewGrace: true);
+        _clock.Advance(InteractiveDesktopScheduler.IdleGraceMs);
+
+        var other = Participant(200);
+        _scheduler.BeginParticipating(state, _probe, OwnerB, other, UiTurnMode.DesktopExclusive);
+        _scheduler.CompleteCommand(state, _probe, other, OwnerB, renewGrace: true);
+        _clock.Advance(InteractiveDesktopScheduler.IdleGraceMs);
+
+        var replay = Participant(101);
+        _scheduler.BeginParticipating(state, _probe, OwnerA, replay, UiTurnMode.DesktopExclusive);
+        _scheduler.CompleteCommand(state, _probe, replay, OwnerA, renewGrace: true);
+        Assert.AreEqual(OwnerA.Key, state.Owner!.Key);
+        _clock.Advance(elapsedMs);
+
+        var observation = Participant(102, "ui inspect");
+        var result = _scheduler.BeginObserve(state, _probe, OwnerA, observation);
+
+        Assert.AreEqual(detached ? UiAdmission.Detached : UiAdmission.OwnerCommandRunning, result.Admission);
+        Assert.AreEqual(detached ? UiTurnAction.Detached : UiTurnAction.Continuation, result.TurnAction);
+        Assert.AreEqual(detached ? null : OwnerA.Key, state.Owner?.Key);
+        Assert.AreEqual(detached ? 0 : 1, state.OwnerCommands.Count);
+        Assert.IsEmpty(state.Waiters);
+        _clock.Advance(InteractiveDesktopScheduler.IdleGraceMs);
+        _scheduler.Normalize(state, _probe);
+        Assert.AreEqual(detached ? null : OwnerA.Key, state.Owner?.Key,
+            "an admitted observation pins its turn; a late observation cannot reclaim an expired turn");
+    }
+
+    [TestMethod]
     public void CompletingAnObservation_StartsAFreshGrace()
     {
         var state = InteractiveDesktopState.CreateFresh();
