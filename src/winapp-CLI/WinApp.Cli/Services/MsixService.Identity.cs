@@ -2004,8 +2004,32 @@ internal partial class MsixService
     }
 
     /// <summary>
-    /// Creates a debug version of the identity by appending ".debug" to package name and application ID
+    /// Ensures the manifest carries an <c>Identity/@ProcessorArchitecture</c> by stamping the resolved
+    /// target architecture when PE-header detection could not (no executable at the expected packaging
+    /// path — e.g. a Native AOT app whose exe is in publish/native output rather than the recipe's build
+    /// TargetDir). A value already present in the manifest is preserved; a null/blank
+    /// <paramref name="targetArch"/> leaves the manifest unchanged. Isolated (and internal) so the
+    /// fallback is directly testable: an architecture-only bundle rejects a slice whose manifest omits the
+    /// architecture, so this guards against shipping such a slice when the architecture is in fact known.
     /// </summary>
+    internal static (string manifestContent, string? architecture) EnsureProcessorArchitecture(string manifestContent, string? targetArch, TaskContext taskContext)
+    {
+        if (string.IsNullOrWhiteSpace(targetArch))
+        {
+            var unchangedDoc = AppxManifestDocument.Parse(manifestContent);
+            return (manifestContent, unchangedDoc.IdentityProcessorArchitecture);
+        }
+
+        var doc = AppxManifestDocument.Parse(manifestContent);
+        if (!string.IsNullOrEmpty(doc.IdentityProcessorArchitecture))
+        {
+            return (manifestContent, doc.IdentityProcessorArchitecture);
+        }
+
+        doc.IdentityProcessorArchitecture = targetArch;
+        taskContext.AddDebugMessage($"{UiSymbols.Note} Set ProcessorArchitecture from target architecture: {targetArch}");
+        return (doc.ToXml(), targetArch);
+    }
     private static MsixIdentityResult CreateDebugIdentity(MsixIdentityResult originalIdentity)
     {
         var debugPackageName = originalIdentity.PackageName.EndsWith(".debug")

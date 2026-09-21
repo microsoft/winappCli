@@ -224,8 +224,40 @@ public class CertificateServiceTests : BaseCommandTests
             timestampUrl: "http://timestamp.example/rfc3161",
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(bt.Invocations[0].Arguments, "/tr \"http://timestamp.example/rfc3161\"");
+        StringAssert.Contains(bt.Invocations[0].Arguments, "/tr http://timestamp.example/rfc3161");
         StringAssert.Contains(bt.Invocations[0].Arguments, "/td SHA256");
+    }
+
+    [TestMethod]
+    public async Task SignFileAsync_InvalidTimestampUrl_Throws()
+    {
+        var (svc, bt, _) = NewService();
+        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-ts.exe"));
+        await File.WriteAllTextAsync(file.FullName, "MZ");
+        var cert = CreatePfx(_tempDirectory.FullName, "sign-ts.pfx", "CN=SignTs", "pw");
+
+        // A non-absolute / non-http(s) timestamp URL (e.g. from a project's
+        // AppxPackageSigningTimestampServerUrl) must be rejected before signtool runs.
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => svc.SignFileAsync(
+            file, cert, TestTaskContext, password: "pw", timestampUrl: "ftp://ts.example",
+            cancellationToken: TestContext.CancellationToken));
+        Assert.HasCount(0, bt.Invocations);
+    }
+
+    [TestMethod]
+    public async Task SignFileAsync_TimestampUrlWithInjectedSwitch_Rejected()
+    {
+        var (svc, bt, _) = NewService();
+        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-inj.exe"));
+        await File.WriteAllTextAsync(file.FullName, "MZ");
+        var cert = CreatePfx(_tempDirectory.FullName, "sign-inj.pfx", "CN=SignInj", "pw");
+
+        // An attempt to smuggle an extra signtool switch through the timestamp URL is not a valid absolute
+        // URL, so it is rejected before reaching signtool (defense in depth on top of argument escaping).
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => svc.SignFileAsync(
+            file, cert, TestTaskContext, password: "pw", timestampUrl: "http://ts\" /debug /tr \"http://evil",
+            cancellationToken: TestContext.CancellationToken));
+        Assert.HasCount(0, bt.Invocations);
     }
 
     [TestMethod]
