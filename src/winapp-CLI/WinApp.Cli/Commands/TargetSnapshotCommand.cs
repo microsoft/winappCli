@@ -98,6 +98,10 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                     Running = inspection.Running,
                     Attached = target is not null,
                     Capabilities = target?.Capabilities,
+                    WorkRoot = target?.Capabilities is { } capabilities &&
+                        !string.IsNullOrWhiteSpace(capabilities.ManagedRoot)
+                            ? GuestPaths.Resolve(capabilities, TargetFileTransferService.WorkScope)
+                            : null,
                     Desktop = DescribeDesktop(inspection.Running),
                     Deployments = [],
                 };
@@ -383,6 +387,10 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                 console.MarkupLineInterpolated($"  Architecture: {TerminalText.Sanitize(capabilities.Architecture)}");
                 console.MarkupLineInterpolated(
                     $"  Guest support: real input {Yes(capabilities.SupportsRealInput)}, screen capture {Yes(capabilities.SupportsScreenCapture)}, interactive desktop {Yes(capabilities.SupportsInteractiveDesktop)}");
+                if (output.WorkRoot is { } workRoot)
+                {
+                    console.MarkupLineInterpolated($"  Work root: {TerminalText.Sanitize(workRoot)}");
+                }
             }
             else
             {
@@ -490,6 +498,9 @@ internal sealed class TargetSnapshotOutput
 
     /// <summary>What the live guest reports it can do, or null when no agent answered.</summary>
     public ExecutionTargetCapabilities? Capabilities { get; init; }
+
+    /// <summary>Absolute base for relative transfer paths, or null when the guest root is unknown.</summary>
+    public string? WorkRoot { get; init; }
 
     /// <summary>Where this target's desktop is drawn on this machine, if anywhere.</summary>
     public required TargetSnapshotDesktop Desktop { get; init; }

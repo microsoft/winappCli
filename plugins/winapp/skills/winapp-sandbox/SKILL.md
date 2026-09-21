@@ -117,8 +117,8 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 ## Guest setup and file transfer
 
 ```powershell
-winapp target push sandbox .\setup.ps1 Setup\setup.ps1
-winapp target exec sandbox --cwd C:\WinApp\work\Setup -- powershell -ExecutionPolicy Bypass -File .\setup.ps1
+$copy = winapp target push sandbox .\setup.ps1 Setup\setup.ps1 --json | ConvertFrom-Json
+winapp target exec sandbox --cwd (Split-Path -Parent $copy.targetPath) -- powershell -ExecutionPolicy Bypass -File .\setup.ps1
 winapp target pull sandbox Results .\results
 ```
 
@@ -126,9 +126,11 @@ Use `target exec` only for necessary setup or diagnostics, not instead of `winap
 It streams the command's output and is not a full terminal. The example's execution-policy
 override is scoped to that PowerShell process; run only a trusted script.
 
-Push/pull target paths are **relative to `C:\WinApp\work`**; absolute, rooted, and UNC
+Push/pull target paths are **relative to the target's managed work area**; absolute, rooted, and UNC
 paths are rejected. A single-file destination includes the filename. Use the reported
-resolved guest path for `--cwd`. Directory copies skip linked entries; directly named
+resolved guest path to choose `--cwd` (its parent directory for a single file).
+See [the transfer guide](https://github.com/microsoft/WinAppCli/blob/main/docs/sandbox-execution.md#running-commands-and-copying-files)
+for path reporting and missing-root errors. Directory copies skip linked entries; directly named
 linked sources and paths through destination links are rejected. Deployment rejects links.
 
 ## Cleanup and recovery
