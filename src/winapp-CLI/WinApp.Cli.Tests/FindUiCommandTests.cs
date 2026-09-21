@@ -27,6 +27,23 @@ public class FindUiCommandTests : BaseCommandTests
         enrichmentTags: new(),
         curatedKeywords: new());
 
+    /// <summary>A corpus of core patterns alone — what a <c>--source core</c> search sees.</summary>
+    private static SearchEngine CoreEngine() => new(
+        [],
+        corePatterns:
+        [
+            new CorePattern
+            {
+                Id = "system-tray-icon",
+                Scenario = "System tray icon",
+                Tags = ["system", "tray", "notification area"],
+                Description = "Show an icon in the notification area",
+                CSharp = "// tray icon",
+            },
+        ],
+        enrichmentTags: new(),
+        curatedKeywords: new());
+
     private static Scenario Scn(string source, string controlId, string controlName, string id, string header)
         => new() { Id = id, ControlId = controlId, ControlName = controlName, HeaderText = header, Source = source, Xaml = $"<{controlName} />" };
 
@@ -379,6 +396,67 @@ public class FindUiCommandTests : BaseCommandTests
         Assert.AreEqual(0, exit);
         StringAssert.Contains(TestAnsiConsole.Output, "\"matchCount\"");
         StringAssert.Contains(TestAnsiConsole.Output, "gallery-tabview-1");
+    }
+
+    [TestMethod]
+    public async Task SourceCore_Json_ReportsEmbeddedCorpus_Exit0()
+    {
+        // A successful core-only search must name its corpus. The core patterns are
+        // compiled into the binary, so "embedded" is the honest label; a null corpus on a
+        // successful result is indistinguishable from a failed load on the JSON surface.
+        var fake = FakeControlsSearchService.WithEngine(CoreEngine());
+        fake.LoadedOrigin = CorpusOrigin.Embedded;
+        _fakeService = fake;
+
+        var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["system tray", "--source", "core", "--json"]);
+
+        Assert.AreEqual(0, exit);
+        StringAssert.Contains(TestAnsiConsole.Output, "\"corpus\": \"embedded\"");
+    }
+
+    [TestMethod]
+    public async Task NothingLoaded_Json_OmitsCorpus_Exit1()
+    {
+        // The other side of the contract: an absent/null corpus means nothing loaded, and
+        // nothing else.
+        var fake = FakeControlsSearchService.WithEngine(BuildEngine());
+        fake.LoadedOrigin = CorpusOrigin.None;
+        _fakeService = fake;
+
+        var exit = await ParseAndInvokeWithCaptureAsync(Command(), ["zzzznotacontrol", "--json"]);
+
+        Assert.AreEqual(1, exit);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("\"corpus\"", StringComparison.Ordinal),
+            $"no corpus loaded must leave the field unreported. Got: {TestAnsiConsole.Output}");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-global Console.Error
+    public async Task SourceCore_DoesNotWarnThatTheCorpusMayLagUpstream()
+    {
+        // The core patterns are curated and compiled in — they track no upstream repo and
+        // --refresh cannot change them, so the staleness notice would be wrong on both
+        // counts even though the origin is the embedded tier.
+        var fake = FakeControlsSearchService.WithEngine(CoreEngine());
+        fake.LoadedOrigin = CorpusOrigin.Embedded;
+        _fakeService = fake;
+
+        var originalError = Console.Error;
+        using var stderr = new StringWriter();
+        int exit;
+        try
+        {
+            Console.SetError(stderr);
+            exit = await ParseAndInvokeWithCaptureAsync(Command(), ["system tray", "--source", "core"]);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(0, exit);
+        Assert.IsFalse(stderr.ToString().Contains("built into the CLI", StringComparison.Ordinal),
+            $"a core-only result must not be labeled a stale upstream snapshot. Got: {stderr}");
     }
 
     [TestMethod]
