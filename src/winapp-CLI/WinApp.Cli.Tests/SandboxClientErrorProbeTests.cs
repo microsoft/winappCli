@@ -116,12 +116,13 @@ public class SandboxClientErrorProbeTests
     }
 
     [TestMethod]
-    [DataRow(unchecked((int)0x80070005), typeof(UnauthorizedAccessException))]
-    [DataRow(unchecked((int)0x80070057), typeof(ArgumentException))]
-    public void Inspect_MappedProviderFailure_RetainsUnknown(int hresult, Type expectedException)
+    [DataRow(unchecked((int)0x80070005), nameof(UnauthorizedAccessException))]
+    [DataRow(unchecked((int)0x80070057), nameof(ArgumentException))]
+    public void Inspect_MappedProviderFailure_RetainsUnknown(int hresult, string expectedException)
     {
         var mapped = System.Runtime.InteropServices.Marshal.GetExceptionForHR(hresult);
-        Assert.IsInstanceOfType(mapped, expectedException);
+        Assert.IsNotNull(mapped);
+        Assert.AreEqual(expectedException, mapped.GetType().Name);
         var surface = SandboxClientErrorProbe.Inspect(new SandboxClientWindow(1, 2, 3), _ =>
         {
             System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(hresult);
