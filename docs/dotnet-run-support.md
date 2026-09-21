@@ -165,9 +165,53 @@ The package only activates when **all** of the following are true (gated by the 
 2. `WindowsPackageType` is not set to `None` (absence of the property means packaged).
 3. `OutputType` is not `Library` — both `Exe` (packaged console apps via execution alias) and `WinExe` (WinUI apps) are supported.
 4. The target platform identifier is `windows` (derived from `$(TargetPlatformIdentifier)` if set, else from `$(TargetFramework)`). In multi-targeted projects (e.g. MAUI `net*-android;net*-ios;net*-windows10.0.19041.0`), the targets are inert for non-Windows TFMs.
-5. `WinAppManifestPath` resolves to an existing file. The targets auto-detect the manifest by checking the output directory first (`$(OutputPath)AppxManifest.xml`, `$(OutputPath)Package.appxmanifest`, `$(OutputPath)appxmanifest.xml`) and then the project directory (`AppxManifest.xml`, `Package.appxmanifest`, `appxmanifest.xml`); a consumer-supplied `WinAppManifestPath` is honored as-is. Output-directory paths are accepted because frameworks like MAUI generate the manifest at build time into `$(OutputPath)` from platform / msbuild props; without that the gate could never activate for transitive MAUI head apps.
+5. `WinAppManifestPath` resolves to an existing file, **or** the project is a .NET file-based app. The targets auto-detect the manifest by checking the output directory first (`$(OutputPath)AppxManifest.xml`, `$(OutputPath)Package.appxmanifest`, `$(OutputPath)appxmanifest.xml`) and then the project directory (`AppxManifest.xml`, `Package.appxmanifest`, `appxmanifest.xml`); a consumer-supplied `WinAppManifestPath` is honored as-is. Output-directory paths are accepted because frameworks like MAUI generate the manifest at build time into `$(OutputPath)` from platform / msbuild props; without that the gate could never activate for transitive MAUI head apps.
 
-This gating ensures the package is safe to consume transitively (e.g. when re-exported by a library): unrelated projects (libraries, test projects, console apps without manifests, non-Windows TFMs) see no winapp activity and no impact on `dotnet run`.
+This gating ensures the package is safe to consume transitively (e.g. when re-exported by a library): unrelated projects (libraries, test projects, project-based console apps without manifests, non-Windows TFMs) see no winapp activity and no impact on `dotnet run`. The manifest requirement is a project-based one; a file-based app activates without an authored manifest, as described next.
+
+### File-based apps
+
+A [file-based app](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/sdk#file-based-apps) — a single `.cs` run with `dotnet run app.cs` — has no authored manifest by design; its identity comes from the `#:property` directives in the file. Condition 5 therefore accepts the file-based case instead of a manifest, detected through the `FileBasedProgram` and `EntryPointFilePath` properties that the SDK writes into the generated virtual project. Conditions 1-4 still apply, so the `.cs` must declare a Windows target framework:
+
+```csharp
+#:package Microsoft.Windows.SDK.BuildTools.WinApp@*
+#:property TargetFramework=net10.0-windows10.0.19041.0
+#:property OutputType=Exe
+```
+
+Manifest auto-detection is skipped entirely for a file-based app and resolution is left to the CLI, for two reasons: several `.cs` files can share one directory, so a directory-scoped `Package.appxmanifest` cannot be assumed to belong to this app; and the CLI generates its own manifest into the build output, which auto-detection would otherwise pick up on the second run and pin as a stale identity.
+
+The hand-off also differs. A `.csproj` passes its output folder, which the CLI treats as a pre-built layout. A `.cs` has to be passed as the input, because manifest inference is only reachable from the CLI's single-file mode — so `no-build` is added to keep `dotnet run`'s build the only one, and `RuntimeIdentifier` is forwarded so the CLI reads the same output folder `dotnet run` wrote to rather than injecting a host RID of its own:
+
+```
+winapp run <app.cs> --no-build --configuration "Debug" -p "RuntimeIdentifier=<rid>" ...
+```
+
+Because the CLI evaluates the `.cs` again to plan the manifest, and that evaluation cannot see the properties the outer build was invoked with, every property the CLI reads is carried across explicitly. That covers the identity-shaping ones (`WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription`, `WinAppCapabilities`, `WinAppManifestPath`), the packaging mode (`WindowsPackageType`), whether the app bundles the Windows App Runtime (`WindowsAppSDKSelfContained`), and the build inputs that decide which file is packaged (`AssemblyName`, `OutputPath`, `OutDir`, `MSBuildProjectExtensionsPath`, `OutputType`, `TargetFramework`, `Version`). This is what makes a command-line override take effect:
+
+```bash
+dotnet run app.cs -p:WinAppPackageName=Contoso    # registers as Contoso
+dotnet run app.cs -p:AssemblyName=Contoso         # packages Contoso.exe
+dotnet run app.cs -p:OutDir=.\out\                # launches what was built in .\out\
+```
+
+`OutDir` is carried alongside `OutputPath` because it is the property MSBuild actually writes the executable to. Setting it moves the output while leaving `OutputPath` at its default, so forwarding `OutputPath` alone would point the CLI at a directory the build never wrote to. `MSBuildProjectExtensionsPath` is carried for the same reason on the input side: it is the folder `project.assets.json` is written into, so relocating the intermediate directory with `-p:BaseIntermediateOutputPath=custom_obj\` would otherwise leave the CLI reading a default path that holds a stale package graph or none at all.
+
+Values are percent-escaped on the way across (`%`, `;`, `,`, `"` and `\`), so a capability list such as `internetClient;privateNetworkClientServer` or a publisher containing a comma survives intact; MSBuild decodes them again on the other side. The configuration and runtime identifier in the leading tokens are escaped the same way, so a value ending in a backslash cannot escape its closing quote and swallow the rest of the command line.
+
+A line break is refused rather than escaped. `winapp run` from the `RunPackagedApp` target goes through a generated command script, where a newline inside a value ends the line and turns whatever follows into a separate command. No manifest metadata is legitimately multi-line, so a value containing one fails the build with a message naming the properties to check, instead of being silently stripped and registering an identity you did not ask for.
+
+Forwarding a value that came from a `#:property` directive is a no-op, since the CLI reads the directive itself. An empty value is forwarded rather than skipped for the identity properties, for `WindowsPackageType`, and for `WindowsAppSDKSelfContained`, because the CLI treats an empty property exactly as it treats an absent one: that is what makes `dotnet run app.cs -p:WinAppPackageName=` clear a directive instead of leaving the CLI to re-read it. The same applies to `dotnet run app.cs -p:WindowsAppSDKSelfContained=`, which drops back to a framework-dependent launch; without the empty value the CLI would keep generating a manifest that requires the Windows App Runtime for a build that no longer bundles it. `WinAppRunUseExecutionAlias` is forwarded only when it is empty, because a `true` or `false` already rides on the `--with-alias` / `--without-alias` switch. The build inputs are the exception in the other direction and are forwarded only when set, since the SDK always gives them a value. The SDK's derived outputs (`TargetDir`, `RunCommand`, `RunArguments`, `ProjectAssetsFile`) are left alone so the CLI still derives them itself, from the inputs above.
+
+#### Declaring an architecture
+
+A file-based app that does not name an architecture builds `AnyCPU`, which a self-contained Windows App SDK app cannot use. Declare one in the file:
+
+```csharp
+#:property RuntimeIdentifier=win-x64
+```
+
+`winapp run app.cs` injects a `win-<host>` runtime identifier when the file declares none, but `dotnet run app.cs` does not: the SDK owns that build, and silently changing its architecture because a package happens to be referenced would move the output from under a build the user invoked directly. Declaring the property makes both entry points build and launch the same thing.
 
 ## Build Scripts
 
