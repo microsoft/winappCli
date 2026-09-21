@@ -39,12 +39,13 @@ internal sealed partial class ProjectRunService
                 aotPublish: true);
 
         // A build-context pre-restore does not cover publish-conditional dependencies.
-        var publish = await RunAotPublishPassAsync(
+        var publish = await RunPublishPassAsync(
             csproj,
             options,
             workingDirectory,
             csWinRTMetadata,
-            cancellationToken);
+            cancellationToken,
+            aot: true);
         if (publish.ExitCode != 0)
         {
             if (IsMissingVsWhereFailure(publish.Output, publish.Error))
@@ -82,14 +83,15 @@ internal sealed partial class ProjectRunService
         return new ProjectBuildOutcome(resolution, 0);
     }
 
-    private async Task<(int ExitCode, string Output, string Error)> RunAotPublishPassAsync(
+    private async Task<(int ExitCode, string Output, string Error)> RunPublishPassAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         DirectoryInfo workingDirectory,
         string? csWinRTMetadata,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool aot = false)
     {
-        var arguments = BuildAotPublishArguments(
+        var arguments = BuildPublishArguments(
             csproj,
             options,
             ResolveBuildVerbosity(logger, options.Json),
@@ -105,7 +107,7 @@ internal sealed partial class ProjectRunService
         }
         else
         {
-            ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Publishing Native AOT...");
+            ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Publishing {(aot ? "Native AOT" : csproj.Name)}...");
             writeLine = CreateSynchronizedRedactedLineWriter();
         }
 

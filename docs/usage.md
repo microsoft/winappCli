@@ -303,9 +303,9 @@ winapp update --setup-sdks experimental
 
 ### pack
 
-Create MSIX packages from prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
+Create MSIX packages from a project or prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
 
-Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
+Pass a single `.csproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
 
 ```bash
 winapp pack <input-folder> [input-folder...] [options]
@@ -313,7 +313,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Arguments:**
 
-- `input-folder` - One or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
+- `input-folder` - A single `.csproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
 
 **Options:**
 
@@ -323,11 +323,23 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--cert <path>` - Path to signing certificate (enables auto-signing)
 - `--cert-password <password>` - Certificate password (default: "password")
 - `--generate-cert` - Generate a new development certificate
+- `--no-sign` - Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with `--cert` or `--generate-cert`.
 - `--install-cert` - Install certificate to machine
 - `--publisher <name>` - Publisher for certificate generation. Accepts a full X.500 distinguished name or a bare name (automatically wrapped as `CN=<name>`)
 - `--self-contained` - Bundle Windows App SDK runtime
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
+
+**Project-mode options** (require a `.csproj` input; rejected for folder/bundle/manifest inputs):
+
+- `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
+- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
+- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects
+- `--no-build` - Package the existing build output without rebuilding
+- `--no-restore` - Skip restoring the project before building
+- `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
+
+> **Note:** For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
 
 **What it does:**
 
@@ -339,6 +351,27 @@ winapp pack <input-folder> [input-folder...] [options]
 - Automatically discovers third-party WinRT components and registers their activatable classes (see [WinRT component discovery](#winrt-component-discovery) below)
 - Handles self-contained WinAppSDK deployment
 - Signs package if certificate provided
+
+#### Packaging a project directly
+
+When the input is a single `.csproj`, `winapp pack` builds the project (using the options above) and packages the resulting output — no need to build separately or locate the output folder first. This mirrors `winapp run`'s project mode.
+
+```bash
+# Build MyApp in Release for arm64 and package + sign it in one step
+winapp pack ./MyApp.csproj -c Release --arch arm64 --cert ./devcert.pfx
+
+# Package an existing build output without rebuilding
+winapp pack ./MyApp.csproj --no-build
+
+# Select the target architecture with an exact RID instead of --arch
+winapp pack ./MyApp.csproj -p RuntimeIdentifier=win-x64
+```
+
+The target architecture comes from `--arch`, or from a lone `-p RuntimeIdentifier=<rid>` when you don't pass `--arch` (the exact RID is preserved and drives the build). Passing both `--arch` and `-p RuntimeIdentifier` is a conflict and is rejected.
+
+The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
+
+Project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
 
 #### Sparse identity packages
 
@@ -870,6 +903,8 @@ own manifest — see [Bring your own manifest](#bring-your-own-manifest) below.
 winapp run counter.cs
 ```
 
+Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
+
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
 ```csharp
@@ -1037,6 +1072,58 @@ launches the `.exe` directly. (A packaged app is launched through its execution 
 activation — see the console note above; that choice is separate from whether it is packaged.) The
 identity options (`--no-launch`, `--with-alias`, `--without-alias`, `--clean`, `--unregister-on-exit`,
 `--manifest`, `--output-appx-directory`) apply to packaged apps only.
+
+##### Running with `dotnet run`
+
+You don't have to type `winapp` at all. Reference the
+[`Microsoft.Windows.SDK.BuildTools.WinApp`](../src/winapp-NuGet/README.md) package from the file and
+plain `dotnet run` gives you the same packaged launch:
+
+```csharp
+#:package Microsoft.Windows.SDK.BuildTools.WinApp@*
+#:property OutputType=Exe
+#:property TargetFramework=net10.0-windows10.0.19041.0
+
+System.Console.WriteLine(Windows.ApplicationModel.Package.Current.Id.FamilyName);
+```
+
+```bash
+dotnet run counter.cs
+```
+
+The package's MSBuild targets redirect the run to winapp, which packages, registers, and launches the
+app that `dotnet run` just built — it is not rebuilt. Manifest handling is unchanged: winapp resolves
+it exactly as it does for `winapp run`, so `#:property WinAppManifestPath=…` and a
+`<filename>.appxmanifest` beside the `.cs` are both honoured (see
+[Bring your own manifest](#bring-your-own-manifest)), a directory-wide `Package.appxmanifest` is still
+ignored, and otherwise one is generated from your `#:property` directives and refreshed every run.
+
+Two conditions have to hold for the redirect to happen:
+
+| Directive | Why |
+|-----------|-----|
+| `#:package Microsoft.Windows.SDK.BuildTools.WinApp@*` | the targets doing the redirect ship in this package |
+| `#:property TargetFramework=net10.0-windows…` | a plain `net10.0` file is left alone, so it runs unpackaged |
+
+Adding `#:property WindowsPackageType=None` also leaves the file alone: `dotnet run` then runs the
+`.exe` directly, without identity. Use `winapp run` for the unpackaged path if you want the matching
+Windows App Runtime installed first.
+
+Set `#:property EnableWinAppRunSupport=false` to opt out of the redirect entirely, and the
+`WinAppRun*` properties described under
+[Configuration](../src/winapp-NuGet/README.md#configuration) to shape the launch — for example:
+
+```csharp
+#:property WinAppRunUnregisterOnExit=true
+```
+
+If `dotnet run` runs the app unpackaged when you expected identity, ask MSBuild why. Use
+`dotnet build`, not `dotnet msbuild` — only `dotnet build` synthesizes the virtual project that a
+file-based app is compiled through:
+
+```bash
+dotnet build counter.cs -t:WinAppRunSupportInfo
+```
 
 Single-file mode requires the **.NET SDK 10.0.300 or newer**.
 

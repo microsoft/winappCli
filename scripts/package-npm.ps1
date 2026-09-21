@@ -147,6 +147,14 @@ try
         exit 1
     }
 
+    # Validate the generated source too; artifact-only builds do not run the test setup first.
+    npm run generate-commands
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Command code generation failed"
+        Pop-Location
+        exit 1
+    }
+
     Write-Host "[NPM] Running format check, lint, and compile..." -ForegroundColor Blue
     npm run format:check
     if ($LASTEXITCODE -ne 0) {
@@ -158,13 +166,6 @@ try
     npm run lint
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Lint failed"
-        Pop-Location
-        exit 1
-    }
-
-    npm run generate-commands
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Command code generation failed"
         Pop-Location
         exit 1
     }

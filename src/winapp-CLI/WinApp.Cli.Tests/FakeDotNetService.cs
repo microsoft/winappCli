@@ -152,7 +152,7 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the argument strings passed to <see cref="RunDotnetStreamingAsync"/> (build passes).</summary>
     public List<string> StreamingCalls { get; } = [];
 
-    public Task<int> RunDotnetStreamingAsync(DirectoryInfo workingDirectory, string arguments, Action<string>? onOutputLine, Action<string>? onErrorLine, CancellationToken cancellationToken = default)
+    public Task<int> RunDotnetStreamingAsync(DirectoryInfo workingDirectory, string arguments, Action<string>? onOutputLine, Action<string>? onErrorLine, IReadOnlyDictionary<string, string>? environmentOverrides = null, CancellationToken cancellationToken = default)
     {
         StreamingCalls.Add(arguments);
         if (RunDotnetStreamingHandler is not null)
@@ -188,7 +188,7 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the argument strings passed to <see cref="RunDotnetInheritedAsync"/> (native-terminal build passes).</summary>
     public List<string> InheritedCalls { get; } = [];
 
-    public Task<int> RunDotnetInheritedAsync(DirectoryInfo workingDirectory, string arguments, CancellationToken cancellationToken = default)
+    public Task<int> RunDotnetInheritedAsync(DirectoryInfo workingDirectory, string arguments, IReadOnlyDictionary<string, string>? environmentOverrides = null, CancellationToken cancellationToken = default)
     {
         InheritedCalls.Add(arguments);
         if (RunDotnetInheritedHandler is not null)
