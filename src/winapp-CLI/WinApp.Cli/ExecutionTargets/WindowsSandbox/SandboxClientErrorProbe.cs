@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.Accessibility;
@@ -74,12 +75,17 @@ internal static class SandboxClientErrorProbe
         {
             return client.StartTicksUtc > 0 ? readSurface(client) : SandboxClientSurface.Unknown;
         }
-        catch (Exception ex) when (ex is COMException or TimeoutException)
+        catch (Exception ex) when (ex is COMException or TimeoutException or UnauthorizedAccessException or ArgumentException)
         {
             Trace.TraceWarning($"Could not inspect Sandbox client {client.ProcessId} for a terminal error (0x{ex.HResult:X8}); retaining it as an unknown client.");
             return SandboxClientSurface.Unknown;
         }
     }
+
+    internal static bool IsExpectedRoot([NotNullWhen(true)] IUIAutomationElement? root, int processId) =>
+        root is not null &&
+        root.get_CurrentProcessId() == processId &&
+        Read(root.get_CurrentClassName()) == "WinUIDesktopWin32WindowClass";
 
     private static SandboxClientSurface ReadSurface(SandboxClientWindow client)
     {
@@ -88,13 +94,12 @@ internal static class SandboxClientErrorProbe
         automation.put_ConnectionTimeout(100);
         automation.put_TransactionTimeout(100);
         var root = automation.ElementFromHandle(new HWND(client.Handle));
-        if (root.get_CurrentProcessId() != client.ProcessId ||
-            Read(root.get_CurrentClassName()) != "WinUIDesktopWin32WindowClass")
+        if (!IsExpectedRoot(root, client.ProcessId))
         {
             return SandboxClientSurface.Unknown;
         }
 
-        var walker = automation.get_RawViewWalker();
+            var walker = automation.get_RawViewWalker();
         var cache = automation.CreateCacheRequest();
         cache.put_TreeScope(TreeScope.TreeScope_Element);
         cache.AddProperty(UIA_PROPERTY_ID.UIA_ClassNamePropertyId);

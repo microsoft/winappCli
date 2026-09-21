@@ -106,13 +106,42 @@ public class SandboxClientErrorProbeTests
     }
 
     [TestMethod]
-    public void Inspect_AccessFailureOrBudgetExceeded_RetainsUnknown()
+    public void Inspect_ComFailureOrBudgetExceeded_RetainsUnknown()
     {
         var window = new SandboxClientWindow(1, 2, 3);
         Assert.AreEqual(SandboxClientSurface.Unknown,
-            SandboxClientErrorProbe.Inspect(window, _ => throw new System.Runtime.InteropServices.COMException("Denied", unchecked((int)0x80070005))));
+            SandboxClientErrorProbe.Inspect(window, _ => throw new System.Runtime.InteropServices.COMException("Provider unavailable", unchecked((int)0x80040201))));
         Assert.AreEqual(SandboxClientSurface.Unknown,
             SandboxClientErrorProbe.Inspect(window, _ => throw new TimeoutException("Query limit")));
+    }
+
+    [TestMethod]
+    [DataRow(unchecked((int)0x80070005), typeof(UnauthorizedAccessException))]
+    [DataRow(unchecked((int)0x80070057), typeof(ArgumentException))]
+    public void Inspect_MappedProviderFailure_RetainsUnknown(int hresult, Type expectedException)
+    {
+        var mapped = System.Runtime.InteropServices.Marshal.GetExceptionForHR(hresult);
+        Assert.IsInstanceOfType(mapped, expectedException);
+        var surface = SandboxClientErrorProbe.Inspect(new SandboxClientWindow(1, 2, 3), _ =>
+        {
+            System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(hresult);
+            throw new AssertFailedException("The failing HRESULT must throw.");
+        });
+        Assert.AreEqual(SandboxClientSurface.Unknown, surface);
+    }
+
+    [TestMethod]
+    public void IsExpectedRoot_MissingRacingWindow_IsNotAUsableSurface()
+    {
+        Assert.IsFalse(SandboxClientErrorProbe.IsExpectedRoot(null, 2));
+    }
+
+    [TestMethod]
+    public void Inspect_ProgrammingFailure_IsNotSilentlyConvertedToUnknown()
+    {
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            SandboxClientErrorProbe.Inspect(new SandboxClientWindow(1, 2, 3),
+                _ => throw new InvalidOperationException("Programming error")));
     }
 
     [TestMethod]
