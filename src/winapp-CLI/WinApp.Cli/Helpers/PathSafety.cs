@@ -209,7 +209,7 @@ internal static class PathSafety
                     // Even ResolveLinkTarget(false) constructs a target FileSystemInfo,
                     // which can probe short names. LinkTarget only reads the reparse data.
                     string? target = readLinkTarget(info);
-                    if (string.IsNullOrEmpty(target) || IsNetworkPath(target))
+                    if (string.IsNullOrEmpty(target) || IsNetworkPath(target) || IsDeviceOrNtNamespaceTarget(target))
                     {
                         return true;
                     }
@@ -417,6 +417,69 @@ internal static class PathSafety
         bool isDriveLetter = device.Length >= 2 && char.IsAsciiLetter(device[0]) && device[1] == ':';
         bool isVolumeGuid = device.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase);
         return !isDriveLetter && !isVolumeGuid;
+    }
+
+    /// <summary>
+    /// True when a reparse-point <em>link target</em> names an NT device or namespace path rather than an
+    /// ordinary drive-letter or UNC path. <see cref="System.IO.FileSystemInfo.LinkTarget"/> strips the
+    /// leading <c>\\?\</c> prefix, so a target like <c>\\?\GLOBALROOT\Device\Mup\host\share\x.pfx</c> comes
+    /// back as <c>GLOBALROOT\Device\Mup\...</c> — which <see cref="IsNetworkPath"/> no longer recognizes and
+    /// which would otherwise be re-interpreted as a harmless relative path. Such targets can resolve to a
+    /// network redirector (e.g. <c>\Device\Mup</c>), so they must be treated as unsafe, while ordinary local
+    /// junction/symlink targets (drive-letter or relative) are left alone.
+    /// </summary>
+    internal static bool IsDeviceOrNtNamespaceTarget(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return false;
+        }
+
+        var normalized = target.Replace('/', '\\').TrimStart('\\');
+        return normalized.StartsWith("GLOBALROOT", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("Device\\", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("??\\", StringComparison.Ordinal)
+            || normalized.StartsWith("UNC\\", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> resolves onto a drive letter mapped to a network location
+    /// (<see cref="DriveType.Network"/>). Unlike <see cref="IsNetworkPath"/>, which reads the path
+    /// syntactically, this queries the drive type — a cheap, non-authenticating call — so a <c>Z:\</c>
+    /// drive mapped to an SMB share is caught before any file probe that would authenticate to it.
+    /// </summary>
+    public static bool IsNetworkDriveRoot(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        string? root;
+        try
+        {
+            root = Path.GetPathRoot(Path.GetFullPath(path));
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or System.Security.SecurityException)
+        {
+            return true; // Unresolvable path: bias to unsafe.
+        }
+
+        // Only a drive-letter root (e.g. "Z:\") can be a DriveType.Network mapping; UNC roots are handled by
+        // IsNetworkPath, and volume-GUID / relative roots are not drive mappings.
+        if (string.IsNullOrEmpty(root) || root.Length < 2 || !char.IsAsciiLetter(root[0]) || root[1] != ':')
+        {
+            return false;
+        }
+
+        try
+        {
+            return new DriveInfo(root).DriveType == DriveType.Network;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return true; // Bias to unsafe: if the drive type cannot be determined, refuse to probe it.
+        }
     }
 
     // Preserve `C:\`; `C:` is drive-relative and would probe the wrong path.

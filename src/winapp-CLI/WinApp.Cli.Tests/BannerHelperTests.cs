@@ -68,6 +68,12 @@ public class BannerHelperTests
 
         Assert.IsTrue(output.Contains("\x1b[", StringComparison.Ordinal),
             "Color banner must emit ANSI escape sequences.");
+        Assert.IsTrue(output.Contains("\x1b[38;2;96;205;255m", StringComparison.Ordinal),
+            "Color banner must start with the WinUI light blue.");
+        Assert.IsTrue(output.Contains("\x1b[38;2;0;120;212m", StringComparison.Ordinal),
+            "Color banner must include the Microsoft blue accent.");
+        Assert.IsTrue(output.Contains("\x1b[38;2;0;90;158m", StringComparison.Ordinal),
+            "Color banner must end with deep blue.");
         Assert.IsTrue(output.Contains("Windows App Development CLI", StringComparison.Ordinal));
         Assert.IsTrue(output.Contains(VersionHelper.GetVersionString(), StringComparison.Ordinal),
             "Banner must include the CLI version.");
