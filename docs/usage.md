@@ -556,7 +556,7 @@ winapp manifest generate [directory] [options]
 **Options:**
 
 - `--package-name <name>` - Package name (default: folder name)
-- `--publisher-name <name>` - Publisher distinguished name (default: CN=\<current user\>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=\<name\>.
+- `--publisher-name <name>` - Publisher distinguished name (default: CN=\<current user\>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued `+` RDNs and backslashes are not supported); bare names are auto-wrapped as CN=\<name\>.
 - `--version <version>` - Version (default: "1.0.0.0")
 - `--description <text>` - Description (default: "My Application")
 - `--entrypoint <path>` - Entry point executable or script
@@ -1356,8 +1356,8 @@ winapp cert generate [options]
 
 **Options:**
 
-- `--manifest <Package.appxmanifest>` - Extract publisher information from Package.appxmanifest 
-- `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`
+- `--manifest <Package.appxmanifest>` - Extract the certificate publisher from the manifest's `Identity/@Publisher`. Only the publisher is required, so a partially-complete manifest still works. If the manifest has no usable publisher, the command fails instead of substituting a default, so the certificate can never silently mismatch the manifest.
+- `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`. Components must be single-valued and comma-separated; multi-valued RDNs (`CN=Foo+OU=Bar`) and backslashes are not supported because the MSIX manifest publisher cannot represent them. A malformed distinguished name (e.g. `CN=` or `CN=A,,O=B`) is rejected with a non-zero exit and an error naming the problem, rather than producing a certificate that can never match the manifest publisher.
 - `--output <path>` - Output certificate file path (supports absolute and relative paths)
 - `--password <password>` - Certificate password (default: `password`, which is publicly known — see [JSON output](#cert-generate-json-output) and [Security](security.md#the-default-password))
 - `--valid-days <valid-days>` - Number of days the certificate is valid (default: 365)
@@ -1392,7 +1392,7 @@ only with `--export-cer`.
 
 #### cert info
 
-Display certificate details from a PFX file. Useful for verifying a certificate matches your manifest before signing.
+Display certificate details from a PFX or CER file. Useful for verifying a certificate matches your manifest before signing.
 
 ```bash
 winapp cert info <cert-path> [options]
@@ -1400,11 +1400,11 @@ winapp cert info <cert-path> [options]
 
 **Arguments:**
 
-- `cert-path` - Path to the certificate file (PFX)
+- `cert-path` - Path to the certificate file (PFX or CER)
 
 **Options:**
 
-- `--password <password>` - Password for the PFX file (default: "password")
+- `--password <password>` - Password for the PFX file, ignored for a public CER (default: "password")
 - `--json` - Format output as JSON
 
 #### cert install
@@ -1703,7 +1703,7 @@ winapp target push sandbox .\setup.ps1 Setup\setup.ps1
 winapp target pull sandbox Results .\results
 ```
 
-Target paths are relative to `C:\WinApp\work`; absolute, rooted, and UNC target paths
+Target paths are relative to the target's managed work area; absolute, rooted, and UNC target paths
 are rejected. A file destination includes its filename. See
 [Running commands and copying files](sandbox-execution.md#running-commands-and-copying-files)
 for directory layout, link handling, and running a copied script.
@@ -2156,7 +2156,7 @@ winapp ui [command] [options]
 - `search` - Find elements by selector
 - `get-property` - Read element properties
 - `get-text` / `get-value` - Read value/text from element (TextPattern, ValuePattern, or Name)
-- `screenshot` - Capture window/element as PNG (auto-captures dialogs separately)
+- `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
 - `invoke` - Activate element (click, toggle, expand)
 - `click` - Click element via mouse simulation (for controls that don't support invoke)
@@ -2210,7 +2210,7 @@ stop reason, optional `frameArtifacts`, and warnings.
 
 > **Known limitation:** recording a *specific element* inside a popup that renders in its own
 > top-level window (WinUI/XAML flyout, teaching tip, tooltip) may capture the underlying main
-> window instead. Record the whole window, or use `ui screenshot --capture-screen` for popup
-> stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
+> window instead. Record the whole window, or follow the [screenshot overlay workflow](ui-automation.md#screenshot)
+> for popup stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

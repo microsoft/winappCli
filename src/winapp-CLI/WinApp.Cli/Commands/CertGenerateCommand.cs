@@ -30,7 +30,7 @@ internal class CertGenerateCommand : Command, IShortDescription
     {
         PublisherOption = new Option<string>("--publisher")
         {
-            Description = "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>."
+            Description = "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>."
         };
         ManifestOption = new Option<FileInfo>("--manifest")
         {
@@ -128,6 +128,44 @@ internal class CertGenerateCommand : Command, IShortDescription
                     return JsonErrorOutput.Write(ansiConsole, message);
                 }
                 logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
+                return 1;
+            }
+
+            // When --manifest is named explicitly (and no --publisher overrides it), the caller is
+            // asking the certificate to match that manifest's Identity/@Publisher. Resolve it up front
+            // so a manifest that can't yield a publisher fails with a clear error here — before the
+            // status task — instead of silently falling back to the system default and producing a
+            // certificate that can never match the manifest (issue #839).
+            if (manifestPath != null && string.IsNullOrWhiteSpace(publisher))
+            {
+                try
+                {
+                    publisher = await MsixService.ExtractPublisherFromPathAsync(manifestPath, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var message = $"Could not extract the publisher from the manifest '{manifestPath}': {ex.Message}. " +
+                        "Fix the manifest's Identity Publisher attribute, or pass --publisher explicitly.";
+                    if (json)
+                    {
+                        return JsonErrorOutput.Write(ansiConsole, message);
+                    }
+                    logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
+                    return 1;
+                }
+            }
+            // Otherwise validate an explicit publisher up front so a malformed distinguished name — or
+            // an explicitly empty value — fails with a clear, actionable message instead of silently
+            // generating a certificate that can never match the manifest Identity/@Publisher.
+            // `publisher` is null only when --publisher was omitted (inference then applies); a
+            // supplied-but-empty value must still be rejected rather than fall through to a default.
+            else if (publisher is not null && !PublisherDnHelper.TryNormalize(publisher, out _, out var publisherError))
+            {
+                if (json)
+                {
+                    return JsonErrorOutput.Write(ansiConsole, publisherError);
+                }
+                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, publisherError);
                 return 1;
             }
 
