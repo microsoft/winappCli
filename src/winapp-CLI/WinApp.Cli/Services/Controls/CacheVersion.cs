@@ -85,6 +85,13 @@ namespace WinApp.Cli.Services.Controls;
 ///          different output. Without the bump an existing cache still matches on "21"
 ///          and keeps serving both the placeholder-bearing blocks and the broken
 ///          attributes that this change exists to remove.
+///   "23" — Samples are no longer truncated. Gallery XAML/C# and Toolkit XAML/C# were
+///          capped (2000/2500 and 1000/2500 chars) and emitted with a
+///          "&lt;!-- ...truncated --&gt;" / "// ...truncated" marker, so longer samples were
+///          unbuildable as pasted (issue #716). Toolkit's "extract just the core control
+///          element" fallback for oversized XAML is gone with it, so those samples now
+///          carry their full surrounding markup. Rule 3: same input, different output —
+///          without the bump an existing cache keeps serving the truncated snippets.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -92,5 +99,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "22";
+    public const string Current = "23";
 }

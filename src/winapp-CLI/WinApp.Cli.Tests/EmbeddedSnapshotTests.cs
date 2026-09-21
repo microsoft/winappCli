@@ -92,6 +92,30 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
+    public void EmbeddedCorpus_CarriesNoTruncationMarker()
+    {
+        // find-ui used to cap snippet length and leave a "<!-- ...truncated -->" /
+        // "// ...truncated" marker behind, so a long sample didn't build when pasted
+        // (issue #716). The extraction no longer shortens anything; a marker in the
+        // baked corpus means a stale bake or that a cap came back.
+        foreach (var descriptor in ProviderRegistry.Descriptors)
+        {
+            var scenarios = ReadEmbeddedSnapshot(descriptor.Id)!.Scenarios;
+
+            var offenders = scenarios
+                .Where(s => (s.Xaml?.Contains("...truncated", StringComparison.Ordinal) ?? false)
+                         || (s.CSharp?.Contains("...truncated", StringComparison.Ordinal) ?? false)
+                         || (s.CSharp?.Contains("snippet truncated", StringComparison.Ordinal) ?? false))
+                .Select(s => s.Id)
+                .ToArray();
+
+            Assert.AreEqual(0, offenders.Length,
+                $"the '{descriptor.Id}' snapshot ships truncated samples ({string.Join(", ", offenders)}). " +
+                "Re-bake with the current fetchers.");
+        }
+    }
+
+    [TestMethod]
     public void GalleryCorpus_CarriesNoWinappAuthoredSample()
     {
         // Gallery samples are served exactly as upstream publishes them. Scenario.Source
@@ -152,8 +176,8 @@ public class EmbeddedSnapshotTests
         //
         // The bar is deliberately a regression floor rather than zero. A handful of
         // upstream samples genuinely are unbalanced fragments, and the sanitizer strips
-        // them identically on a live fetch — that is issue #716 (truncated samples), not a
-        // property of baking. What this test must catch is the snapshot becoming materially
+        // them identically on a live fetch — that is a property of the upstream corpus,
+        // not of baking. What this test must catch is the snapshot becoming materially
         // worse than the live corpus it stands in for.
         // Deserialized fresh from the embedded resource rather than through
         // EmbeddedSnapshot.TryLoad: TryLoad memoizes one ProviderData per provider for the
