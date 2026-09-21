@@ -83,6 +83,11 @@ internal interface IDotNetService
     /// supports one.
     /// </para>
     /// </summary>
+    /// <remarks>
+    /// On normal completion (including a nonzero exit code), both output readers and their callbacks
+    /// have finished. Cancellation can interrupt output delivery; asynchronous work queued by
+    /// callbacks is not awaited.
+    /// </remarks>
     /// <param name="environmentOverrides">
     /// Optional environment variables to set on the child process (merged over the inherited
     /// environment). Use this to force locale-independent output, e.g. <c>DOTNET_CLI_UI_LANGUAGE=en</c>,
@@ -111,6 +116,11 @@ internal interface IDotNetService
     /// The callbacks are invoked on background threads; callers that touch shared state must
     /// synchronize. The command's own output is NOT written anywhere unless a callback does so.
     /// </summary>
+    /// <remarks>
+    /// On normal completion (including a nonzero exit code), both output readers and their callbacks
+    /// have finished. Cancellation can interrupt output delivery; asynchronous work queued by
+    /// callbacks is not awaited.
+    /// </remarks>
     Task<int> RunDotnetStreamingAsync(
         DirectoryInfo workingDirectory,
         string arguments,

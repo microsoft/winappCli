@@ -52,6 +52,39 @@ internal partial class MsixService(
     }
 
     /// <summary>
+    /// Extracts only the <c>Identity/@Publisher</c> value from an AppX manifest file.
+    /// Unlike <see cref="ParseAppxManifestFromPathAsync"/>, this does not require the manifest to
+    /// declare a package Name or an Application element, so it succeeds on the partially-complete
+    /// manifests that are common mid-development, as long as a publisher is present.
+    /// </summary>
+    /// <param name="appxManifestPath">Path to the appxmanifest.xml file</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>The publisher distinguished name from <c>Identity/@Publisher</c></returns>
+    /// <exception cref="FileNotFoundException">Thrown when the manifest file is not found</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the manifest is invalid or missing the Identity Publisher attribute</exception>
+    public static async Task<string> ExtractPublisherFromPathAsync(FileInfo appxManifestPath, CancellationToken cancellationToken = default)
+    {
+        if (!appxManifestPath.Exists)
+        {
+            throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}");
+        }
+
+        var appxManifestContent = await File.ReadAllTextAsync(appxManifestPath.FullName, Encoding.UTF8, cancellationToken);
+        var doc = AppxManifestDocument.Parse(appxManifestContent);
+
+        var identity = doc.GetIdentityElement()
+            ?? throw new InvalidOperationException("No Identity element found in AppX manifest");
+
+        var publisher = identity.Attribute("Publisher")?.Value;
+        if (string.IsNullOrWhiteSpace(publisher))
+        {
+            throw new InvalidOperationException("AppX manifest Identity element is missing the required Publisher attribute");
+        }
+
+        return publisher;
+    }
+
+    /// <summary>
     /// Parses an AppX manifest content and extracts the package identity information
     /// </summary>
     /// <param name="appxManifestContent">The content of the appxmanifest.xml file</param>
