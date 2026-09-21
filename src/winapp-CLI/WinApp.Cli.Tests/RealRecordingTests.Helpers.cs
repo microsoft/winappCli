@@ -47,9 +47,11 @@ public partial class RealRecordingTests
         public Task<UiElement[]> InspectAncestorsAsync(UiTarget s, string id, CancellationToken ct) => inner.InspectAncestorsAsync(s, id, ct);
         public Task<UiElement[]> SearchAsync(UiTarget s, UiSelector sel, int max, CancellationToken ct) => inner.SearchAsync(s, sel, max, ct);
         public Task<UiElement?> FindSingleElementAsync(UiTarget s, UiSelector sel, CancellationToken ct) => inner.FindSingleElementAsync(s, sel, ct);
+        public Task<UiElement?> FindSingleElementAsync(UiTarget s, UiSelector sel, bool requireUnique, CancellationToken ct) => inner.FindSingleElementAsync(s, sel, requireUnique, ct);
         public Task<Dictionary<string, object?>> GetPropertiesAsync(UiTarget s, UiElement e, string? p, CancellationToken ct) => inner.GetPropertiesAsync(s, e, p, ct);
         public Task<(byte[] Pixels, int Width, int Height)> ScreenshotAsync(UiTarget s, string? id, bool screen, bool focus, CancellationToken ct) => inner.ScreenshotAsync(s, id, screen, focus, ct);
         public Task<string> InvokeAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.InvokeAsync(s, e, ct);
+        public Task<UiInvokeActionResult> InvokeAsync(UiTarget s, UiElement e, UiInvokeAction action, CancellationToken ct) => inner.InvokeAsync(s, e, action, ct);
         public Task SetValueAsync(UiTarget s, UiElement e, string text, CancellationToken ct) => inner.SetValueAsync(s, e, text, ct);
         public Task FocusAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.FocusAsync(s, e, ct);
         public Task ScrollIntoViewAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.ScrollIntoViewAsync(s, e, ct);

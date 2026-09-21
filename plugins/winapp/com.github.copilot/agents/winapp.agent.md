@@ -39,9 +39,12 @@ Does the project already have an appxmanifest.xml?
    │  └─ winapp manifest generate
    ├─ Only need a development certificate?
    │  └─ winapp cert generate
-   ├─ Ready to create an MSIX installer from built app output?
-   │  └─ winapp package <build-output-dir>
-   │     (add --cert ./devcert.pfx to sign in one step)
+   ├─ Ready to create an MSIX installer?
+   │  ├─ Have a .NET/WinUI .csproj? (build + package in one step)
+   │  │  └─ winapp package <project.csproj>   (add -c Release, --arch, --cert ./devcert.pfx)
+   │  └─ Have a built app-output folder?
+   │     └─ winapp package <build-output-dir>
+   │        (add --cert ./devcert.pfx to sign in one step)
    ├─ Need package identity for debugging Windows APIs?
    │  ├─ Have a .NET/WinUI .csproj or .sln/.slnx (or a folder with one)? (build + run in one step)
    │  │  └─ winapp run <project-or-solution>  (dotnet build + provision runtime + launch)
@@ -73,6 +76,7 @@ Want to inspect or interact with a running app's UI?
 ├─ See only clickable elements → winapp ui inspect -a <appname> --interactive
 ├─ Find specific elements → winapp ui search <selector> -a <appname>
 ├─ Click/activate an element → winapp ui invoke <selector> -a <appname>
+├─ Perform one exact UIA action (no fallback) → winapp ui invoke <selector> -a <appname> --action <invoke|select|toggle|toggle-on|toggle-off|expand|collapse>
 ├─ Take a screenshot → winapp ui screenshot -a <appname>
 ├─ Record a window to video (MP4) → winapp ui record -a <appname> --duration-sec <n>
 ├─ Read element properties → winapp ui get-property <selector> -a <appname>
@@ -180,8 +184,8 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 **Requires:** `winapp.yaml`
 
 ### `winapp package <input-folder...>` (alias: `winapp pack`)
-**Purpose:** Create an MSIX package (single folder) or MSIX bundle (multiple folders).
-**When to use:** After building your app, when you want to create a distributable MSIX package or a multi-architecture bundle.
+**Purpose:** Create an MSIX package from a `.csproj` (project mode), a built app folder, or an MSIX bundle (multiple folders).
+**When to use:** To build a `.csproj` and package it in one step, or after building your app to package a folder, or to create a multi-architecture bundle.
 **Key options:**
 - `--cert <path>` — sign the package/bundle in one step
 - `--cert-password <pwd>` — certificate password (default: `password`)
@@ -189,12 +193,16 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `--output <path>` — output `.msix` or `.msixbundle` filename
 - `--self-contained` — bundle Windows App SDK runtime (arch-aware for bundles)
 - `--generate-cert` — auto-generate a certificate
+- `--no-sign` — deliver unsigned, overriding a project's signing configuration (for Store submission or external signing); cannot combine with `--cert`/`--generate-cert`
 - `--install-cert` — also install the certificate on the machine
 - `--skip-pri` — skip PRI resource file generation
+**Project mode (a single `.csproj` input):** builds the project, then packages its output.
+  `winapp package ./MyApp.csproj -c Release --cert ./devcert.pfx`
+  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. These build options require a `.csproj`; they are rejected for folder/bundle/manifest inputs. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged. If the project configures signing, winapp honors it; use `--no-sign` to force an unsigned artifact.
 **Bundle usage:** Pass multiple folders to create a bundle:
   `winapp pack ./publish/x64 ./publish/arm64`
   Each folder's architecture is auto-detected from the executable PE header.
-**Requires:** Built app output directory + `appxmanifest.xml`
+**Requires:** A packaged-app `.csproj`, or a built app-output directory + `appxmanifest.xml`
 
 ### `winapp create-debug-identity [entrypoint]`
 **Purpose:** Register a *sparse package* with Windows so an existing exe gets package identity without creating a full MSIX. The exe stays in its original location — Windows uses `Add-AppxPackage -ExternalLocation` to associate identity with it.
@@ -231,6 +239,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `-f, --framework <tfm>` — (project mode) target framework for multi-targeted projects. **Rejected in single-file mode** — declare `#:property TargetFramework=…` instead
 - `--project <name-or-path>` — (project mode) select which project to launch when a solution/directory has multiple runnable app projects (errors listing candidates if ambiguous). **Rejected in single-file mode** — the `.cs` file is the project
 - `--no-build` / `--no-restore` — (project + single-file mode) skip build / restore
+- `--aot` — (project mode) run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`, supports x64/ARM64, and cannot use `--no-build` or `--manifest`. Configure the project manifest before publishing. Use `-c Release` for a Release AOT run.
 - `-p, --property <Name=Value>` — (project + single-file mode) MSBuild property forwarded to build + evaluation; repeatable. Use `%3B` or `%2C` for a literal semicolon or comma in a value
 - `--debug-output` — capture `OutputDebugString` messages and first-chance exceptions (prevents other debuggers like VS/VS Code from attaching). For WinUI apps it also auto-runs a stowed-exception (`0xC000027B`) triage pass (`!xamlstowed`/`!xamltriage`) that recovers the originating HRESULT and native XAML dispatch stack. The first triage run downloads debugger components (engine bits from NuGet + `JsProvider.dll` from the WinDbg CDN) and caches them under `~\.winapp\dbgtools\`; if downloads are blocked, install Debugging Tools for Windows or point `WINAPP_DBGTOOLS_DIR` at a debugger directory containing `dbgeng.dll` and `JsProvider.dll`.
 - `--symbols` — with `--debug-output`, download Microsoft public symbols for richer native crash stacks (first run downloads and caches them)
@@ -376,7 +385,7 @@ rebuild per symbol. A single subject keeps the original payload shape; a batch r
 - `ui get-property <selector> -a <app> [-p <prop>]` — read UIA properties (including ToggleState, Value, IsSelected, ExpandCollapseState)
 - `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window. **`--capture-screen` needs exactly one window** — it reads whatever is in front, and only one window can be. `-w <hwnd>` selects one: that window's screen region, including any dialog or overlay visibly on top of it. If `-a` matches several top-level or owned windows there is no such selection and it fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. If a capture reports `foreground_not_target`, the window could not be brought to the front — do the same thing: list the windows and target one with `-w <hwnd>`.
 - `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--capture-screen] [--json]` — record a window or element to MP4. Prefer a positive CLI duration; npm helpers require `durationSec`. Use a fresh output path unless replacement is explicitly intended. See **winapp-ui-automation** for overwrite behavior, frame artifacts, and partial-output recovery.
-- `ui invoke <selector> -a <app>` — activate element by slug or text search. Auto-walks to invokable ancestor for non-invokable elements.
+- `ui invoke <selector> -a <app>` — activate element by slug or text search. Auto-walks to invokable ancestor for non-invokable elements. Add `--action <invoke|select|toggle|toggle-on|toggle-off|expand|collapse>` to perform exactly that action on the selected element with no pattern or ancestor fallback; `toggle-on`/`toggle-off` are idempotent. Prefer a slug with `--action` — a plain-text/AutomationId selector that matches more than one element fails closed rather than guessing.
 - `ui hover <selector> -a <app> [--dwell-time <ms>]` — move mouse to element center to trigger tooltips, flyouts, and hover states. Use with `ui screenshot --capture-screen` to capture the result.
 - `ui drag <from> <to> -a <app> [--right]` — press the mouse button at one point, move to another, and release (reorder, resize, sliders, drag-and-drop). Each of `<from>`/`<to>` is an element selector (drags from/to its center) or screen coordinates `x,y` as reported by `ui inspect`.
 - `ui send-keys "<keys>" -a <app> [--target <selector>] [--via post-message|send-input] [--verbatim] [--allow-system-keys]` — send synthetic keyboard input: named keys (`enter`, `down`), combos (`ctrl+shift+t`), raw virtual keys (`vk=0xNN`), or literal text. Use `--verbatim` to type the whole argument literally (no key/combo parsing). The default `post-message` transport auto-targets the window's focused child control (works for classic Win32/WinForms), but **windowless WinUI 3 / UWP / XAML controls ignore posted messages** — neither keys nor text reach them (it warns and still exits 0 when a XAML target is detected), so use **`--via send-input`** for WinUI 3 / UWP / WPF apps (also required for per-keystroke KeyDown on typed text, e.g. a WinUI 3/WPF TextBox). Pass `--allow-system-keys` with `--via send-input` to opt in to OS/shell hotkeys (e.g. `win+r`, `win+shift+v`); **`win+l` and `ctrl+alt+del` stay blocked even with this flag** (`win+l` locks the workstation — unrecoverable from automation; `ctrl+alt+del` is a Secure Attention Sequence Windows drops from injected input, so it errors instead of falsely reporting success).

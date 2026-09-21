@@ -189,6 +189,15 @@ winapp run .
 winapp run .\dotnet-app.csproj -c Debug --arch x64
 ```
 
+To run the project's Native AOT configuration, [enable AOT in the project](../usage.md#project-mode-net-sdk-projects) and run:
+
+```powershell
+winapp run . --aot
+winapp run . --aot -c Release
+```
+
+Use x64 or ARM64. For a one-time override, append `-p PublishAot=true`.
+
 You can still point `winapp run` at a pre-built output folder if you prefer (folder mode):
 
 ```powershell
@@ -337,6 +346,8 @@ winapp pack .\bin\Release\net10.0-windows10.0.26100.0 --manifest .\Package.appxm
 ```
 
 > Note: The `pack` command automatically uses the Package.appxmanifest from your current directory and copies it to the target folder before packaging. The generated .msix file will be in the current directory.
+
+> Tip: You can also skip locating the build-output folder and pack straight from the project — `winapp package .\dotnet-app.csproj --cert .\devcert.pfx` publishes the project and packages its output in one step (project mode defaults to the Release configuration). Project mode accepts the build options `-c`, `--arch`, `-f`, `--no-build`, `--no-restore`, `-p`; add `--no-build` to package an existing build without rebuilding.
 
 ### Install the Certificate
 

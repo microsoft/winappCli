@@ -37,7 +37,10 @@ internal sealed partial class ProjectRunService
     /// (no MSBuild round-trip); any ambiguity (unresolvable reference path, missing file, cycle-bounded
     /// overflow) resolves conservatively to "do not inject", preserving today's RID-only behavior.
     /// </summary>
-    internal static ProjectRunOptions ResolvePlatformInjection(FileInfo csproj, ProjectRunOptions options)
+    internal static ProjectRunOptions ResolvePlatformInjection(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        bool requireConcreteRid = false)
     {
         // A user -p:Platform is authoritative and forwarded as-is (WarnOnOverriddenFlags surfaces an
         // arch/Platform mismatch); never override it. It still conveys the architecture, so it counts when
@@ -63,8 +66,32 @@ internal sealed partial class ProjectRunService
         // failing with APPX1101 "two or more files with the same destination path". Drop the RID only for
         // that provable case; every other project keeps today's behavior, including a split closure with no
         // effective Platform, where the RID is the only thing conveying the architecture.
+        var ridSplit = ProjectReferenceClosureSplitsOnRuntimeIdentifier(csproj);
+        if (requireConcreteRid && ridSplit)
+        {
+            if (userPlatform)
+            {
+                throw new ProjectRunException(
+                    "Native AOT cannot combine an explicit Platform with a project graph that removes RuntimeIdentifier. Remove -p:Platform or stop removing RuntimeIdentifier from ProjectReference.");
+            }
+
+            token = null;
+        }
+
         var platformInEffect = userPlatform || token is not null;
-        var omitRid = platformInEffect && ProjectReferenceClosureSplitsOnRuntimeIdentifier(csproj);
+        var omitRid = !requireConcreteRid && platformInEffect && ridSplit;
+
+        // A lone -p RuntimeIdentifier (ExactRuntimeIdentifier) is an explicit exact-RID request. If this graph
+        // would otherwise drop the RID, honoring the request by forcing it back in reintroduces the APPX1101
+        // duplicate-output failure, and silently dropping it contradicts the request — so reject explicitly.
+        if (omitRid && !string.IsNullOrEmpty(options.ExactRuntimeIdentifier))
+        {
+            throw new ProjectRunException(
+                $"-p RuntimeIdentifier={options.ExactRuntimeIdentifier} cannot be honored for this project: its " +
+                "ProjectReference graph removes RuntimeIdentifier when a Platform is in effect, which would drop " +
+                "the requested RID. Select the architecture with --arch instead, or stop removing " +
+                "RuntimeIdentifier from the ProjectReference.");
+        }
 
         return options with
         {

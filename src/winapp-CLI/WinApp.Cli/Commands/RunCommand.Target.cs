@@ -43,6 +43,7 @@ internal partial class RunCommand
             bool noRestore,
             bool selfContained,
             PackageGraphSource? packageGraph,
+            FileInfo? appxRecipe,
             CancellationToken cancellationToken)
         {
             FileInfo resolvedManifest;
@@ -80,7 +81,7 @@ internal partial class RunCommand
                                 identity = await msixService.MaterializeLooseLayoutAsync(
                                     resolvedManifest, inputFolder, layout, taskContext, layoutOutput.Reconciliation,
                                     executable, projectFile, framework, noRestore,
-                                    selfContained, aliasDecision.UseAlias, packageGraph, ct);
+                                    selfContained, aliasDecision.UseAlias, packageGraph, appxRecipe, ct);
                                 return (0, $"{identity.PackageName} ready to deploy");
                             }
                             catch (OperationCanceledException) when (ct.IsCancellationRequested)

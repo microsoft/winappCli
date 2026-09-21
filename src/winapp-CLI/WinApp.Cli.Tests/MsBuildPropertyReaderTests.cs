@@ -66,6 +66,21 @@ public class MsBuildPropertyReaderTests
     }
 
     [TestMethod]
+    public void Parse_MultiplePropertyEnvelopes_UsesLast()
+    {
+        var stdout = """
+            { "Properties": { "PublishAot": "false" } }
+            build output
+            { "Properties": { "PublishAot": "true", "TargetDir": "C:\\publish\\" } }
+            """;
+
+        var result = MsBuildPropertyReader.Parse(stdout, ["PublishAot", "TargetDir"]);
+
+        Assert.AreEqual("true", result["PublishAot"]);
+        Assert.AreEqual(@"C:\publish\", result["TargetDir"]);
+    }
+
+    [TestMethod]
     public void Parse_PreambleContainingBrace_StillParses()
     {
         // Spec M4: a '{' in a diagnostic preamble that is NOT the JSON object must be skipped, and the

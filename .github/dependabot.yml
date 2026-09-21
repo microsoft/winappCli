@@ -27,6 +27,11 @@ updates:
           - "Svg.Skia"
       nuget:
         patterns: ["*"]
+    ignore:
+      # The shipped analyzer targets Roslyn 4.8 so .NET SDK 8.0.100 can load it.
+      # Dependabot also discovers its project through winapp.sln. Keep compiler
+      # reference updates manual so test dependencies cannot lift that baseline.
+      - dependency-name: "Microsoft.CodeAnalysis.CSharp"
     schedule:
       interval: "weekly"
     cooldown:

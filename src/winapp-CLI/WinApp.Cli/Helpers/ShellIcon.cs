@@ -114,7 +114,7 @@ public static class ShellIcon
     /// </summary>
     private static (bool Failed, object? PpvObj) AcquireJumboImageList()
     {
-        var hr = PInvoke.SHGetImageList((int)PInvoke.SHIL_JUMBO, typeof(IImageList2).GUID, out object ppvObj);
+        var hr = PInvoke.SHGetImageList((int)PInvoke.SHIL_JUMBO, out IImageList2 ppvObj);
         return (hr.Failed, ppvObj);
     }
 }

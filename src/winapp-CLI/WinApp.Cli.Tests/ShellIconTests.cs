@@ -27,34 +27,31 @@ public class ShellIconTests
     }
 
     [TestMethod]
-    public void GetJumboIcon_RealExecutable_ReturnsUsableIconOrIsInconclusive()
+    public void GetJumboIcon_RealExecutable_ReturnsUsableIcon()
     {
-        // Exercises the full public shell image-list path against a real, icon-bearing executable.
-        // Deterministic branch coverage of the resolve/short-circuit/failure arms comes from the
-        // GetJumboIconCore seam tests below; here we require that when the shell host DOES produce an
-        // icon it is a usable, positively-sized handle, and otherwise mark the test inconclusive
-        // rather than passing silently on a null (which would not prove the success path ran).
+        if (!Environment.UserInteractive)
+        {
+            Assert.Inconclusive("A shell icon requires an interactive desktop session.");
+        }
+
         var exe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe");
         if (!File.Exists(exe))
         {
             exe = Environment.ProcessPath!;
         }
 
-        Icon? icon = ShellIcon.GetJumboIcon(exe);
-        try
+        // Repeat acquisition to exercise COM wrapper lifetime as well as the returned HICON.
+        for (var i = 0; i < 3; i++)
         {
-            if (icon is null)
-            {
-                Assert.Inconclusive(
-                    "The shell host did not produce a jumbo icon for a real executable; the native " +
-                    "success path is not verifiable in this environment.");
-            }
+            using var icon = ShellIcon.GetJumboIcon(exe);
+            Assert.IsNotNull(icon, "Native shell acquisition must not silently fall back after a marshalling failure.");
 
             Assert.IsTrue(icon.Width > 0 && icon.Height > 0, "A resolved icon must have positive dimensions.");
-        }
-        finally
-        {
-            icon?.Dispose();
+            using var stream = new MemoryStream();
+            icon.Save(stream);
+            stream.Position = 0;
+            using var restored = new Icon(stream);
+            Assert.AreEqual(icon.Size, restored.Size, "The cloned icon must remain usable after native handles are released.");
         }
     }
 

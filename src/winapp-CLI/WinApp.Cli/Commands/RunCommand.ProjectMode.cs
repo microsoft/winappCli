@@ -125,6 +125,7 @@ internal partial class RunCommand
             var runtimeOption = parseResult.GetValue(RuntimeOption);
             var noBuild = parseResult.GetValue(NoBuildOption);
             var noRestore = parseResult.GetValue(NoRestoreOption);
+            var aot = parseResult.GetValue(AotOption);
             var properties = parseResult.GetValue(PropertyOption) ?? [];
 
             // Resolve the explicit effective framework ONCE (--framework > bare -p:TargetFramework) so the
@@ -160,7 +161,28 @@ internal partial class RunCommand
             // Resolve the target architecture: --runtime's arch beats --arch; else the process arch.
             if (!TryResolveArchitecture(archOption, runtimeOption, out var architecture, out var archError))
             {
+                if (aot)
+                {
+                    return Fail(
+                        $"Invalid Native AOT architecture. {archError} Native AOT supports only x64 and arm64.",
+                        isJson);
+                }
                 return Fail(archError!, isJson);
+            }
+
+            if (aot && noBuild)
+            {
+                return Fail("--aot cannot be combined with --no-build. Native AOT must run dotnet publish.", isJson);
+            }
+
+            if (aot && architecture is not ("x64" or "arm64"))
+            {
+                return Fail("--aot supports only x64 and ARM64 Windows targets.", isJson);
+            }
+
+            if (aot && manifest is not null)
+            {
+                return Fail("--manifest cannot be combined with --aot. Configure the project manifest before publishing.", isJson);
             }
 
             // Immediate, persistent context line (UX): the pre-build steps below each spawn dotnet and can
@@ -169,7 +191,11 @@ internal partial class RunCommand
             // (stdout must stay pure) and --quiet (Information off).
             if (!isJson && logger.IsEnabled(LogLevel.Information))
             {
-                var context = new StringBuilder($"{csproj.Name}  ·  {configuration} | {architecture}");
+                var target = aot ? RunArchHelper.ToRuntimeIdentifier(architecture) : architecture;
+                var context = new StringBuilder(
+                    aot
+                        ? $"Native AOT  ·  {csproj.Name}  ·  {configuration} | {target}"
+                        : $"{csproj.Name}  ·  {configuration} | {target}");
                 if (solution != null)
                 {
                     context.Append($"  ·  {solution.Name}");
@@ -200,8 +226,8 @@ internal partial class RunCommand
             // unpackaged app but are only rejected authoritatively AFTER packaging is known (post-build).
             // Cheaply evaluate WindowsPackageType first and reject now when the project is DEFINITIVELY
             // unpackaged, so the user doesn't pay the full build cost only to be rejected. Skipped under
-            // --no-build (no build cost to save).
-            if (!noBuild)
+            // --no-build (no build cost to save) and --aot (publishing can change the package type).
+            if (!noBuild && !aot)
             {
                 var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
                 if (incompatible.Count > 0
@@ -214,7 +240,9 @@ internal partial class RunCommand
             ProjectBuildOutcome outcome;
             try
             {
-                outcome = await projectRunService.BuildAndResolveAsync(csproj, buildOptions, cancellationToken);
+                outcome = aot
+                    ? await projectRunService.PublishAotAndResolveAsync(csproj, buildOptions, cancellationToken)
+                    : await projectRunService.BuildAndResolveAsync(csproj, buildOptions, cancellationToken);
             }
             catch (ProjectRunException ex)
             {
@@ -227,7 +255,8 @@ internal partial class RunCommand
                 var code = outcome.ExitCode == 0 ? 1 : outcome.ExitCode;
                 if (isJson)
                 {
-                    PrintJson(aumid: null, processId: null, $"Build failed (exit code {code}).");
+                    var operation = aot ? "Native AOT publish" : "Build";
+                    PrintJson(aumid: null, processId: null, $"{operation} failed (exit code {code}).");
                 }
                 return code;
             }
@@ -271,11 +300,21 @@ internal partial class RunCommand
             CancellationToken cancellationToken)
         {
             var targetDir = new DirectoryInfo(resolution.TargetDir);
+            if (resolution.IsAot &&
+                string.IsNullOrWhiteSpace(resolution.AppxManifestPath))
+            {
+                return Fail(
+                    "The Native AOT publish did not produce a package manifest.",
+                    isJson);
+            }
+            var effectiveManifest = resolution.IsAot
+                ? new FileInfo(resolution.AppxManifestPath!)
+                : manifest;
 
             // Guardrail: packaged (per the evaluated WindowsPackageType) but no manifest in the
             // build output is a misconfiguration — surface it clearly instead of the generic
             // "manifest not found" from the shared pipeline (which would also probe the cwd).
-            if (manifest == null && !FindManifest(targetDir.FullName).Exists)
+            if (effectiveManifest == null && !FindManifest(targetDir.FullName).Exists)
             {
                 // Under --no-build the missing manifest most often means --no-build is pointing at a stale
                 // or unpackaged build output, not that the project is misconfigured — lead with that.
@@ -295,10 +334,14 @@ internal partial class RunCommand
                 resolution.OutputType, resolution.PreferExecutionAlias);
 
             return await ExecuteRunPipelineAsync(
-                targetDir, manifest, layoutOutput, appArgs,
+                targetDir, effectiveManifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
-                aliasDecision, executionTarget, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier));
+                aliasDecision, executionTarget, cancellationToken,
+                packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                appxRecipe: string.IsNullOrWhiteSpace(resolution.AppxRecipePath)
+                    ? null
+                    : new FileInfo(resolution.AppxRecipePath));
         }
 
         /// <summary>
@@ -572,34 +615,6 @@ internal partial class RunCommand
         /// more specific); when neither is given, the current process architecture is used.
         /// </summary>
         internal static bool TryResolveArchitecture(string? archOption, string? runtimeOption, out string architecture, out string? error)
-        {
-            error = null;
-            architecture = string.Empty;
-
-            string? fromRuntime = null;
-            if (!string.IsNullOrWhiteSpace(runtimeOption))
-            {
-                fromRuntime = RunArchHelper.ArchitectureFromRid(runtimeOption);
-                if (fromRuntime == null)
-                {
-                    error = $"Could not determine an architecture from --runtime '{runtimeOption}'. Use a RID such as win-x64, win-arm64, or win-x86.";
-                    return false;
-                }
-            }
-
-            string? fromArch = null;
-            if (!string.IsNullOrWhiteSpace(archOption))
-            {
-                fromArch = RunArchHelper.NormalizeArchitecture(archOption);
-                if (fromArch == null)
-                {
-                    error = $"Unsupported --arch '{archOption}'. Supported values: {string.Join(", ", RunArchHelper.SupportedArchitectures)}.";
-                    return false;
-                }
-            }
-
-            architecture = fromRuntime ?? fromArch ?? RunArchHelper.DefaultArchitecture();
-            return true;
-        }
+            => RunArchHelper.TryResolveArchitecture(archOption, runtimeOption, out architecture, out error);
     }
 }

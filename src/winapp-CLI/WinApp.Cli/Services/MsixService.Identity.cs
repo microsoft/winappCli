@@ -118,12 +118,12 @@ internal partial class MsixService
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
     }
 
-    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, cancellationToken);
+    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, cancellationToken);
 
     /// <inheritdoc/>
-    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, cancellationToken);
+    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, cancellationToken);
 
     /// <summary>How far <see cref="BuildLooseLayoutAsync"/> takes a loose layout.</summary>
     private enum LooseLayoutOutcome
@@ -151,7 +151,7 @@ internal partial class MsixService
     /// to reproduce locally.
     /// </para>
     /// </remarks>
-    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, CancellationToken cancellationToken)
+    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, FileInfo? appxRecipe, CancellationToken cancellationToken)
     {
         // Validate inputs
         if (!appxManifestPath.Exists)
@@ -181,18 +181,23 @@ internal partial class MsixService
             .Elements(AppxManifestDocument.BuildNs + "Item")
             .Any(e => string.Equals(e.Attribute("Name")?.Value, "makepri.exe", StringComparison.OrdinalIgnoreCase)) == true;
 
-        if (isMSBuildGenerated)
+        if (isMSBuildGenerated || appxRecipe is not null)
         {
             taskContext.AddDebugMessage($"{UiSymbols.Note} MSBuild-generated manifest detected");
 
             // Snapshot the previous registered manifest BEFORE the copy/sync overwrites it (issue #537).
             var previousManifestBytes = TryReadExistingLayoutManifestBytes(outputAppXDirectory);
 
-            // Look for a .build.appxrecipe file in the input directory
-            var recipeFile = inputDirectory.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault();
+            var recipeFile = appxRecipe
+                ?? inputDirectory.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault();
 
             if (recipeFile != null)
             {
+                if (!recipeFile.Exists)
+                {
+                    throw new FileNotFoundException(
+                        $"AppxPackageRecipe was not found: '{recipeFile.FullName}'.");
+                }
                 taskContext.AddDebugMessage($"{UiSymbols.Files} Using appxrecipe for layout: {recipeFile.Name}");
                 await CopyFilesFromRecipeAsync(recipeFile, outputAppXDirectory, taskContext, reconciliation, cancellationToken);
 
@@ -209,12 +214,29 @@ internal partial class MsixService
             }
 
             var identity = ParseAppxManifestAsync(manifestContent);
+
+            // Resolve the manifest that will be registered (issue #537 / TrySkipRegistration).
+            // Prefer the canonical appxmanifest.xml directly rather than probing: the staging cleanup that
+            // removes a stale Package.appxmanifest is best-effort, so a locked leftover would otherwise win
+            // ManifestHelper.FindManifest's name preference and register the wrong manifest. Fall back to
+            // the probe when the canonical file is absent, so a genuinely missing manifest still surfaces
+            // through RegisterLooseLayoutPackageAsync's error.
             var registrationManifest = ResolveLayoutRegistrationManifest(outputAppXDirectory);
 
+            // Stage the alias into the manifest the recipe just laid down. This branch has its own
+            // staging path, so the mutation applied to the raw-manifest branch below does not reach it —
+            // without this, a recipe-backed project asking for alias launch registers fine and then fails
+            // with "No execution alias found in the manifest". Applied BEFORE the skip check so a run that
+            // adds an alias is not mistaken for an unchanged one.
             if (ensureExecutionAlias)
             {
                 EnsureStagedExecutionAlias(registrationManifest, taskContext);
             }
+
+            // Checked for both outcomes: a layout whose manifest names an executable the layout does not
+            // contain fails at activation, and a materialized one fails that way in a guest, where the
+            // cause is far harder to see.
+            ValidateStagedEntryPoint(registrationManifest, outputAppXDirectory);
 
             if (outcome == LooseLayoutOutcome.Materialized)
             {
@@ -792,6 +814,44 @@ internal partial class MsixService
         }
 
         return desired;
+    }
+
+    /// <summary>
+    /// Fails when the manifest about to be registered or deployed names an executable the layout does
+    /// not contain.
+    /// </summary>
+    /// <remarks>
+    /// A Native AOT publish produces a different executable than a plain build, so a layout assembled
+    /// from the wrong recipe can look complete while naming an entry point that is not there. Windows
+    /// only reports that at activation, as a generic failure — and for a layout bound for an execution
+    /// target, nowhere the developer can see. Checking the staged layout turns it into a message that
+    /// names the missing file.
+    /// </remarks>
+    private static void ValidateStagedEntryPoint(FileInfo manifestFile, DirectoryInfo outputDirectory)
+    {
+        var manifest = AppxManifestDocument.Load(manifestFile.FullName);
+
+        if (string.IsNullOrWhiteSpace(manifest.ApplicationExecutable))
+        {
+            throw new InvalidDataException(
+                $"The staged manifest '{manifestFile.FullName}' has no application executable.");
+        }
+
+        var executable = Path.GetFullPath(
+            Path.Join(outputDirectory.FullName, NormalizePackagePath(manifest.ApplicationExecutable)));
+
+        if (!IsPathInsideDirectory(executable, outputDirectory.FullName))
+        {
+            throw new InvalidDataException(
+                $"The staged manifest '{manifestFile.FullName}' declares an executable outside the layout: " +
+                $"'{manifest.ApplicationExecutable}'.");
+        }
+
+        if (!File.Exists(executable))
+        {
+            throw new FileNotFoundException(
+                $"The staged executable declared by the manifest was not found: '{executable}'.");
+        }
     }
 
     /// <summary>
@@ -1944,8 +2004,32 @@ internal partial class MsixService
     }
 
     /// <summary>
-    /// Creates a debug version of the identity by appending ".debug" to package name and application ID
+    /// Ensures the manifest carries an <c>Identity/@ProcessorArchitecture</c> by stamping the resolved
+    /// target architecture when PE-header detection could not (no executable at the expected packaging
+    /// path — e.g. a Native AOT app whose exe is in publish/native output rather than the recipe's build
+    /// TargetDir). A value already present in the manifest is preserved; a null/blank
+    /// <paramref name="targetArch"/> leaves the manifest unchanged. Isolated (and internal) so the
+    /// fallback is directly testable: an architecture-only bundle rejects a slice whose manifest omits the
+    /// architecture, so this guards against shipping such a slice when the architecture is in fact known.
     /// </summary>
+    internal static (string manifestContent, string? architecture) EnsureProcessorArchitecture(string manifestContent, string? targetArch, TaskContext taskContext)
+    {
+        if (string.IsNullOrWhiteSpace(targetArch))
+        {
+            var unchangedDoc = AppxManifestDocument.Parse(manifestContent);
+            return (manifestContent, unchangedDoc.IdentityProcessorArchitecture);
+        }
+
+        var doc = AppxManifestDocument.Parse(manifestContent);
+        if (!string.IsNullOrEmpty(doc.IdentityProcessorArchitecture))
+        {
+            return (manifestContent, doc.IdentityProcessorArchitecture);
+        }
+
+        doc.IdentityProcessorArchitecture = targetArch;
+        taskContext.AddDebugMessage($"{UiSymbols.Note} Set ProcessorArchitecture from target architecture: {targetArch}");
+        return (doc.ToXml(), targetArch);
+    }
     private static MsixIdentityResult CreateDebugIdentity(MsixIdentityResult originalIdentity)
     {
         var debugPackageName = originalIdentity.PackageName.EndsWith(".debug")
