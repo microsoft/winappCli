@@ -1362,26 +1362,29 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    [DataRow("", "", "")]
-    [DataRow("", "Lower-priority value", "")]
-    [DataRow(" \t\r\n", "Lower-priority value", " \t\r\n")]
-    [DataRow("Document text", "Lower-priority value", "Document text")]
-    [DataRow(null, "", "")]
-    [DataRow(null, " \t\r\n", " \t\r\n")]
-    [DataRow(null, "Field value", "Field value")]
-    [DataRow(null, null, "Fallback Name")]
+    [DataRow("", "", "", false)]
+    [DataRow("", "Lower-priority value", "", false)]
+    [DataRow(" \t\r\n", "Lower-priority value", " \t\r\n", false)]
+    [DataRow("Document text", "Lower-priority value", "Document text", false)]
+    [DataRow(null, "", "", false)]
+    [DataRow(null, " \t\r\n", " \t\r\n", false)]
+    [DataRow(null, "Field value", "Field value", false)]
+    [DataRow(null, null, "Fallback Name", false)]
+    [DataRow("", "Lower-priority value", "", true)]
+    [DataRow(null, "", "", true)]
     public async Task FaultInjectedComProxies_GetTextPreservesSuccessfulReads(
-        string? documentText, string? fieldValue, string expected)
+        string? documentText, string? fieldValue, string expected, bool nullBstr)
     {
         var svc = NewService();
         var uiTarget = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
         var model = new UiElement { Id = "text-fallback", Type = "Custom", AutomationId = "textAid", Name = "Fallback Name" };
+        BSTR ReadValue(string value) => nullBstr && value.Length == 0 ? default : StringBstr(value);
         var textRange = ComProxy<IUIAutomationTextRange>((method, _) =>
-            method.Name == "GetText" ? StringBstr(documentText!) : ThrowCom());
+            method.Name == "GetText" ? ReadValue(documentText!) : ThrowCom());
         var textPattern = ComProxy<IUIAutomationTextPattern>((method, _) =>
             method.Name == "get_DocumentRange" ? textRange : ThrowCom());
         var valuePattern = ComProxy<IUIAutomationValuePattern>((method, _) =>
-            method.Name == "get_CurrentValue" ? StringBstr(fieldValue!) : ThrowCom());
+            method.Name == "get_CurrentValue" ? ReadValue(fieldValue!) : ThrowCom());
         var selected = ComProxy<IUIAutomationElement>((method, _) =>
             method.Name == "get_CurrentName" ? EmptyBstr() : ThrowCom());
         var selection = ComProxy<IUIAutomationElementArray>((method, _) => method.Name switch
