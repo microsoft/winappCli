@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using WinApp.Cli.Services.Controls;
 
 namespace WinApp.Cli.Tests;
@@ -32,6 +33,17 @@ public class EmbeddedSnapshotTests
     /// failing a bake that captured a truncated or mangled corpus.
     /// </summary>
     private const double MinCodeRetention = 0.90;
+
+    /// <summary>
+    /// Serving floors for the Gallery corpus, measured at 327 scenarios / 115 controls /
+    /// 290 XAML / 116 C# after sanitizing on the bake that introduced the published index.
+    /// Set roughly 10% below that so ordinary upstream churn doesn't fail the build, while
+    /// a partial or broken upstream publish does.
+    /// </summary>
+    private const int MinGalleryScenarios = 295;
+    private const int MinGalleryControls = 105;
+    private const int MinGalleryXaml = 260;
+    private const int MinGalleryCSharp = 100;
 
     // ------------------------------------------------------------------
     // Build gates: the committed snapshot must match the code that reads it
@@ -191,6 +203,124 @@ public class EmbeddedSnapshotTests
         Assert.AreEqual(0, regressed.Count,
             $"the baked corpus degraded under the sanitizer: {string.Join("; ", regressed)}. " +
             $"Observed: {string.Join(" | ", report)}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_MeetsItsServingFloors()
+    {
+        // The Gallery corpus is no longer reconstructed by a scraper — it is whatever
+        // microsoft/WinUI-Gallery publishes in catalog/windows-samples.json. That removes a
+        // whole class of parsing bugs, but it also means a bad upstream publish (a partial
+        // export, a schema change that silently drops a field) now lands in our corpus with
+        // nothing in between. These floors are that "nothing in between".
+        //
+        // They are floors, not equalities: upstream adds and removes samples continuously
+        // and a bake that tracks that is working as intended. They sit below the measured
+        // corpus with room for ordinary churn, so what trips them is a collapse, not a
+        // release. Re-measure and move a floor only after confirming upstream really did
+        // shrink; a floor that is edited every bake is not guarding anything.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var controls = scenarios.Select(s => s.ControlId).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var xaml = scenarios.Count(s => !string.IsNullOrWhiteSpace(s.Xaml));
+        var csharp = scenarios.Count(s => !string.IsNullOrWhiteSpace(s.CSharp));
+
+        var observed = $"observed {scenarios.Length} scenarios / {controls} controls / " +
+                       $"{xaml} XAML / {csharp} C# after sanitizing";
+
+        Assert.IsTrue(scenarios.Length >= MinGalleryScenarios,
+            $"the Gallery corpus collapsed to {scenarios.Length} scenarios (floor {MinGalleryScenarios}). {observed}");
+        Assert.IsTrue(controls >= MinGalleryControls,
+            $"the Gallery corpus collapsed to {controls} controls (floor {MinGalleryControls}). {observed}");
+        Assert.IsTrue(xaml >= MinGalleryXaml,
+            $"only {xaml} Gallery scenarios still serve XAML (floor {MinGalleryXaml}). {observed}");
+        Assert.IsTrue(csharp >= MinGalleryCSharp,
+            $"only {csharp} Gallery scenarios still serve C# (floor {MinGalleryCSharp}). {observed}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoScenarioWithoutCode()
+    {
+        // A scenario that survives sanitizing with neither XAML nor C# is worse than an
+        // absent one: search ranks it, the user asks for it by id, and find-ui answers with
+        // a header and no sample. The scraper shipped five of these because it created a
+        // scenario per documented sample whether or not it could recover the source; the
+        // index only describes samples it actually carries, so the expected count is zero.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var empty = scenarios.Where(s => !HasCode(s)).Select(s => s.Id).ToList();
+
+        Assert.AreEqual(0, empty.Count,
+            $"{empty.Count} Gallery scenarios are served with no code at all: {string.Join(", ", empty.Take(10))}. " +
+            "Each one is a fetchable id that returns nothing useful.");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoUnresolvedSubstitutionToken()
+    {
+        // Gallery's page XAML carries $(Name) substitution tokens that its own runtime
+        // resolves. They are not valid XAML or C#, so a sample containing one does not
+        // compile when pasted. SampleIndexParser suppresses those blocks; this asserts none
+        // reached the corpus by another route.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var leaked = scenarios
+            .Where(s => (s.Xaml?.Contains("$(", StringComparison.Ordinal) ?? false)
+                        || (s.CSharp?.Contains("$(", StringComparison.Ordinal) ?? false))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Gallery samples are served with an unresolved $(...) token in them: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoUnbackedEventHandler()
+    {
+        // The index carries Gallery's XAML verbatim, including events wired to handlers
+        // that live in page code-behind it does not publish. Serving such an attribute
+        // hands the user markup that fails to compile with "handler not found", so
+        // GalleryProvider strips the ones the emitted C# doesn't declare. This asserts the
+        // corpus was baked with that step applied — the count guards above all pass without
+        // it, because nothing about them notices a sample that no longer builds.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var unbacked = scenarios
+            .Where(s => !string.IsNullOrEmpty(s.Xaml)
+                        && ControlSnippetText.StripUnbackedEventHandlers(s.Xaml!, s.CSharp) != s.Xaml)
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, unbacked.Count,
+            $"{unbacked.Count} Gallery samples wire a XAML event to a handler they don't define: " +
+            $"{string.Join(", ", unbacked.Take(10))}. Pasting one of these does not compile.");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoGalleryPrivateSymbol()
+    {
+        // Gallery's own page classes, its SamplePage navigation targets and its UIHelper
+        // accessibility helper exist only inside the Gallery app. A sample that still names
+        // one compiles only if the user happens to have Gallery's source, so GalleryProvider
+        // rewrites them to obvious placeholders before baking. These match identifiers, not
+        // prose: a sample may legitimately mention a Gallery source file by name.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        string[] privateSymbols = [@"\bSamplePage\d*", @"\bUIHelper\.", "x:Class=\"WinUIGallery", @"namespace\s+WinUIGallery"];
+
+        var leaked = scenarios
+            .Where(s => privateSymbols.Any(sym =>
+                Regex.IsMatch(s.Xaml ?? "", sym) || Regex.IsMatch(s.CSharp ?? "", sym)))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Gallery samples still name a Gallery-internal symbol: {string.Join(", ", leaked.Take(10))}");
     }
 
     // ------------------------------------------------------------------

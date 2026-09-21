@@ -3,8 +3,6 @@
 
 namespace WinApp.Cli.Services.Controls;
 
-using System.Net.Http;
-
 /// <summary>
 /// microsoft-ui-reactor ReactorGallery scenarios. Reads the purpose-built
 /// <c>reactor-search-index.json</c> (a schema the Reactor team owns) and maps it
@@ -32,24 +30,15 @@ internal static class ReactorFetcher
     /// a source can't label its samples as another's.</summary>
     private const string SourceId = "reactor";
 
-    private const string IndexUrl =
-        "https://raw.githubusercontent.com/microsoft/microsoft-ui-reactor/main/samples/ReactorGallery/reactor-search-index.json";
-
-    private static readonly HttpClient Http = new()
-    {
-        DefaultRequestHeaders = { { "User-Agent", "winapp-find-ui/1.0" } },
-        Timeout = TimeSpan.FromSeconds(30)
-    };
-
     /// <summary>Fetch fresh scenarios + tags from GitHub. Reactor C# and curated
-    /// keywords are kept verbatim. The body is streamed through the shared
-    /// byte-capped helper so an accidentally-huge upstream file can't exhaust
-    /// memory.</summary>
+    /// keywords are kept verbatim.</summary>
     internal static async Task<(Scenario[] scenarios, Dictionary<string, string[]> tags)> FetchAsync(
         CancellationToken cancellationToken = default)
     {
-        var json = await ControlsHttpHelper.GetStringCappedAsync(Http, IndexUrl, cancellationToken).ConfigureAwait(false);
-        return Parse(json);
+        var (scenarios, tags, _) = await SampleIndexFetcher
+            .FetchAsync(SampleIndexFetcher.ReactorIndexUrl, SourceId, cancellationToken)
+            .ConfigureAwait(false);
+        return (scenarios, tags);
     }
 
     /// <summary>Map the <c>reactor-search-index.json</c> document to
@@ -60,7 +49,7 @@ internal static class ReactorFetcher
     /// generalized FROM this file, so Reactor's published index is what proves the shared
     /// reader works against real upstream data — and every source that publishes an index
     /// under <see href="https://github.com/microsoft/winappCli/issues/703">#703</see> gets a
-    /// fetcher this size instead of a scraper.
+    /// fetcher this size instead of a scraper. WinUI-Gallery is the second such source.
     ///
     /// <para>Reactor publishes no <c>curatedKeywords</c>, so that slot is empty here and the
     /// tuple stays two-wide, exactly as <c>ReactorProvider</c> already expects. Its

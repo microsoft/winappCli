@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 
 /// <summary>
 /// Shared snippet-truncation helpers used by every scenario fetcher
-/// (<see cref="GalleryFetcher"/>, <see cref="ToolkitFetcher"/>, …). These used to
+/// (<see cref="ToolkitFetcher"/>, …). These used to
 /// be copy-pasted per fetcher and had already drifted (only one copy stripped XML
 /// comments; only one balanced C# braces), so they live here as the single source
 /// of truth. The final safety net for malformed output is
