@@ -8,6 +8,7 @@ using System.CommandLine.Invocation;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using WinApp.Cli.Models;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
@@ -21,12 +22,12 @@ internal class CertInfoCommand : Command, IShortDescription
     {
         CertPathArgument = new Argument<FileInfo>("cert-path")
         {
-            Description = "Path to the certificate file (PFX)"
+            Description = "Path to the certificate file (PFX or CER)"
         };
         CertPathArgument.AcceptExistingOnly();
         PasswordOption = new Option<string>("--password")
         {
-            Description = "Password for the PFX file",
+            Description = "Password for the PFX file (ignored for a public CER)",
             DefaultValueFactory = (argumentResult) => "password",
         };
     }
@@ -60,8 +61,8 @@ internal class CertInfoCommand : Command, IShortDescription
 
             try
             {
-                using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                    certPath.FullName, password, X509KeyStorageFlags.Exportable);
+                using var cert = CertificateService.LoadCertificate(
+                    certPath, password, X509KeyStorageFlags.Exportable);
 
                 if (json)
                 {
