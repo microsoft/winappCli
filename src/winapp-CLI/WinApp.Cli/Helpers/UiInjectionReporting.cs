@@ -33,10 +33,10 @@ internal static class UiInjectionReporting
 
             case ForegroundCheck.NoInteractiveDesktop:
                 logger.LogError(
-                    "{Symbol} No interactive desktop is available — the session is locked or on a secure desktop, so input can't be injected. Unlock the session and retry, or use a UIA-pattern verb (invoke, set-value, scroll --direction/--to) which doesn't need the desktop.",
+                    "{Symbol} No interactive desktop is available — the session is locked or on a secure desktop. Unlock the session and retry.",
                     UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeNoInteractiveDesktop,
-                    "No interactive desktop is available (session locked or on a secure desktop) — cannot inject input. Unlock the session, or use a UIA-pattern verb.",
+                    "No interactive desktop is available (session locked or on a secure desktop). Unlock the session and retry.",
                     errorOut: errorOut);
                 return false;
 

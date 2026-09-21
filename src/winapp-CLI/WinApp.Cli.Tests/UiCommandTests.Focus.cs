@@ -76,6 +76,21 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    public async Task Focus_LockedDesktop_ReportsUnlockAndRetryWithoutInjectionAdvice()
+    {
+        ConfigureVerifiedFocus();
+        _fakeForeground.CheckResult = _ => ForegroundCheck.NoInteractiveDesktop;
+
+        Assert.AreEqual(1, await RunVerifiedFocusAsync());
+        Assert.IsNull(_fakeUia.LastFocusedElement);
+        AssertJsonErrorCode("no_interactive_desktop");
+        var error = ConsoleStdErr.ToString();
+        StringAssert.Contains(error, "Unlock the session and retry");
+        Assert.IsFalse(error.Contains("inject", StringComparison.OrdinalIgnoreCase), error);
+        Assert.IsFalse(error.Contains("UIA-pattern", StringComparison.OrdinalIgnoreCase), error);
+    }
+
+    [TestMethod]
     public async Task Focus_ForegroundLostDuringFocus_FailsDespiteKeyboardFocus()
     {
         ConfigureVerifiedFocus();
