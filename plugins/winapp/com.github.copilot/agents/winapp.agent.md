@@ -126,7 +126,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 
 2. **The key prerequisite is `appxmanifest.xml`, not `winapp.yaml`.** Most winapp commands (`package`, `create-debug-identity`, `sign`, `cert generate --manifest`) need an `appxmanifest.xml`. If one doesn't exist, guide the user to run `winapp init` or `winapp manifest generate`. A project does **not** need `winapp.yaml` to use winapp — `winapp.yaml` is only needed for SDK version management via `restore`/`update`. For SDK build tools, winapp resolves versions via a fallback chain: `winapp.yaml` → `.csproj` NuGet package references (e.g., `Microsoft.Windows.SDK.BuildTools`) → latest available version in the NuGet cache. This means any project with the right NuGet packages (common in .NET) can use winapp commands without ever running `init`, as long as it has an `appxmanifest.xml`.
 
-3. **Publisher must match between cert and manifest.** The `Publisher` field in `appxmanifest.xml` must exactly match the certificate subject distinguished name. Any valid X.500 DN is supported (e.g., `CN=YourName` or `OU=Team, O=Corp, C=US`). Use `winapp cert generate --manifest ./appxmanifest.xml` to auto-infer the correct publisher. If there's a mismatch, signing and installation will fail.
+3. **Publisher must match between cert and manifest.** The `Publisher` field in `appxmanifest.xml` must exactly match the certificate subject distinguished name. Most X.500 DNs are supported (e.g., `CN=YourName` or `OU=Team, O=Corp, C=US`), but components must be single-valued and comma-separated — multi-valued RDNs (`CN=Foo+OU=Bar`) and backslashes are rejected because the MSIX manifest publisher cannot represent them. Use `winapp cert generate --manifest ./appxmanifest.xml` to auto-infer the correct publisher. If there's a mismatch, signing and installation will fail.
 
 4. **`cert install` requires administrator elevation.** Always warn the user that `winapp cert install` must be run in an elevated (administrator) terminal. Without this, the certificate won't be trusted and MSIX installation will fail.
 
@@ -267,7 +267,7 @@ with `winapp target snapshot sandbox`; it does not create a VM. Consult
 **When to use:** When you need a development certificate to sign MSIX packages or executables.
 **Key options:**
 - `--manifest <path>` — auto-infer publisher from manifest (recommended)
-- `--publisher "CN=..."` — set publisher DN explicitly (any valid X.500 DN; bare names auto-wrapped as CN=\<name\>)
+- `--publisher "CN=..."` — set publisher DN explicitly (single-valued, comma-separated components; multi-valued `+` RDNs and backslashes unsupported; bare names auto-wrapped as CN=\<name\>)
 - `--output <path>` — output PFX path (default: `devcert.pfx`)
 - `--password <pwd>` — PFX password (default: `password`)
 - `--valid-days <n>` — certificate validity period (default: 365)
