@@ -334,6 +334,24 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DataRow("")]
+    [DataRow(" \t\r\n")]
+    [DataRow("Field value")]
+    public async Task GetValue_Json_PreservesSuccessfulRead(string value)
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e1", Type = "Edit", Name = "Title, required" };
+        _fakeUia.GetTextResult = value;
+
+        var command = GetRequiredService<UiGetValueCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e1", "-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual("e1", document.RootElement.GetProperty("elementId").GetString());
+        Assert.AreEqual(value, document.RootElement.GetProperty("text").GetString());
+    }
+
+    [TestMethod]
     public async Task GetValue_Com_ReturnsError()
     {
         _fakeUia.FindSingleResult = new UiElement { Id = "e1", Type = "Document", Name = "Editor" };
