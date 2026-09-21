@@ -25,16 +25,23 @@ question, not a diff-wide pre-check.
 
 ## 1. Scope to the changed C# code
 
-- Committed on the branch: `git --no-pager diff --name-only origin/main...HEAD`
-- If the working tree is dirty and the branch has no new commits, use
-  `git --no-pager diff --name-only HEAD` plus untracked files via
-  `git ls-files --others --exclude-standard`.
+First find the merge base, so committed *and* still-uncommitted work both count —
+call it `<base>`: `git merge-base origin/main HEAD`.
 
-Keep only `*.cs` under `src\`, and **drop `**/*Tests/*.cs`** — the bot scans
-product code, not the test projects. If nothing survives, say so and stop.
+- **Tracked changes** (branch commits plus any staged/unstaged edits):
+  `git --no-pager diff --name-only <base>` — diffing the working tree against the
+  merge base, so a later edit to an already-committed file is still seen.
+- **Untracked new files:** `git ls-files --others --exclude-standard -- "src/*.cs"`
+  — `git diff` cannot emit hunks for these; read them directly with `view`.
 
-Then read the actual changed lines (`git --no-pager diff --unified=0
-origin/main...HEAD -- <files>`) and, for context, `view` each changed region.
+Keep only `*.cs` under `src\`, and **drop test-project code** — exclude every file
+under a directory whose name ends in `Tests` (e.g. `src\WinApp.Cli.Tests\...`, at
+any depth below it), not just files matching `*Tests*.cs`. The bot scans product
+code, not the test projects. If nothing survives, say so and stop.
+
+Then read the changed lines. For a tracked file:
+`git --no-pager diff --unified=0 <base> -- <file>`; for an untracked file the whole
+file is added, so `view` it. Either way `view` each changed region for context.
 **Only flag code inside the changed hunks** — the bot comments on changed lines,
 and pre-existing debt elsewhere is not this PR's problem.
 
@@ -115,6 +122,7 @@ assignment), not on a hunch.
 | `cs/inefficient-containskey` | `ContainsKey` then indexer → `TryGetValue` |
 | `cs/test-for-negative-container-size` | `Count < 0` / `Length < 0` (never true) → fix the check |
 | `cs/index-out-of-bounds` **†** | off-by-one vs `Length`/`Count` → use `< Length` |
+| `cs/nested-loops-with-same-variable` | nested `for`/`foreach` that reuse the same counter (inner loop also updates `i`) → use a distinct loop variable |
 
 ### Concurrency & locking
 | Rule | Flags → do instead |
