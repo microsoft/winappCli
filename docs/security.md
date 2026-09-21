@@ -76,7 +76,14 @@ Once a certificate is in `TrustedPeople`, Windows will accept **any** MSIX packa
 - Do not install a development certificate on shared, production, or build machines that other people rely on.
 - Prefer distributing the `.cer` (public key only) rather than the `.pfx` when a colleague needs to install your test package. They gain the ability to trust your builds without gaining the ability to sign as you.
 
-To trust a `.cer` on another test machine, import it directly — `winapp cert install` expects a PFX:
+To trust a `.cer` on another test machine, run `winapp cert install` on it directly — the command accepts either a `.pfx` or a public-only `.cer`:
+
+```powershell
+# Run as Administrator
+winapp cert install .\devcert.cer
+```
+
+The equivalent using only built-in Windows tooling is:
 
 ```powershell
 # Run as Administrator
