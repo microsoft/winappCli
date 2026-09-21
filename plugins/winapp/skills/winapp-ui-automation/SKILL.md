@@ -320,7 +320,7 @@ winapp ui get-property Document -a myapp --property FontWeight --json
 winapp ui get-focused -a myapp
 ```
 
-To check a blank or cleared field, use `wait-for SearchBox -a myapp --value ""`.
+To check a blank or cleared field, use `winapp ui wait-for SearchBox -a myapp --value ""`.
 See [empty-value behavior](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#get-value)
 for JSON output and reading the accessibility label separately.
 
