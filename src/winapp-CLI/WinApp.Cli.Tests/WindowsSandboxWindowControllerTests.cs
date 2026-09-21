@@ -260,6 +260,45 @@ public class WindowsSandboxWindowControllerTests
     }
 
     [TestMethod]
+    public void InspectClient_RememberedSessionAlongsideUnknown_StillFailsAmbiguous()
+    {
+        var session = Candidate(13, 300, OurLauncher);
+        var unknown = Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.Unknown };
+        var controller = new WindowsSandboxWindowController(
+            () => [session, unknown], isIconic: _ => false);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => controller.InspectClient(session.Window));
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
+    }
+
+    [TestMethod]
+    public void EnsureClientReady_RememberedSessionAlongsideUnknown_DoesNotMoveWindows()
+    {
+        var session = Candidate(13, 300, OurLauncher);
+        var unknown = Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.Unknown };
+        var moves = 0;
+        var controller = new WindowsSandboxWindowController(
+            () => [session, unknown], (_, _) => moves++, _ => true,
+            () => Snapshot(900).ForegroundWindow);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => controller.EnsureClientReady(session.Window, TargetDesktopUse.RealInput));
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
+        Assert.AreEqual(0, moves);
+    }
+
+    [TestMethod]
+    public void InspectClient_TwoVerifiedSessions_PreservesRememberedPreference()
+    {
+        var remembered = Candidate(13, 300, OurLauncher);
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OtherLauncher), remembered], isIconic: _ => false);
+
+        Assert.AreEqual(remembered.Window, controller.InspectClient(remembered.Window).Window);
+    }
+
+    [TestMethod]
     public void InspectClient_UnknownRememberedClient_DoesNotClaimReadiness()
     {
         var unknown = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.Unknown };

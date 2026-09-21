@@ -340,7 +340,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         var candidates = _listClients()
             .Where(candidate => candidate.Surface != SandboxClientSurface.TerminalError)
             .ToArray();
-        var client = ResolveClient(remembered, [.. candidates.Select(candidate => candidate.Window)]);
+        var preferred = candidates.Any(candidate => candidate.Surface == SandboxClientSurface.Unknown)
+            ? null
+            : remembered;
+        var client = ResolveClient(preferred, [.. candidates.Select(candidate => candidate.Window)]);
         if (!candidates.Any(candidate =>
             candidate.Window == client && candidate.Surface == SandboxClientSurface.Session))
         {
