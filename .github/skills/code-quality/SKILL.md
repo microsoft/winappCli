@@ -34,10 +34,12 @@ call it `<base>`: `git merge-base origin/main HEAD`.
 - **Untracked new files:** `git ls-files --others --exclude-standard -- "src/*.cs"`
   — `git diff` cannot emit hunks for these; read them directly with `view`.
 
-Keep only `*.cs` under `src\`, and **drop test-project code** — exclude every file
-under a directory whose name ends in `Tests` (e.g. `src\WinApp.Cli.Tests\...`, at
-any depth below it), not just files matching `*Tests*.cs`. The bot scans product
-code, not the test projects. If nothing survives, say so and stop.
+Keep only `*.cs` under `src\`, and drop files matching the repo's CodeQL exclusion
+`**/*Tests/*.cs` — a `.cs` file **directly inside** a directory whose name ends in
+`Tests` (e.g. `src\WinApp.Cli.Tests\Foo.cs`). Mirror that glob exactly: a file
+nested deeper, such as `src\...\WinApp.Cli.Tests\TestApps\App.xaml.cs`, does **not**
+match it, so the bot may scan it — keep those in scope. If nothing survives, say
+so and stop.
 
 Then read the changed lines. For a tracked file:
 `git --no-pager diff --unified=0 <base> -- <file>`; for an untracked file the whole
@@ -80,14 +82,14 @@ assignment), not on a hunch.
 | Rule | Flags → do instead |
 |---|---|
 | `cs/gethashcode-is-not-defined` | overriding `Equals` without `GetHashCode` → override both |
-| `cs/useless-gethashcode-call` | `GetHashCode()` used as if unique → don't rely on it for equality |
+| `cs/useless-gethashcode-call` | `GetHashCode()` on a small integral type (e.g. `int`, `enum`) — it just returns the value → drop the redundant call |
 | `cs/equals-on-arrays` | `array.Equals(other)` (reference eq) → `SequenceEqual` |
 | `cs/equals-on-unrelated-types` | `Equals` across incomparable types → compare compatible types |
 | `cs/unchecked-cast-in-equals` | unchecked cast of the arg in an `Equals` override → `is`/`as` guard |
 | `cs/recursive-equals-call` | `Equals` calling itself unboundedly → fix the recursion |
 | `cs/reference-equality-on-valuetypes` | `ReferenceEquals` on value types (always false) → `==`/`Equals` |
 | `cs/equality-on-floats` | `==` on `double`/`float` → compare with a tolerance |
-| `cs/comparison-of-identical-expressions` | `x == x` / `a && a` → remove or fix the typo |
+| `cs/comparison-of-identical-expressions` | a comparison operator with identical operands (`x == x`, `a < a`) → remove or fix the typo |
 
 ### Dead & useless code
 | Rule | Flags → do instead |
@@ -103,7 +105,7 @@ assignment), not on a hunch.
 | `cs/self-assignment` | `x = x;` → remove (or fix the intended target) |
 | `cs/unused-label` | a `label:` never targeted → remove |
 | `cs/unused-property-value` **†** | setter that ignores `value` → use it |
-| `cs/empty-collection` **†** | a collection populated then never filled → populate or remove |
+| `cs/empty-collection` **†** | a collection created empty and then read/used but never given any elements → add elements or drop the reads |
 | `cs/unused-collection` **†** | a collection filled but never read → remove or use |
 
 ### LINQ opportunities — **†**
@@ -129,10 +131,10 @@ assignment), not on a hunch.
 |---|---|
 | `cs/lock-this` | `lock (this)` → lock a private `object` |
 | `cs/empty-lock-statement` | `lock (x) {}` → remove or fill |
-| `cs/unsafe-sync-on-field` | locking a mutable/reassigned field → lock a `readonly` object |
+| `cs/unsafe-sync-on-field` | locking a field that is **reassigned inside the lock** (threads then lock different objects) → lock a private `readonly` object |
 | `cs/inconsistent-lock-sequence` **†** | acquiring locks in differing orders → fix ordering |
-| `cs/locked-wait` **†** | `Wait()`/blocking while holding a lock → release first |
-| `cs/non-short-circuit` | `&`/`\|` on bools where `&&`/`\|\|` is meant → short-circuit |
+| `cs/locked-wait` **†** | a blocking `.Wait()` (`Task`/`WaitHandle`) while holding a lock — **not** `Monitor.Wait` on the locked object, which correctly requires it → don't block on unrelated waits inside the lock |
+| `cs/non-short-circuit` | non-short-circuit `&`/`\|` on bools whose right operand has a risky access (e.g. a possible null-deref) that `&&`/`\|\|` would guard → short-circuit |
 
 ### `this`, casts & inheritance
 | Rule | Flags → do instead |
@@ -153,13 +155,13 @@ assignment), not on a hunch.
 | `cs/call-to-obsolete-method` | calling `[Obsolete]` API → use the replacement |
 | `cs/call-to-unmanaged-code`, `cs/unmanaged-code` | P/Invoke / unsafe surface → review necessity (often expected for CsWin32) |
 | `cs/class-implements-icloneable` | `ICloneable` (ambiguous deep/shallow) → a typed clone method |
-| `cs/expose-implementation` **†** | returning/storing a caller-supplied array/collection directly → copy |
+| `cs/expose-implementation` **†** | returning/storing a reference to an internal mutable array/collection that is **later modified** through the alias → return a copy or read-only view |
 | `cs/static-field-written-by-instance` | instance method writing a static field → rethink ownership |
-| `cs/missed-readonly-modifier` **†** | private field only assigned in ctor → `readonly` |
-| `cs/loss-of-precision` | int division/narrowing assigned to a wider type → cast first |
+| `cs/missed-readonly-modifier` **†** | a private field written only at its declaration and/or in the (static) constructor, never elsewhere → `readonly` |
+| `cs/loss-of-precision` | integer division/multiplication whose result is converted to `float`/`double`/`decimal` — precision is already lost before the conversion (e.g. `(double)(a / b)`) → cast an operand first |
 | `cs/invalid-string-formatting` | format string vs args mismatch → fix placeholders |
 | `cs/string-concatenation-in-loop` **†** | `s += …` in a loop → `StringBuilder` |
-| `cs/stringbuilder-creation-in-loop` **†** | `new StringBuilder()` inside a loop → hoist it out |
+| `cs/stringbuilder-creation-in-loop` **†** | `new StringBuilder()` inside a loop → hoist it out **only if** it doesn't escape the iteration, calling `.Clear()` at the start of each pass; otherwise leave it |
 | `cs/stringbuilder-initialized-with-character` | `new StringBuilder('x')` (that's capacity!) → `.Append('x')` or `"x"` |
 | `cs/asp/response-write` | `Response.Write` of a single block → not relevant to this CLI; skip unless ASP code appears |
 
