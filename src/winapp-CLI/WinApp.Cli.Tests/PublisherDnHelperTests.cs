@@ -150,6 +150,28 @@ public class PublisherDnHelperTests
     }
 
     [TestMethod]
+    [DataRow("CN=A,", DisplayName = "Trailing comma")]
+    [DataRow("CN=A+", DisplayName = "Trailing plus")]
+    [DataRow("CN=A, ", DisplayName = "Trailing comma with whitespace")]
+    [DataRow("CN=A,O=B,", DisplayName = "Trailing comma after multiple components")]
+    public void Normalize_RejectsTrailingSeparator(string input)
+    {
+        // A trailing ',' or '+' parses but is dropped when the certificate is encoded (CN=A, -> CN=A),
+        // while the manifest keeps it, so the two diverge. Reject it up front.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "stray");
+    }
+
+    [TestMethod]
+    public void Normalize_CommaInsideQuotedValue_IsNotATrailingSeparator()
+    {
+        // The comma here is data inside the quoted value, and the value does not end with an unquoted
+        // separator, so it is accepted.
+        var result = PublisherDnHelper.Normalize("CN=\"A,\"");
+        Assert.IsTrue(PublisherDnHelper.IsDistinguishedName(result), $"Result should be a valid DN: {result}");
+    }
+
+    [TestMethod]
     public void TryNormalize_ValidBareName_WrapsAsCn()
     {
         Assert.IsTrue(PublisherDnHelper.TryNormalize("Contoso", out var normalized, out var error));

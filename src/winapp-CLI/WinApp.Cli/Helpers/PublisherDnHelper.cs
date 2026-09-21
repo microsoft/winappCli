@@ -114,6 +114,19 @@ internal static class PublisherDnHelper
                 return false;
             }
 
+            // A trailing ',' or '+' parses as a valid DN, but X500DistinguishedName silently drops the
+            // resulting empty RDN when it encodes the certificate (so "CN=A," becomes subject "CN=A").
+            // The manifest keeps the literal trailing separator, so the two artifacts diverge and never
+            // match. EnumerateRelativeDistinguishedNames() also omits that empty element, so the
+            // component check below cannot see it — reject it here from the raw string instead.
+            if (EndsWithUnquotedSeparator(trimmed))
+            {
+                error = $"Publisher '{trimmed}' ends with a stray ',' or '+' separator, which the " +
+                        "certificate drops but the manifest keeps, so the two cannot match. Remove the " +
+                        "trailing separator.";
+                return false;
+            }
+
             // A DN can parse yet still carry an empty value (e.g. "CN=" or "CN=A, O="), or use a
             // multi-valued RDN (e.g. "CN=A+O="). Such a publisher can never match a manifest
             // Identity/@Publisher, so reject it rather than accept it silently.
@@ -245,6 +258,40 @@ internal static class PublisherDnHelper
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns true when the value's last significant (non-whitespace) character is an unquoted ','
+    /// or '+' RDN separator. Such a trailing separator parses as a valid DN but is dropped when the
+    /// certificate is encoded, so it is rejected. A separator inside a quoted value is data and does
+    /// not count. Backslash escapes are rejected earlier, so they are not considered here.
+    /// </summary>
+    private static bool EndsWithUnquotedSeparator(string value)
+    {
+        var inQuotes = false;
+        var lastChar = '\0';
+        var lastCharQuoted = false;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+                lastChar = c;
+                lastCharQuoted = false;
+            }
+            else if (!inQuotes && char.IsWhiteSpace(c))
+            {
+                continue; // trailing or structural whitespace is not significant
+            }
+            else
+            {
+                lastChar = c;
+                lastCharQuoted = inQuotes;
+            }
+        }
+
+        return !lastCharQuoted && (lastChar == ',' || lastChar == '+');
     }
 
     /// <summary>
