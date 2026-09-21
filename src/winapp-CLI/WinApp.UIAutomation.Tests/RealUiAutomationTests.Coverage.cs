@@ -1362,17 +1362,29 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
-    public async Task FaultInjectedComProxies_CoverEmptyTextAndValueFallthrough()
+    [DataRow("", "", "", false)]
+    [DataRow("", "Lower-priority value", "", false)]
+    [DataRow(" \t\r\n", "Lower-priority value", " \t\r\n", false)]
+    [DataRow("Document text", "Lower-priority value", "Document text", false)]
+    [DataRow(null, "", "", false)]
+    [DataRow(null, " \t\r\n", " \t\r\n", false)]
+    [DataRow(null, "Field value", "Field value", false)]
+    [DataRow(null, null, "Fallback Name", false)]
+    [DataRow("", "Lower-priority value", "", true)]
+    [DataRow(null, "", "", true)]
+    public async Task FaultInjectedComProxies_GetTextPreservesSuccessfulReads(
+        string? documentText, string? fieldValue, string expected, bool nullBstr)
     {
         var svc = NewService();
         var uiTarget = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake" };
         var model = new UiElement { Id = "text-fallback", Type = "Custom", AutomationId = "textAid", Name = "Fallback Name" };
+        BSTR ReadValue(string value) => nullBstr && value.Length == 0 ? default : StringBstr(value);
         var textRange = ComProxy<IUIAutomationTextRange>((method, _) =>
-            method.Name == "GetText" ? EmptyBstr() : ThrowCom());
+            method.Name == "GetText" ? ReadValue(documentText!) : ThrowCom());
         var textPattern = ComProxy<IUIAutomationTextPattern>((method, _) =>
             method.Name == "get_DocumentRange" ? textRange : ThrowCom());
         var valuePattern = ComProxy<IUIAutomationValuePattern>((method, _) =>
-            method.Name == "get_CurrentValue" ? EmptyBstr() : ThrowCom());
+            method.Name == "get_CurrentValue" ? ReadValue(fieldValue!) : ThrowCom());
         var selected = ComProxy<IUIAutomationElement>((method, _) =>
             method.Name == "get_CurrentName" ? EmptyBstr() : ThrowCom());
         var selection = ComProxy<IUIAutomationElementArray>((method, _) => method.Name switch
@@ -1389,8 +1401,8 @@ public partial class RealUiAutomationTests
             {
                 return (UIA_PATTERN_ID)args![0]! switch
                 {
-                    UIA_PATTERN_ID.UIA_TextPatternId => textPattern,
-                    UIA_PATTERN_ID.UIA_ValuePatternId => valuePattern,
+                    UIA_PATTERN_ID.UIA_TextPatternId when documentText is not null => textPattern,
+                    UIA_PATTERN_ID.UIA_ValuePatternId when fieldValue is not null => valuePattern,
                     UIA_PATTERN_ID.UIA_SelectionPatternId => selectionPattern,
                     _ => ThrowCom(),
                 };
@@ -1402,7 +1414,8 @@ public partial class RealUiAutomationTests
 
         var text = await svc.GetTextAsync(uiTarget, model, CancellationToken.None);
 
-        Assert.AreEqual("Fallback Name", text);
+        Assert.AreEqual(expected, text);
+        Assert.AreEqual("Fallback Name", model.Name, "Reading a value must not change its accessibility label.");
     }
 
     [TestMethod]
