@@ -119,6 +119,18 @@ internal class CertGenerateCommand : Command, IShortDescription
                 }
             }
 
+            // Validate only when generating; skipping an existing certificate needs no password.
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                const string message = "Certificate password cannot be empty. Omit --password to use the development default, or supply a non-empty password.";
+                if (json)
+                {
+                    return JsonErrorOutput.Write(ansiConsole, message);
+                }
+                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
+                return 1;
+            }
+
             CertificateService.CertificateResult? certResult = null;
 
             var returnCode = await statusService.ExecuteWithStatusAsync("Generating development certificate...", async (taskContext, ct) =>

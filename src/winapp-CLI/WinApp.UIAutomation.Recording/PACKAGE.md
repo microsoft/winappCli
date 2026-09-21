@@ -46,7 +46,7 @@ Console.WriteLine($"{result.Frames} frames, {result.Width}x{result.Height}, mode
 
 ## Why this is a separate package
 
-Recording needs SkiaSharp for frame scaling and JPEG output, whose native binary adds roughly 9 MB
+Recording needs SkiaSharp for frame scaling and JPEG output, whose native binary adds roughly 13 MB
 per architecture. Splitting it out keeps
 `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation` small for the many projects that only need to
 inspect and drive UI. Reference this package only when you actually want video.
@@ -64,6 +64,20 @@ inspect and drive UI. Reference this package only when you actually want video.
 
 Set `RecordOptions.FramesDirectory` to also write a frame bundle: numbered JPEGs, a `frames.ndjson`
 index, and a `manifest.json` describing the run.
+
+## Whole-desktop recording
+
+Call `IUiRecordingService.RecordDesktopAsync(options, cancellationToken)` to record the calling
+process's entire virtual desktop without activating or restoring any window. Leave the
+window-specific `CaptureScreen` option false. The mode is `screen`; the caller
+must be per-monitor DPI aware and attached to the current interactive input desktop.
+
+The result's `Coordinates` and the frame manifest's `coordinates` map both MP4 and JPEG pixels
+back to screen input coordinates. They include the source origin, scaling and encoder padding;
+use `CaptureCoordinates.ToScreenPoint` for individual image points. A display-bounds change ends
+the recording with `display_changed`; loss of the input desktop ends it with `capture_unavailable`.
+Both finalize already captured evidence and mark the frame manifest partial. Cancellation after
+capture starts finalizes with `cancelled`.
 
 ## Requirements
 

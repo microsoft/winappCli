@@ -204,13 +204,17 @@ winapp run . -p WindowsPackageType=None
 
 # Show winapp's build decision traces (dotnet build stays at minimal verbosity)
 winapp run . --verbose
+
+# Test a project configured with <PublishAot>true</PublishAot>
+winapp run . --aot
+winapp run . --aot -c Release
 ```
 
 Project mode supports both **packaged** and **unpackaged** WinUI apps, detected from the project's effective `WindowsPackageType` (`MSIX` ⇒ loose-layout register + AUMID launch; `None` ⇒ launch the built `.exe`), and installs the matching-architecture Windows App Runtime before launching. RID-only remains the default; when the effective configuration requires a self-contained profile, winapp selects the architecture-matching profile without forcing that platform onto referenced `AnyCPU` libraries. Requires .NET SDK 8.0.100+.
 
-- **Build inputs:** `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `-p/--property` (repeat for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value).
+- **Build inputs:** `-c/--configuration`, `--arch`, `-r/--runtime`, `-f/--framework`, `--no-build`, `--no-restore`, `--aot`, `-p/--property` (repeat for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value). `--aot` supports x64/ARM64 projects, requires effective `PublishAot=true`, and cannot use `--no-build` or `--manifest`; configure the project manifest before publishing.
 - **Packaged-only options:** `--manifest`, `--no-launch`, `--with-alias`, `--clean`, `--unregister-on-exit`, `--output-appx-directory`, `--executable` — rejected for unpackaged apps.
-- **Output:** winapp restores dependencies, builds, and streams both commands' output live (including successful-build warnings). Restore output uses sanitized plain lines; interactive terminals show dotnet's in-place build progress when no build-time restore is needed, while other build output uses sanitized plain lines. `--json` sends invocations and child output to **stderr** so stdout stays valid JSON. `--quiet` suppresses invocations and sends dotnet's quiet restore/build output to **stderr** so stdout stays clean.
+- **Output:** winapp restores dependencies, builds, and streams both commands' output live (including successful-build warnings). Restore output uses sanitized plain lines; interactive terminals show dotnet's in-place build progress when no build-time restore is needed, while other build output uses sanitized plain lines. `--json` sends restore/build invocations and child output to **stderr** so stdout stays valid JSON. `--quiet` suppresses invocations and sends dotnet's quiet restore/build output to **stderr** so stdout stays clean. With `--aot`, `--verbose` adds the publish command and resolved paths; publish diagnostics go to **stderr** under `--json`/`--quiet`.
 
 #### Single-file mode: `winapp run` on a `.cs` file-based app
 
@@ -247,6 +251,7 @@ Describe the package with `#:property` directives in the file. All are optional:
 - **Console apps print to the terminal by default.** An app with `OutputType=Exe` is launched through an execution alias rather than AUMID activation, because an AUMID-launched packaged app has no console and would print nothing. Pass `--without-alias` (or set `#:property WinAppRunUseExecutionAlias=false`) to force AUMID; pass `--with-alias` to get one for a windowed app. The alias is named from the package *family* name with a `winapp-` prefix (`com.contoso.counter` → `winapp-com.contoso.counter_<publisherhash>.exe`), so it can never contend with a real command on PATH or with another publisher's same-named app; `winapp run` prints the name it registered. An authored manifest's own alias is used as-is. If another package already owns the name, winapp reports it — falling back to AUMID when it inferred the alias for you, and failing the run when you asked for one explicitly with `--with-alias` or `WinAppRunUseExecutionAlias=true`, rather than launching the wrong app.
 - **Rejected options** (the file configures itself): `-f` ⇒ `#:property TargetFramework=…`; `--project` ⇒ not applicable. `--arch`/`-r` work as in project mode and default to the **current winapp process architecture** — required for self-contained WinAppSDK apps, which fail as `AnyCPU`. Everything else works as usual.
 - **The package outlives the run.** winapp says so the first time it registers an app. Remove it with `winapp unregister counter.cs` (no manifest path needed — it resolves the same identity), or run with `--unregister-on-exit`.
+- **`dotnet run counter.cs` works too.** Add `#:package Microsoft.Windows.SDK.BuildTools.WinApp@*` and a Windows TFM (`#:property TargetFramework=net10.0-windows10.0.19041.0`) and the package's targets redirect the run to winapp — same packaged launch, no rebuild, no `winapp` command. A plain `net10.0` file or `#:property WindowsPackageType=None` is left alone and runs unpackaged; `#:property EnableWinAppRunSupport=false` opts out. Diagnose with `dotnet build counter.cs -t:WinAppRunSupportInfo` (`dotnet msbuild` cannot load a `.cs`).
 - Requires **.NET SDK 10.0.300+**.
 
 > The default identity includes a short hash of the file's path (`counter.cs` → `counter-a1b2c3d4`), so two `counter.cs` files in different folders are separate apps with separate `LocalState`. It is stable across edits and re-runs, and changes only if the file moves. Set `WinAppPackageName` to pick a stable identity yourself. The Start menu shows `WinAppDisplayName`, not the identity.

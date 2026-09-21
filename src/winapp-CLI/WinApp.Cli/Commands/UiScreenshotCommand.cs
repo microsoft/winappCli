@@ -351,7 +351,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                     $"--capture-screen needs exactly one window, but {windows.Count} windows matched. " +
                     "Live-screen capture reads whatever is in front, so several windows cannot be captured together.";
                 var hint =
-                    $"Run 'winapp ui list-windows{DescribeApp(uiTarget)}' and retry with '-w <hwnd>' for the window you want, " +
+                    $"Run '{UiCommandAdvice.Command($"list-windows{DescribeApp(uiTarget)}")}' and retry with '-w <hwnd>' for the window you want, " +
                     "or drop --capture-screen to composite all of them from their own window contents.";
 
                 logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
@@ -485,7 +485,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
 
             var pngBytes = pass.IsComposite
                 ? ComposeSideBySide(captures)
-                : EncodePng(captures[0].Pixels, captures[0].Width, captures[0].Height);
+                : PngImage.Encode(captures[0].Pixels, captures[0].Width, captures[0].Height);
 
             var dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
             if (dir is not null)
@@ -552,14 +552,9 @@ internal class UiScreenshotCommand : Command, IShortDescription
             // Dark background
             canvas.Clear(new SKColor(30, 30, 30));
 
-            using var labelPaint = new SKPaint
-            {
-                Color = SKColors.White,
-                TextSize = 14,
-                IsAntialias = true,
-                Typeface = SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Normal)
-            };
-            using var typeface = labelPaint.Typeface;
+            using var labelTypeface = SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Normal);
+            using var labelFont = new SKFont(labelTypeface, 14) { Edging = SKFontEdging.Antialias };
+            using var labelPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
             using var labelBgPaint = new SKPaint { Color = new SKColor(50, 50, 50) };
 
             var x = 0;
@@ -569,7 +564,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 canvas.DrawRect(x, 0, width, LabelBarHeight, labelBgPaint);
                 var labelText = $"HWND {hwnd} ({label})  {title}";
                 if (labelText.Length > 60) { labelText = labelText[..57] + "..."; }
-                canvas.DrawText(labelText, x + 6, LabelBarHeight - 8, labelPaint);
+                canvas.DrawText(labelText, x + 6, LabelBarHeight - 8, SKTextAlign.Left, labelFont, labelPaint);
 
                 // Draw window capture
                 using var windowBitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
@@ -578,7 +573,9 @@ internal class UiScreenshotCommand : Command, IShortDescription
                     var ptr = (byte*)windowBitmap.GetPixels().ToPointer();
                     System.Runtime.InteropServices.Marshal.Copy(pixels, 0, (nint)ptr, pixels.Length);
                 }
-                canvas.DrawBitmap(windowBitmap, x, LabelBarHeight);
+
+                using var windowImage = SKImage.FromBitmap(windowBitmap);
+                canvas.DrawImage(windowImage, x, LabelBarHeight, SKSamplingOptions.Default);
 
                 x += width + WindowGap;
             }
@@ -685,20 +682,6 @@ internal class UiScreenshotCommand : Command, IShortDescription
             }
 
             return candidates;
-        }
-
-        private static byte[] EncodePng(byte[] bgraPixels, int width, int height)
-        {
-            using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
-            unsafe
-            {
-                var ptr = (byte*)bitmap.GetPixels().ToPointer();
-                System.Runtime.InteropServices.Marshal.Copy(bgraPixels, 0, (nint)ptr, bgraPixels.Length);
-            }
-
-            using var image = SKImage.FromBitmap(bitmap);
-            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            return data.ToArray();
         }
     }
 }

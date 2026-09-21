@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using SkiaSharp;
+using Svg;
 using Svg.Skia;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -169,6 +170,12 @@ internal sealed class ImageSource : IDisposable
                     $"Failed to render SVG image: {path.FullName}. The file may be corrupted or contain unsupported SVG features.");
             }
 
+            if (!DeclaresUsableSize(svg.SourceDocument))
+            {
+                throw new InvalidOperationException(
+                    $"SVG image has no usable dimensions: {path.FullName}. Ensure the SVG has a valid viewBox or width/height attributes.");
+            }
+
             var bounds = picture.CullRect;
             var width = (int)Math.Ceiling(bounds.Width);
             var height = (int)Math.Ceiling(bounds.Height);
@@ -186,6 +193,35 @@ internal sealed class ImageSource : IDisposable
             svg.Dispose();
             throw;
         }
+    }
+
+    /// <summary>Reports whether an SVG declares a size the renderer can scale assets from.</summary>
+    /// <remarks>
+    /// This asks the document rather than the rendered picture on purpose. Svg.Skia clamps a
+    /// sizeless SVG to a 1x1 picture instead of reporting 0x0, which makes the rasterized bounds
+    /// unable to tell "declares nothing" from "is genuinely one pixel" — so relying on them would
+    /// silently produce a full set of blank assets. A viewBox alone is enough to scale from;
+    /// failing that, width and height must both be positive and absolute, because a percentage is
+    /// relative to a viewport that generating a fixed-size icon has no equivalent of.
+    /// </remarks>
+    private static bool DeclaresUsableSize(SvgDocument? document)
+    {
+        // Nothing to inspect: leave the decision to the bounds check that follows.
+        if (document is null)
+        {
+            return true;
+        }
+
+        var viewBox = document.ViewBox;
+        if (viewBox.Width > 0 && viewBox.Height > 0)
+        {
+            return true;
+        }
+
+        return IsPositiveAbsolute(document.Width) && IsPositiveAbsolute(document.Height);
+
+        static bool IsPositiveAbsolute(SvgUnit unit)
+            => unit.Value > 0 && unit.Type != SvgUnitType.Percentage;
     }
 
     public void Dispose()

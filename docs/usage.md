@@ -303,9 +303,9 @@ winapp update --setup-sdks experimental
 
 ### pack
 
-Create MSIX packages from prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
+Create MSIX packages from a project or prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
 
-Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
+Pass a single `.csproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
 
 ```bash
 winapp pack <input-folder> [input-folder...] [options]
@@ -313,7 +313,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Arguments:**
 
-- `input-folder` - One or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
+- `input-folder` - A single `.csproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
 
 **Options:**
 
@@ -323,11 +323,23 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--cert <path>` - Path to signing certificate (enables auto-signing)
 - `--cert-password <password>` - Certificate password (default: "password")
 - `--generate-cert` - Generate a new development certificate
+- `--no-sign` - Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with `--cert` or `--generate-cert`.
 - `--install-cert` - Install certificate to machine
 - `--publisher <name>` - Publisher for certificate generation. Accepts a full X.500 distinguished name or a bare name (automatically wrapped as `CN=<name>`)
 - `--self-contained` - Bundle Windows App SDK runtime
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
+
+**Project-mode options** (require a `.csproj` input; rejected for folder/bundle/manifest inputs):
+
+- `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
+- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
+- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects
+- `--no-build` - Package the existing build output without rebuilding
+- `--no-restore` - Skip restoring the project before building
+- `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
+
+> **Note:** For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
 
 **What it does:**
 
@@ -339,6 +351,27 @@ winapp pack <input-folder> [input-folder...] [options]
 - Automatically discovers third-party WinRT components and registers their activatable classes (see [WinRT component discovery](#winrt-component-discovery) below)
 - Handles self-contained WinAppSDK deployment
 - Signs package if certificate provided
+
+#### Packaging a project directly
+
+When the input is a single `.csproj`, `winapp pack` builds the project (using the options above) and packages the resulting output — no need to build separately or locate the output folder first. This mirrors `winapp run`'s project mode.
+
+```bash
+# Build MyApp in Release for arm64 and package + sign it in one step
+winapp pack ./MyApp.csproj -c Release --arch arm64 --cert ./devcert.pfx
+
+# Package an existing build output without rebuilding
+winapp pack ./MyApp.csproj --no-build
+
+# Select the target architecture with an exact RID instead of --arch
+winapp pack ./MyApp.csproj -p RuntimeIdentifier=win-x64
+```
+
+The target architecture comes from `--arch`, or from a lone `-p RuntimeIdentifier=<rid>` when you don't pass `--arch` (the exact RID is preserved and drives the build). Passing both `--arch` and `-p RuntimeIdentifier` is a conflict and is rejected.
+
+The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
+
+Project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
 
 #### Sparse identity packages
 
@@ -634,7 +667,7 @@ With `--light-image`:
 - **Light theme targetsize variants** — `.targetsize-{size}_altform-lightunplated` (app icon)
 - **Light theme scale variants** — `.scale-{factor}_altform-colorful_theme-light` (tiles, store logo)
 
-**SVG support:** SVG files are fully supported as source images. They are rendered as vectors directly at each target size, producing pixel-perfect results at all resolutions.
+**SVG support:** SVG files are fully supported as source images. They are rendered as vectors directly at each target size, producing pixel-perfect results at all resolutions. The file must declare its own size, through either a `viewBox` or absolute `width` and `height` attributes; a percentage width with no `viewBox` describes no particular size. A source that declares neither is rejected with `SVG image has no usable dimensions` instead of producing blank assets.
 
 The command scales images proportionally while maintaining aspect ratio, centering them with transparent backgrounds when needed. Assets are saved to the `Assets` directory relative to the manifest location.
 
@@ -692,7 +725,7 @@ winapp run [<input>] [options]
 **Options:**
 
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from input folder or current directory)
-- `--output-appx-directory <path>` - Output directory for the loose layout package (default: `AppX` inside the input folder directory)
+- `--output-appx-directory <path>` - Output directory for the loose layout (default: `AppX` inside the input folder). The default layout removes files no longer in the build; a custom directory keeps extra files. Use a fresh custom directory when you need a clean layout.
 - `--args <string>` - Command-line arguments to pass to the application. Alternatively, use `--` followed by arguments to avoid escaping (e.g., `winapp run . -- --flag value`).
 - `--no-launch` - Only create the debug identity and register the package without launching the application
 - `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Rarely needed: an app with `OutputType=Exe` already launches this way by default. winapp adds the required `uap5:ExecutionAlias` to the manifest it stages in the AppX layout, so no change to your checked-in manifest is needed; an alias the app declares itself is used as-is. Cannot be combined with `--no-launch`, `--detach`, `--without-alias`, or `--json`.
@@ -700,9 +733,10 @@ winapp run [<input>] [options]
 - `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`.
 - `--symbols` - Download PDB symbols from Microsoft Symbol Server for richer native crash analysis with resolved function names. Only used with `--debug-output`. If omitted and a native crash occurs, the output will suggest adding this flag. This flag also improves the WinUI stowed-exception triage stack for WinUI 3 apps. First run downloads symbols and caches them locally; subsequent runs use the cache.
 - `--unregister-on-exit` - Unregister the development package after the application exits. Only removes packages registered in development mode. Cannot be combined with `--no-launch`.
-- `--detach` - Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Prints the PID to stdout (or in JSON with `--json`). Cannot be combined with `--no-launch`, `--debug-output`, `--with-alias`, or `--unregister-on-exit`.
+- `--detach` - Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope. Cannot be combined with `--no-launch`, `--debug-output`, `--with-alias`, or `--unregister-on-exit`.
 - `--clean` - Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments.
 - `--json` - Format output as JSON for programmatic consumption (e.g. CI/automation). Useful with `--detach` to capture the PID. Cannot be combined with `--with-alias` or `--debug-output`.
+- `--on <target>` - Build on the host, then register and run in the target. Currently supports `sandbox`, with no fallback to local execution. Use `--detach` before follow-up UI commands. Sandbox `--debug-output` requires a packaged app. See [Windows Sandbox execution](sandbox-execution.md#running-and-rebuilding) for setup, runtime support, and detached-app lifetime.
 
 **Application data persistence:**
 
@@ -778,7 +812,24 @@ Packaged vs. unpackaged is detected automatically from the project's effective `
 
 Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getProperty`).
 
-**Project-mode options** (ignored in folder mode):
+**Native AOT:** add this property group inside the project file's `<Project>` element, then add `--aot`:
+
+```xml
+<PropertyGroup>
+  <PublishAot>true</PublishAot>
+</PropertyGroup>
+```
+
+```powershell
+winapp run . --aot
+winapp run . --aot -c Release
+```
+
+`--aot` supports x64 and ARM64 projects. It runs `dotnet publish` with the project's AOT configuration, then launches that output; use `-p PublishAot=true` for a one-time override. It does not perform separate runtime certification and cannot be combined with `--no-build` or `--manifest`.
+
+For apps that use package identity without a generated MSIX layout, include `Package.appxmanifest` or `appxmanifest.xml` in the project's publish output. Winapp stages the published files with that manifest. If both names are present, winapp stops instead of choosing one; remove the stale manifest and configure the project to publish only the intended manifest.
+
+**Project-mode options** (ignored in folder mode unless noted):
 
 - `-c, --configuration <name>` - Build configuration. Default: `Debug`. *(Also honored in single-file mode.)*
 - `--arch <x64|arm64|x86>` - Target architecture. Default: the current process architecture. Determines the build RID and Windows App Runtime architecture, and selects a matching platform-dependent publish profile when required by the effective build. *(Also honored in single-file mode.)*
@@ -786,10 +837,11 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 - `-f, --framework <tfm>` - Target framework moniker for multi-targeted projects (e.g. `net10.0-windows10.0.26100.0`). *(Rejected in single-file mode — use `#:property TargetFramework=...`.)*
 - `--project <name-or-path>` - When the input is a solution (`.sln`/`.slnx`) or a directory with multiple runnable app projects, selects which project to launch (by project name or path). *(Rejected in single-file mode — a `.cs` file-based app is itself the project.)*
 - `--no-build` - Skip building and run the existing build output (still evaluates output properties). *(Also honored in single-file mode.)*
-- `--no-restore` - Skip restoring before building. *(Also honored in single-file mode.)*
+- `--no-restore` - Skip restoring before building or Native AOT publishing. *(Also honored in single-file mode.)*
+- `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** restore and build output stream live. Displayed commands and output redact credentials from authenticated feed URLs. Use the verbosity options below to control what is shown:
+**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
@@ -797,7 +849,7 @@ Project mode requires the **.NET SDK 8.0.100 or newer** (for MSBuild `--getPrope
 | `--verbose` | `minimal` | winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
-Under `--json`, each invocation and its child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean.
+Native AOT publish output streams as it arrives, including MSBuild's final property JSON. Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish output also goes to stderr under either option.
 
 **Option applicability:** the identity/loose-layout options (`--manifest`, `--output-appx-directory`, `--no-launch`, `--with-alias`, `--unregister-on-exit`, `--clean`, `--executable`) apply to packaged apps only. They are rejected with a clear error for unpackaged apps (which have no MSIX package). Launch/debug options (`--args`/`--`, `--detach`, `--debug-output`, `--symbols`, `--json`) work in both.
 
@@ -818,6 +870,9 @@ winapp run ./MyApp.sln --project MyApp
 
 # Release build for arm64
 winapp run . -c Release --arch arm64
+
+# Publish and run the Release configuration with Native AOT
+winapp run . --aot -c Release
 
 # Force an unpackaged run of a packaged project
 winapp run . -p WindowsPackageType=None
@@ -847,6 +902,8 @@ own manifest — see [Bring your own manifest](#bring-your-own-manifest) below.
 ```bash
 winapp run counter.cs
 ```
+
+Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
 
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
@@ -1016,6 +1073,58 @@ activation — see the console note above; that choice is separate from whether 
 identity options (`--no-launch`, `--with-alias`, `--without-alias`, `--clean`, `--unregister-on-exit`,
 `--manifest`, `--output-appx-directory`) apply to packaged apps only.
 
+##### Running with `dotnet run`
+
+You don't have to type `winapp` at all. Reference the
+[`Microsoft.Windows.SDK.BuildTools.WinApp`](../src/winapp-NuGet/README.md) package from the file and
+plain `dotnet run` gives you the same packaged launch:
+
+```csharp
+#:package Microsoft.Windows.SDK.BuildTools.WinApp@*
+#:property OutputType=Exe
+#:property TargetFramework=net10.0-windows10.0.19041.0
+
+System.Console.WriteLine(Windows.ApplicationModel.Package.Current.Id.FamilyName);
+```
+
+```bash
+dotnet run counter.cs
+```
+
+The package's MSBuild targets redirect the run to winapp, which packages, registers, and launches the
+app that `dotnet run` just built — it is not rebuilt. Manifest handling is unchanged: winapp resolves
+it exactly as it does for `winapp run`, so `#:property WinAppManifestPath=…` and a
+`<filename>.appxmanifest` beside the `.cs` are both honoured (see
+[Bring your own manifest](#bring-your-own-manifest)), a directory-wide `Package.appxmanifest` is still
+ignored, and otherwise one is generated from your `#:property` directives and refreshed every run.
+
+Two conditions have to hold for the redirect to happen:
+
+| Directive | Why |
+|-----------|-----|
+| `#:package Microsoft.Windows.SDK.BuildTools.WinApp@*` | the targets doing the redirect ship in this package |
+| `#:property TargetFramework=net10.0-windows…` | a plain `net10.0` file is left alone, so it runs unpackaged |
+
+Adding `#:property WindowsPackageType=None` also leaves the file alone: `dotnet run` then runs the
+`.exe` directly, without identity. Use `winapp run` for the unpackaged path if you want the matching
+Windows App Runtime installed first.
+
+Set `#:property EnableWinAppRunSupport=false` to opt out of the redirect entirely, and the
+`WinAppRun*` properties described under
+[Configuration](../src/winapp-NuGet/README.md#configuration) to shape the launch — for example:
+
+```csharp
+#:property WinAppRunUnregisterOnExit=true
+```
+
+If `dotnet run` runs the app unpackaged when you expected identity, ask MSBuild why. Use
+`dotnet build`, not `dotnet msbuild` — only `dotnet build` synthesizes the virtual project that a
+file-based app is compiled through:
+
+```bash
+dotnet build counter.cs -t:WinAppRunSupportInfo
+```
+
 Single-file mode requires the **.NET SDK 10.0.300 or newer**.
 
 **The registration outlives the run.** `winapp run counter.cs` leaves the package registered after the
@@ -1172,7 +1281,8 @@ winapp unregister [input] [options]
 **Options:**
 
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from current directory)
-- `--force` - Skip the ownership check and unregister even if the package was registered from a different project tree, or if its install location cannot be resolved. With `--prune`, also skips the confirmation prompt. **Candidates are matched by `Identity/@Name` alone**, so `--force` also removes a same-named package from a *different publisher*, along with its application data — for registrations whose files are gone, prefer `--prune`, which preserves application data.
+- `--force` - For local unregister only, skip the install-location directory check and unregister even if the package was registered from a different project tree. It is rejected with `--on`; target ownership checks cannot be bypassed.
+- `--on <target>` - Remove the matching winapp-owned development registration from `sandbox`, not this machine. Requires a manifest and does not support `--force`. See [Sandbox app cleanup](sandbox-execution.md#removing-an-app-and-ending-the-sandbox).
 - `--prune` - Remove every development-mode registration whose files are gone. Cannot be combined with an input, `--manifest`, `--property`, `--configuration`, `--arch`, `--runtime`, or `--output-appx-directory`.
 - `-p, --property <Name=Value>` - MSBuild property used when resolving a `.cs` file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. `-p WinAppPackageName=...`), since a command-line property overrides the file's own `#:property` directives. Only applies to a `.cs` input.
 - `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
@@ -1530,6 +1640,92 @@ winapp get-winapp-path [options]
 - Paths to `.winapp` workspace directory
 - Package installation directories
 - Generated header locations
+
+---
+
+### target
+
+Run commands, copy files, inspect state, or capture the whole guest desktop.
+
+Every verb takes `sandbox` as its first argument. Except for `snapshot`, these commands
+can prepare or start the Sandbox. See [Windows Sandbox execution](sandbox-execution.md)
+for prerequisites, permissions, lifecycle, and recovery.
+
+#### target exec
+
+Run a command as the guest user.
+
+```powershell
+winapp target exec <target> [--cwd <path>] [--json] -- <executable> [arguments...]
+winapp target exec sandbox -- dotnet --info
+```
+
+Arguments after `--` retain their boundaries. Standard streams and the guest process's
+exit code are forwarded; this is not a full terminal. `--json` formats winapp failures
+on stderr without changing the child command's stdout. Use the structured `error.code`
+to distinguish a target failure from an application's own exit status.
+
+An explicit `WINAPP_UI_WORKFLOW_ID` also groups guest UI calls made by the command;
+see [Sandbox UI coordination](sandbox-execution.md#coordinating-ui-workflows-in-the-sandbox).
+
+#### target push and target pull
+
+Copy a file or directory in the direction named by the verb.
+
+```powershell
+winapp target push <target> <host-source> <target-destination> [--json]
+winapp target pull <target> <target-source> <host-destination> [--json]
+winapp target push sandbox .\setup.ps1 Setup\setup.ps1
+winapp target pull sandbox Results .\results
+```
+
+Target paths are relative to `C:\WinApp\work`; absolute, rooted, and UNC target paths
+are rejected. A file destination includes its filename. See
+[Running commands and copying files](sandbox-execution.md#running-commands-and-copying-files)
+for directory layout, link handling, and running a copied script.
+
+#### target snapshot
+
+Report readiness, deployments, and guest windows without starting a Sandbox.
+
+```powershell
+winapp target snapshot <target> [--json]
+winapp target snapshot sandbox
+```
+
+It does not reconnect a client or repair an agent. No running Sandbox is a successful
+result, not an error. See [Inspecting the Sandbox](sandbox-execution.md#inspecting-the-sandbox)
+for interpreting readiness and process IDs.
+
+#### target screenshot
+
+Capture the guest desktop at its native pixel size as a host PNG, without an app
+selector or host window borders. `--json` reports the guest coordinate origin.
+
+```powershell
+winapp target screenshot <target> [-o <host-path>] [--json]
+winapp target screenshot sandbox -o .\sandbox.png
+```
+
+Use `ui screenshot --on sandbox -a <app>` for an app window instead. See
+[Screenshots and recordings](sandbox-execution.md#screenshots-and-recordings) for
+client requirements, focus limitations, and output handling.
+
+#### target record
+
+Record the guest desktop to H.264 MP4. Host video and frame files arrive after
+recording finishes; JSON and the frame manifest describe any scaling or padding.
+
+```powershell
+winapp target record <target> [-o <host-path>] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--json]
+winapp target record sandbox -o .\sandbox.mp4 --duration-sec 20 --fps 15
+```
+
+Uses the duration, frame, overwrite, and result options of [`ui record`](#ui-record),
+but captures the desktop rather than one app. Prefer a positive `--duration-sec` for
+unattended CLI use; the npm helper requires `durationSec`. See
+[Sandbox capture](sandbox-execution.md#screenshots-and-recordings) for partial evidence
+and capture-readiness failures.
 
 ---
 
@@ -1951,10 +2147,12 @@ winapp ui [command] [options]
 - `wait-for` - Wait for element state
 - `list-windows` - List all windows for an app
 - `get-focused` - Report the currently focused element
+- `yield` - Release the current workflow's UI turn; requires `WINAPP_UI_WORKFLOW_ID`
 
 **Options:**
 - `-a, --app <app>` - Target app (name, title, or PID)
 - `-w, --window <hwnd>` - Target window by HWND (stable)
+- `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
 
 #### ui record
 
@@ -1971,7 +2169,7 @@ winapp ui record -a "My App" --duration-sec 0 --max-edge 1280 -o capture.mp4
 winapp ui record -a "My App" btn-save-1234 -o button.mp4
 
 # Keep an agent-readable timeline alongside the MP4
-winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o demo.mp4
+winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.mp4
 ```
 
 **Record options:**
@@ -1980,6 +2178,7 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o demo.mp4
 - `--max-edge <px>` - Downscale so the longest edge is at most this many pixels (`0` = no downscale).
 - `--capture-screen` - Capture from the screen so overlays/popups are included (may capture occluding windows).
 - `-o, --output <path>` - Output `.mp4` path (defaults to `recording-<timestamp>-<guid>.mp4`).
+- `--overwrite` - Replace existing recording outputs after the new take finishes; existing outputs are rejected by default. Previous frame bundles are retained. See [Recording output recovery](ui-automation.md#record).
 - `--frames` - Write timestamped JPEGs, `frames.ndjson`, and `manifest.json` to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB frame-data cap.
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
@@ -1991,8 +2190,3 @@ stop reason, optional `frameArtifacts`, and warnings.
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
-
-
-
-
-

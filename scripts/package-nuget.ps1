@@ -16,7 +16,7 @@
 
       * Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording
         Video recording to H.264 MP4. Shipped separately so projects that only inspect and drive
-        UI do not take a dependency on SkiaSharp, whose native binary is ~9 MB per architecture.
+        UI do not take a dependency on SkiaSharp, whose native binary is ~13 MB per architecture.
 
       * Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer
         Standalone WinUI Roslyn analyzer (WUIxxxx diagnostics). Consumers add it as a

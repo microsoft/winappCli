@@ -465,6 +465,46 @@ public sealed class ProjectRunServicePublishProfileTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AotPublish_DoesNotInferBuildOnlyProfile(bool explicitProfile)
+    {
+        WriteFile("Library\\Library.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+                <Platform>AnyCPU</Platform>
+              </PropertyGroup>
+            </Project>
+            """);
+        var app = WriteApp("""
+            <PropertyGroup>
+              <PublishAot Condition="'$(_IsPublishing)' == 'true'">true</PublishAot>
+            </PropertyGroup>
+            <ItemGroup>
+              <ProjectReference Include="Library\Library.csproj" />
+            </ItemGroup>
+            """);
+        WriteProfile("win-arm64.pubxml", "ARM64", "win-arm64");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = ProfileEvaluationHandler(app, publishTrimmed: true),
+            RunDotnetArgumentListHandler = _ => (17, string.Empty, string.Empty),
+        };
+        var options = explicitProfile
+            ? Options("arm64", "PublishProfile=custom.pubxml")
+            : Options("arm64");
+        var service = NewService(dotnet);
+
+        var outcome = await service.PublishAotAndResolveAsync(app, options, CancellationToken.None);
+
+        Assert.AreEqual(17, outcome.ExitCode);
+        var arguments = dotnet.ArgumentListInvocations.Single().ToList();
+        CollectionAssert.DoesNotContain(arguments, "-p:PublishProfile=win-arm64.pubxml");
+        Assert.AreEqual(explicitProfile, arguments.Contains("-p:PublishProfile=custom.pubxml"));
+    }
+
+    [TestMethod]
     public async Task TrimmedFrameworkDependentBuild_SelectsProfileBeforeBuild()
     {
         WriteFile("Library\\Library.csproj", """

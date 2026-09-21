@@ -74,6 +74,22 @@ winapp ui yield
 
 ## Common patterns
 
+### Read within a specific container
+
+```powershell
+winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-name TextBlock
+winapp ui get-value Subject -a myapp --root MailRow --type TextBox
+winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --timeout 10000
+```
+
+Use `--root`, `--type`, and `--class-name` together or separately on `search`,
+`get-property`, `get-value`, and `wait-for`. The root must be unique; only its
+descendants match. `wait-for` re-resolves it every poll, including when it is
+initially absent. Type names and literal whole ClassName values ignore case.
+The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
+See [Scoped and typed queries](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#scoped-and-typed-queries)
+for the full type vocabulary, boundaries, and error behavior.
+
 ### Discover and interact
 ```powershell
 # See what's clickable, then screenshot for context
@@ -103,6 +119,17 @@ winapp ui invoke 'Save changes' -a myapp
 # Click nav item, wait for page, inspect what's available
 winapp ui invoke itm-samples-3f2c -a myapp; winapp ui wait-for pn-samplespage-b4e7 -a myapp; winapp ui inspect -a myapp --interactive
 ```
+
+### Choose an exact action in tests
+```powershell
+winapp ui invoke SettingsCategory -a myapp --action select
+winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
+```
+
+Use `--action` to avoid automatic pattern and ancestor fallback. Omit it for the
+existing automatic behavior. See the [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
+for supported actions, idempotent toggles, and failure recovery, and the
+[JSON envelope](references/ui-json-envelope.md#ui-invoke---json) for action results.
 
 ### Disambiguate duplicate elements
 ```powershell
@@ -163,13 +190,15 @@ winapp ui screenshot -a myapp --focus --output focused.png
 ```
 
 ### Record video (H.264 MP4)
-Record a window or element region to MP4. By default recording continues until stopped; use `--duration-sec N` for a timed run.
+Record a window or element region to MP4. Prefer a positive `--duration-sec N` for
+agents and scripts; otherwise recording waits for a stop signal. npm helpers require
+`durationSec` (integer 1–86400). Their abort signal is forceful cancellation, not graceful stop.
 ```powershell
 # Record a window for 10s at 15 fps
 winapp ui record -a myapp --duration-sec 10 --fps 15 --output demo.mp4
 
 # Recommended agent evidence: MP4 plus timestamped JPEGs and an NDJSON index
-winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output demo.mp4 --json
+winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output evidence.mp4 --json
 
 # Include overlays/popups (captures from screen DC; may include occluding windows)
 winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups.mp4
@@ -179,7 +208,10 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 ```
 - Default `--duration-sec 0` records until Ctrl+C, a newline, or EOF on redirected stdin.
 - `--frames` writes `<output-name>.frames` with a manifest, NDJSON index, and changed JPEGs. It supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB cap. Use `elapsedMs` to bound transitions.
-- With `--frames`, existing MP4 and frame paths are not replaced. On partial failure, use the reported preserved path and `recoveryHint`.
+- Existing recording outputs are rejected by default. Use a fresh path, or explicitly
+  request `--overwrite` to replace them after the new take finishes. Previous frame
+  directories are archived, not deleted. On partial failure, keep the reported evidence
+  and follow `recoveryHint`.
 - `--capture-screen` captures from the screen DC so overlays and popups are included; the window is brought to the foreground first. When WGC is unavailable and `--capture-screen` is not passed, the CLI returns an error — re-run with `--capture-screen` to consent to screen-DC capture. Because the screen DC captures whatever is genuinely in front, the target's foreground is **verified immediately before capture**; if activation was refused the command fails with `foreground_not_target` and writes nothing rather than returning an image of the wrong window.
 - Providing a selector that doesn't match any element fails immediately with `element_not_found` (rather than silently recording the whole window).
 - `--json` writes the final result to stdout and one JSON event per line to stderr.
@@ -281,9 +313,19 @@ winapp ui get-property chk-agreecheckbox-b2c3 -a myapp --property ToggleState
 winapp ui get-property txt-textbox-a4b1 -a myapp --property Value
 winapp ui get-property cmb-modellist-d5e6 -a myapp --property IsSelected
 
+# Read formatting across the whole text document (not the selection)
+winapp ui get-property Document -a myapp --property FontWeight --json
+
 # See what has keyboard focus
 winapp ui get-focused -a myapp
 ```
+
+`get-property` also accepts `FontName`, `FontSize`, `ForegroundColor`, `IsItalic`,
+and `StrikethroughStyle`. Omit `--property` to include all six formatting attributes.
+Treat `Mixed`, `NotSupported`, and `Unavailable` as distinct states, not formatting
+values. Names are case-sensitive; unknown names fail with `invalid_arguments`.
+See the [formatting reference](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#whole-document-text-formatting)
+for units and state meanings, and `references/ui-json-envelope.md` for the JSON shape.
 
 ### Set values
 `set-value` writes programmatically (no keystrokes, no foreground) via a fallback chain: ValuePattern → RangeValuePattern (numeric) → LegacyIAccessible `put_accValue` for TextPattern-only edit controls.
@@ -355,18 +397,39 @@ winapp ui invoke btn-open-e6f7 -w <dialog-hwnd>
 ```
 Note: The filename input in standard file dialogs typically has AutomationId `1148`. Use `inspect -w <dialog-hwnd> --interactive` to discover the actual slugs.
 
-## JSON output envelopes (v0.3.1+)
+## JSON output envelopes
 
-The `--json` envelope for `ui inspect`, `ui get-focused`, `ui search`, and `ui wait-for` was reshaped in v0.3.1. Pre-0.3.1 parsers will silently break — most fields were renamed, removed, or moved into envelopes. Highlights:
+The `--json` envelope for `ui inspect`, `ui get-focused`, `ui search`, and `ui wait-for` was reshaped in v0.3.1. The DPI context and typed `get-property` element are available in v0.6.3+. Highlights:
 
 - `ui inspect --json` now nests elements under `windows[].elements[]` (was a flat `elements[]`).
+- Each inspected window and the `ui status --json` target reports `windowDpi`, `scale`, `dpiAwareness`, and `coordinateSpace: "physical-screen-pixels"`. This is the target window's DPI context. The selected target fails fast on an unreadable DPI instead of defaulting to 96; a secondary window that disappears mid-walk carries `dpiError` and omits the four context fields.
 - `ui get-focused --json` always emits an envelope — `{ "hasFocus": false }` or `{ "hasFocus": true, "element": {...} }` (was bare `null`).
-- `ui search --json` / `ui wait-for --json` may include an `invokableAncestor` field (element-shaped) on each match.
+- `ui search --json` returns `{ "matchCount", "hasMore", "matches" }`; `ui wait-for --json` returns `{ "found", "waitedMs", "element"?, "timedOut" }`.
+- `ui get-property --json` preserves `elementId` and its string-valued `properties` map, and adds a typed, scrubbed `element`.
+- Typed elements use `type` (not `controlType`) and numeric `x`, `y`, `width`, and `height` in physical screen pixels. `0,0,0,0` is UIA's empty/no-displayed-UI rectangle; `isOffscreen` remains independent.
+- Search and wait-for elements may include an `invokableAncestor` field (element-shaped).
 - Per-element `id`, `parentSelector`, and `windowHandle` are **removed** — use `selector` as the public handle.
 
 Full schemas with examples: `references/ui-json-envelope.md`.
 
+## Automating in Windows Sandbox
+
+```powershell
+winapp run . --on sandbox --detach
+winapp ui inspect --on sandbox -a MyApp
+winapp ui screenshot --on sandbox -a MyApp -o .\result.png
+```
+
+Use `--detach` before follow-up UI commands, and retain `--on sandbox` with guest PIDs
+or window handles. Inject the same `WINAPP_UI_WORKFLOW_ID` into cooperating guest calls;
+finish with `winapp ui yield --on sandbox` after all of them complete.
+
+Use `winapp-sandbox` for setup consent, connected-client requirements, brief focus
+changes during setup/reconnect, and capture recovery. App screenshots and recordings,
+including default filenames and `--frames` directories, return to the host.
+
 ## Related skills
+- `winapp-sandbox` for running and automating apps in an isolated Windows Sandbox
 - `winapp-setup` for adding Windows SDK to your project
 - `winapp-package` for packaging apps as MSIX
 

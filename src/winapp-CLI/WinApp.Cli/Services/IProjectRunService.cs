@@ -79,6 +79,49 @@ internal interface IProjectRunService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Publishes the project (<c>dotnet publish</c>, honoring <c>--no-build</c> as publish's own
+    /// skip-the-managed-Build semantics) and resolves the evaluated <c>PublishDir</c> as the payload, so
+    /// callers package what actually ships (deployment-transformed output: trimming, single-file,
+    /// ReadyToRun, Native AOT, self-contained). Mirrors <see cref="BuildAndResolveAsync"/> except the
+    /// returned <see cref="Models.ProjectRunResolution.TargetDir"/> is the publish directory.
+    /// </summary>
+    /// <exception cref="ProjectRunException">Thrown on a guardrail violation (e.g. a non-executable project).</exception>
+    Task<ProjectBuildOutcome> PublishAndResolveAsync(
+        FileInfo csproj,
+        ProjectPackagePreparation preparation,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Publishes a Native AOT project and resolves the generated payload used by <c>winapp run</c>.
+    /// </summary>
+    Task<ProjectBuildOutcome> PublishAotAndResolveAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Publishes an MSIX-tooling project so the Windows App SDK's own MSIX targets produce the package
+    /// during publish (<c>PublishAppxPackage=true</c>), and returns the produced (unsigned) <c>.msix</c>.
+    /// The SDK owns file selection and native/managed filtering, so the caller signs and delivers the
+    /// artifact without repackaging it. <paramref name="packageDir"/> is a caller-owned scratch directory.
+    /// </summary>
+    Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(
+        FileInfo csproj,
+        ProjectPackagePreparation preparation,
+        DirectoryInfo packageDir,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Prepares one architecture's publish inputs, restoring the publish graph unless NoBuild or
+    /// NoRestore is set, then evaluates package type, native tooling and signing in that context.
+    /// Returned inputs are reused unchanged by the publisher.
+    /// </summary>
+    Task<ProjectPackagePreparation> PreparePackageAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Cheap, side-effect-free probe (no build) that reports whether the project is DEFINITIVELY
     /// unpackaged — i.e. it declares an explicit <c>WindowsPackageType=None</c>. Used by the run
     /// handler to fail fast on identity-only options (e.g. <c>--no-launch</c>) that are meaningless

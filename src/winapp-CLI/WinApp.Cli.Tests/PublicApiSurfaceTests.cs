@@ -24,6 +24,7 @@ public class PublicApiSurfaceTests
     [
         "AppNotFoundException",
         "CaptureGeometry",
+        "CaptureCoordinates",
         "CoordinateParser",
         "ForegroundCheck",
         "ForegroundGuard",
@@ -57,13 +58,18 @@ public class PublicApiSurfaceTests
         "TouchGesture",
         "UiAmbiguousSelectorException",
         "UiAutomationServiceCollectionExtensions",
+        "UiControlTypes",
         "UiElement",
         "UiElementNotFoundException",
         "UiElementOffscreenException",
+        "UiInvokeAction",
+        "UiInvokeActionResult",
         "UiProcessInfo",
+        "UiPropertyNames",
         "UiSelector",
         "UiTarget",
         "UiTargetResolver",
+        "UiValueSetException",
         "WindowMetadata",
     ];
 
