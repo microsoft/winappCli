@@ -15,6 +15,7 @@ repo-specific developer tasks like reviewing a PR before push.
 |-------|---------|
 | [`pr-lifecycle/`](pr-lifecycle/SKILL.md) | Prepare, present, and finish a PR with evidence, in-PR fixes, and a current-head readiness state distinct from human approval. Never merges; drafting or reviewing alone does not authorize mutations. |
 | [`pr-review/`](pr-review/SKILL.md) | Multi-dimensional review of a PR / feature branch diff (security, correctness, CLI UX, alternative solutions, tests, docs/samples, packaging, multi-model cross-check). Reports findings to stdout; does not apply fixes. |
+| [`code-quality/`](code-quality/SKILL.md) | Statically checks your changed C# against the 69-rule CodeQL `csharp-code-quality` set that `github-code-quality[bot]` runs on the PR, so you can clear likely findings before pushing. Reads the diff only — no CodeQL download or build. Approximate (flags syntactic rules reliably, flow/type rules less so); reports to stdout; does not apply fixes unless asked. |
 | [`spec-review/`](spec-review/SKILL.md) | Pre-code, decision-oriented review of a spec or proposed feature against the real codebase (necessity & scope, approach & alternatives, feasibility vs reality, risks/unknowns/edge cases, DX & user impact, multi-model cross-check). Reports a proceed / proceed-with-changes / reconsider recommendation to stdout; does not change code or the spec. |
 
 ## Conventions
