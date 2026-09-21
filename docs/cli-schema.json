@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "0.6.3",
+  "version": "1.0.0",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
@@ -284,7 +284,7 @@
               "recursive": false
             },
             "--publisher": {
-              "description": "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>.",
+              "description": "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>.",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -1968,7 +1968,7 @@
               "recursive": false
             },
             "--publisher-name": {
-              "description": "Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>.",
+              "description": "Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>.",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,

@@ -131,6 +131,25 @@ public class PublisherDnHelperTests
     }
 
     [TestMethod]
+    [DataRow("CN=A;O=B", DisplayName = "Semicolon-separated components")]
+    [DataRow("CN=A ; O=B", DisplayName = "Semicolon separator with spaces")]
+    public void Normalize_RejectsSemicolonSeparator(string input)
+    {
+        // .NET treats an unquoted ';' as an RDN separator, but the raw string keeps the literal ';',
+        // so the certificate (re-parsed to commas) and the manifest (literal ';') diverge. Reject it.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "';'");
+    }
+
+    [TestMethod]
+    public void Normalize_SemicolonInsideQuotedValue_IsAccepted()
+    {
+        // A ';' inside a quoted value is data, not a separator, and round-trips as a single CN.
+        var result = PublisherDnHelper.Normalize("CN=\"A;B\"");
+        Assert.IsTrue(PublisherDnHelper.IsDistinguishedName(result), $"Result should be a valid DN: {result}");
+    }
+
+    [TestMethod]
     public void TryNormalize_ValidBareName_WrapsAsCn()
     {
         Assert.IsTrue(PublisherDnHelper.TryNormalize("Contoso", out var normalized, out var error));

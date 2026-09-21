@@ -101,6 +101,19 @@ internal static class PublisherDnHelper
 
         if (IsDistinguishedName(trimmed))
         {
+            // .NET's X500DistinguishedName accepts ';' as an RDN separator equivalent to ',', but the
+            // raw string we return keeps the literal ';'. The certificate re-parses it into
+            // comma-separated RDNs while the manifest keeps the literal ';', so the two artifacts
+            // silently diverge and never match. Reject an unquoted separator ';'; a ';' inside a
+            // quoted value (e.g. CN="A;B") is data, not a separator, and is kept.
+            if (ContainsUnquotedSemicolon(trimmed))
+            {
+                error = $"Publisher '{trimmed}' uses ';' to separate components, which the MSIX package " +
+                        "manifest publisher cannot represent. Separate components with commas, for example " +
+                        "'CN=Contoso, O=Contoso, C=US'.";
+                return false;
+            }
+
             // A DN can parse yet still carry an empty value (e.g. "CN=" or "CN=A, O="), or use a
             // multi-valued RDN (e.g. "CN=A+O="). Such a publisher can never match a manifest
             // Identity/@Publisher, so reject it rather than accept it silently.
@@ -207,6 +220,31 @@ internal static class PublisherDnHelper
             : attributeType;
         var isOid = oidBody.Length > 0 && oidBody.All(c => char.IsAsciiDigit(c) || c == '.') && oidBody.Any(char.IsAsciiDigit);
         return isAlphaKeyword || isOid;
+    }
+
+    /// <summary>
+    /// Returns true when the value contains a ';' outside of a quoted segment. .NET parses an
+    /// unquoted ';' as an X.500 RDN separator (like ','), but a caller that keeps the raw string
+    /// preserves the literal ';', so an unquoted separator semicolon is rejected. A ';' inside a
+    /// quoted value is data and returns false. Backslash escapes are rejected earlier, so they are
+    /// not considered here.
+    /// </summary>
+    private static bool ContainsUnquotedSemicolon(string value)
+    {
+        var inQuotes = false;
+        foreach (var c in value)
+        {
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ';' && !inQuotes)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
