@@ -347,7 +347,7 @@
           "hidden": false,
           "arguments": {
             "cert-path": {
-              "description": "Path to the certificate file (PFX)",
+              "description": "Path to the certificate file (PFX or CER)",
               "order": 0,
               "hidden": false,
               "valueType": "System.IO.FileInfo",
@@ -373,7 +373,7 @@
               "recursive": false
             },
             "--password": {
-              "description": "Password for the PFX file",
+              "description": "Password for the PFX file (ignored for a public CER)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": true,
