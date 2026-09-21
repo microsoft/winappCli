@@ -103,26 +103,16 @@ edit, re-read and reconcile instead of retrying an old full-body replacement.
 If the host has no guard, re-read immediately before a minimal update and stop
 on conflicting edits.
 
-Maintain **one separate lifecycle status comment** on the PR. Find it in the
-paginated comments or recover its saved ID before creating one; do not append a
-new comment for every round. Update only your workflow comment, preserving any
-collaborator edits. Keep history out of the feature body and avoid repeating it
-all in chat. A compact comment can be:
+Use the lifecycle label as the PR's readiness signal. Do not post or maintain
+automated lifecycle status comments or round-by-round progress comments.
+Necessary replies to review feedback are still required; they are not status
+updates.
 
-```markdown
-<!-- pr-lifecycle-status -->
-**State:** agent-preparing
-**Assessed:** head `<sha>` against `<base-ref>@<sha>`; main `<sha>` if stacked
-**Evidence:** <focused commands/results and links to current-head CI/review>
-**Review:** <independent coverage SHA; actionable findings; human approval status>
-**Pending:** <remaining gates, or none>
-**Blocker / owner / next step:** <concrete intervention, or none>
-**Resume:** <trigger or supported wakeup; otherwise "Not actively monitoring">
-```
-
-Record the PR URL/number, head/base SHAs (and main/parent when relevant),
-status-comment ID, pending gates and next action in a durable session checkpoint
-too. Do not commit operational checkpoints to the repository.
+Keep operational details in a durable session checkpoint: PR URL/number,
+head/base SHAs (and main/parent when relevant), review coverage, pending gates,
+blocker/owner/next step, and the configured wakeup or resume action. Do not commit
+these checkpoints or copy their history into the feature body. Ask the author
+directly when their input is needed.
 
 ## Finish
 
@@ -136,12 +126,13 @@ review, unresolved-thread count alone, or the first 100 results.
 Reply to each actionable thread with the fix/evidence or a reasoned disagreement
 **before** resolving it. Use `reply_and_resolve_review_thread` when available.
 For actionable findings in a review body or top-level comment, answer in the
-appropriate discussion surface and link the disposition from the status
-comment. Keep substantive disagreement and its supporting evidence explicit
-until reassessed; do not present an unaddressed defect as a resolved disagreement.
+appropriate discussion surface and record the disposition in the session
+checkpoint. Keep substantive disagreement and its supporting evidence explicit
+in that reply until reassessed; do not present an unaddressed defect as a resolved
+disagreement.
 
 Never dismiss a human's changes request yourself. After addressing it, re-request
-that reviewer and record the pending re-review and owner in the status comment.
+that reviewer and record the pending re-review and owner in the session checkpoint.
 Waiting for that reassessment is not an agent blocker: if the agent has addressed
 the feedback and completed the other technical gates, the PR is ready for review
 even while GitHub still shows the earlier `CHANGES_REQUESTED` review.
@@ -197,7 +188,7 @@ status. Fixable findings, fixable CI failures and ordinary CI waits mean
 `agent-preparing`. After feedback has a fix or an evidence-backed disposition,
 waiting for reviewer acceptance or reassessment means `ready-for-review` if the
 other technical gates pass. Keep pending reviews and merge-blocking approval
-requirements visible in the status comment; do not dismiss them or claim approval.
+requirements in the session checkpoint; do not dismiss them or claim approval.
 
 Before **each label transition**, fetch a live snapshot. Before ready, confirm:
 independent final-diff coverage and a fix or evidence-backed disposition for each
