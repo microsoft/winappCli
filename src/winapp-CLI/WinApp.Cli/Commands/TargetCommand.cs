@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 using Spectre.Console;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Commands;
 
@@ -403,16 +404,16 @@ internal static class TargetTransfer
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            // Resolve before copying so a missing guest root cannot fail reporting after a write.
+            var resolved = direction == TargetTransferDirection.ToTarget
+                ? TargetFileTransferService.DescribeTargetPath(
+                    target.Capabilities,
+                    TargetFileTransferService.NormalizeTargetRelative(request.TargetPath))
+                : null;
+
             var result = await TargetFileTransferService
                 .CopyAsync(target.Operations, request, cancellationToken)
                 .ConfigureAwait(false);
-
-            // Target paths resolve under a managed root, so the effective destination is stated
-            // rather than left for the user to infer from a path they did not type.
-            var resolved = direction == TargetTransferDirection.ToTarget
-                ? TargetFileTransferService.DescribeTargetPath(
-                    TargetFileTransferService.NormalizeTargetRelative(request.TargetPath))
-                : null;
 
             if (json)
             {
@@ -430,7 +431,7 @@ internal static class TargetTransfer
             else if (resolved is not null)
             {
                 console.MarkupLineInterpolated(
-                    $"Copied {result.Transferred} file(s), skipped {result.Skipped} unchanged, to {resolved} on {reference.Selector}.");
+                    $"Copied {result.Transferred} file(s), skipped {result.Skipped} unchanged, to {TerminalText.Sanitize(resolved)} on {reference.Selector}.");
             }
             else
             {
