@@ -191,6 +191,17 @@ public class SandboxRunTests
             GuestPaths.Resolve(Capabilities(), GuestPaths.PayloadScope("abc")));
     }
 
+    [TestMethod]
+    [DataRow(@"C:\WinApp", "", @"C:\WinApp\work")]
+    [DataRow(@"C:\WinApp", "Setup/probe.txt", @"C:\WinApp\work\Setup\probe.txt")]
+    [DataRow(@"D:\Managed files", ".", @"D:\Managed files\work")]
+    public void GuestPaths_TransferOutputUsesTheReportedRoot(string managedRoot, string relative, string expected)
+    {
+        Assert.AreEqual(expected, TargetFileTransferService.DescribeTargetPath(
+            Capabilities(managedRoot: managedRoot),
+            TargetFileTransferService.NormalizeTargetRelative(relative)));
+    }
+
     /// <summary>
     /// Nested, the layout would be enumerated by the next reconciliation, found absent from the
     /// host's desired state, and deleted — destroying what the previous run registered from.

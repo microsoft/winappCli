@@ -1679,7 +1679,7 @@ winapp target push sandbox .\setup.ps1 Setup\setup.ps1
 winapp target pull sandbox Results .\results
 ```
 
-Target paths are relative to `C:\WinApp\work`; absolute, rooted, and UNC target paths
+Target paths are relative to the target's managed work area; absolute, rooted, and UNC target paths
 are rejected. A file destination includes its filename. See
 [Running commands and copying files](sandbox-execution.md#running-commands-and-copying-files)
 for directory layout, link handling, and running a copied script.
