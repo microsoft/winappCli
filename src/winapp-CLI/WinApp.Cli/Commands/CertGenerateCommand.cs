@@ -30,7 +30,7 @@ internal class CertGenerateCommand : Command, IShortDescription
     {
         PublisherOption = new Option<string>("--publisher")
         {
-            Description = "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>."
+            Description = "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>."
         };
         ManifestOption = new Option<FileInfo>("--manifest")
         {
@@ -153,6 +153,20 @@ internal class CertGenerateCommand : Command, IShortDescription
                     logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
                     return 1;
                 }
+            }
+            // Otherwise validate an explicit publisher up front so a malformed distinguished name — or
+            // an explicitly empty value — fails with a clear, actionable message instead of silently
+            // generating a certificate that can never match the manifest Identity/@Publisher.
+            // `publisher` is null only when --publisher was omitted (inference then applies); a
+            // supplied-but-empty value must still be rejected rather than fall through to a default.
+            else if (publisher is not null && !PublisherDnHelper.TryNormalize(publisher, out _, out var publisherError))
+            {
+                if (json)
+                {
+                    return JsonErrorOutput.Write(ansiConsole, publisherError);
+                }
+                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, publisherError);
+                return 1;
             }
 
             CertificateService.CertificateResult? certResult = null;
