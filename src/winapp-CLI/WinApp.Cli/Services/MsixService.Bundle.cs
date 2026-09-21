@@ -387,7 +387,7 @@ internal partial class MsixService
             if (recipeFile != null)
             {
                 taskContext.AddDebugMessage($"Using appxrecipe for staging: {recipeFile.Name}");
-                await CopyFilesFromRecipeAsync(recipeFile, stagingDir, taskContext, cancellationToken);
+                await CopyFilesFromRecipeAsync(recipeFile, stagingDir, taskContext, LayoutReconciliation.None, cancellationToken);
             }
             else
             {
@@ -440,7 +440,7 @@ internal partial class MsixService
                     var winAppSDKDeploymentDir = await PrepareRuntimeForPackagingAsync(stagingDir, dotNetPackageList, taskContext, cancellationToken, overrideArch: targetArch);
                     var resolvedDeploymentDir = Path.Combine(winAppSDKDeploymentDir.FullName, "..", "extracted");
                     var windowsAppSDKManifestPath = new FileInfo(Path.Combine(resolvedDeploymentDir, "AppxManifest.xml"));
-                    await EmbedActivationManifestToExeAsync(executablePath, winAppSDKDeploymentDir, windowsAppSDKManifestPath, dotNetPackageList, taskContext, cancellationToken);
+                    await EmbedActivationManifestToExeAsync(executablePath, winAppSDKDeploymentDir, windowsAppSDKManifestPath, dotNetPackageList, taskContext, cancellationToken, targetArch);
                 }
             }
 

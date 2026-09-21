@@ -23,8 +23,10 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.TestSupport;
 ///   * <see cref="MultilineBox"/> — a multiline TextBox with many lines.
 ///   * <see cref="TextLabel"/> — a Label for GetText fallback (element Name).
 /// </summary>
-public sealed class UiaTestFixture : IDisposable
+public sealed partial class UiaTestFixture : IDisposable
 {
+    private readonly bool _nonActivating;
+    private int _activationCount;
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _ready = new(false);
     private Form _form = null!;
@@ -33,6 +35,8 @@ public sealed class UiaTestFixture : IDisposable
     public string Title { get; }
     public nint Hwnd { get; private set; }
     public int ProcessId { get; } = Environment.ProcessId;
+    /// <summary>Records activation, including during startup, so background-only tests can detect focus theft.</summary>
+    public bool WasActivated => Volatile.Read(ref _activationCount) != 0;
 
     /// <summary>The hosted form. Access members only via <see cref="OnUiThread(Action)"/>.</summary>
     public Form Form => _form;
@@ -84,8 +88,9 @@ public sealed class UiaTestFixture : IDisposable
 
     private Form? _ownedWindow;
 
-    public UiaTestFixture()
+    public UiaTestFixture(bool nonActivating = false)
     {
+        _nonActivating = nonActivating;
         Title = "WinAppUiaFixture_" + Guid.NewGuid().ToString("N")[..8];
         _thread = new Thread(ThreadMain)
         {
@@ -110,6 +115,7 @@ public sealed class UiaTestFixture : IDisposable
         try
         {
             _form = BuildForm();
+            _form.Activated += (_, _) => Interlocked.Increment(ref _activationCount);
             _form.Shown += (_, _) =>
             {
                 Hwnd = _form.Handle;
@@ -126,16 +132,14 @@ public sealed class UiaTestFixture : IDisposable
 
     private Form BuildForm()
     {
-        var form = new Form
-        {
-            Text = Title,
-            Name = "fixtureForm",
-            Width = 960,
-            Height = 700,
-            StartPosition = FormStartPosition.CenterScreen,
-            // Keep the form on-screen and non-topmost; screenshot tests foreground it explicitly.
-            ShowInTaskbar = true,
-        };
+        Form form = _nonActivating ? new NonActivatingForm() : new NonActivatingTestForm();
+        form.Text = Title;
+        form.Name = "fixtureForm";
+        form.Width = 960;
+        form.Height = 700;
+        form.StartPosition = FormStartPosition.CenterScreen;
+        // Keep the form on-screen and non-topmost; screenshot tests foreground it explicitly.
+        form.ShowInTaskbar = !_nonActivating;
 
         InvokeButton = new Button
         {
@@ -568,7 +572,7 @@ public sealed class UiaTestFixture : IDisposable
         {
             if (_ownedWindow is null || _ownedWindow.IsDisposed)
             {
-                _ownedWindow = new Form
+                _ownedWindow = new NonActivatingTestForm
                 {
                     Text = title,
                     Name = "ownedForm",
@@ -621,6 +625,14 @@ public sealed class UiaTestFixture : IDisposable
                     Width = 160,
                     Height = 30,
                 });
+                var ownedMenu = new MenuStrip { Name = "ownedMenu" };
+                ownedMenu.Items.Add(new ToolStripMenuItem
+                {
+                    Name = "mnuOwnedWindowless",
+                    Text = "Windowless Owned Item",
+                    AccessibleName = "Windowless Owned Item",
+                });
+                _ownedWindow.Controls.Add(ownedMenu);
                 _ownedWindow.Show();
             }
 

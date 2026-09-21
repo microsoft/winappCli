@@ -9,13 +9,53 @@
 Shared step templates live in [`templates/`](templates):
 
 - [`build-env.yaml`](templates/build-env.yaml) — agent setup (.NET, Node, internal NuGet/npm feeds and their auth). Shared by CI and release.
-- [`build.yaml`](templates/build.yaml) — the build, packaging, optional ESRP signing, and artifact publishing.
+- [`build.yaml`](templates/build.yaml) — the build, packaging, optional ESRP signing, signature verification, and artifact publishing.
 - [`release-assets.yaml`](templates/release-assets.yaml) — renames built packages to the unversioned asset names the release publishes. Used twice: as a preflight dry-run on a copy in the `Build` stage (where a checkout exists, so the result can be verified by a tested script), and for real in `Release_GitHub` (which has no checkout).
 
 > **Why templates and not scripts for release jobs.** 1ES release jobs
 > (`templateContext.type: releaseJob`) cannot check out the repo, so no `.ps1` from the working
 > tree is on disk there. A YAML `- template:` reference is fine regardless, because it is expanded
 > at **compile** time. Share release-job logic as YAML, never as a script file.
+
+---
+
+## Publishing a prerelease of the library packages
+
+The three source-built library packages — `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation`,
+`...UIAutomation.Recording`, and `...WinUIAnalyzer` — can be published to nuget.org as a prerelease
+**without cutting a release**, to validate them before the first official release.
+
+Queue **WinDevCLI - Release** manually with the **`publishPrereleaseNugets`** parameter ticked
+(optionally set `prereleaseNugetVersion`; blank auto-computes `version.json` + `-prerelease.<build>`).
+That adds two stages — `Prerelease_Nugets_Build` and `Prerelease_Nugets_Publish` — which pack just
+those three packages (`package-nuget.ps1 -SkipCliPackage`, so the CLI tools package is never built),
+ESRP-sign them, and push only them via the `NuGet-WinAppCLI` service connection.
+
+Both stages are gated on the parameter, which **defaults false**, so they are pruned at *compile*
+time on every scheduled rehearsal and every real `rel/v*` release — they are absent from the graph
+unless someone explicitly ticks the box. A second positive gate, `not(startsWith(Build.SourceBranch,
+'refs/heads/rel/v'))`, means even a manual queue against a release branch publishes nothing, so this
+can never ride a real release. This is the one deliberate exception to the "mode from branch, not
+parameter" rule below: it is not a discriminator between two automatic behaviours (which parameter
+defaults would betray), but an additive, default-off, manual action.
+
+Notes:
+
+- Signing is required: the stages are also gated on `DoEsrp` (on by default), so they can never
+  publish unsigned packages. Unticking `DoEsrp` prunes the path entirely — nothing publishes.
+- The build stage runs the library test suites (`WinApp.UIAutomation.Tests` and the WinUI analyzer
+  tests) before packing, so a test-failing commit can't be signed or published. This is narrower
+  than the full stable `Build` (which also builds the NativeAOT CLI and MSIX) on purpose, to keep
+  the path fast while still validating exactly what ships.
+- The version must be a SemVer prerelease (e.g. `0.6.3-prerelease.1`); a stable version, including
+  one with build metadata like `0.7.0+build-1`, is rejected. Blank auto-computes the prerelease.
+- Run it from a **non-`rel/v*`, non-`main`** branch to also keep the `main`-gated rehearsal stages
+  (WinGet, MS Learn, credentials) out of the run. The unconditional `Build` stage still runs
+  regardless — that is the cost of folding this into the release pipeline rather than a separate one.
+- The push runs as `NuGet-WinAppCLI`, which owns the `Microsoft.Windows.SDK.BuildTools.*` reserved
+  prefix, so no personal namespace ownership is needed. The run branch must be allowed by the Branch
+  control checks on `NuGet-WinAppCLI` and the signing connection.
+- A successful push is an immutable nuget.org publish — bump the prerelease number per attempt.
 
 ---
 
@@ -71,6 +111,7 @@ Exactly seven things, each gated:
 | Action | Gate |
 |---|---|
 | ESRP code signing | `DoEsrp` ANDed with the branch |
+| Shipped-binary signature verification | inside the ESRP block, so gated with it |
 | GitHub release | compile-time `${{ if }}` |
 | Symbol publication | whole stage omitted |
 | npm publish (ESRP Release) | whole stage omitted |
@@ -109,16 +150,31 @@ Everything else, for real:
   WinGet URLs and documented download links hardcode. The real rename happens later in
   `Release_GitHub`, which has no checkout and so cannot run the verifier — doing it here means a
   naming regression fails the build instead of silently publishing wrong URLs (#568).
-- Credential and service-connection checks via `scripts/check-release-credentials.ps1` — PAT scopes
-  and expiry, fork push permission, and service-connection readiness.
+- GitHub credential checks via `scripts/check-release-credentials.ps1` — PAT scopes and expiry,
+  and fork push permission.
+- **The two federated service connections, exercised for real.** `AzureCLI@2` acquires a token
+  from the ESRP signing connection, and `AzurePowerShell@5` acquires one from the symbol
+  publishing connection — the latter deliberately matching the task and cmdlet the real symbol
+  stage runs, so a break in that task or in the Az modules is caught too. Nothing is signed
+  and nothing is published, but it proves the connection exists, this pipeline is authorized to
+  use it, **and the workload-identity federation credential still works** — the part that silently
+  rotates or gets de-authorized under ES policy changes.
 
 ### Limitations
 
 - **Signing is never exercised.** ESRP is off in a rehearsal, so a signing-side break still
-  surfaces only during a real release.
+  surfaces only during a real release. `Verify shipped binaries are signed` is gated with it and
+  is therefore also rehearsal-inert — see [Signing and Code Sign Validation](#signing-and-code-sign-validation).
+- **Code Sign Validation reports every first-party binary as unsigned.** Expected, and not
+  actionable: nothing was signed. See the same section before filing anything.
 - **Connection existence is not credential validity.** `github-service-connection` and
   `NuGet-WinAppCLI` are checked for existence and readiness only; nothing authenticates the secret
   inside them without publishing.
+  **Two connections cannot be verified at all.** `github-service-connection` is consumed only by
+  `GitHubRelease@1`, whose every action mutates, and `NuGet-WinAppCLI` carries an API key that is
+  only validated on push. There is deliberately no check for them — a metadata lookup would prove
+  nothing about the credential, and it is better to say so than to fake coverage. They are covered
+  the moment you cut a real release.
 - **The publish calls themselves never run.** The rehearsal validates their preconditions, not the
   final API call.
 
@@ -128,30 +184,27 @@ The schedule is defined in YAML and needs **no new pipeline** — it runs on the
 **WinDevCLI - Release** definition, which already has its variable groups and service connections
 authorized. That is the main practical advantage of this design.
 
-Three things to check in the ADO UI:
+Two things to check in the ADO UI:
 
 1. **"Override the YAML schedule" must be off**, or the weekly trigger will not fire.
 2. Any **Branch control** check on the shared service connections must allow **both**
    `refs/heads/rel/v*` and `refs/heads/main`. A `rel/v*`-only filter would block the rehearsal;
    a `main`-only filter would block real releases.
-3. Grant the **build service identity `Read` on each service connection** (connection → Security →
-   add `<project> Build Service` as Reader). Grant it on **every** connection the check names —
-   the permission is per connection, so a partial grant leaves the rest unverifiable. Without it
-   the checks report `WARN` rather than failing, so this is optional; the check simply has no
-   value until it is granted.
 
-> **What this check can and cannot prove.** Azure DevOps does **not** return 403 when a caller
-> lacks endpoint read permission — it returns HTTP 200 with an empty list, which reads identically
-> to "this connection does not exist". Because the grant is per connection, seeing one endpoint
-> also says nothing about seeing another. **Absence is therefore never provable here**, and an
-> invisible connection is always reported `WARN`, never `FAIL`.
+No extra permission grant is needed. An earlier version of this check read the service endpoints
+over REST, which required the build identity to have `View Service Connection` — a permission
+nothing else needs, and which it does not have. That produced four false "Not found" failures for
+two weeks running (builds 20260907.1 and 20260914.1) against connections that were all present and
+authorized.
+
+> **Why using a connection beats inspecting it.** Pipelines are authorized to *use* a service
+> connection through pipeline authorization, which is separate from the ACL that governs *reading*
+> it over REST. So releases can work perfectly while the endpoint list comes back empty — the two
+> are unrelated, and the empty list means nothing.
 >
-> What remains definitive: a visible connection is confirmed present, and a visible connection
-> that reports `isReady: false` is a real `FAIL`.
->
-> The first real rehearsal (build 20260914.1) failed with four "Not found" verdicts against four
-> connections that all existed and were ready. That is the failure mode this wording exists to
-> prevent recurring.
+> More importantly, no amount of metadata tells you whether a connection's credential still works.
+> Acquiring a token does. That is why the ESRP and symbol-publishing connections are now exercised
+> directly in `release.yml` rather than looked up.
 
 `always: true` on the schedule is deliberate: without it a quiet week produces no run, and a quiet
 week is exactly when an external policy change slips in unnoticed.
@@ -165,8 +218,10 @@ week is exactly when an external policy change slips in unnoticed.
 | Generate Release Notes | `GITHUB_TOKEN_2` expired or lost access. Cannot fail the build — it falls back to a git-log changelog. |
 | `Preflight - assert asset name contract` | Package naming changed, or an architecture stopped building. Fix `templates/release-assets.yaml` — `Release_GitHub` uses the same copy. Note this gate is **not** rehearsal-only; it fails real releases too, by design. |
 | `Check release credentials` | Read the PASS/WARN/FAIL summary at the end of the log. `FAIL` is definitive; `WARN` means the check could not determine an answer and is not actionable on its own. A token-expiry `WARN` is the one worth acting on early — the PAT is regenerated by hand. |
+| `Verify ESRP signing connection (token only, signs nothing)` / `Verify symbol publishing connection (token only, publishes nothing)` | The federated identity behind that connection no longer works — rotated, expired, or de-authorized for this pipeline. A real release would fail at signing or symbol publishing. Nothing was signed or published by the check itself. Both steps run even if an earlier check failed, so treat their verdicts independently. |
 | WinGet (rehearsal path) | `wingetcreate`, the installer downloads, or the manifest schema changed. A real submission would fail the same way. |
 | MS Learn (rehearsal path) | A doc edit landed that the port or validation script rejects. |
+| `Verify shipped binaries are signed` | A binary is shipping unsigned. Read the failure line — it names each file, using `container!/path` for anything nested. See [Signing and Code Sign Validation](#signing-and-code-sign-validation). |
 
 ### Running it on demand
 
@@ -191,17 +246,105 @@ $env:GH_TOKEN = 'ghp_...'
     -MSLearnDocsFork '<owner>/windows-dev-docs-pr'
 ```
 
-Service connection checks are skipped outside Azure Pipelines, so this runs fine offline.
+This command checks GitHub credentials only — the federated service connections are exercised by
+the pipeline steps above, so it needs no Azure access and runs fine offline.
 
 ### Related
 
 - `scripts/check-release-credentials.ps1` (+ tests in `scripts/tests/`)
 - `scripts/verify-release-assets.ps1` (+ tests in `scripts/tests/`)
+- `scripts/verify-signatures.ps1` (+ tests in `scripts/tests/`)
 - `.pipelines/templates/release-assets.yaml` — the renaming, shared with the real release
 
-Both test suites run as part of `scripts/build-cli.ps1`, and are deliberately **offline-only**:
+All three test suites run as part of `scripts/build-cli.ps1`, and are deliberately **offline-only**:
 that suite also runs during a real release build, so a test that reached `api.github.com` would let
 a GitHub outage block a release.
 
 > **Planned (phase 2):** a scheduled agent prompt that reads each weekly run and posts a summary to
 > the team.
+
+---
+
+## Signing and Code Sign Validation
+
+### What gets signed, and in what order
+
+Order is the whole story here. `package-msix.ps1`, `package-npm.ps1` and `package-nuget.ps1` all
+copy `winapp.exe` out of `artifacts/cli`, so a binary signed *after* those scripts run ships
+unsigned no matter how thoroughly the container around it is signed.
+
+`templates/build.yaml` therefore signs bottom-up:
+
+1. **CLI binaries** — everything matching `**/*.exe` and `**/*.dll` under `artifacts/cli`. A glob,
+   not a file list, because a native dependency dropped next to `winapp.exe` would otherwise ship
+   unsigned. Already-signed third-party binaries are re-signed rather than skipped, so compliance
+   does not rest on a publisher staying on Guardian's approved-policy list.
+2. **Managed libraries** — the assemblies the UI Automation and analyzer packages pack.
+3. **Repack NuGet packages** — `build-cli.ps1` packs the `.nupkg` files *before* any signing runs,
+   so the first copies embed unsigned binaries. This repacks them.
+4. **Containers** — the `.msix` packages and the `.nupkg` packages themselves.
+
+The MSIX and NuGet signatures are a second, independent signature on the container. They do not
+make the payload signed, and an MSIX will install happily with an unsigned `winapp.exe` inside it.
+
+### Why there is a verification step
+
+`Verify shipped binaries are signed` runs `scripts/verify-signatures.ps1` over `artifacts/cli`, the
+MSIX packages, the NuGet packages and the npm tarball, expanding every container — including nested
+ones — and asserting each `.exe`/`.dll` carries a valid Authenticode signature.
+
+It exists because Guardian's Code Sign Validation cannot catch a regression in step 3 or 4:
+
+- It runs in the **release jobs**, over downloaded artifacts, **after** the build reported success.
+- It runs in **audit mode**, so a finding is a warning on a green job.
+- It **does not open `.msix` or `.tgz`**. It expands `.nupkg` (the scan output shows `gdn-*.nupkg/`
+  folders) but a folder holding only `.msix` or `.tgz` yields zero targets — so the binaries users
+  actually install are never inspected.
+
+Release 0.6.0 shipped through that gap:
+`Microsoft.Windows.SDK.BuildTools.WinApp.0.6.0.nupkg` was published with an unsigned
+`tools/win-x64/winapp.exe`, reported as a CSV warning on a build that succeeded.
+
+The step is inside the `DoEsrp` block, which is ANDed with `rel/v*`, so it is inert in a rehearsal —
+a run that signs nothing would otherwise fail it every Monday.
+
+The script also runs locally against any build output or downloaded artifact:
+
+```powershell
+.\scripts\verify-signatures.ps1 -Path .\artifacts\cli,.\artifacts\msix-packages,.\artifacts\nuget,.\artifacts\*.tgz
+```
+
+A root that contains no binaries is a failure, not a pass — a gate that reports success after
+verifying nothing is worse than no gate.
+
+### Reading Code Sign Validation warnings
+
+CSV is injected automatically into every job that consumes a pipeline artifact, and today it only
+warns:
+
+```
+##[warning]Found CodeSign.MissingSigningCert error(s). [C+AI Security Sprint Wave 1] Code Sign
+Validation (CSV) is enabled in audit mode to collect telemetry for future enforcement.
+```
+
+Before treating one as a bug, **check the branch**. On a rehearsal (`main`) nothing was signed, so
+every first-party binary is reported `MissingSigningCert` and none of it is actionable. On a real
+release (`rel/v*`) the same line is a genuine finding.
+
+`CodeSign.MatchingPolicy` is a pass, not a warning — it means the file is signed by an approved
+publisher.
+
+1ES PT does not allow CSV to be narrowed in these jobs. `additionalTargetsGlobPattern` and per-job
+or per-stage CSV settings are supported everywhere *except* production release jobs
+(`isProduction: true`), where `policyFile` is the only accepted setting — and every artifact-
+consuming job here is one. So findings have to be fixed, not excluded.
+
+That is why the MS Learn scripts are signed rather than filtered. CSV's default target list
+includes `**\*.ps1`, so the four scripts staged into the `mslearn-source` artifact are flagged.
+Filtering them out of the artifact download would break the job that invokes them from that path,
+so `release.yml` ESRP-signs them in the Build stage instead. A script's signature block is appended
+text that survives the artifact round-trip — provided signing happens **before**
+`1ES.PublishPipelineArtifact@1`, not after.
+
+There is no published date for CSV leaving audit mode; 1ES PT commits to 90 days' notice. Questions
+go to `1escsv@microsoft.com`.

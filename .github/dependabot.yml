@@ -15,8 +15,23 @@ updates:
   - package-ecosystem: "nuget"
     directory: "/src/winapp-CLI"
     groups:
+      # Svg.Skia is compiled against a specific SkiaSharp major but depends on it only by *minimum*
+      # version, so NuGet happily resolves a lone SkiaSharp bump: it restores, it compiles, and it
+      # then fails at runtime the first time an SVG is rasterized. Keep the two in one PR, and keep
+      # that PR separate from the general batch — a SkiaSharp major also needs obsolete-API
+      # migration by hand (SKFont, SKSamplingOptions) and output compared before and after.
+      # This must stay above the catch-all: a dependency joins the first group it matches.
+      skia:
+        patterns:
+          - "SkiaSharp*"
+          - "Svg.Skia"
       nuget:
         patterns: ["*"]
+    ignore:
+      # The shipped analyzer targets Roslyn 4.8 so .NET SDK 8.0.100 can load it.
+      # Dependabot also discovers its project through winapp.sln. Keep compiler
+      # reference updates manual so test dependencies cannot lift that baseline.
+      - dependency-name: "Microsoft.CodeAnalysis.CSharp"
     schedule:
       interval: "weekly"
     cooldown:

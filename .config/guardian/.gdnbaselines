@@ -11,41 +11,763 @@
     }
   },
   "results": {
-    "5ca1b6336b4c897e0051c1906282d756496583cf01f2396f075954644f2bdc13": {
-      "signature": "5ca1b6336b4c897e0051c1906282d756496583cf01f2396f075954644f2bdc13",
+    "5d7fac3ac06796185e30b96ed797285fcea9d87a05900c29b91921e6cc9d27c4": {
+      "signature": "5d7fac3ac06796185e30b96ed797285fcea9d87a05900c29b91921e6cc9d27c4",
       "alternativeSignatures": [
-        "28f2f862371ca2e37f688c39a284823a52cef1511030e8ab3ce552a7568f61c7",
-        "ef886847458e451c552cd7982ede5177fcad3ce4b0a1bf8297380a676a556ac0",
-        "4dad3dfda180bb8cfe5ba9e78c5de47134462fb01248eae3de551c4d4f61de88"
+        "27e0b145546285f15fe977cd7060554a19e6df6f313d7952a455c2fe2121eaae",
+        "3e5e433367402380451a087431a38c2f9d208a7343e86480adbdb929bb81d8b6",
+        "b4635930b865b7c274eba9c865061bf110e6d1539f1b0bbec524669930bb9876"
       ],
-      "target": "cli/win-arm64/libSkiaSharp.dll",
+      "target": "cli/win-arm64/libHarfBuzzSharp.dll",
       "uriBaseId": "file:///D:/a/_work/1/a/",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
-      "ruleId": "BA2008",
-      "createdDate": "2026-05-20 01:12:41Z",
-      "expirationDate": "2026-11-06 01:17:17Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-20 01:17:17Z"
+      "ruleId": "BA2007",
+      "createdDate": "2026-09-17 17:38:46Z",
+      "expirationDate": "2027-03-16 17:38:46Z",
+      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change. The versions checked, 14.2.0 and 8.3.1.3 on both win-x64 and win-arm64, all fail this rule; reported upstream as mono/SkiaSharp#5108. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled. This error is baselined with an expiration date of 180 days from 2026-09-17 17:38:46Z."
     },
-    "4b54f4eb14c18c15cb572b88baa253008f728ee4ff3e248f8bf767fad27eac8a": {
-      "signature": "4b54f4eb14c18c15cb572b88baa253008f728ee4ff3e248f8bf767fad27eac8a",
+    "bef185746e419cfc313d6e9ffc371635712e5b4ded6c576407eebf03706d1a64": {
+      "signature": "bef185746e419cfc313d6e9ffc371635712e5b4ded6c576407eebf03706d1a64",
       "alternativeSignatures": [
-        "6178b99605c851620929c43de41ef63c63974772a78214dd07ce3c3e9c41b53f",
-        "9c54eb86027dd75461f15ee0b2d39380bc752c18898a9647e95a73829a2c6980",
-        "3922c5c92055d2bfc3841772994f6fc09dc3d8dd5151f8a014a161213c6597c9"
+        "516eae04909778d0b183e7f5b4aaa7d02ba5563edec43793734e1ce0404466ba",
+        "75bb0f86672b88edbf930f4a04aa173a5e00f5d286f5118cceff2c790e999035",
+        "a230cac607b9846f146d41357d892716170635d99602b15899c9a5611c0d42e3"
       ],
-      "target": "cli/win-x64/libSkiaSharp.dll",
+      "target": "cli/win-x64/libHarfBuzzSharp.dll",
       "uriBaseId": "file:///D:/a/_work/1/a/",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
-      "ruleId": "BA2008",
-      "createdDate": "2026-05-20 01:12:41Z",
-      "expirationDate": "2026-11-06 01:17:17Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-20 01:17:17Z"
+      "ruleId": "BA2007",
+      "createdDate": "2026-09-17 17:38:46Z",
+      "expirationDate": "2027-03-16 17:38:46Z",
+      "justification": "libHarfBuzzSharp.dll is a prebuilt redistributable shipped by the HarfBuzzSharp.NativeAssets.Win32 package, pulled in transitively by Svg.Skia. We do not compile it, so its compiler warning level is not ours to change. The versions checked, 14.2.0 and 8.3.1.3 on both win-x64 and win-arm64, all fail this rule; reported upstream as mono/SkiaSharp#5108. Auto-baselining does not cover it because it only runs when an SDL tool is newly enabled. This error is baselined with an expiration date of 180 days from 2026-09-17 17:38:46Z."
+    },
+    "d9a3c66c830ce4995996ce22ffec0bdef5992aac4c050baac37f3b810f903cd7": {
+      "signature": "d9a3c66c830ce4995996ce22ffec0bdef5992aac4c050baac37f3b810f903cd7",
+      "alternativeSignatures": [
+        "f8ac07b45cc8c61d98f633096489d41ff2661a122697f03b3e19cdc1fccd1558",
+        "3f82db53701176b479156d3dddf92a0faf00de9589f5be723274dee7d220d1ad",
+        "ba67d3ccd71f81424f9bbec2b21623c8b27e75f6fa04b287812a76f2f66f8b98"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/CompleteCommandTests.cs",
+      "line": 117,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "5d24e9834ffe0b5ecc6ebf9b68ef15a462a43206eb1a011769fae54a3b0fe622": {
+      "signature": "5d24e9834ffe0b5ecc6ebf9b68ef15a462a43206eb1a011769fae54a3b0fe622",
+      "alternativeSignatures": [
+        "924d3762676c039a0e996253b9ff0202126e73088def78b2d3edb17cc6c14ade",
+        "c50ca9b88fcf1fe3f811b0880f9a07ede245e8eef2cc54a2a8571afecf2a2f51",
+        "aab9ac42fea3cb681b4122eea29137e96ddfc1df468b9153c128b24b7f3abe8c"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/CppWinrtServiceTests.cs",
+      "line": 238,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "85d76aaa1a4dc966d8803d81892c48e1c82536f9fffef21d223452efac9e1335": {
+      "signature": "85d76aaa1a4dc966d8803d81892c48e1c82536f9fffef21d223452efac9e1335",
+      "alternativeSignatures": [
+        "efd1993f18a43d78bed211a63f35261d7f97f9cf3a8d195d5fcc54354bd90e20",
+        "9ecf78f31be0b6f4f9de98f5e59b448eb5a4df75bcb805d56c950849c41f8f73",
+        "69aee960d345cc43b2d79dc9e30e3f000b3a28530c4aa6be7227cfcb1aea11dd"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/CppWinrtServiceTests.cs",
+      "line": 242,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "5d85416c0775d1baa0ffdb6b15902f870d979a9c21402c8456ca8e79d7d805e1": {
+      "signature": "5d85416c0775d1baa0ffdb6b15902f870d979a9c21402c8456ca8e79d7d805e1",
+      "alternativeSignatures": [
+        "715cc8d5b2ecd3876e5f4cfc732b5ae22487e43e880059b5d318e8ac647b3857",
+        "6bc1cb056320f014bac10969f44b23ab92b6242f801d9af9b8ab992037fdd998",
+        "67a1cddcb22de6bce94eefa8d61c9535309a89fe9724c40e00434096574dc314"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/CppWinrtServiceTests.cs",
+      "line": 244,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "5cca25272659f06f4b191cc0e07665f04adc05f3917704d1761643276fcaf610": {
+      "signature": "5cca25272659f06f4b191cc0e07665f04adc05f3917704d1761643276fcaf610",
+      "alternativeSignatures": [
+        "fc16c37148ac14178afaf4e19dc88d2c15ec2ba2f03179df14b3f0d4f675e90f",
+        "801e19305b642eda27ca75fc70ba0fbdaf0647a85c0dc2b6d198b9e209349dd6",
+        "b033b05105070ca5f065403cc529c17902e571436921ad8396e75bae12c6662f"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/CrashDumpServiceTests.cs",
+      "line": 498,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "9a9b920f0a5429d9a2703fae10df49e592508a89f76142737cd779e7f610e8ab": {
+      "signature": "9a9b920f0a5429d9a2703fae10df49e592508a89f76142737cd779e7f610e8ab",
+      "alternativeSignatures": [
+        "0eb863f73e3c106d5eef04163eeac78ad671757d1372a5d15cfcd89aabcff79e",
+        "f40bdbd6406144d371f5f90311ee10aca703b63fbfc30fa8f795bd076936fce0",
+        "58cd1c7d28ee65ae3a2372e8688d7c60e25789f206a5fc1154b42818164720aa"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceIdentityTests.cs",
+      "line": 129,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "cebba0da3be49a1dc0c45a0630e061fb49da7dc7bf1657a43a82c19d7bd33ce0": {
+      "signature": "cebba0da3be49a1dc0c45a0630e061fb49da7dc7bf1657a43a82c19d7bd33ce0",
+      "alternativeSignatures": [
+        "e3ff7c6536c89729847dc3ed39db932a28f10b9b326dfe893b0c6a677dc91d8c",
+        "1845238af0aeb4b9020afceb084faf65135c2997eb4f7afac2d214a206345d89",
+        "cc928af9ae4c0ab132cbe0848917006b2e521d5d3962118e6409005efc04460a"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceIdentityTests.cs",
+      "line": 134,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "347b3d5333c5449e14f4c47b6f82b56a6bd03076a7a545a97b26b37e50c63944": {
+      "signature": "347b3d5333c5449e14f4c47b6f82b56a6bd03076a7a545a97b26b37e50c63944",
+      "alternativeSignatures": [
+        "790bb739242d371355be677347698b0b0f99174acbc492ba6293875365f58e45",
+        "34568a3fb018d85174acf74d9de29729d45481390cf5bd1d45beade194eb83d3",
+        "99d929c6dd21d275336d45b5b905249a1280b52e10522bab149631543fb56ea9"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceIdentityTests.cs",
+      "line": 135,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "0906534eeb79413604311c09b524f7c6e2581a4c7a1893ea5e09739492c3767c": {
+      "signature": "0906534eeb79413604311c09b524f7c6e2581a4c7a1893ea5e09739492c3767c",
+      "alternativeSignatures": [
+        "c178a5dfe0c607aac476f869ab1cb3f987bac7368e5dd000ab6085d10c1b9658",
+        "6e7d14a8f207c6704789cd934e859dc90fd69619ad5ded22810543912ad92541",
+        "81525f7e15972a50c6613cd82614d5211c5981c127331ee9c5c9c6e28048df51"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceIdentityTests.cs",
+      "line": 545,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "004b746abe341a17fb1020d51265d935c7cd553347eb4f1a62c4fb0096a0fd33": {
+      "signature": "004b746abe341a17fb1020d51265d935c7cd553347eb4f1a62c4fb0096a0fd33",
+      "alternativeSignatures": [
+        "0d187a240c9a06319bc4b180b5b87f4f5dfd32e0dd804c5e6f50010fcfdfac4d",
+        "83d69a3da62bd71e94b0a0fb03e12229e151fbca8c73c5e17ef1633bc3ef4d93",
+        "d221fb80ce5c2e8eb9c44aabc2c923fcf928e4d188f7eb1ed3011207390d6a65"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceIdentityTests.cs",
+      "line": 546,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "0c8db896607d9db9707b9f0ec2de2c73527eb6aaeb7ea20b5b91e75bbb98d5e5": {
+      "signature": "0c8db896607d9db9707b9f0ec2de2c73527eb6aaeb7ea20b5b91e75bbb98d5e5",
+      "alternativeSignatures": [
+        "b07e90ecbb9b2c19987bf2425158a4a942e4c3c8afbdde471c9725f7742e11e1",
+        "7d1bce600ce1bc81bb9032f613dee7c250ba8f38d0d84b46a33f5398ae80fdfb",
+        "aaef1e624f4c3ba3fc5c72c6ee7dfea40fdeb1652439567ca3415cd409a2321e"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceRuntimeTests.cs",
+      "line": 869,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "aad8ef8beddda2165ca3845ede997fcfb58478c0602335f0c814323e3b0104fa": {
+      "signature": "aad8ef8beddda2165ca3845ede997fcfb58478c0602335f0c814323e3b0104fa",
+      "alternativeSignatures": [
+        "d8648114bb38662b7ea2b922245d4707df519cef1e2af346dad54da84541bbf5",
+        "4b366d8d965477e127d54ca8a155cbb8493e1d63f2d86d5ef9accfd178b56609",
+        "a7a665673f4756a50ce3b6b3455bd7d42f7f1e1b1628c0a49ef5cdbbf4f257d1"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceRuntimeTests.cs",
+      "line": 870,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "1d95f77c908ce7ee59fb3ac236b171bfdfda30b0efcb0722e2df00838dd4f8ef": {
+      "signature": "1d95f77c908ce7ee59fb3ac236b171bfdfda30b0efcb0722e2df00838dd4f8ef",
+      "alternativeSignatures": [
+        "feff6dfc033cf8c7a78e13671d328f646e7080e7ce38feb97c84e9763038bf5c",
+        "683f9ddbbdb4943e8b7eab9e3a86cf76a822c9ead8393b408505d80f1041d65b",
+        "329b148081218eef003b83c0c37840b870f95f3738e04a103e4e2af12d35287f"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceTests.cs",
+      "line": 110,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "23efb1a74c4bd018a692c95147c4935a55375d5abe025be4c77ca8bd281e3d87": {
+      "signature": "23efb1a74c4bd018a692c95147c4935a55375d5abe025be4c77ca8bd281e3d87",
+      "alternativeSignatures": [
+        "d20c39b455e0958c4f026fc15723b4b67b5ff84d48407f729b0905aa5108dcff",
+        "1f1444cc9fd6e01d417a5642b4070f3a79c85be1b3148deac97b44fe39dcb6a5",
+        "a46d3c616ce58f5d138ecfc274c383a7f858d053f464971dd1ca55e2e5cceb6e"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceTests.cs",
+      "line": 122,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "9cc7ac10935942e17ff73c80cccc22100af588546cbd6da458b7aa9d3bdd281a": {
+      "signature": "9cc7ac10935942e17ff73c80cccc22100af588546cbd6da458b7aa9d3bdd281a",
+      "alternativeSignatures": [
+        "ab4d67545a539ba5a4a7bc7250b466f5871d18c659a41727d85691796a4d302f",
+        "8aacc3368d76b5d5151d6f47ec5a0d2c2d6e31516cb2e3da54e6bcd01b66c512",
+        "9e71beaa4ef480e67c2d46a9d05c716e794344ec057c5c431c0b116c5a2af09a"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceTests.cs",
+      "line": 123,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "7cf391669b2702c169259adbbe3db42c98b3e9eb78f20b83ad8fbe52b4ef40ba": {
+      "signature": "7cf391669b2702c169259adbbe3db42c98b3e9eb78f20b83ad8fbe52b4ef40ba",
+      "alternativeSignatures": [
+        "b513ccd985206b3ad962cdc779e5fa2a863994fff2f9227b72b9adc22fa67838",
+        "322c155a0dcc1c44ab86cdb65cbfab50477ca82154f898d241b6471c7417e6d7",
+        "41e393304f57475ca0379c19173fe87f51604a532c0b83a89f95abbb56e8e29b"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/MsixServiceTests.cs",
+      "line": 126,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "b3a887a4628eafcf1b471f45f8f7f3ef1ea1e706a47be0b245b9f8929388ea77": {
+      "signature": "b3a887a4628eafcf1b471f45f8f7f3ef1ea1e706a47be0b245b9f8929388ea77",
+      "alternativeSignatures": [
+        "681f62b1372f85b62916e3c2fbf9cf972fe0fcbb312cc18d9e14feed4156bdda",
+        "b8f663bec0dbe44f1f8cb5973bc1028379cc5e79c40648975a7bab99c2ac3850",
+        "dcebb229d4bbd9f311cd27d1e226864c47c53aa68ed6bcf4d3fc37a47b57b825"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/PackageCommandTests.cs",
+      "line": 1979,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "b1eb23cd5df10e57c8acda05f9aa22779e19544a6fa0367ef3df10efe1c86c54": {
+      "signature": "b1eb23cd5df10e57c8acda05f9aa22779e19544a6fa0367ef3df10efe1c86c54",
+      "alternativeSignatures": [
+        "ff1306e91261e39cbc0ac4dab9adadd219d105da6663490ed8616ab2c491181f",
+        "bd4ede6070541883a6787359848456b78271383a07aa576909828f6611b94a0e",
+        "a37b0cc8a3a4af1199689fa955c9d76a4d015bfc2a885dae0ac93b60f7c27df2"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/PackageCommandTests.cs",
+      "line": 1986,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "ac4a2dbd031ca01a3d8379d6d78c62c590f5e62d030b88604bf9055683045de9": {
+      "signature": "ac4a2dbd031ca01a3d8379d6d78c62c590f5e62d030b88604bf9055683045de9",
+      "alternativeSignatures": [
+        "b359100b9a36e7673d1633a13cc3a6f6f718218ff9012fe97ff9616f18371d71",
+        "01a86b29e4f193fd393dae5f40fe0fa8a8fff0b1edf4ff4d89155714f3efff1e",
+        "ddb82ee37b44287d76b2599514581db614cff9ab4bca8a2de277feb5e06636eb"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/PackageCommandTests.cs",
+      "line": 1987,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "d79756be9e8bc631065b5f8d354b0d1474ae20a17b2009f35bb0f77d0884bb39": {
+      "signature": "d79756be9e8bc631065b5f8d354b0d1474ae20a17b2009f35bb0f77d0884bb39",
+      "alternativeSignatures": [
+        "50349b761654918166eef37879091918118a28a56afb1e335d3f9848b32400ea",
+        "4c92fcea79877e718b358027c3a7615dacd63a6438237496941b17200b74f3f1",
+        "b480d3eee9c4847706795ad40d9235e4000e82eaafbdf49d5cf11ed3450e2768"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/ProgramJsonBridgeTests.cs",
+      "line": 1027,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "e75d779b3607a602b6d476725a7a697ceaa3c5a654a999c40a221bb5242bcf02": {
+      "signature": "e75d779b3607a602b6d476725a7a697ceaa3c5a654a999c40a221bb5242bcf02",
+      "alternativeSignatures": [
+        "8a9854292257fe31bfb6f8458e371e44c1b1f71e637f4ac6bdd13281f8d92d8f",
+        "4c90f1e3925ee6618227255913309552c4a105e993a05c2a077c11546e747576",
+        "96585d3a32ccf0c8f0540f4b41ca6fb48e89e34c67e8ecff3e4c094a22c2d1b4"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/RunCommandTests.cs",
+      "line": 1074,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "2fc6e181287790da5c84fa833e519f5b1855bbaa92ca592a3baeddcb3b770b94": {
+      "signature": "2fc6e181287790da5c84fa833e519f5b1855bbaa92ca592a3baeddcb3b770b94",
+      "alternativeSignatures": [
+        "8844e1cdec5954b66c08c535b3405f0e2381563ff2da2ccbd1e322aa4ec16941",
+        "9dabb41e34e2e42010d4b35f296869174cd53bf25213aad1d072928067d109ef",
+        "11de6423eb099468382f9dca504472dfa45f8ffea6dd911d38c9964f7ae552a4"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.cs",
+      "line": 670,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "0a10b4ea1dd3eed9cafd6aad37e1eb73cf63e5c9184c2ad542ae17a621db8e29": {
+      "signature": "0a10b4ea1dd3eed9cafd6aad37e1eb73cf63e5c9184c2ad542ae17a621db8e29",
+      "alternativeSignatures": [
+        "cfe2e434420fe1ab4099da9d39480280cc5c18aed2df9d6db02df1a8ee9648f4",
+        "face1e33636961497e74e77435251bd03c76dc915b1fb1ab720c24d6ba55922e",
+        "3de3ffe59380269447c878a3db26439dac6acb9f415e46532fa189f2f8e3e54f"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.Record.Frames.cs",
+      "line": 478,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "4b8c77c650e2f4740d15814481410236d592e8f13776f60254fb2eba114c5d14": {
+      "signature": "4b8c77c650e2f4740d15814481410236d592e8f13776f60254fb2eba114c5d14",
+      "alternativeSignatures": [
+        "ee0a3acce3e5eda8d516da23a3e53eeb4e3c14a79d579920763cb37600e08312",
+        "d958c1eb8ea9a8d52297f8598297b5a41e7849035c9d48bd8bc16562772d93ce",
+        "ba8bd024ee57dd616d5aa07203a25c286a299f93cfcaf22ada25c257e80cf80e"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.Screenshot.Ambiguity.cs",
+      "line": 46,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "2d7ecda65cb70452047ddec51642b79ed843b2a643630bdced87fc286e957b8d": {
+      "signature": "2d7ecda65cb70452047ddec51642b79ed843b2a643630bdced87fc286e957b8d",
+      "alternativeSignatures": [
+        "6a011ca4caf3a1b65e836f382c62603152acab3a7fd6c94ea7e14e9969107d45",
+        "24988e4338e62700056e0ae2669877a75075659c09a764c04a1bfebca097346c",
+        "69967e3dbf339ba412cf1c1dc0eb4b73ac124d5be2bcb2c02c7b3c0b4ce71b15"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.Screenshot.Ambiguity.cs",
+      "line": 87,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "9fb898b592001c2a7bb1ace3b935be6b1bd8af4ab8ad74ad7242adbbb2748aa6": {
+      "signature": "9fb898b592001c2a7bb1ace3b935be6b1bd8af4ab8ad74ad7242adbbb2748aa6",
+      "alternativeSignatures": [
+        "80c63f551a2f3b1216cbe707a0b8786097b079330bf2a0c36474758b2763a651",
+        "b18b6f1b60f1960d885f30be0d9ec36139a1fc3f5c76b518a60f7597be036ece",
+        "027c5038af1db92519b0e2dd453d70bd8994b96c077776e0f409b444d9672817"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.Screenshot.Ambiguity.cs",
+      "line": 129,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "f9d04e483da8ddc8ee505f9961df85d3453d1412f135606ab9745ac3cab4cf18": {
+      "signature": "f9d04e483da8ddc8ee505f9961df85d3453d1412f135606ab9745ac3cab4cf18",
+      "alternativeSignatures": [
+        "d0b6ae3309928b1248b6b627776afee50d723e2d5b778adb24714a7425673a91",
+        "411e119f34820f7651c18a24bd1e2af5fd9e69386a31ce72d262a6f22d9cf1c3",
+        "cd4839e93c9c7fb38b61126fd12862342793f34e8d4c793c5eea62aeefdcc3fa"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.Screenshot.Ambiguity.cs",
+      "line": 171,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "f41b17c880b7531c6fc1f9406eaaa8afda9932c58e7d8645a8011fdd26ae8226": {
+      "signature": "f41b17c880b7531c6fc1f9406eaaa8afda9932c58e7d8645a8011fdd26ae8226",
+      "alternativeSignatures": [
+        "ab707a14d4cd461bb21a454a9b081ab133fbd0d1a93d905a30e4317a76450e79",
+        "94e12f168789f0ac9d6b37ab867725aa4dd36a70baccd53be19bdb6174e871c2",
+        "d2be8d43e92490daecf324acf29524ec702116754ac37a0911d7df7eb6a1a26c"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.Screenshot.Provenance.cs",
+      "line": 47,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "d3c6fb46177a9314428ae9e3f64202646080fe846b23ab90909b2d727aab034f": {
+      "signature": "d3c6fb46177a9314428ae9e3f64202646080fe846b23ab90909b2d727aab034f",
+      "alternativeSignatures": [
+        "167b3af237ee03eed7e04986ae8a077abc55b598ad49bfeb3510d63e1025a5cc",
+        "a7aabebc07d3d4ec8a2f4f26e0c2add52ebffe45cc28944b3b55de6b7567f519",
+        "c6475017c5b2e4f6f016c697cf6a56f436b0de38fb2e3b4bfadf80173ecfdb91"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/UiCommandTests.Screenshot.Provenance.cs",
+      "line": 114,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "a3f1f028ea3c9cfaf206f60c3e236b281bb2a6d6546ab2bf459e98f8bc44f5f1": {
+      "signature": "a3f1f028ea3c9cfaf206f60c3e236b281bb2a6d6546ab2bf459e98f8bc44f5f1",
+      "alternativeSignatures": [
+        "9061221626e43566747267688a91e4ab82be46801a2abad51e4c88a8845f0f98",
+        "a09bf304842463564ec5d3665f44f084161ac1c78065014df244b4aa7405cc7b",
+        "f604a5d2058cc0db810e7d5d10558a527dfdb2d6e4558d77eb8673ff352d8c56"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/WinmdServiceTests.cs",
+      "line": 609,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "5f560771da5f91348da07282ed052daff7328bfa05d807c25d101bce7baad85f": {
+      "signature": "5f560771da5f91348da07282ed052daff7328bfa05d807c25d101bce7baad85f",
+      "alternativeSignatures": [
+        "237fc43c5dc268a1a53cf717b8cf86443f51fc0a0674246234ffad1ca94bb952",
+        "ee376c6548f4d0db0c6832422550c527d2b388f5c3d564b4e0280798b3c61554",
+        "7929108e1441e4af386005ce97f1693cb9124d33ef87182a83de17a670d2834b"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/WinmdServiceTests.cs",
+      "line": 612,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "987af871b395644dbf43737841f4950dd95630db5dfba406a9fffab5d19ad793": {
+      "signature": "987af871b395644dbf43737841f4950dd95630db5dfba406a9fffab5d19ad793",
+      "alternativeSignatures": [
+        "1ef0ee33b238bf3cbda68bb85bc2446f3c1dc5f460e8d5a30019b55e050c8981",
+        "aef3966619bb191cbd52a7f73804e230dbfe55f510194a5378d0b14155996b08",
+        "e0ee7ab6e3c03562e8c73e9a5b9303936d9102dbf454650cc14af50f62487b9d"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/WinmdServiceTests.cs",
+      "line": 635,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "bee11dbaf618af303b7bd074d153626dbe76afa52639c656dfeb3d49539cefb7": {
+      "signature": "bee11dbaf618af303b7bd074d153626dbe76afa52639c656dfeb3d49539cefb7",
+      "alternativeSignatures": [
+        "26be469f983e63170bcbbf47f8e608810ef6b01e0c43c5e040ff903e40bae017",
+        "2d6ef60e4010c9815657beeddab584d0c68c5f0609bcb12edf00dd0f476c76a8",
+        "72ba1a00382a01023dc58c7b8ead3e5c6ab96f0a5f1ee225e1720f5c844328f4"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/WinmdServiceTests.cs",
+      "line": 638,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "aec5d2f548fd2c7c8db4247baa889a24529d29c5759d5449b2eab6ca5c5c21b4": {
+      "signature": "aec5d2f548fd2c7c8db4247baa889a24529d29c5759d5449b2eab6ca5c5c21b4",
+      "alternativeSignatures": [
+        "8333b24ab426db1857650bf5c99e2a228e808dace5047299bbb62d10c4e1400d",
+        "aadd8a2e94086ed5e20b0fa4527e27fbe0532714152855aa0480a20656c8050a",
+        "b3e677f53f880ede6ba4df496deb83fb6e827087723bd5ccf44509e22cee04ad"
+      ],
+      "target": "src/winapp-CLI/WinApp.Cli.Tests/WorkspaceSetupServiceNativePathTests.cs",
+      "line": 284,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "9d07fed6361215d90cea3f243d2f7c38a3832e16ca576a04ea519c7eb2784b5a": {
+      "signature": "9d07fed6361215d90cea3f243d2f7c38a3832e16ca576a04ea519c7eb2784b5a",
+      "alternativeSignatures": [
+        "fce86da77b6cda2a4a4075bbade8ad2d7bb18f3708cbad1ac0933833631a1816",
+        "aaf5946649ad841f6e9bd9d6f8979bee8f86517b9504270c7458a2a87ffc9a02",
+        "0766cda8eaf022bd5e5b68adae3fe19a81f238ce680c91594dd931ac7361cf43"
+      ],
+      "target": "src/winapp-CLI/WinApp.UIAutomation/Services/SlugGenerator.cs",
+      "line": 127,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "0ddcc15a1db1f2a8b9df285d009ee845344b106b3eba7b3c0ed6cdba14bbcc13": {
+      "signature": "0ddcc15a1db1f2a8b9df285d009ee845344b106b3eba7b3c0ed6cdba14bbcc13",
+      "alternativeSignatures": [
+        "e0c042f9d2d4ec990fa413f2254c45be26becdd7a6a702da105f2436aace50bd",
+        "a8bcea9f9c63333b124daa28c62cb38dcac6dca5993de9657168c84dffdadec6",
+        "7c4d33fa1b1f0acccfbb891ee81336e7c5fd82256f2e3c097dc3e7e55bee4ee0"
+      ],
+      "target": "src/winapp-CLI/WinApp.UIAutomation/Services/UiAutomationService.cs",
+      "line": 674,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "f4854d6f1b05d1f18aeb93616678aa7a2bb4ff4ab8e1783ee405fcca6d356afb": {
+      "signature": "f4854d6f1b05d1f18aeb93616678aa7a2bb4ff4ab8e1783ee405fcca6d356afb",
+      "alternativeSignatures": [
+        "ebae9616738b603c3180e074c2b3fc9e2a4e8a859d83f0bafc6ec9161ac1781c",
+        "8712f0ea41f32755f67cdc18b3740c9f70bef8108e178092d7edb9dacaae6b8a",
+        "67ec15e94d7d2e36a42289d6228aa5fd5ce867ac46c1c5bef2f5df8e46be7bf4"
+      ],
+      "target": "src/winapp-CLI/WinApp.UIAutomation/Services/UiAutomationService.cs",
+      "line": 695,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
+    },
+    "61fe48198ab09975d0cd710896b32a0cb21633dd77b7071d54db956838b3ecd7": {
+      "signature": "61fe48198ab09975d0cd710896b32a0cb21633dd77b7071d54db956838b3ecd7",
+      "alternativeSignatures": [
+        "6e3344209991b626ae14613b416f300d3804d7d4752e0ec8a64b45d4c46eff4a",
+        "53e2df25aafb2d3907037b10edd0adf3226000d13088c1400858104c373e26bd",
+        "69d85f0f3a32ec8d7cdbe867378682a765d53cf85b1bd110ffbcbb4314ecce54"
+      ],
+      "target": "src/winapp-CLI/WinApp.UIAutomation/Services/UiAutomationService.cs",
+      "line": 699,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "roslynanalyzers",
+      "ruleId": "CA1305",
+      "createdDate": "2026-09-16 18:03:42Z",
+      "expirationDate": "2027-03-05 18:45:37Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-09-16 18:45:37Z"
     }
   }
 }

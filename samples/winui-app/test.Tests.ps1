@@ -53,7 +53,7 @@ Describe 'winui-app sample' {
 
     # Phase 1 exercises `winapp run` PROJECT MODE against a packaged WinUI app from a
     # clean directory: build + property resolution -> packaged detection -> loose-layout
-    # registration (identity) WITHOUT launching (deterministic, no GUI required).
+    # registration (identity), plus a Native AOT launch and window-liveness check.
     Context 'Phase 1: Project-mode run (from scratch)' {
 
         BeforeAll {
@@ -151,13 +151,180 @@ Describe 'winui-app sample' {
             # without launching the app (no GUI, deterministic in CI).
             $output = Invoke-WinappCommand -Arguments 'run . --no-launch'
             "$output" | Should -Match ([regex]::Escape("-p:PublishProfile=$($script:profileName)"))
-            "$output" | Should -Not -Match 'release-'
+            # Scoped to the profile argument rather than the whole console output: winapp prints its
+            # version banner, which carries the branch name, so a bare 'release-' match fails on any
+            # branch whose name happens to contain it.
+            "$output" | Should -Not -Match ([regex]::Escape('PublishProfile=release-'))
             "$output" | Should -Match 'Registering packaged application'
             "$output" | Should -Match 'registered'
         }
 
         It 'Finds the inferred-profile output with --no-build' -Skip:$script:skip {
             Invoke-WinappCommand -Arguments 'run . --no-build --no-launch'
+        }
+
+        It 'Publishes Native AOT and launches the staged recipe executable with a responsive window' -Skip:$script:skip {
+            # Keep PublishAot local to the app: a global -p would also reach the netstandard library.
+            $projectPath = Join-Path $script:tempDir 'winui-app.csproj'
+            $project = [System.Xml.Linq.XDocument]::Load($projectPath)
+            $project.Root.Add([System.Xml.Linq.XElement]::Parse(
+                '<PropertyGroup><PublishAot>true</PublishAot></PropertyGroup>'))
+            $project.Save($projectPath)
+
+            # run has no --no-register option. Use a unique identity and always unregister it.
+            $manifestPath = Join-Path $script:tempDir 'Package.appxmanifest'
+            $manifest = [System.Xml.Linq.XDocument]::Load($manifestPath)
+            $identityName = "winui-aot-test-$([guid]::NewGuid().ToString('N'))"
+            $manifest.Root.Element($manifest.Root.Name.Namespace + 'Identity').SetAttributeValue('Name', $identityName)
+            $manifest.Save($manifestPath)
+            $layoutDir = Join-Path $script:tempDir 'AotLayout'
+            $stagedExe = Join-Path $layoutDir 'winui-app.exe'
+            $appProcess = $null
+
+            try {
+                $output = Invoke-WinappCommand -Arguments "run . --aot --arch $($script:platform) --detach --json --output-appx-directory AotLayout"
+                $result = ($output -join "`n") | ConvertFrom-Json -ErrorAction Stop
+                $result.ProcessId | Should -BeGreaterThan 0
+                $candidate = Get-Process -Id $result.ProcessId -ErrorAction Stop
+                try {
+                    $candidate.Path | Should -Be $stagedExe
+                    # Retain the process handle so cleanup cannot target a reused PID.
+                    $null = $candidate.Handle
+                    $appProcess = $candidate
+                } finally {
+                    if ($null -eq $appProcess) { $candidate.Dispose() }
+                }
+
+                $deadline = [DateTime]::UtcNow.AddSeconds(30)
+                do {
+                    $appProcess.Refresh()
+                    $appProcess.HasExited | Should -BeFalse -Because 'the Native AOT app must survive startup'
+                    if ($appProcess.MainWindowHandle -ne [IntPtr]::Zero -and $appProcess.Responding) { break }
+                    Start-Sleep -Milliseconds 200
+                } while ([DateTime]::UtcNow -lt $deadline)
+                $appProcess.MainWindowHandle | Should -Not -Be ([IntPtr]::Zero) -Because 'a visible main window must appear within 30 seconds'
+                $appProcess.Responding | Should -BeTrue -Because 'the main window must respond within 30 seconds'
+                $appProcess.WaitForExit(5000) | Should -BeFalse -Because 'the Native AOT app must stay alive for five seconds after its window appears'
+                $appProcess.Refresh()
+                $appProcess.MainWindowHandle | Should -Not -Be ([IntPtr]::Zero)
+                $appProcess.Responding | Should -BeTrue
+
+                [xml]$stagedManifest = Get-Content (Join-Path $layoutDir 'appxmanifest.xml') -Raw
+                $stagedManifest.Package.Identity.Name | Should -Be $identityName
+                $stagedManifest.Package.Identity.ProcessorArchitecture | Should -Be $script:platform.ToLowerInvariant()
+                $stagedManifest.Package.Applications.Application.EntryPoint | Should -Be 'Windows.FullTrustApplication'
+                $executable = $stagedManifest.Package.Applications.Application.Executable
+                $executable | Should -Be 'winui-app.exe'
+                $stagedExe = Join-Path $layoutDir $executable
+                $stagedExe | Should -Exist
+
+                $recipes = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter '*.build.appxrecipe')
+                $recipes.Count | Should -Be 1
+                $recipe = [System.Xml.Linq.XDocument]::Load($recipes[0].FullName)
+                $entries = @($recipe.Descendants() | Where-Object {
+                    $_.Name.LocalName -eq 'AppxPackagedFile' -and
+                    $_.Element($_.Name.Namespace + 'PackagePath').Value -eq $executable
+                })
+                $entries.Count | Should -Be 1
+                $nativeExe = [System.IO.Path]::GetFullPath($entries[0].Attribute('Include').Value, $recipes[0].DirectoryName)
+                $nativeExe | Should -Exist
+                $published = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter $executable |
+                    Where-Object { $_.Directory.Name -eq 'publish' })
+                $published.Count | Should -Be 1
+                (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $nativeExe).Hash
+                (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $published[0].FullName).Hash
+
+                $stream = [System.IO.File]::OpenRead($stagedExe)
+                $pe = [System.Reflection.PortableExecutable.PEReader]::new($stream)
+                try {
+                    $pe.PEHeaders.CorHeader | Should -BeNullOrEmpty -Because 'the staged executable must be native, not a managed assembly'
+                    $expectedMachine = if ($script:rid -eq 'win-arm64') { 'Arm64' } else { 'Amd64' }
+                    $pe.PEHeaders.CoffHeader.Machine.ToString() | Should -Be $expectedMachine
+                } finally {
+                    $pe.Dispose()
+                    $stream.Dispose()
+                }
+            } finally {
+                try {
+                    # If launch succeeded but its JSON was invalid, find only this fixture's executable.
+                    $processes = if ($null -ne $appProcess) { @($appProcess) } else {
+                        @(Get-Process | Where-Object { $_.Path -eq $stagedExe })
+                    }
+                    foreach ($process in $processes) {
+                        try {
+                            if (-not $process.HasExited) {
+                                $process.Kill()
+                                $process.WaitForExit(10000) | Should -BeTrue -Because 'the test process must exit before unregistering its package'
+                            }
+                        } finally {
+                            $process.Dispose()
+                        }
+                    }
+                } finally {
+                    Get-AppxPackage -Name $identityName -ErrorAction Stop |
+                        ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -ErrorAction Stop }
+                }
+            }
+        }
+    }
+
+    # Exercises `winapp package` PROJECT MODE against a packaged (EnableMsixTooling) WinUI app.
+    # This guards the recipe-based packaging path: `dotnet publish` leaves the generated
+    # AppxManifest.xml and .appxrecipe in the build output (NOT the publish folder), and the
+    # package's image assets come from the project source via that recipe. The produced MSIX must
+    # therefore contain the manifest AND the source-tree Assets — asserting both proves pack
+    # resolved the evaluated manifest and ran recipe-based staging rather than packaging the
+    # (incomplete) publish folder.
+    Context 'Phase 1: Project-mode packaging (from scratch)' {
+
+        BeforeAll {
+            if (-not $script:skip) {
+                $script:packTempDir = New-TempTestDirectory -Prefix 'winui-pack'
+
+                # Copy the sample sources (never bin/obj) into a clean temp project dir.
+                Get-ChildItem -Path $script:sampleDir -Recurse -File |
+                    Where-Object { $_.Name -ne 'test.Tests.ps1' -and $_.FullName -notmatch '\\(bin|obj)\\' } |
+                    ForEach-Object {
+                        $relative = $_.FullName.Substring($script:sampleDir.Length).TrimStart('\')
+                        $target = Join-Path $script:packTempDir $relative
+                        $targetDir = Split-Path $target -Parent
+                        if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
+                        Copy-Item -Path $_.FullName -Destination $target
+                    }
+
+                $script:packArch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+                Push-Location $script:packTempDir
+            }
+        }
+
+        AfterAll {
+            if (-not $script:skip) {
+                Set-Location $script:originalLocation
+                if (-not $SkipCleanup -and $script:packTempDir) { Remove-TempTestDirectory -Path $script:packTempDir }
+            }
+        }
+
+        It 'Packages the .csproj into an MSIX in one step' -Skip:$script:skip {
+            $output = Invoke-WinappCommand -Arguments "package winui-app.csproj --arch $($script:packArch)"
+            "$output" | Should -Match 'MSIX package creation completed'
+        }
+
+        It 'Produces an .msix containing the manifest and recipe-staged assets' -Skip:$script:skip {
+            $msix = Get-ChildItem -Path $script:packTempDir -Filter '*.msix' | Select-Object -First 1
+            $msix | Should -Not -BeNullOrEmpty
+
+            $extractDir = Join-Path $script:packTempDir 'extracted-msix'
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($msix.FullName, $extractDir)
+
+            # The generated manifest (FinalAppxManifestName) lands in the build output, not the
+            # publish folder; its presence proves pack packaged the correct layout.
+            Join-Path $extractDir 'AppxManifest.xml' | Should -Exist
+            # Image assets exist only in the project source — recipe staging must have pulled them in.
+            @(Get-ChildItem -Path (Join-Path $extractDir 'Assets') -Filter '*.png' -ErrorAction SilentlyContinue).Count |
+                Should -BeGreaterThan 0
+            # The app payload must be present too.
+            Join-Path $extractDir 'winui-app.dll' | Should -Exist
         }
     }
 

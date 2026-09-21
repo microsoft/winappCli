@@ -23,6 +23,52 @@ internal interface IMsixService
         FileInfo? manifestPath = null,
         bool selfContained = false,
         string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        PackageGraphSource? packageGraph = null,
+        string? targetArch = null,
+        bool runtimeAlreadyBundled = false,
+        string? timestampUrl = null,
+        FileInfo? appxRecipe = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delivers an SDK-produced MSIX (from <c>PublishNativeMsixAsync</c>): copies it to the final
+    /// destination per folder-mode <c>--output</c> precedence and signs it once if requested, without
+    /// repackaging the SDK output.
+    /// </summary>
+    public Task<CreateMsixPackageResult> DeliverNativeMsixAsync(
+        FileInfo producedMsix,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        string? timestampUrl = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Composes one architecture <c>.msixbundle</c> from per-slice packages (each a complete <c>.msix</c>):
+    /// validates cross-slice identity/version, bundles via <see cref="IBundleService"/>, signs once if
+    /// requested, and delivers per <c>--output</c> precedence.
+    /// </summary>
+    public Task<CreateMsixBundleResult> CreateBundleFromPackagesAsync(
+        IReadOnlyList<FileInfo> sliceMsixFiles,
+        FileInfo? output,
+        string? name,
+        TaskContext taskContext,
+        bool autoSign = false,
+        FileInfo? certPath = null,
+        string certPassword = "password",
+        bool generateDevCert = false,
+        bool installDevCert = false,
+        string? publisher = null,
+        string? timestampUrl = null,
         CancellationToken cancellationToken = default);
 
     public Task<CreateMsixBundleResult> CreateMsixBundleAsync(
@@ -80,6 +126,12 @@ internal interface IMsixService
         TaskContext taskContext,
         CancellationToken cancellationToken = default);
 
+    /// <param name="reconciliation">
+    /// Who owns <paramref name="outputAppXDirectory"/>, and therefore whether files it already holds
+    /// may be removed. Callers must pass <see cref="LayoutReconciliation.Exact"/> only for the layout
+    /// directory winapp generated itself; a path the user supplied is
+    /// <see cref="LayoutReconciliation.Additive"/> and is never pruned.
+    /// </param>
     /// <param name="selfContained">
     /// When <c>true</c>, the app carries its own Windows App SDK copy: no framework
     /// <c>&lt;PackageDependency&gt;</c> is added to the manifest and no runtime is provisioned. Callers
@@ -91,11 +143,19 @@ internal interface IMsixService
     /// configuration- or RID-conditional <c>PackageReference</c> is seen exactly as the build resolved it;
     /// when null (or the file is gone) discovery falls back to re-evaluating the project.
     /// </param>
+    /// <param name="appxRecipe">
+    /// The <c>.build.appxrecipe</c> the build produced, when the caller already knows which one describes
+    /// this output. A Native AOT publish writes its recipe outside the publish directory, so probing
+    /// <paramref name="inputDirectory"/> would find nothing (or a stale non-AOT recipe); passing it
+    /// explicitly is what makes the AOT layout the published one. When null, the recipe is probed for in
+    /// <paramref name="inputDirectory"/> as before.
+    /// </param>
     public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(
         FileInfo appxManifestPath,
         DirectoryInfo inputDirectory,
         DirectoryInfo outputAppXDirectory,
         TaskContext taskContext,
+        LayoutReconciliation reconciliation = LayoutReconciliation.Additive,
         bool clean = false,
         string? executable = null,
         string? runtimeArch = null,
@@ -105,6 +165,35 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Produces exactly the loose layout <see cref="AddLooseLayoutIdentityAsync"/> would produce, and
+    /// stops there: no Windows App Runtime is installed and no package is registered on this machine.
+    /// </summary>
+    /// <remarks>
+    /// This is what an execution target deploys. Running an app somewhere else must not install a
+    /// runtime on the developer's machine or leave a host registration behind, so the steps that do
+    /// those things are not merely skipped by the caller — they are not reachable from here.
+    /// Developer Mode is likewise not required, because nothing is registered.
+    /// </remarks>
+    /// <param name="reconciliation">See <see cref="AddLooseLayoutIdentityAsync"/>.</param>
+    /// <param name="appxRecipe">See <see cref="AddLooseLayoutIdentityAsync"/>.</param>
+    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(
+        FileInfo appxManifestPath,
+        DirectoryInfo inputDirectory,
+        DirectoryInfo outputAppXDirectory,
+        TaskContext taskContext,
+        LayoutReconciliation reconciliation,
+        string? executable = null,
+        FileInfo? projectFile = null,
+        string? framework = null,
+        bool noRestore = false,
+        bool selfContained = false,
+        bool ensureExecutionAlias = false,
+        PackageGraphSource? packageGraph = null,
+        FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

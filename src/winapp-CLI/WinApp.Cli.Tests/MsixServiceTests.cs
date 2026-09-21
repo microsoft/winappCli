@@ -879,6 +879,43 @@ public class MsixServiceTests
     }
 
     [TestMethod]
+    public void EnsureProcessorArchitecture_StampsTargetArch_WhenManifestOmitsIt()
+    {
+        // The AOT/recipe case: PE detection could not stamp an architecture, but the target arch is known.
+        var taskContext = CreateTestTaskContext();
+
+        var (content, arch) = MsixService.EnsureProcessorArchitecture(ManifestWithoutArch, "arm64", taskContext);
+
+        Assert.AreEqual("arm64", arch);
+        StringAssert.Contains(content, "ProcessorArchitecture=\"arm64\"");
+    }
+
+    [TestMethod]
+    public void EnsureProcessorArchitecture_PreservesExplicitManifestArch()
+    {
+        // An architecture already present in the manifest must win over the target arch.
+        var taskContext = CreateTestTaskContext();
+
+        var (content, arch) = MsixService.EnsureProcessorArchitecture(ManifestWithX86Arch, "arm64", taskContext);
+
+        Assert.AreEqual("x86", arch);
+        StringAssert.Contains(content, "ProcessorArchitecture=\"x86\"");
+        Assert.IsFalse(content.Contains("arm64"), "an explicit manifest architecture must not be overwritten");
+    }
+
+    [TestMethod]
+    public void EnsureProcessorArchitecture_NoTargetArch_LeavesManifestUnchanged()
+    {
+        // With no target arch and no manifest value, nothing is stamped (matches prior behavior).
+        var taskContext = CreateTestTaskContext();
+
+        var (content, arch) = MsixService.EnsureProcessorArchitecture(ManifestWithoutArch, null, taskContext);
+
+        Assert.IsNull(arch);
+        Assert.IsFalse(content.Contains("ProcessorArchitecture"), "no architecture may be stamped without a target arch");
+    }
+
+    [TestMethod]
     public void AutoDetectProcessorArchitecture_SetsArch_WhenMissingFromManifest()
     {
         // Arrange — x64 PE, manifest without ProcessorArchitecture
@@ -1313,7 +1350,8 @@ public class MsixServiceTests
             true,
             null,
             CreateTestTaskContext(),
-            CancellationToken.None
+            CancellationToken.None,
+            null
         ]) as dynamic;
 
         Assert.IsNotNull(resultTask, "Reflection call did not return a Task");
@@ -1573,6 +1611,29 @@ public class MsixServiceTests
         Assert.AreEqual(1, fake.UnregisterByFullNameCalls.Count);
         Assert.AreEqual("MyApp_1.0.0.0_x64__abc", fake.UnregisterByFullNameCalls[0].PackageFullName);
         Assert.IsTrue(fake.UnregisterByFullNameCalls[0].PreserveAppData);
+    }
+
+    [TestMethod]
+    public async Task UnregisterExistingPackageAsync_WithPublisher_IgnoresSameNameFromAnotherPublisher()
+    {
+        var fake = new FakePackageRegistrationService
+        {
+            FakeDevPackages =
+            [
+                new("MyApp_1.0.0.0_x64__expected", "MyApp", "1.0.0.0", _tempDir.FullName, true, "CN=Expected"),
+                new("MyApp_1.0.0.0_x64__external", "MyApp", "1.0.0.0", @"C:\External", true, "CN=External"),
+            ],
+        };
+        var svc = CreateMsixServiceForUnregister(fake, _tempDir.FullName);
+
+        var result = await svc.UnregisterExistingPackageAsync(
+            "MyApp",
+            CreateTestTaskContext(),
+            publisher: "CN=Expected");
+
+        Assert.IsTrue(result);
+        Assert.HasCount(1, fake.UnregisterByFullNameCalls);
+        Assert.AreEqual("MyApp_1.0.0.0_x64__expected", fake.UnregisterByFullNameCalls[0].PackageFullName);
     }
 
     [TestMethod]

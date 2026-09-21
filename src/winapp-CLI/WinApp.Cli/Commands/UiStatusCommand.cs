@@ -29,6 +29,7 @@ internal class UiStatusCommand : Command, IShortDescription
 
     public class Handler(
         IUiTargetResolver targetResolver,
+        IWindowDpiContextProvider windowDpiContextProvider,
         IAnsiConsole ansiConsole,
         IInteractiveDesktopLock desktopLock,
         ILogger<UiStatusCommand> logger) : UiCoordinatedAction(desktopLock, logger)
@@ -65,12 +66,19 @@ internal class UiStatusCommand : Command, IShortDescription
 
                 if (json)
                 {
+                    var dpiContext = uiTarget.WindowHandle != 0
+                        ? windowDpiContextProvider.GetForWindow(uiTarget.WindowHandle)
+                        : null;
                     var result = new UiStatusResult
                     {
                         ProcessId = uiTarget.ProcessId,
                         ProcessName = uiTarget.ProcessName,
                         WindowTitle = uiTarget.WindowTitle,
                         Hwnd = uiTarget.WindowHandle,
+                        WindowDpi = dpiContext?.WindowDpi,
+                        Scale = dpiContext?.Scale,
+                        DpiAwareness = dpiContext?.DpiAwareness,
+                        CoordinateSpace = dpiContext?.CoordinateSpace,
                     };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiStatusResult));

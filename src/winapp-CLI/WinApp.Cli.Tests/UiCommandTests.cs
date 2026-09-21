@@ -27,6 +27,7 @@ public partial class UiCommandTests : BaseCommandTests
     private FakeInteractiveDesktopLock _fakeDesktopLock = null!;
     private FakeDesktopForegroundService _fakeDesktopForeground = null!;
     private FakeWindowCapture _fakeWindowCapture = null!;
+    private FakeWindowDpiContextProvider _fakeWindowDpiContextProvider = null!;
 
     private void AssertJsonErrorCode(string expectedCode)
         => AssertJsonErrorCodeIn(ConsoleStdErr.ToString(), expectedCode);
@@ -55,6 +56,7 @@ public partial class UiCommandTests : BaseCommandTests
         _fakeDesktopLock = new FakeInteractiveDesktopLock();
         _fakeDesktopForeground = new FakeDesktopForegroundService();
         _fakeWindowCapture = new FakeWindowCapture();
+        _fakeWindowDpiContextProvider = new FakeWindowDpiContextProvider();
         return services
             .AddSingleton<IUiAutomation>(_fakeUia)
             .AddSingleton<IUiRecordingService>(_fakeRecording)
@@ -68,16 +70,26 @@ public partial class UiCommandTests : BaseCommandTests
             .AddSingleton<IPollDelay>(_fakePollDelay)
             .AddSingleton<IInteractiveDesktopLock>(_fakeDesktopLock)
             .AddSingleton<IDesktopForegroundService>(_fakeDesktopForeground)
-            .AddSingleton<IWindowCapture>(_fakeWindowCapture);
+            .AddSingleton<IWindowCapture>(_fakeWindowCapture)
+            .AddSingleton<IWindowDpiContextProvider>(_fakeWindowDpiContextProvider);
     }
 
     [TestMethod]
     public async Task Status_WithApp_ReturnsSuccess()
     {
+        _fakeTargetResolver.TargetResult.WindowHandle = 123;
         var command = GetRequiredService<UiStatusCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"processId\": 1234");
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        var root = document.RootElement;
+        Assert.AreEqual(1234, root.GetProperty("processId").GetInt32());
+        Assert.AreEqual(123, root.GetProperty("hwnd").GetInt64());
+        Assert.AreEqual((uint)144, root.GetProperty("windowDpi").GetUInt32());
+        Assert.AreEqual(1.5, root.GetProperty("scale").GetDouble());
+        Assert.AreEqual("per-monitor-aware", root.GetProperty("dpiAwareness").GetString());
+        Assert.AreEqual("physical-screen-pixels", root.GetProperty("coordinateSpace").GetString());
+        CollectionAssert.AreEqual(new long[] { 123 }, _fakeWindowDpiContextProvider.RequestedHwnds);
     }
 
     [TestMethod]
@@ -86,6 +98,25 @@ public partial class UiCommandTests : BaseCommandTests
         var command = GetRequiredService<UiStatusCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--json"]);
         Assert.AreEqual(1, exitCode);
+    }
+
+    [TestMethod]
+    public async Task Status_Json_ProcessWithoutWindow_PreservesExistingSuccessShape()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 0;
+
+        var command = GetRequiredService<UiStatusCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        var root = document.RootElement;
+        Assert.AreEqual(0, root.GetProperty("hwnd").GetInt64());
+        Assert.IsFalse(root.TryGetProperty("windowDpi", out _));
+        Assert.IsFalse(root.TryGetProperty("scale", out _));
+        Assert.IsFalse(root.TryGetProperty("dpiAwareness", out _));
+        Assert.IsFalse(root.TryGetProperty("coordinateSpace", out _));
+        Assert.AreEqual(0, _fakeWindowDpiContextProvider.RequestedHwnds.Count);
     }
 
     [TestMethod]
@@ -108,6 +139,41 @@ public partial class UiCommandTests : BaseCommandTests
         StringAssert.Contains(TestAnsiConsole.Output, "\"children\":");
         StringAssert.Contains(TestAnsiConsole.Output, "\"type\": \"Window\"");
         StringAssert.Contains(TestAnsiConsole.Output, "\"type\": \"Button\"");
+    }
+
+    [TestMethod]
+    public async Task Inspect_Json_AddsDpiContextToEveryWindow()
+    {
+        _fakeWindowDpiContextProvider.ResultsByHwnd[100] =
+            new(192, 2, "per-monitor-aware", WindowDpiContextProvider.PhysicalScreenPixels);
+        _fakeWindowDpiContextProvider.ResultsByHwnd[200] =
+            new(120, 1.25, "per-monitor-aware", WindowDpiContextProvider.PhysicalScreenPixels);
+        _fakeUia.InspectResult =
+        [
+            new UiElement { Type = "---", Name = "HWND 100: \"Main\" (window, MainClass)", WindowHandle = 100 },
+            new UiElement { Type = "Button", Depth = 0, Selector = "btn-main" },
+            new UiElement { Type = "---", Name = "HWND 200: \"Popup\" (popup, PopupClass)", WindowHandle = 200 },
+            new UiElement { Type = "MenuItem", Depth = 0, Selector = "menu-popup" },
+        ];
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        var windows = document.RootElement.GetProperty("windows");
+        Assert.AreEqual(2, windows.GetArrayLength());
+        var main = windows[0];
+        Assert.AreEqual((uint)192, main.GetProperty("windowDpi").GetUInt32());
+        Assert.AreEqual(2, main.GetProperty("scale").GetDouble());
+        Assert.AreEqual("per-monitor-aware", main.GetProperty("dpiAwareness").GetString());
+        Assert.AreEqual("physical-screen-pixels", main.GetProperty("coordinateSpace").GetString());
+        var popup = windows[1];
+        Assert.AreEqual((uint)120, popup.GetProperty("windowDpi").GetUInt32());
+        Assert.AreEqual(1.25, popup.GetProperty("scale").GetDouble());
+        Assert.AreEqual("per-monitor-aware", popup.GetProperty("dpiAwareness").GetString());
+        Assert.AreEqual("physical-screen-pixels", popup.GetProperty("coordinateSpace").GetString());
+        CollectionAssert.AreEqual(new long[] { 100, 200 }, _fakeWindowDpiContextProvider.RequestedHwnds);
     }
 
     [TestMethod]
@@ -248,13 +314,44 @@ public partial class UiCommandTests : BaseCommandTests
     [TestMethod]
     public async Task GetProperty_ReturnsProperties()
     {
-        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Button", Name = "OK", IsEnabled = true };
-        _fakeUia.PropertiesResult = new Dictionary<string, object?> { ["IsEnabled"] = true, ["Name"] = "OK" };
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "e0",
+            Selector = "btn-ok-a1b2",
+            Type = "Button",
+            Name = "OK",
+            IsEnabled = true,
+            IsOffscreen = true,
+            X = 0,
+            Y = 0,
+            Width = 0,
+            Height = 0,
+            WindowHandle = 123,
+        };
+        _fakeUia.PropertiesResult = new Dictionary<string, object?>
+        {
+            ["IsEnabled"] = true,
+            ["Name"] = "OK",
+        };
 
         var command = GetRequiredService<UiGetPropertyCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e0", "-a", "TestApp", "--json"]);
         Assert.AreEqual(0, exitCode);
-        StringAssert.Contains(TestAnsiConsole.Output, "\"elementId\": \"e0\"");
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        var root = document.RootElement;
+        Assert.AreEqual("btn-ok-a1b2", root.GetProperty("elementId").GetString());
+        Assert.AreEqual("True", root.GetProperty("properties").GetProperty("IsEnabled").GetString());
+
+        var element = root.GetProperty("element");
+        Assert.AreEqual("Button", element.GetProperty("type").GetString());
+        Assert.AreEqual("OK", element.GetProperty("name").GetString());
+        Assert.AreEqual(0, element.GetProperty("x").GetDouble());
+        Assert.AreEqual(0, element.GetProperty("y").GetDouble());
+        Assert.AreEqual(0, element.GetProperty("width").GetDouble());
+        Assert.AreEqual(0, element.GetProperty("height").GetDouble());
+        Assert.IsTrue(element.GetProperty("isOffscreen").GetBoolean());
+        Assert.IsFalse(element.TryGetProperty("id", out _));
+        Assert.IsFalse(element.TryGetProperty("windowHandle", out _));
     }
 
     [TestMethod]
@@ -593,6 +690,27 @@ public partial class UiCommandTests : BaseCommandTests
         StringAssert.Contains(output, "\"children\":");
         // elementCount should reflect all 4 elements when properly nested.
         StringAssert.Contains(output, "\"elementCount\": 4");
+    }
+
+    [TestMethod]
+    public async Task Inspect_Ancestors_Json_UsesResolvedElementWindowForDpi()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 0;
+        _fakeUia.InspectResult =
+        [
+            new UiElement { Type = "Window", WindowHandle = 321 },
+            new UiElement { Type = "Button", WindowHandle = 321 },
+        ];
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            ["btn-target", "-a", "TestApp", "--ancestors", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        CollectionAssert.AreEqual(new long[] { 321 }, _fakeWindowDpiContextProvider.RequestedHwnds);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual(321, document.RootElement.GetProperty("windows")[0].GetProperty("hwnd").GetInt64());
     }
 
     // ---------------------------------------------------------------------
