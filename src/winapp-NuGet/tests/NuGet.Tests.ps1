@@ -31,6 +31,22 @@ BeforeDiscovery {
     # On non-Windows hosts (e.g. Linux/macOS CI), skip rather than emit noisy failures.
     $isWindowsHost = if ($null -ne (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) { $IsWindows } else { $true }
     $script:skip = (-not $hasDotnet) -or (-not $isWindowsHost)
+
+    # File-based apps (a lone .cs with #: directives) only reach winapp's single-file mode on
+    # .NET SDK 10.0.300 or later, so the tests below are skipped on anything older. The newest
+    # installed SDK is the one that matters, because every dotnet invocation below is anchored to
+    # the temp directory holding the app, outside any global.json that would otherwise pin a
+    # different one. See Invoke-FileBasedDotnet.
+    $script:skipFileBased = $script:skip
+    if (-not $script:skipFileBased) {
+        $newestSdk = & dotnet --list-sdks 2>$null |
+            ForEach-Object { ($_ -split '\s+')[0] -replace '-.*$', '' } |
+            Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
+            ForEach-Object { [version]$_ } |
+            Sort-Object -Descending |
+            Select-Object -First 1
+        $script:skipFileBased = ($null -eq $newestSdk) -or ($newestSdk -lt [version]'10.0.300')
+    }
 }
 
 Describe "Microsoft.Windows.SDK.BuildTools.WinApp gating" -Skip:$script:skip {
@@ -658,6 +674,742 @@ $preCompiledItem  <Import Project="$($script:propsPath)" />
 
             $sharedArgs | Should -Match ' --caller nuget-package$'
             $sharedArgs | Should -Not -Match ' --$'
+        }
+
+        It "Forwards no identity properties for a project" {
+            # A .csproj hands winapp its output folder and winapp never re-evaluates the project, so
+            # the property forwarding that file-based apps need must not leak onto this path.
+            Get-ComputedRunArgs -CaseName 'run-no-property-forwarding' | Should -Not -Match '-p "WinApp'
+        }
+    }
+}
+
+Describe "Microsoft.Windows.SDK.BuildTools.WinApp file-based apps" -Skip:$script:skipFileBased {
+    BeforeAll {
+        $script:repoRoot = (Resolve-Path "$PSScriptRoot\..\..\..").Path
+        $script:propsPath = Join-Path $script:repoRoot "src\winapp-NuGet\build\Microsoft.Windows.SDK.BuildTools.WinApp.props"
+        $script:targetsPath = Join-Path $script:repoRoot "src\winapp-NuGet\build\Microsoft.Windows.SDK.BuildTools.WinApp.targets"
+        $script:fbRoot = Join-Path ([IO.Path]::GetTempPath()) "winapp-fba-tests-$([Guid]::NewGuid().ToString('N').Substring(0,8))"
+        New-Item -ItemType Directory -Path $script:fbRoot -Force | Out-Null
+
+        # Writes a throwaway file-based app and returns the path to its .cs.
+        #
+        # A file-based app has no .csproj to carry a PackageReference, so the shipped props and
+        # targets are attached through Directory.Build.props / Directory.Build.targets beside the
+        # .cs instead. The SDK's generated virtual project honours both, which makes this the
+        # closest stand-in for a real '#:package Microsoft.Windows.SDK.BuildTools.WinApp'
+        # reference without needing the package to be built and restorable.
+        #
+        # WinAppCliPath points at a stub so _WinAppValidateRunSupport does not hard-error: these
+        # tests only evaluate the argument string, they never launch anything.
+        function script:New-FileBasedApp {
+            param(
+                [string]$CaseName,
+                [string[]]$Directives = @('OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0'),
+                [string]$ExtraProps = "",
+                [string]$ManifestFileName = "",
+                [string]$OutputDirManifestName = ""   # places the file at bin\<name>; OutputPath is forced to bin\
+            )
+            $dir = Join-Path $script:fbRoot $CaseName
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+
+            $fakeCli = Join-Path $dir "winapp.exe"
+            Set-Content -Path $fakeCli -Value 'stub'
+            if ($ManifestFileName) {
+                Set-Content -Path (Join-Path $dir $ManifestFileName) -Value '<x/>'
+            }
+            if ($OutputDirManifestName) {
+                $outDir = Join-Path $dir 'bin'
+                New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+                Set-Content -Path (Join-Path $outDir $OutputDirManifestName) -Value '<x/>'
+                $ExtraProps += "    <OutputPath>bin\</OutputPath>`n"
+            }
+
+            Set-Content -Path (Join-Path $dir "Directory.Build.props") -Value @"
+<Project>
+  <PropertyGroup>
+    <WinAppCliPath>$fakeCli</WinAppCliPath>
+$ExtraProps  </PropertyGroup>
+  <Import Project="$($script:propsPath)" />
+</Project>
+"@
+            Set-Content -Path (Join-Path $dir "Directory.Build.targets") -Value @"
+<Project>
+  <Import Project="$($script:targetsPath)" />
+</Project>
+"@
+            $lines = @($Directives | ForEach-Object { "#:property $_" }) + @('System.Console.WriteLine("hi");')
+            $csPath = Join-Path $dir "counter.cs"
+            Set-Content -Path $csPath -Value ($lines -join [Environment]::NewLine)
+            $csPath
+        }
+
+        # Runs a dotnet evaluation against a file-based app with the working directory anchored to
+        # the .cs file.
+        #
+        # SDK selection follows the CURRENT DIRECTORY, not the project being built: 'dotnet build
+        # <temp>\app.cs' launched from the repo reads the repo's global.json and ignores one sitting
+        # next to app.cs. Without this anchor the SDK would be whatever Pester's launch directory
+        # resolves to, while the skip logic above reasons about the newest INSTALLED SDK. Those only
+        # agree when no global.json is in scope, which is true of the temp tree and not guaranteed
+        # anywhere else.
+        function script:Invoke-FileBasedDotnet {
+            param([string]$CsPath, [string[]]$Arguments = @(), [string]$What)
+            Push-Location (Split-Path -Path $CsPath -Parent)
+            try {
+                $out = & dotnet build $CsPath @Arguments -nologo 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to $What for ${CsPath}:`n$($out -join [Environment]::NewLine)"
+                }
+                ($out | Select-Object -Last 1).ToString().Trim()
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
+        # Runs a build that is EXPECTED to fail and returns its output, so a guard can be asserted
+        # on. Anchors the current directory the same way as the helper above.
+        function script:Invoke-FileBasedDotnetExpectingFailure {
+            param([string]$CsPath, [string[]]$Arguments = @())
+            Push-Location (Split-Path -Path $CsPath -Parent)
+            try {
+                $out = & dotnet build $CsPath @Arguments -nologo 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    throw "Expected a failure for ${CsPath} but the build succeeded:`n$($out -join [Environment]::NewLine)"
+                }
+                ($out | Out-String)
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
+        # Evaluates a single property of the app's virtual project. With no -t: switch MSBuild only
+        # evaluates, so the gate can be read without a restore or a build.
+        function script:Get-FileBasedProperty {
+            param([string]$CsPath, [string]$Property)
+            script:Invoke-FileBasedDotnet -CsPath $CsPath -What "evaluate $Property" -Arguments @(
+                "-getProperty:$Property")
+        }
+
+        # Runs _WinAppBuildRunArgs and returns the winapp command line 'dotnet run app.cs' would
+        # be redirected to. Targets _WinAppRunArgs rather than the final RunArguments so the
+        # assertion does not depend on actually compiling the app. -Property reads a sibling the
+        # same target computes, such as the Exec-transport spelling of the same arguments.
+        function script:Get-FileBasedRunArgs {
+            param([string]$CsPath, [string[]]$Overrides = @(), [string]$Property = '_WinAppRunArgs')
+            script:Invoke-FileBasedDotnet -CsPath $CsPath -What "compute $Property" -Arguments (
+                @($Overrides) + @('-t:_WinAppBuildRunArgs', "-getProperty:$Property"))
+        }
+
+        # Performs a plain build and reports a run property left behind afterwards.
+        #
+        # 'dotnet build app.cs' stores RunCommand, RunArguments and RunWorkingDirectory in the
+        # SDK's file-based build cache, and a later 'dotnet run app.cs' replays that cache instead
+        # of re-evaluating the project when nothing changed. These properties therefore have to
+        # already describe the packaged launch at the end of an ordinary build.
+        function script:Get-FileBasedBuiltRunProperty {
+            param([string]$CsPath, [string]$Property)
+            script:Invoke-FileBasedDotnet -CsPath $CsPath -What "run a build" -Arguments @(
+                '-t:Build', "-getProperty:$Property")
+        }
+    }
+
+    AfterAll {
+        if ($script:fbRoot -and (Test-Path $script:fbRoot)) {
+            Remove-Item -Path $script:fbRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Context "Detection" {
+        It "Recognizes the SDK's virtual project as a file-based app" {
+            $cs = script:New-FileBasedApp -CaseName "detect"
+            script:Get-FileBasedProperty -CsPath $cs -Property "_WinAppFileBasedApp" | Should -Be "true"
+        }
+
+        It "Does not treat a regular project as a file-based app" {
+            # Guards the other direction: FileBasedProgram is unset for a .csproj, so the new
+            # property must stay false and leave the manifest requirement in force.
+            $dir = Join-Path $script:fbRoot "detect-csproj"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $csproj = @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+  </PropertyGroup>
+  <Import Project="$($script:propsPath)" />
+  <Import Project="$($script:targetsPath)" />
+</Project>
+"@
+            $projPath = Join-Path $dir "test.csproj"
+            Set-Content -Path $projPath -Value $csproj
+            $out = & dotnet msbuild $projPath -getProperty:_WinAppFileBasedApp -nologo 2>&1
+            ($out | Select-Object -Last 1).ToString().Trim() | Should -Be "false"
+        }
+    }
+
+    Context "Gate activation" {
+        It "Activates without an authored manifest" {
+            # The whole point of the feature: a file-based app has no manifest by design, and
+            # before this that single missing condition was what blocked the redirect.
+            $cs = script:New-FileBasedApp -CaseName "gate-active"
+            script:Get-FileBasedProperty -CsPath $cs -Property "_WinAppRunSupportActive" | Should -Be "true"
+            script:Get-FileBasedProperty -CsPath $cs -Property "WinAppManifestPath" | Should -BeNullOrEmpty
+        }
+
+        It "Ignores a shared-name manifest sitting beside the .cs" {
+            # Several .cs files can share one directory, so a directory-scoped Package.appxmanifest
+            # cannot be assumed to belong to this app. The CLI applies the same rule.
+            $cs = script:New-FileBasedApp -CaseName "gate-shared-manifest" -ManifestFileName "Package.appxmanifest"
+            script:Get-FileBasedProperty -CsPath $cs -Property "_WinAppRunSupportActive" | Should -Be "true"
+            script:Get-FileBasedProperty -CsPath $cs -Property "WinAppManifestPath" | Should -BeNullOrEmpty
+        }
+
+        It "Stays inactive for WindowsPackageType=None" {
+            $cs = script:New-FileBasedApp -CaseName "gate-unpackaged" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0', 'WindowsPackageType=None')
+            script:Get-FileBasedProperty -CsPath $cs -Property "_WinAppRunSupportActive" | Should -Be "false"
+        }
+
+        It "Stays inactive for a non-Windows target framework" {
+            # A plain net10.0 .cs is deliberately left alone, matching the .csproj rule.
+            $cs = script:New-FileBasedApp -CaseName "gate-no-windows-tfm" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0')
+            script:Get-FileBasedProperty -CsPath $cs -Property "_WinAppRunSupportActive" | Should -Be "false"
+        }
+
+        It "Stays inactive for OutputType=Library" {
+            $cs = script:New-FileBasedApp -CaseName "gate-library" -Directives @(
+                'OutputType=Library', 'TargetFramework=net10.0-windows10.0.19041.0')
+            script:Get-FileBasedProperty -CsPath $cs -Property "_WinAppRunSupportActive" | Should -Be "false"
+        }
+
+        It "Stays inactive when EnableWinAppRunSupport is false" {
+            $cs = script:New-FileBasedApp -CaseName "gate-opt-out" -ExtraProps "    <EnableWinAppRunSupport>false</EnableWinAppRunSupport>`n"
+            script:Get-FileBasedProperty -CsPath $cs -Property "_WinAppRunSupportActive" | Should -Be "false"
+        }
+    }
+
+    Context "Authored manifests" {
+        # A file-based app can still bring its own manifest. The targets deliberately resolve NONE of
+        # these themselves and let winapp do it, so what matters here is that the inputs winapp reads
+        # survive the hand-off intact.
+
+        It "Preserves an explicit WinAppManifestPath for the CLI to read" {
+            # winapp's tier-2 lookup reads this property back out of the same MSBuild evaluation, so
+            # skipping auto-detection must not disturb a path the app declared for itself.
+            $cs = script:New-FileBasedApp -CaseName "manifest-declared" -ManifestFileName "my.appxmanifest" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0', 'WinAppManifestPath=my.appxmanifest')
+            script:Get-FileBasedProperty -CsPath $cs -Property "WinAppManifestPath" | Should -Be "my.appxmanifest"
+        }
+
+        It "Validates that a declared manifest actually exists" {
+            # Auto-detection is skipped entirely for a file-based app, so a non-empty
+            # WinAppManifestPath is always something the consumer set. A typo should fail here,
+            # naming the resolved path, rather than several seconds later inside winapp.
+            $cs = script:New-FileBasedApp -CaseName "manifest-missing" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0')
+            $output = script:Invoke-FileBasedDotnetExpectingFailure -CsPath $cs -Arguments @(
+                '-p:WinAppManifestPath=does-not-exist.appxmanifest', '-t:_WinAppValidateRunSupport')
+            $output | Should -Match 'AppxManifest not found'
+            $output | Should -Match ([regex]::Escape('does-not-exist.appxmanifest'))
+        }
+
+        It "Still allows a file-based app to declare no manifest at all" {
+            # The 'no manifest found' error stays suppressed: winapp infers the identity from the
+            # #:property directives instead, so validation must not demand a file that by design
+            # does not exist.
+            $cs = script:New-FileBasedApp -CaseName "manifest-none"
+            script:Invoke-FileBasedDotnet -CsPath $cs -What "validate run support" -Arguments @(
+                '-t:_WinAppValidateRunSupport') | Should -Not -BeNullOrEmpty
+        }
+
+        It "Leaves the per-file <stem>.appxmanifest to the CLI" {
+            # winapp probes for counter.appxmanifest beside counter.cs on disk. Claiming it here would
+            # add nothing and would pass a --manifest that its own resolution already accounts for.
+            $cs = script:New-FileBasedApp -CaseName "manifest-per-file" -ManifestFileName "counter.appxmanifest"
+            script:Get-FileBasedProperty -CsPath $cs -Property "WinAppManifestPath" | Should -BeNullOrEmpty
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Not -Match ' --manifest '
+        }
+
+        It "Never adopts a directory-wide manifest name" {
+            # Several .cs files can share a directory, so Package.appxmanifest cannot be assumed to
+            # belong to this one. Adopting it would register counter.cs under another app's identity.
+            $cs = script:New-FileBasedApp -CaseName "manifest-directory-wide" -ManifestFileName "Package.appxmanifest"
+            script:Get-FileBasedProperty -CsPath $cs -Property "WinAppManifestPath" | Should -BeNullOrEmpty
+        }
+
+        It "Never adopts the manifest the CLI generated into the output folder" {
+            # winapp writes Package.appxmanifest into the build output and refreshes it every run.
+            # Auto-detection probes the output folder FIRST, so without the skip the second run would
+            # pin the first run's generated file and freeze that identity against later edits.
+            $cs = script:New-FileBasedApp -CaseName "manifest-generated" -OutputDirManifestName "Package.appxmanifest"
+            script:Get-FileBasedProperty -CsPath $cs -Property "WinAppManifestPath" | Should -BeNullOrEmpty
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Not -Match ' --manifest '
+        }
+    }
+
+    Context "Run argument routing" {
+        BeforeAll {
+            $script:fbCs = script:New-FileBasedApp -CaseName "args"
+            $script:fbArgs = script:Get-FileBasedRunArgs -CsPath $script:fbCs
+        }
+
+        It "Hands the .cs itself to the CLI's single-file mode" {
+            # A .csproj passes its output folder instead; a .cs has to be passed as the input
+            # because manifest inference is only reachable from single-file mode.
+            $script:fbArgs | Should -Match ([regex]::Escape("run `"$script:fbCs`""))
+        }
+
+        It "Does not rebuild what dotnet run already built" {
+            $script:fbArgs | Should -Match ' --no-build( |$)'
+        }
+
+        It "Names RuntimeIdentifier so the CLI reads the same output folder dotnet wrote" {
+            # Naming the property is what suppresses the CLI's own host-RID injection. Without it
+            # the CLI would look in bin\debug_win-x64\ while dotnet run wrote bin\debug\, and with
+            # 'no-build' it would silently run a stale layout left by an earlier 'winapp run'.
+            $script:fbArgs | Should -Match ([regex]::Escape('-p "RuntimeIdentifier='))
+        }
+
+        It "Forwards the configuration" {
+            $script:fbArgs | Should -Match ' --configuration "Debug"( |$)'
+        }
+
+        It "Quotes the configuration so a name with spaces survives" {
+            # 'dotnet run app.cs -c "Debug Custom"' would otherwise hand winapp
+            # '--configuration Debug Custom', and 'Custom' would be parsed as a stray argument.
+            $cs = script:New-FileBasedApp -CaseName "args-spaced-config" -ExtraProps "    <Configuration>Debug Custom</Configuration>`n"
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Match ([regex]::Escape('--configuration "Debug Custom"'))
+        }
+
+        It "Points the loose layout at the configuration's output folder" {
+            $script:fbArgs | Should -Match ([regex]::Escape('\bin\debug\AppX"'))
+        }
+
+        It "Leaves manifest resolution to the CLI" {
+            # Tier 4 of the CLI's resolution GENERATES a manifest into that same output folder, so
+            # pinning one here would freeze the first run's identity for every run after it.
+            $script:fbArgs | Should -Not -Match ' --manifest '
+        }
+
+        It "Leaves manifest resolution to the CLI even with a manifest beside the .cs" {
+            $cs = script:New-FileBasedApp -CaseName "args-shared-manifest" -ManifestFileName "appxmanifest.xml"
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Not -Match ' --manifest '
+        }
+
+        It "Still honours the shared run options" {
+            # The switch block after the input is common to both shapes; this proves the file-based
+            # branch did not fork it.
+            $cs = script:New-FileBasedApp -CaseName "args-options" -ExtraProps @"
+    <WinAppRunNoLaunch>true</WinAppRunNoLaunch>
+    <WinAppRunUnregisterOnExit>true</WinAppRunUnregisterOnExit>
+
+"@
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs
+            $computed | Should -Match ' --no-launch( |$)'
+            $computed | Should -Match ' --unregister-on-exit( |$)'
+        }
+
+        It "Reports itself as a nuget-package caller" {
+            $script:fbArgs | Should -Match ' --caller nuget-package$'
+        }
+    }
+
+    Context "Forwarding identity properties" {
+        # winapp re-evaluates the .cs to plan the manifest, and that evaluation cannot see the
+        # properties the outer build was invoked with. Anything identity-shaping therefore has to
+        # be carried across explicitly, or 'dotnet run app.cs -p:WinAppPackageName=Contoso' builds
+        # with Contoso and then registers the inferred hashed identity instead.
+        It "Carries a command-line package name into the hand-off" {
+            $cs = script:New-FileBasedApp -CaseName "fwd-cmdline"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppPackageName=Contoso') |
+                Should -Match ([regex]::Escape('-p "WinAppPackageName=Contoso"'))
+        }
+
+        It "Carries a directive-supplied package name into the hand-off" {
+            # Redundant for winapp, which reads the directive itself, but it must not conflict.
+            $cs = script:New-FileBasedApp -CaseName "fwd-directive" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0', 'WinAppPackageName=FromDirective')
+            script:Get-FileBasedRunArgs -CsPath $cs |
+                Should -Match ([regex]::Escape('-p "WinAppPackageName=FromDirective"'))
+        }
+
+        It "Quotes values so a display name with spaces survives" {
+            $cs = script:New-FileBasedApp -CaseName "fwd-spaces"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDisplayName=My Cool App') |
+                Should -Match ([regex]::Escape('-p "WinAppDisplayName=My Cool App"'))
+        }
+
+        It "Carries every identity property winapp reads" {
+            $cs = script:New-FileBasedApp -CaseName "fwd-all"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @(
+                '-p:WinAppPackageName=N', '-p:WinAppDisplayName=D', '-p:WinAppPublisher=CN=P',
+                '-p:WinAppVersion=1.2.3.4', '-p:WinAppDescription=Desc', '-p:WinAppCapabilities=internetClient')
+            foreach ($pair in 'WinAppPackageName=N', 'WinAppDisplayName=D', 'WinAppPublisher=CN=P',
+                              'WinAppVersion=1.2.3.4', 'WinAppDescription=Desc', 'WinAppCapabilities=internetClient') {
+                $computed | Should -Match ([regex]::Escape("-p `"$pair`""))
+            }
+        }
+
+        It "Carries an explicitly requested manifest path" {
+            # Distinct from the manifest switch, which stays absent: this is the consumer's own
+            # request flowing into winapp's resolution order, not the targets pinning a manifest.
+            $cs = script:New-FileBasedApp -CaseName "fwd-manifest" -ManifestFileName "custom.appxmanifest"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppManifestPath=custom.appxmanifest')
+            $computed | Should -Match ([regex]::Escape('-p "WinAppManifestPath=custom.appxmanifest"'))
+            $computed | Should -Not -Match ' --manifest '
+        }
+
+        It "Forwards an identity property with an empty value when nothing set it" {
+            # Winapp maps an empty property to "absent" exactly as it maps an undeclared one, so
+            # this is the same answer its own evaluation would reach on its own.
+            $script:fbArgs | Should -Match ([regex]::Escape('-p "WinAppPackageName="'))
+        }
+
+        It "Carries an explicit clear so it overrides a #:property directive" {
+            # 'dotnet run app.cs -p:WinAppPackageName=' clears the directive for the outer build.
+            # Dropping the empty value would leave winapp reading the directive the build discarded,
+            # and registering an identity the run was told not to use.
+            $cs = script:New-FileBasedApp -CaseName "fwd-clear" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WinAppPackageName=FromDirective')
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Match ([regex]::Escape('-p "WinAppPackageName=FromDirective"'))
+
+            $cleared = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppPackageName=')
+            $cleared | Should -Match ([regex]::Escape('-p "WinAppPackageName="'))
+            $cleared | Should -Not -Match 'FromDirective'
+        }
+    }
+
+    Context "Forwarding build inputs" {
+        # winapp runs with no-build, so it re-evaluates the .cs purely to find what dotnet already
+        # built. An override that moved or renamed that output has to travel with the hand-off or
+        # winapp inspects the default location and reports a missing build.
+        It "Carries a renamed assembly so the CLI looks for the file that was built" {
+            $cs = script:New-FileBasedApp -CaseName "inp-assembly"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:AssemblyName=Foo') |
+                Should -Match ([regex]::Escape('-p "AssemblyName=Foo"'))
+        }
+
+        It "Carries a redirected output path" {
+            $cs = script:New-FileBasedApp -CaseName "inp-outputpath"
+            # OutDir, and therefore TargetDir, defaults to OutputPath, so forwarding the input keeps
+            # both sides agreed without pinning the SDK's own computed value.
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutputPath=custom_out\') |
+                Should -Match ([regex]::Escape('-p "OutputPath=custom_out%5C"'))
+        }
+
+        It "Carries a redirected OutDir, which moves the output without moving OutputPath" {
+            # OutDir is the property MSBuild actually writes the executable to. Setting it leaves
+            # OutputPath at the default, so forwarding OutputPath alone would send the CLI to a
+            # directory the build never wrote to. Both tokens are asserted because it is their
+            # DIVERGENCE that the older, OutputPath-only hand-off got wrong.
+            $cs = script:New-FileBasedApp -CaseName "inp-outdir"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutDir=custom_out\')
+            $computed | Should -Match ([regex]::Escape('-p "OutDir=custom_out%5C"'))
+            $computed | Should -Match ([regex]::Escape('bin%5Cdebug%5C"'))
+        }
+
+        It "Sends the CLI to the folder a redirected OutDir actually wrote to" {
+            # The point of forwarding OutDir: the CLI resolves the layout from TargetDir, which is
+            # the absolute form of OutDir. Replaying only the forwarded token has to land on the
+            # same folder the build wrote, or the no-build hand-off inspects a directory that does
+            # not exist. This also pins the percent-escaping round-trip for a path value.
+            $cs = script:New-FileBasedApp -CaseName "inp-outdir-roundtrip"
+            $built = script:Invoke-FileBasedDotnet -CsPath $cs -What "resolve TargetDir" -Arguments @(
+                '-p:OutDir=custom_out\', '-getProperty:TargetDir')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutDir=custom_out\')
+            $forwarded = [regex]::Match($computed, '-p "OutDir=([^"]*)"').Groups[1].Value
+            $forwarded | Should -Not -BeNullOrEmpty
+            $replayed = script:Invoke-FileBasedDotnet -CsPath $cs -What "replay TargetDir" -Arguments @(
+                '-p', "OutDir=$forwarded", '-getProperty:TargetDir')
+            $replayed | Should -Be $built
+        }
+
+        It "Carries the obj folder, so the CLI reads the package graph the build restored" {
+            # ProjectAssetsFile is '$(MSBuildProjectExtensionsPath)project.assets.json', and the CLI
+            # reads that file to discover which packages were actually restored. Relocating the
+            # intermediate directory moves it out of the SDK's runfile folder, so forwarding
+            # nothing would leave the CLI re-deriving the default path and reading a stale graph.
+            $cs = script:New-FileBasedApp -CaseName "inp-objdir"
+            $built = script:Invoke-FileBasedDotnet -CsPath $cs -What "resolve ProjectAssetsFile" -Arguments @(
+                '-p:BaseIntermediateOutputPath=custom_obj\', '-getProperty:ProjectAssetsFile')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:BaseIntermediateOutputPath=custom_obj\')
+            $forwarded = [regex]::Match($computed, '-p "MSBuildProjectExtensionsPath=([^"]*)"').Groups[1].Value
+            $forwarded | Should -Not -BeNullOrEmpty
+            $replayed = script:Invoke-FileBasedDotnet -CsPath $cs -What "replay ProjectAssetsFile" -Arguments @(
+                '-p', "MSBuildProjectExtensionsPath=$forwarded", '-getProperty:ProjectAssetsFile')
+            $replayed | Should -Be $built
+        }
+
+        It "Carries the standard Version, which the CLI reads when WinAppVersion is absent" {
+            $cs = script:New-FileBasedApp -CaseName "inp-version"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:Version=2.3.4.5') |
+                Should -Match ([regex]::Escape('-p "Version=2.3.4.5"'))
+        }
+
+        It "Carries the remaining properties the CLI's evaluate pass reads" {
+            $cs = script:New-FileBasedApp -CaseName "inp-rest"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WindowsAppSDKSelfContained=true')
+            $computed | Should -Match ([regex]::Escape('-p "OutputType=Exe"'))
+            $computed | Should -Match ([regex]::Escape('-p "TargetFramework=net10.0-windows10.0.19041.0"'))
+            $computed | Should -Match ([regex]::Escape('-p "WindowsAppSDKSelfContained=true"'))
+        }
+
+        It "Leaves RuntimeIdentifier valueless when the build set no RID" {
+            # Naming the property is what suppresses the CLI's host-RID injection, and an
+            # unqualified build has no RID to name, so the empty value is the correct one here.
+            $script:fbArgs | Should -Match ([regex]::Escape('-p "RuntimeIdentifier="'))
+            $script:fbArgs | Should -Not -Match '-p "RuntimeIdentifier=[^"]'
+        }
+
+        It "Passes an explicit RID through instead of blanking it" {
+            # The point of the token is that both sides resolve the SAME output folder, not that
+            # the value is always empty. 'dotnet run app.cs -p:RuntimeIdentifier=win-x64' writes
+            # bin\debug_win-x64\, so blanking the value here would send the CLI to bin\debug\ and
+            # recreate the exact mismatch the token exists to prevent.
+            $cs = script:New-FileBasedApp -CaseName "inp-rid"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:RuntimeIdentifier=win-x64')
+            $computed | Should -Match ([regex]::Escape('-p "RuntimeIdentifier=win-x64"'))
+        }
+
+        It "Does not forward the alias property the switches already express" {
+            # The switches carry extra conditions the raw property does not, so forwarding it too
+            # would re-enable alias behavior they deliberately withheld.
+            $cs = script:New-FileBasedApp -CaseName "inp-alias" -ExtraProps @"
+    <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
+    <WinAppRunNoLaunch>true</WinAppRunNoLaunch>
+"@
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs
+            $computed | Should -Not -Match '-p "WinAppRunUseExecutionAlias'
+            $computed | Should -Not -Match ' --with-alias( |$)'
+        }
+
+        It "Carries an alias clear, which no switch is emitted to express" {
+            # 'true' and 'false' ride on --with-alias/--without-alias, but clearing the property
+            # emits no switch at all. Without forwarding the empty value the CLI re-reads the
+            # #:property directive and keeps using an alias the command line just turned off.
+            $cs = script:New-FileBasedApp -CaseName "inp-alias-clear" -ExtraProps @"
+    <WinAppRunUseExecutionAlias>true</WinAppRunUseExecutionAlias>
+"@
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppRunUseExecutionAlias=')
+            $computed | Should -Not -Match ' --with-alias( |$)'
+            $computed | Should -Match ([regex]::Escape('-p "WinAppRunUseExecutionAlias="'))
+        }
+
+        It "Carries the packaging mode even when empty, because the gate keys off it" {
+            # 'dotnet run app.cs -p:WindowsPackageType=' over a '#:property WindowsPackageType=None'
+            # activates the packaged redirect. Skipping the empty value would leave the CLI reading
+            # None and treating a run the outer build already routed through packaging as
+            # unpackaged.
+            $cs = script:New-FileBasedApp -CaseName "inp-wpt-clear" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0', 'WindowsPackageType=None')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WindowsPackageType=')
+            $computed | Should -Match ([regex]::Escape('-p "WindowsPackageType="'))
+        }
+
+        It "Carries self-contained mode even when empty, so a clear is not undone" {
+            # Nothing gives WindowsAppSDKSelfContained a default, so an empty value is a real answer
+            # rather than a broken build. 'dotnet run app.cs -p:WindowsAppSDKSelfContained=' over a
+            # '#:property WindowsAppSDKSelfContained=true' has to reach the CLI, which otherwise
+            # re-reads the directive and writes a manifest declaring a Windows App Runtime
+            # dependency for a build that no longer carries the runtime.
+            $cs = script:New-FileBasedApp -CaseName "inp-selfcontained-clear" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WindowsAppSDKSelfContained=true')
+            script:Get-FileBasedRunArgs -CsPath $cs |
+                Should -Match ([regex]::Escape('-p "WindowsAppSDKSelfContained=true"'))
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WindowsAppSDKSelfContained=') |
+                Should -Match ([regex]::Escape('-p "WindowsAppSDKSelfContained="'))
+        }
+
+        It "Does not forward the SDK's derived outputs" {
+            # Forcing these as global properties would override the CLI's own evaluation with the
+            # outer build's answer instead of letting it derive them.
+            foreach ($derived in 'TargetDir', 'RunCommand', 'RunArguments', 'ProjectAssetsFile') {
+                $script:fbArgs | Should -Not -Match ([regex]::Escape("-p `"$derived="))
+            }
+        }
+    }
+
+    Context "Escaping forwarded values" {
+        # The CLI rejects a -p token containing ';' or ',' outright, and the value is spliced into a
+        # quoted command-line argument, so both the MSBuild separator contract and the command-line
+        # quoting have to survive the hand-off.
+        It "Escapes the configuration, so a trailing backslash cannot swallow the command line" {
+            # Configuration is spliced into a quoted argument, where '\"' is an escaped quote rather
+            # than a closing one: '--configuration "Debug\"' would run the quote on through every
+            # argument after it, so the CLI would see one enormous configuration name instead of the
+            # properties and switches that follow.
+            $cs = script:New-FileBasedApp -CaseName "esc-configuration"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:Configuration=Debug\')
+            $computed | Should -Match ([regex]::Escape('--configuration "Debug%5C"'))
+            $computed | Should -Not -Match ([regex]::Escape('--configuration "Debug\"'))
+        }
+
+        It "Refuses a line break instead of letting it split the launch command" {
+            # RunPackagedApp hands the arguments to Exec, which writes them to a temporary .cmd
+            # file. A newline inside a value does not stay data there: it ends the batch line and
+            # turns the remainder into a SEPARATE COMMAND. MSBuild reads properties from the
+            # environment, so a variable of the matching name is enough to plant one. No manifest
+            # metadata is legitimately multi-line, so the build is refused rather than silently
+            # stripped, which would register an identity the consumer never asked for.
+            #
+            # The guard lives in _WinAppBuildRunArgs, which RunPackagedApp depends on, so asserting
+            # on the argument build alone covers both transports without launching anything.
+            $cs = script:New-FileBasedApp -CaseName "esc-linebreak"
+            $injected = "first`r`necho pwned`r`nrem "
+            $output = script:Invoke-FileBasedDotnetExpectingFailure -CsPath $cs -Arguments @(
+                "-p:WinAppDescription=$injected", '-t:_WinAppBuildRunArgs')
+            $output | Should -Match 'contains a line break'
+            $output | Should -Match ([regex]::Escape('WinAppDescription'))
+        }
+
+        It "Applies the same escape to every forwarded value" {
+            # The escape chain is repeated per property, so the risk is divergence: a property added
+            # later, or an existing one edited, that misses a character. This drives one hostile
+            # value through the whole forwarded set at once and asserts nothing arrives raw, so a
+            # gap shows up here rather than as a mangled command line in the field.
+            $hostile = 'a;b,c%d\e'
+            $escaped = 'a%3Bb%2Cc%25d%5Ce'
+            $names = @('WinAppPackageName', 'WinAppDisplayName', 'WinAppPublisher',
+                'WinAppDescription', 'WinAppCapabilities')
+            $cs = script:New-FileBasedApp -CaseName "esc-all" -Directives (
+                @('OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0') +
+                ($names | ForEach-Object { "$_=$hostile" }))
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs
+
+            foreach ($name in $names) {
+                $computed | Should -Match ([regex]::Escape("-p `"$name=$escaped`"")) -Because "$name must be escaped"
+            }
+            # Nothing may carry a raw separator: the CLI rejects such a token outright.
+            $computed | Should -Not -Match ([regex]::Escape($hostile))
+        }
+
+        It "Percent-escapes a semicolon so a capability list survives" {
+            # 'a;b' is how capability lists are written, so raw forwarding failed every such run.
+            $cs = script:New-FileBasedApp -CaseName "esc-semicolon" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WinAppCapabilities=internetClient;privateNetworkClientServer')
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs
+            $computed | Should -Match ([regex]::Escape('-p "WinAppCapabilities=internetClient%3BprivateNetworkClientServer"'))
+            $computed | Should -Not -Match ([regex]::Escape('internetClient;privateNetworkClientServer'))
+        }
+
+        It "Percent-escapes a comma" {
+            $cs = script:New-FileBasedApp -CaseName "esc-comma"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDescription=Fast, small') |
+                Should -Match ([regex]::Escape('-p "WinAppDescription=Fast%2C small"'))
+        }
+
+        It "Escapes percent first so the escaping stays reversible" {
+            # Without percent going first, the '%' of an escape this code just wrote would itself be
+            # escaped, and '%' in the original value would decode as the start of an escape.
+            # MSBuild unescapes a command-line value, so '%25%3B' below is the literal '%;'.
+            $cs = script:New-FileBasedApp -CaseName "esc-percent"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDescription=50%25%3Boff')
+            $computed | Should -Match ([regex]::Escape('-p "WinAppDescription=50%25%3Boff"'))
+        }
+
+        It "Escapes a quote so a value cannot end the argument early" {
+            # Unescaped, 'foo" --no-launch' would close the quote and be parsed as an option.
+            $cs = script:New-FileBasedApp -CaseName "esc-quote"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:WinAppDisplayName=foo" --no-launch')
+            $computed | Should -Match ([regex]::Escape('-p "WinAppDisplayName=foo%22 --no-launch"'))
+            $computed | Should -Not -Match ([regex]::Escape('foo" --no-launch'))
+        }
+
+        It "Escapes a trailing backslash so it cannot escape the closing quote" {
+            # OutDir always ends with one, so this is the common case rather than an edge case.
+            $cs = script:New-FileBasedApp -CaseName "esc-backslash"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @('-p:OutDir=sub\dir\') |
+                Should -Match ([regex]::Escape('-p "OutDir=sub%5Cdir%5C"'))
+        }
+
+        It "Survives an apostrophe in the value" {
+            # The escape used to be applied once over the whole item list, which meant naming the
+            # value inside a single-quoted MSBuild function argument. An apostrophe closed that
+            # argument and MSBuild silently emitted the unevaluated expression text as the value.
+            $cs = script:New-FileBasedApp -CaseName "esc-apostrophe"
+            $computed = script:Get-FileBasedRunArgs -CsPath $cs -Overrides @("-p:WinAppDisplayName=Bob's App")
+            $computed | Should -Match ([regex]::Escape("-p `"WinAppDisplayName=Bob's App`""))
+            $computed | Should -Not -Match ([regex]::Escape('System.String'))
+        }
+
+        It "Survives an apostrophe alongside a character that needs escaping" {
+            # Proves the apostrophe does not merely pass through untouched, but that the rest of the
+            # escaping still runs on the same value.
+            $cs = script:New-FileBasedApp -CaseName "esc-apostrophe-mix"
+            script:Get-FileBasedRunArgs -CsPath $cs -Overrides @("-p:WinAppDescription=Bob's, fast") |
+                Should -Match ([regex]::Escape("-p `"WinAppDescription=Bob's%2C fast`""))
+        }
+
+        It "Doubles percent signs for the Exec transport only" {
+            # Exec writes a .cmd file where cmd.exe eats '%3' as a batch parameter; dotnet run starts
+            # RunCommand directly and must keep the undoubled form.
+            $cs = script:New-FileBasedApp -CaseName "esc-exec" -Directives @(
+                'OutputType=Exe', 'TargetFramework=net10.0-windows10.0.19041.0',
+                'WinAppCapabilities=internetClient;privateNetworkClientServer')
+            $exec = script:Get-FileBasedRunArgs -CsPath $cs -Property '_WinAppRunArgsForExec'
+            $exec | Should -Match ([regex]::Escape('internetClient%%3BprivateNetworkClientServer'))
+            script:Get-FileBasedRunArgs -CsPath $cs | Should -Match ([regex]::Escape('internetClient%3BprivateNetworkClientServer'))
+        }
+    }
+
+    Context "Run properties after a plain build" {
+        # 'dotnet run app.cs' skips MSBuild entirely when the previous build is still up to date
+        # and replays the run properties the SDK cached during that build. ComputeRunArguments does
+        # not run during a plain build, so without a build-time hook the SDK falls back to
+        # TargetPath and caches the bare apphost -- and the next 'dotnet run app.cs' launches the
+        # app unpackaged even though the redirect is configured correctly.
+        BeforeAll {
+            $script:fbBuildCs = script:New-FileBasedApp -CaseName "buildprops"
+        }
+
+        It "Redirects RunCommand during a plain build, not only during dotnet run" {
+            $expected = Join-Path (Split-Path $script:fbBuildCs -Parent) "winapp.exe"
+            script:Get-FileBasedBuiltRunProperty -CsPath $script:fbBuildCs -Property "RunCommand" |
+                Should -Be $expected
+        }
+
+        It "Records the packaged launch arguments during a plain build" {
+            script:Get-FileBasedBuiltRunProperty -CsPath $script:fbBuildCs -Property "RunArguments" |
+                Should -Match ([regex]::Escape("run `"$script:fbBuildCs`""))
+        }
+
+        It "Records the working directory during a plain build" {
+            script:Get-FileBasedBuiltRunProperty -CsPath $script:fbBuildCs -Property "RunWorkingDirectory" |
+                Should -Be (Split-Path $script:fbBuildCs -Parent)
+        }
+
+        It "Leaves a project's plain build untouched" {
+            # The build-time hook is deliberately scoped to file-based apps. A project has no such
+            # cache and gets its run properties from ComputeRunArguments, so seeding them on every
+            # build would add loose layout copying to an ordinary 'dotnet build'.
+            $dir = Join-Path $script:fbRoot "buildprops-csproj"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $stub = Join-Path $dir "winapp.exe"
+            Set-Content -Path $stub -Value 'stub'
+            Set-Content -Path (Join-Path $dir "appxmanifest.xml") -Value '<x/>'
+            Set-Content -Path (Join-Path $dir "Program.cs") -Value 'class P { static void Main() { } }'
+            Set-Content -Path (Join-Path $dir "test.csproj") -Value @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <WinAppCliPath>$stub</WinAppCliPath>
+  </PropertyGroup>
+  <Import Project="$($script:propsPath)" />
+  <Import Project="$($script:targetsPath)" />
+</Project>
+"@
+            $projPath = Join-Path $dir "test.csproj"
+            $out = & dotnet build $projPath -t:Build -getProperty:RunCommand -nologo 2>&1
+            $LASTEXITCODE | Should -Be 0 -Because ($out -join [Environment]::NewLine)
+            "$($out | Select-Object -Last 1)".Trim() | Should -Not -Match 'winapp\.exe'
         }
     }
 }

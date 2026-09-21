@@ -218,14 +218,35 @@ internal partial class CertificateService(
             throw new FileNotFoundException($"Certificate file not found: {certificatePath}");
         }
 
-        var arguments = $@"sign /f ""{certificatePath}"" /p ""{password}"" /fd SHA256";
+        var tokens = new List<string>
+        {
+            "sign",
+            "/f", certificatePath.FullName,
+            "/p", password ?? "password",
+            "/fd", "SHA256",
+        };
 
         if (!string.IsNullOrWhiteSpace(timestampUrl))
         {
-            arguments += $@" /tr ""{timestampUrl}"" /td SHA256";
+            // The timestamp URL can originate from a project's AppxPackageSigningTimestampServerUrl, so
+            // validate it as an absolute http/https URL before it reaches signtool. JoinArguments below then
+            // encodes every token so an embedded quote in any value cannot inject an extra signtool switch.
+            if (!Uri.TryCreate(timestampUrl, UriKind.Absolute, out var timestampUri)
+                || (timestampUri.Scheme != Uri.UriSchemeHttp && timestampUri.Scheme != Uri.UriSchemeHttps))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid timestamp server URL '{timestampUrl}'. It must be an absolute http or https URL.");
+            }
+
+            tokens.Add("/tr");
+            tokens.Add(timestampUrl);
+            tokens.Add("/td");
+            tokens.Add("SHA256");
         }
 
-        arguments += $@" ""{filePath}""";
+        tokens.Add(filePath.FullName);
+
+        var arguments = WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
 
         taskContext.AddDebugMessage($"Signing file: {filePath}");
 

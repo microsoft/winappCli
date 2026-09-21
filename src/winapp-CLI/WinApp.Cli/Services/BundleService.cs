@@ -26,12 +26,30 @@ internal class BundleService(
 
         try
         {
-            // Copy all intermediate .msix files into the staging directory
+            // Copy all intermediate .msix files into the staging directory. Disambiguate any duplicate file
+            // names (e.g. two architecture slices both named Fixed.msix when the identity name is forced with
+            // -p AppxPackageName) so no slice silently overwrites another and drops its architecture from the
+            // bundle — makeappx reads each package's architecture from its own manifest, not its file name.
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var msixFile in msixFiles)
             {
-                var destPath = Path.Combine(bundleStagingDir.FullName, msixFile.Name);
+                var destName = msixFile.Name;
+                if (!usedNames.Add(destName))
+                {
+                    var stem = Path.GetFileNameWithoutExtension(destName);
+                    var extension = Path.GetExtension(destName);
+                    var suffix = 1;
+                    do
+                    {
+                        destName = $"{stem}_{suffix++}{extension}";
+                    }
+                    while (!usedNames.Add(destName));
+                    taskContext.AddDebugMessage($"{UiSymbols.Warning} Bundle slice name collision on '{msixFile.Name}'; staged as '{destName}' so no architecture is dropped.");
+                }
+
+                var destPath = Path.Join(bundleStagingDir.FullName, Path.GetFileName(destName));
                 msixFile.CopyTo(destPath, overwrite: true);
-                taskContext.AddDebugMessage($"Staged for bundle: {msixFile.Name}");
+                taskContext.AddDebugMessage($"Staged for bundle: {destName}");
             }
 
             // Ensure output directory exists

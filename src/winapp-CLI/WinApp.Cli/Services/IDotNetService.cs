@@ -116,6 +116,7 @@ internal interface IDotNetService
         string arguments,
         Action<string>? onOutputLine,
         Action<string>? onErrorLine,
+        IReadOnlyDictionary<string, string>? environmentOverrides = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -130,6 +131,7 @@ internal interface IDotNetService
     Task<int> RunDotnetInheritedAsync(
         DirectoryInfo workingDirectory,
         string arguments,
+        IReadOnlyDictionary<string, string>? environmentOverrides = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

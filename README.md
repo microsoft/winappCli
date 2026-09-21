@@ -193,6 +193,18 @@ The direct links above are provided by [nightly.link](https://nightly.link), a t
 Note: Downloading artifacts from GitHub Actions requires you to be signed in to GitHub.
 </details>
 
+### Try a pull request build
+
+Open the PR's **Build and Package** run and download `cli-binaries`, `npm-package`,
+`msix-packages`, or `nuget-packages` from **Artifacts**. The `build-artifacts` job
+summary also links to each download.
+
+Packages appear **before validation finishes**. They are experimental builds,
+not evidence that tests passed. Wait for **build-and-package** to succeed if you
+need a fully validated build. If a download is not available yet, check the
+`build-artifacts` job for progress or errors. A new commit cancels older runs of
+the same PR.
+
 ## 📋 Usage
 
 Once installed (see [Installation](#-installation) above), verify the installation by calling the CLI:
