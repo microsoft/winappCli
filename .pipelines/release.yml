@@ -61,6 +61,23 @@ parameters:
     default:
       serviceConnection: $(SymbolPublishingServiceConnection)
       project: $(SymbolPublishingProject)
+  # Opt-in, manual-only prerelease publish of just the source-built library packages
+  # (UIAutomation, UIAutomation.Recording, WinUIAnalyzer) to nuget.org, for validation before the
+  # first official release. Defaults to false, so the two stages it gates are pruned at COMPILE
+  # time on every scheduled rehearsal and every real rel/v* release - they only exist in the graph
+  # when a human queues this pipeline with the box ticked. Every gate below is additionally a
+  # positive test that the run is NOT on rel/v*, so it can never piggyback on a real release. This
+  # is the one deliberate exception to the "mode from branch, not parameter" rule: it is not a mode
+  # discriminator between two automatic behaviours (which defaults would betray), but an additive,
+  # default-off, manual action that publishes nothing unless explicitly turned on.
+  - name: publishPrereleaseNugets
+    displayName: 'Publish PRERELEASE of the library NuGet packages to nuget.org (manual, non-release runs only)'
+    type: boolean
+    default: false
+  - name: prereleaseNugetVersion
+    displayName: 'Prerelease version for those packages (blank = auto: version.json + -prerelease.<build>)'
+    type: string
+    default: ' '
 
 variables:
   # ---------------------------------------------------------------------------------------------
@@ -1068,3 +1085,217 @@ extends:
                 $token = (Get-AzAccessToken -AsSecureString -ResourceUrl api://30471ccf-0966-45b9-a979-065dbedb24c1).Token
                 if (-not $token -or $token.Length -eq 0) { throw "Symbol publishing connection did not yield an access token." }
                 Write-Host "[PASS] Symbol publishing connection issued a token for the symbol service."
+
+    # -------------------------------------------------------------------------------------------
+    # Prerelease library-package publish (opt-in, manual only).
+    #
+    # Both stages are wrapped in `${{ if }}` on publishPrereleaseNugets, which defaults false, so
+    # they are pruned at COMPILE time for every scheduled rehearsal and every rel/v* release - they
+    # are absent from the graph unless a human queues with the box ticked. Two more gates:
+    #   * `eq(parameters.DoEsrp, true)` - the path is pruned entirely when signing is off, so it can
+    #     never publish UNSIGNED packages to nuget.org (DoEsrp defaults true; untick it and the
+    #     prerelease publish simply does not run).
+    #   * `not(startsWith(Build.SourceBranch, 'refs/heads/rel/v'))` - belt-and-suspenders: even a
+    #     manual queue against a release branch will not publish, so this can never ride a release.
+    #
+    # Self-contained: it packs the three library packages (package-nuget.ps1 -SkipCliPackage, no
+    # NativeAOT, no CLI tools package) at a prerelease version, signs them, and pushes ONLY those.
+    # It does not touch the stable Build stage or any release publishing stage. (The unconditional
+    # Build stage still runs on such a manual queue; run this from a non-rel/v*, non-main branch to
+    # keep the rehearsal stages out too.)
+    # -------------------------------------------------------------------------------------------
+    - ${{ if and(eq(parameters.publishPrereleaseNugets, true), eq(parameters.DoEsrp, true), not(startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v'))) }}:
+      - stage: Prerelease_Nugets_Build
+        displayName: Build prerelease library packages
+        dependsOn: []
+        jobs:
+        - job: Build
+          timeoutInMinutes: 60
+          pool:
+            name: Azure-Pipelines-1ESPT-ExDShared
+            image: windows-latest
+            os: windows
+            hostArchitecture: amd64
+          steps:
+            - checkout: self
+            - template: ./.pipelines/templates/build-env.yaml@self
+              parameters:
+                dotnetSixForEsrp: ${{ parameters.DoEsrp }}
+            - task: PowerShell@2
+              name: SetVersion
+              displayName: Resolve prerelease version
+              # Pass the parameter as an environment variable rather than splicing it into the
+              # script body. A compile-time ${{ }} splice into the script would let a queue-time
+              # value containing a quote break out and execute arbitrary PowerShell on this
+              # signing-capable agent; an env var is treated purely as data.
+              env:
+                PRERELEASE_VERSION_INPUT: ${{ parameters.prereleaseNugetVersion }}
+              inputs:
+                pwsh: true
+                targetType: inline
+                script: |
+                  $v = "$env:PRERELEASE_VERSION_INPUT".Trim()
+                  if ([string]::IsNullOrWhiteSpace($v)) {
+                    $base = (Get-Content version.json | ConvertFrom-Json).version
+                    $build = & scripts/get-build-number.ps1
+                    $v = "$base-prerelease.$build"
+                  }
+                  # Fail closed: publish prereleases only. Require a well-formed major.minor.patch
+                  # with a NON-EMPTY prerelease label. A bare '-' test is not enough - a stable
+                  # version carrying build metadata like '0.7.0+build-1' contains a '-' yet is NOT a
+                  # prerelease, so it must be rejected rather than published as a stable version.
+                  if ($v -notmatch '^\d+\.\d+\.\d+-[0-9A-Za-z][0-9A-Za-z.-]*$') {
+                    Write-Error "Refusing to publish '$v': must be a SemVer prerelease version like 0.6.3-prerelease.1 (major.minor.patch with a non-empty prerelease label, no build metadata)."
+                    exit 1
+                  }
+                  Write-Host "Prerelease version: $v"
+                  Write-Host "##vso[task.setvariable variable=pkgVersion;isOutput=true]$v"
+            - task: PowerShell@2
+              displayName: Test library packages
+              inputs:
+                pwsh: true
+                targetType: inline
+                script: |
+                  # Gate the publish on the tests that cover exactly the three shipped packages, so
+                  # a manual prerelease queue cannot sign and immutably publish a test-failing
+                  # commit. Deliberately narrower than the full stable Build (NativeAOT + MSIX + CLI
+                  # suite): only the UI Automation engine/recording and WinUI analyzer tests are
+                  # relevant to these packages, which keeps this stage decoupled and fast. Runner
+                  # choice mirrors build-cli.ps1 - the UI Automation suite is a Microsoft.Testing.
+                  # Platform app (dotnet run), the analyzer suite is xUnit (dotnet test).
+                  $root = "$(System.DefaultWorkingDirectory)"
+                  $uiaTests = Join-Path $root "src/winapp-CLI/WinApp.UIAutomation.Tests/WinApp.UIAutomation.Tests.csproj"
+                  $analyzerTests = Join-Path $root "src/winapp-Analyzer/Microsoft.WindowsAppSDK.Analyzers.Tests/Microsoft.WindowsAppSDK.Analyzers.Tests.csproj"
+                  $failed = $false
+                  dotnet run --project $uiaTests -c Debug
+                  if ($LASTEXITCODE -ne 0) { Write-Warning "WinApp.UIAutomation.Tests failed ($LASTEXITCODE)"; $failed = $true }
+                  dotnet test $analyzerTests -c Debug
+                  if ($LASTEXITCODE -ne 0) { Write-Warning "Analyzer tests failed ($LASTEXITCODE)"; $failed = $true }
+                  if ($failed) { Write-Error "Library tests failed; refusing to build and publish prerelease packages."; exit 1 }
+            - task: PowerShell@2
+              displayName: Pack library packages (unsigned)
+              inputs:
+                pwsh: true
+                filePath: $(System.DefaultWorkingDirectory)\scripts\package-nuget.ps1
+                arguments: '-SkipCliPackage -Version "$(SetVersion.pkgVersion)"'
+            - ${{ if eq(parameters.DoEsrp, true) }}:
+              - task: EsrpCodeSigning@6
+                displayName: Code Sign ESRP - managed libraries
+                inputs:
+                  ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                  AppRegistrationClientId: ${{ parameters.signingIdentity.appId }}
+                  AppRegistrationTenantId: ${{ parameters.signingIdentity.tenantId }}
+                  AuthAKVName: ${{ parameters.signingIdentity.akvName }}
+                  AuthCertName: ${{ parameters.signingIdentity.authCertName }}
+                  AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
+                  FolderPath: '$(System.DefaultWorkingDirectory)/src/'
+                  # Sign the managed assemblies that get packed into the library NuGet packages, so
+                  # the repack (-SkipBuild) below embeds signed DLLs; signing the .nupkg alone would
+                  # not Authenticode-sign the DLL inside it.
+                  Pattern: |
+                    winapp-CLI/WinApp.UIAutomation/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.dll
+                    winapp-CLI/WinApp.UIAutomation.Recording/bin/Release/**/Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording.dll
+                    winapp-Analyzer/Microsoft.WindowsAppSDK.Analyzers/bin/Release/**/Microsoft.WindowsAppSDK.Analyzers.dll
+                  UseMinimatch: true
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                        {
+                            "KeyCode": "CP-230012",
+                            "OperationCode": "SigntoolSign",
+                            "Parameters": {
+                                "OpusName": "Microsoft Windows Developer SDK CLI",
+                                "OpusInfo": "https://github.com/Microsoft/WinAppCli",
+                                "FileDigest": "/fd \"SHA256\"",
+                                "PageHash": "/PH",
+                                "TimeStamp": "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+                            },
+                            "ToolName": "sign",
+                            "ToolVersion": "1.0"
+                        },
+                        {
+                            "KeyCode": "CP-230012",
+                            "OperationCode": "SigntoolVerify",
+                            "Parameters": {},
+                            "ToolName": "sign",
+                            "ToolVersion": "1.0"
+                        }
+                    ]
+              # Re-pack now that the assemblies are signed; -SkipBuild stops dotnet from recompiling
+              # and discarding the signatures.
+              - task: PowerShell@2
+                displayName: Repack library packages with signed binaries
+                inputs:
+                  pwsh: true
+                  filePath: $(System.DefaultWorkingDirectory)\scripts\package-nuget.ps1
+                  arguments: '-SkipCliPackage -SkipBuild -Version "$(SetVersion.pkgVersion)"'
+              - task: EsrpCodeSigning@6
+                displayName: Code Sign ESRP - NuGet Packages
+                inputs:
+                  ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                  AppRegistrationClientId: ${{ parameters.signingIdentity.appId }}
+                  AppRegistrationTenantId: ${{ parameters.signingIdentity.tenantId }}
+                  AuthAKVName: ${{ parameters.signingIdentity.akvName }}
+                  AuthCertName: ${{ parameters.signingIdentity.authCertName }}
+                  AuthSignCertName: ${{ parameters.signingIdentity.signCertName }}
+                  FolderPath: '$(System.DefaultWorkingDirectory)/artifacts/nuget/'
+                  Pattern: '*.nupkg'
+                  UseMinimatch: true
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                        {
+                            "KeyCode": "CP-401405",
+                            "OperationCode": "NuGetSign",
+                            "Parameters": { },
+                            "ToolName": "sign",
+                            "ToolVersion": "1.0"
+                        },
+                        {
+                            "KeyCode": "CP-401405",
+                            "OperationCode": "NuGetVerify",
+                            "Parameters": { },
+                            "ToolName": "sign",
+                            "ToolVersion": "1.0"
+                        }
+                    ]
+            - task: CopyFiles@2
+              displayName: Stage prerelease NuGet packages
+              inputs:
+                sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/nuget/'
+                contents: '*.nupkg'
+                targetFolder: '$(Build.ArtifactStagingDirectory)/prerelease-nuget'
+            - task: 1ES.PublishPipelineArtifact@1
+              displayName: Upload Artifact - Prerelease NuGet packages
+              inputs:
+                path: '$(Build.ArtifactStagingDirectory)/prerelease-nuget'
+                artifactName: prerelease-nuget
+
+      - stage: Prerelease_Nugets_Publish
+        displayName: Publish prerelease library packages to nuget.org
+        dependsOn: Prerelease_Nugets_Build
+        jobs:
+        - job: publish
+          pool:
+            name: Azure-Pipelines-1ESPT-ExDShared
+            image: windows-latest
+            os: windows
+            hostArchitecture: amd64
+          displayName: NuGet push
+          templateContext:
+            type: releaseJob
+            isProduction: true
+            inputs:
+            - input: pipelineArtifact
+              artifactName: prerelease-nuget
+              targetPath: $(Pipeline.Workspace)/prerelease-nuget
+          steps:
+            - task: 1ES.PublishNuget@1
+              displayName: 'NuGet push to nuget.org'
+              retryCountOnTaskFailure: 2
+              inputs:
+                useDotNetTask: false
+                packagesToPush: '$(Pipeline.Workspace)/prerelease-nuget/*.nupkg'
+                packageParentPath: '$(Pipeline.Workspace)/prerelease-nuget'
+                nuGetFeedType: external
+                publishFeedCredentials: 'NuGet-WinAppCLI'
