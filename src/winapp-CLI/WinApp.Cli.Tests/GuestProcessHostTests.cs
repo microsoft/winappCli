@@ -381,13 +381,7 @@ public class GuestProcessHostTests
         // The property the containment barrier exists for: cancelling one operation must take its
         // whole process tree with it, while the agent and every other operation keep running.
         // Agent-level containment alone would leave the grandchild alive until agent teardown.
-        var barrier = FindWinappBinary();
-
-        if (barrier is null)
-        {
-            Assert.Inconclusive("The winapp binary is not built, so the containment barrier cannot be exercised.");
-            return;
-        }
+        var barrier = WinappTestBinary.Resolve();
 
         var cancelledMarker = TestPaths.TempFile("cancelled-grandchild", ".pid");
         var survivorMarker = TestPaths.TempFile("survivor-grandchild", ".pid");
@@ -453,38 +447,6 @@ public class GuestProcessHostTests
         {
             // Temp cleanup is not worth failing a test over.
         }
-    }
-
-    /// <summary>Locates the built winapp binary, which acts as the containment barrier.</summary>
-    /// <remarks>
-    /// The barrier is a winapp verb, so exercising it needs the real executable rather than the
-    /// test host. Returning null lets the test report inconclusive instead of passing vacuously.
-    /// </remarks>
-    private static string? FindWinappBinary()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-
-        while (directory is not null)
-        {
-            var candidate = new DirectoryInfo(Path.Join(directory.FullName, "src", "winapp-CLI", "WinApp.Cli", "bin"));
-
-            if (candidate.Exists)
-            {
-                var binary = candidate
-                    .EnumerateFiles("winapp.exe", SearchOption.AllDirectories)
-                    .OrderByDescending(f => f.LastWriteTimeUtc)
-                    .FirstOrDefault();
-
-                if (binary is not null)
-                {
-                    return binary.FullName;
-                }
-            }
-
-            directory = directory.Parent;
-        }
-
-        return null;
     }
 
     [TestMethod]
