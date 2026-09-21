@@ -271,7 +271,7 @@
               "recursive": false
             },
             "--password": {
-              "description": "Password for the generated PFX file",
+              "description": "Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you.",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": true,
