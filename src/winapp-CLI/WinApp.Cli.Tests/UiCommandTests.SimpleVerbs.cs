@@ -230,6 +230,18 @@ public partial class UiCommandTests
         }
     }
 
+    [TestMethod]
+    public async Task GetFocused_Help_ExplainsExactWindowScope()
+    {
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<WinAppRootCommand>(), ["ui", "get-focused", "--help"]);
+
+        Assert.AreEqual(0, exitCode);
+        var help = TestAnsiConsole.Output.ReplaceLineEndings(" ");
+        StringAssert.Contains(help, "exact top-level window");
+        StringAssert.Contains(help, "owned popups are excluded");
+    }
+
     // ---------- get-property ----------
 
     [TestMethod]

@@ -4017,7 +4017,7 @@
           }
         },
         "get-focused": {
-          "description": "Show the element that currently has keyboard focus in the target app.",
+          "description": "Show the element that currently has keyboard focus in the target app. With -w, focus must belong to that exact top-level window; owned popups are excluded.",
           "hidden": false,
           "options": {
             "--app": {
