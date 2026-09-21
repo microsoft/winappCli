@@ -432,6 +432,36 @@ public class FindUiCommandTests : BaseCommandTests
 
     [TestMethod]
     [DoNotParallelize] // redirects the process-global Console.Error
+    public async Task EmbeddedCorpus_WarnsThatResultsMayLagUpstream()
+    {
+        // Positive control for the suppression test below: a Gallery/Toolkit/Reactor result
+        // served from the built-in snapshot must still say so, which is the regression the
+        // notice was added to prevent. Without this, the suppression test stays green even
+        // if the notice stops firing for every origin.
+        var fake = FakeControlsSearchService.WithEngine(BuildEngine());
+        fake.LoadedOrigin = CorpusOrigin.Embedded;
+        _fakeService = fake;
+
+        var originalError = Console.Error;
+        using var stderr = new StringWriter();
+        int exit;
+        try
+        {
+            Console.SetError(stderr);
+            exit = await ParseAndInvokeWithCaptureAsync(Command(), ["tabview"]);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(0, exit);
+        StringAssert.Contains(stderr.ToString(), "built into the CLI",
+            "an embedded Gallery/Toolkit/Reactor result must warn that it may lag upstream");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-global Console.Error
     public async Task SourceCore_DoesNotWarnThatTheCorpusMayLagUpstream()
     {
         // The core patterns are curated and compiled in — they track no upstream repo and

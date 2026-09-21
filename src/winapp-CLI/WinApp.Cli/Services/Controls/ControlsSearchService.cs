@@ -220,6 +220,13 @@ internal sealed class ControlsSearchService : IControlsSearchService, IDisposabl
                 // degraded engine must not be pinned.
                 if (allowCoreOnly)
                 {
+                    // Results are served, and they come from data compiled into the binary —
+                    // the same embedded tier a core-only request reports. Leaving None here
+                    // would again make a successful answer indistinguishable from the total
+                    // failure below. The staleness notice does fire on this path, and is
+                    // accurate: the corpus the caller asked for is missing, and --refresh is
+                    // what repopulates it.
+                    LoadedOrigin = CorpusOrigin.Embedded;
                     return new SearchEngine(
                         Array.Empty<Scenario>(),
                         DataLoader.LoadCorePatterns(),

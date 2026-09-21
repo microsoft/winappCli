@@ -478,6 +478,36 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
+    public async Task LoadedOrigin_AllProvidersEmpty_AllowCoreOnly_ReportsEmbedded()
+    {
+        // The degraded fallback: the snapshot is missing/unreadable and every provider came
+        // back empty, but the compiled-in core patterns still answer --list. Results were
+        // served from data baked into the binary, so the origin is the embedded tier — a
+        // None here would put a successful answer back in the same bucket as a total
+        // failure, which is exactly what this contract exists to separate.
+        var gallery = new FakeSearchProvider("gallery", ProviderData.Empty);
+        var sut = new ControlsSearchService([gallery]);
+
+        var engine = await sut.GetEngineAsync(allowCoreOnly: true);
+
+        Assert.IsTrue(engine.ListAll().Any(), "the core patterns must still answer");
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+    }
+
+    [TestMethod]
+    public async Task LoadedOrigin_AllProvidersEmpty_WithoutCoreOnly_StaysNone()
+    {
+        // Nothing was served at all — the one case an absent corpus is reserved for.
+        var gallery = new FakeSearchProvider("gallery", ProviderData.Empty);
+        var sut = new ControlsSearchService([gallery]);
+
+        await Assert.ThrowsExactlyAsync<ControlsDataUnavailableException>(
+            () => sut.GetEngineAsync());
+
+        Assert.AreEqual(CorpusOrigin.None, sut.LoadedOrigin);
+    }
+
+    [TestMethod]
     public async Task LoadedOrigin_MemoizedEngineHit_ReportsThatEngineSOrigin()
     {
         // The origin has to travel with the engine it describes. A core-only request
