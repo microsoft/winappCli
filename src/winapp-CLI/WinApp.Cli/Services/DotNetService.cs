@@ -619,9 +619,8 @@ internal partial class DotNetService : IDotNetService
             throw;
         }
 
-        // WaitForExitAsync returns once the process exits, but the async stdout/stderr readers may
-        // still have buffered data in flight. The parameterless overload blocks until those readers
-        // have flushed, so the StringBuilders are complete before we read them.
+        // On .NET 10, WaitForExitAsync already drains both asynchronous readers and completes their
+        // callbacks. The synchronous wait below is redundant for output delivery.
         process.WaitForExit();
 
         return (process.ExitCode, outputBuilder.ToString(), errorBuilder.ToString());
