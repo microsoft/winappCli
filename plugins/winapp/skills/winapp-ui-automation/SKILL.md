@@ -377,8 +377,8 @@ winapp ui wait-for itm-status-c3d4 -a myapp --value "Complete" --timeout 5000
 - When multiple elements match text search, the error shows slugs for each — pick the right one
 - Use `get-property --property ToggleState` to verify checkbox/toggle state after invoke
 - `scroll` auto-finds the nearest scrollable parent
-- Use `--capture-screen` to capture popup overlays, dropdown menus, and flyouts (also brings the window to the foreground)
-- Use `hover` before `screenshot --capture-screen` to capture tooltips and hover-triggered UI
+- Follow [Screenshot](#screenshot) to select a window with `-w <hwnd> --capture-screen` for popup overlays, dropdown menus, and flyouts
+- Follow [Hover](#hover-for-tooltips-flyouts-hover-states) to capture tooltips and hover-triggered UI in place
 - Use `--focus` to foreground the target window before capture without switching to screen-DC capture (default capture path uses Windows.Graphics.Capture and works while occluded)
 - Use `--hide-disabled` and `--hide-offscreen` to reduce noise
 
@@ -447,7 +447,7 @@ including default filenames and `--frames` directories, return to the host.
 | "Element may have changed" | Slug hash doesn't match current element | Re-run `inspect` to get fresh slugs |
 | "does not support any invoke pattern" | Element can't be invoked | The error shows the invokable ancestor slug if one exists — use that |
 | "No UIA window found" | UIA can't see the window | Use `list-windows` to find HWND, then `-w` |
-| Popup not in screenshot | Default capture path doesn't include unowned overlays | Use `--capture-screen` flag |
+| Popup not in screenshot | Default capture path doesn't include unowned overlays | Follow [Screenshot](#screenshot) to select a window with `-w <hwnd> --capture-screen` |
 | `foreground_not_target` from `--capture-screen` | Windows refused the activation (focus-stealing prevention, UAC prompt, another window activating itself), so a screen capture would have recorded the wrong window | Click the target window, close the window that stole focus, then retry — or drop `--capture-screen` to capture the window directly |
 | `element_not_found` during record | Selector given but element not in tree | Re-run `inspect` or `search` to get a fresh selector |
 | `ambiguous_selector` during record | Plain-text selector matched multiple elements | Use a slug from the suggestions in the error message, or from `inspect` output |

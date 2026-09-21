@@ -496,7 +496,7 @@ winapp ui screenshot -w 131906 --capture-screen     # one screen region, with vi
 winapp ui screenshot -a myapp --focus               # bring window to foreground first, then capture (default WGC path)
 ```
 
-Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` includes the app's windows and their owned windows; `-w` includes only that window and its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
+Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
 
 With `--on sandbox`, `--output` names the host destination. Successful plain output and `--json` report that host path after the image is delivered.
 
@@ -583,7 +583,7 @@ recordings and whole-desktop capture.
 - `frame_output_failed` — Neither artifact could be preserved after frame output failed.
 - `partial_output` — Only one artifact completed; inspect `partialOutput` and `recoveryHint`.
 
-**Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or use `ui screenshot --capture-screen`. See [#646](https://github.com/microsoft/winappCli/issues/646).
+**Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or follow the [screenshot overlay workflow](#screenshot) for a still image. See [#646](https://github.com/microsoft/winappCli/issues/646).
 
 
 ### invoke
@@ -959,7 +959,7 @@ for example `MSTest.Windows.UIAutomation`, whose `WindowTest.MainWindow` is a UI
 | "does not support any invoke pattern" | Element can't be invoked | Use `inspect` on the element to find an invokable child |
 | "No UIA window found" | UIA can't see the process | Use `list-windows` to find the HWND, then `-w` |
 | "Window has zero size" | Window is minimized | App will be auto-restored |
-| Popup/dropdown not in screenshot | Default capture is per-window and doesn't include unowned overlays | Use `--capture-screen` flag |
+| Popup/dropdown not in screenshot | Default capture is per-window and doesn't include unowned overlays | Follow the [screenshot overlay workflow](#screenshot) to select a window with `-w <hwnd> --capture-screen` |
 | `foreground_not_target` from `--capture-screen` | Windows refused the activation, so a screen capture would have recorded whatever window is actually in front | Click the target window or close the focus-stealing window and retry, or drop `--capture-screen` |
 | `element_not_found` during record | Selector given but no matching element | Re-run `inspect` or `search` to get a fresh selector |
 | WGC unavailable during record | WGC capture init failed; no silent fallback | Check GPU/driver; use `--capture-screen` to consent to screen-DC capture |

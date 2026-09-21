@@ -22,7 +22,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
     public UiScreenshotCommand()
         : base("screenshot", "Capture the target window or element as a PNG image. " +
                "Without an element selector, combines multiple windows into one labeled composite: " +
-               "--app includes the app's windows and their owned windows; --window includes that window and its owned windows. " +
+               "--app by process name or PID includes the app's windows and their owned windows; a title match or --window selects one window plus its owned windows. " +
                "With --json, returns file path and dimensions. Use --capture-screen with --window to capture one screen region, including visible overlays in place.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);

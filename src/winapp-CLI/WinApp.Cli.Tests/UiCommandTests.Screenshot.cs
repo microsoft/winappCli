@@ -140,6 +140,8 @@ public partial class UiCommandTests
         var help = TestAnsiConsole.Output.ReplaceLineEndings(" ");
         StringAssert.Contains(help, "labeled composite");
         StringAssert.Contains(help, "owned windows");
+        StringAssert.Contains(help, "process name or PID");
+        StringAssert.Contains(help, "a title match");
         Assert.IsFalse(help.Contains("separate file", StringComparison.Ordinal));
     }
 
