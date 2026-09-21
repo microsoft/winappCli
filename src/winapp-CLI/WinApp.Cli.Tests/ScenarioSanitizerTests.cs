@@ -47,12 +47,12 @@ public class ScenarioSanitizerTests
     }
 
     [TestMethod]
-    public void XamlIsWellFormed_TruncationRepairedMarkup_Valid()
+    public void XamlIsWellFormed_RepairedMarkup_Valid()
     {
-        // TruncateXaml appends closers + a trailing comment; the repaired result must parse.
-        var truncated = ControlSnippetText.TruncateXaml(
-            "<StackPanel><Grid><TextBox Text=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxx\" /></Grid></StackPanel>", 30);
-        Assert.IsTrue(ScenarioSanitizer.XamlIsWellFormed(truncated), $"repaired XAML should parse:\n{truncated}");
+        // CloseUnbalancedTags appends the missing closers; the repaired result must parse.
+        var repaired = ControlSnippetText.CloseUnbalancedTags(
+            "<StackPanel><Grid><TextBox Text=\"x\" />");
+        Assert.IsTrue(ScenarioSanitizer.XamlIsWellFormed(repaired), $"repaired XAML should parse:\n{repaired}");
     }
 
     // ── C# brace balance ────────────────────────────────────────────────────
