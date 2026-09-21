@@ -20,9 +20,6 @@ internal static partial class ToolkitFetcher
         Timeout = TimeSpan.FromSeconds(30)
     };
 
-    private const int MaxXamlChars = 1000;
-    private const int MaxCSharpChars = 2500;
-
     /// <summary>Components/samples that aren't visual controls — skip them.</summary>
     private static readonly HashSet<string> SkippedComponents = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -361,20 +358,9 @@ internal static partial class ToolkitFetcher
                 var sid = MakeScenarioId(controlId, friendly);
                 var cs = IsEmptyCodeBehind(csText) ? "" : CleanCSharp(csText, sampleName);
 
-                // Smart truncation: if the cleaned XAML is too big, try to extract just
-                // the core <controls:Name> element(s) so we don't lose the actual usage.
-                var xamlOut = cleanedXaml;
-                if (xamlOut.Length > MaxXamlChars)
-                {
-                    var focused = ExtractCoreControl(xamlOut, controlName);
-                    if (focused != null) xamlOut = focused;
-                }
-                xamlOut = ControlSnippetText.TruncateXaml(xamlOut, MaxXamlChars);
+                var xamlOut = ControlSnippetText.CloseUnbalancedTags(cleanedXaml);
 
-                // Truncate the C# first, then strip handlers against the FINAL C# we ship —
-                // otherwise a handler defined only in the part truncation removes would be
-                // kept in the XAML but missing from the emitted code-behind (dangling).
-                var csOut = string.IsNullOrEmpty(cs) ? null : ControlSnippetText.TruncateCode(cs, MaxCSharpChars, "// ...truncated");
+                var csOut = string.IsNullOrEmpty(cs) ? null : cs;
                 xamlOut = ControlSnippetText.StripUnbackedEventHandlers(xamlOut, csOut);
 
                 scenarios.Add(new Scenario
@@ -637,32 +623,6 @@ internal static partial class ToolkitFetcher
                 Regex.IsMatch(outside, $@"\{{(?:Static|Theme)Resource\s+{Regex.Escape(k)}\}}"));
             return referenced ? m.Value : "";
         }, RegexOptions.Singleline);
-    }
-
-    /// <summary>
-    /// When a sample is too large, try to extract just the core control element(s)
-    /// (e.g., for a GridSplitterSample, find &lt;controls:GridSplitter&gt; blocks).
-    /// Returns the focused subset if found and shorter; otherwise returns null.
-    /// </summary>
-    private static string? ExtractCoreControl(string xaml, string controlName)
-    {
-        var name = Regex.Escape(controlName);
-        // Match self-closing or paired controls:Name elements
-        var selfClose = $@"<controls:{name}\b[^>]*/>";
-        var paired = $@"<controls:{name}\b[^>]*?>[\s\S]*?</controls:{name}>";
-        var matches = Regex.Matches(xaml, $@"({selfClose}|{paired})", RegexOptions.Singleline);
-        if (matches.Count == 0) return null;
-
-        var sb = new System.Text.StringBuilder();
-        foreach (Match m in matches)
-        {
-            sb.AppendLine(m.Value.Trim());
-            sb.AppendLine();
-        }
-        var focused = sb.ToString().TrimEnd();
-        // Only use if it actually saves space (otherwise full context is better)
-        if (focused.Length < xaml.Length * 0.8) return focused;
-        return null;
     }
 
     private static List<(string slugKey, string label, string? xamlDescription, string xaml)> SplitStackPanelChildren(string xaml, string targetControl)
