@@ -335,9 +335,13 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     }
 
     /// <inheritdoc/>
-    public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered)
+    public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered) =>
+        ResolveCandidates(remembered, _listClients());
+
+    private static SandboxClientWindow ResolveCandidates(
+        SandboxClientWindow? remembered, IReadOnlyList<SandboxClientCandidate> live)
     {
-        var candidates = _listClients()
+        var candidates = live
             .Where(candidate => candidate.Surface != SandboxClientSurface.TerminalError)
             .ToArray();
         var preferred = candidates.Any(candidate => candidate.Surface == SandboxClientSurface.Unknown)
@@ -383,9 +387,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
 
         _park(client, previousForeground);
 
-        var stillLive = _listClients()
+        var current = _listClients();
+        var stillLive = current
             .Any(candidate => candidate.Window == client && candidate.Surface == SandboxClientSurface.Session);
-        var restored = stillLive && !_isIconic(client.Handle);
+        var restored = stillLive && ResolveCandidates(client, current) == client && !_isIconic(client.Handle);
         var foregroundPreserved =
             previousForeground.IsNull ||
             _getForeground() == previousForeground;

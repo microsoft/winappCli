@@ -404,6 +404,49 @@ public class WindowsSandboxWindowControllerTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void EnsureClientReady_UnknownAppearsDuringRestore_FailsReadiness(bool realInput)
+    {
+        var restored = false;
+        var session = Candidate(12, 200, OurLauncher);
+        var unknown = Candidate(13, 300, OtherLauncher) with { Surface = SandboxClientSurface.Unknown };
+        var controller = new WindowsSandboxWindowController(
+            () => restored ? [session, unknown] : [session],
+            (_, _) => restored = true,
+            _ => !restored,
+            () => Snapshot(900).ForegroundWindow);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => controller.EnsureClientReady(session.Window,
+                realInput ? TargetDesktopUse.RealInput : TargetDesktopUse.PixelCapture));
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetAmbiguous, failure.Error.Code);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void EnsureClientReady_KnownViewerAppearsDuringRestore_PreservesOwnedSession(
+        bool terminalError)
+    {
+        var restored = false;
+        var session = Candidate(12, 200, OurLauncher);
+        var other = Candidate(13, 300, OtherLauncher) with
+        {
+            Surface = terminalError ? SandboxClientSurface.TerminalError : SandboxClientSurface.Session,
+        };
+        var controller = new WindowsSandboxWindowController(
+            () => restored ? [session, other] : [session],
+            (_, _) => restored = true,
+            _ => !restored,
+            () => Snapshot(900).ForegroundWindow);
+
+        var status = controller.EnsureClientReady(session.Window, TargetDesktopUse.RealInput);
+        Assert.AreEqual(session.Window, status.Window);
+        Assert.IsFalse(status.IsMinimized);
+    }
+
+    [TestMethod]
     public void EnsureClientReady_Minimized_RestoresWithoutChangingForeground()
     {
         var minimized = true;
