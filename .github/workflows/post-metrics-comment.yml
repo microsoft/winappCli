@@ -242,6 +242,12 @@ jobs:
             }
 
             let body = '## Build Metrics Report\n\n';
+            // Overall status comes only from trusted workflow metadata, not the artifact.
+            if (context.payload.workflow_run.conclusion === 'success') {
+              body += '**Validation passed.** All required build and validation jobs succeeded.\n\n';
+            } else {
+              body += '**Validation did not pass.** Artifacts were uploaded before validation finished; check the workflow run before using them.\n\n';
+            }
 
             // --- Binary sizes ---
             // (keys are already whitelisted via sanitizeSizes; labels[key] is always defined)
@@ -276,7 +282,8 @@ jobs:
             }
 
             // --- Test summary ---
-            body += '\n### Test Results\n\n';
+            body += '\n### .NET Test Results (TRX reports)\n\n';
+            body += 'Other suites are reflected in the overall validation status above.\n\n';
             const testIcon = tests.failed > 0 ? ':x:' : ':white_check_mark:';
             const durationSec = (tests.durationMs / 1000).toFixed(1);
             body += `${testIcon} **${tests.passed}** passed`;
