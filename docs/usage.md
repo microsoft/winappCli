@@ -1169,6 +1169,21 @@ winapp perf record .\src\MyApp\MyApp.csproj --duration-sec 10
 resolution as [`winapp run`](#run). It builds in `Release` by default, starts observation immediately
 before activation, prints milestones while recording, and writes a `.winappperf` directory containing:
 
+```text
+Recording started: 2026-09-22 10:20:14 +08:00
+Press Ctrl+C to stop.
+[T+00:00:00.276] App process started
+[T+00:00:01.802] App window visible
+[T+00:00:02.249] App window responding - 2.25 s after activation
+[T+00:00:07.849] App window stopped responding
+[T+00:00:12.222] App window responding again - observed unresponsive for 4.37 s
+```
+
+`T+` is cumulative monotonic time since activation, not time since the previous line. Durations are
+printed explicitly. Routine PID, HWND, UI-thread, and response-probe details stay out of the default
+view; use `--verbose` to include them. `--quiet` suppresses live progress without changing the
+recorded evidence or final result.
+
 - `report.json` — the canonical post-record report: recording duration and outcome, startup timing
   and stages, resource summary, collector and XAML coverage, and paths to retained evidence. The
   terminal prints a concise view of this same report when recording ends.

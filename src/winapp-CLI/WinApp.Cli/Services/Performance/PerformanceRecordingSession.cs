@@ -20,6 +20,7 @@ internal readonly record struct PerformanceWindowTarget(
 internal interface IPerformanceRecordingSession : IDisposable
 {
     string BundlePath { get; }
+    DateTimeOffset TimelineStartedUtc { get; }
     StartupLaunchDisposition Disposition { get; }
     int ActivationProcessId { get; }
     bool HasObservedProcesses { get; }
@@ -140,6 +141,11 @@ internal sealed class PerformanceRecordingSession : IPerformanceRecordingSession
     }
 
     public string BundlePath => _writer.FinalDirectory;
+
+    public DateTimeOffset TimelineStartedUtc =>
+        _writer.TimelineStartedUtc
+        ?? throw new InvalidOperationException(
+            "The recording timeline has not started.");
 
     public StartupLaunchDisposition Disposition =>
         _observer.Session?.Disposition ?? StartupLaunchDisposition.Pending;

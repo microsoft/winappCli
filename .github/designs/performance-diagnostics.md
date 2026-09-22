@@ -129,7 +129,11 @@ must work without an Agent.
 
 The output contract has three surfaces:
 
-1. A live terminal view reports recording progress and collector state.
+1. A live terminal view reports user-facing startup and responsiveness
+   milestones on a cumulative monotonic `T+hh:mm:ss.fff` timeline. It prints
+   durations directly and hides raw PID, HWND, UI-thread, and probe details
+   unless `--verbose` is used. Raw `WindowObserved` events remain evidence-only
+   in the default view.
 2. A concise terminal result and canonical `report.json` explain the completed
    recording using the same typed startup, resource, XAML, and coverage facts.
 3. `timeline.ndjson`, ETL, nettrace, and focused summaries retain the underlying

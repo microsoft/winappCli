@@ -10,11 +10,13 @@ Start with:
 winapp perf record <project-or-build-output>
 ```
 
-This prints live activation, process, window, and collector progress, then writes one `.winappperf`
-directory. Read `report.json` first: it is the canonical post-record report for startup stages,
-resources, collector/XAML coverage, and retained evidence. Use `timeline.ndjson` and the referenced
-raw artifacts when deeper evidence is needed. Stop an unbounded recording with Ctrl+C, or let it
-stop when the target exits.
+This prints user-facing startup and responsiveness milestones on a `T+hh:mm:ss.fff` timeline, then
+writes one `.winappperf` directory. `T+` is cumulative time since activation; recovery messages print
+the observed unresponsive duration directly. Use `--verbose` when raw PID, HWND, UI-thread, and
+response-probe details are needed. Read `report.json` first: it is the canonical post-record report
+for startup stages, resources, collector/XAML coverage, and retained evidence. Use `timeline.ndjson`
+and the referenced raw artifacts when deeper evidence is needed. Stop an unbounded recording with
+Ctrl+C, or let it stop when the target exits.
 
 Use the facts to identify which interval or resource needs deeper investigation. Process exit time
 and code are lifecycle facts only; direct crash diagnosis to `winapp run <target> --debug-output`

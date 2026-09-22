@@ -1102,6 +1102,9 @@ public sealed class PerformanceStage3Tests : BaseCommandTests
         }
 
         public string BundlePath { get; }
+        public DateTimeOffset TimelineStartedUtc =>
+            _writer.TimelineStartedUtc
+            ?? throw new InvalidOperationException("The fake timeline has not started.");
         public StartupLaunchDisposition Disposition { get; }
         public int ActivationProcessId => 42;
         public bool HasObservedProcesses => true;

@@ -127,6 +127,9 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            var quiet = parseResult.GetValue(WinAppRootCommand.QuietOption);
+            var liveOutput = new PerformanceLiveOutputPresenter(
+                parseResult.GetValue(WinAppRootCommand.VerboseOption));
             if (RunCommand.Handler.HasValuelessProperty(parseResult, PropertyOption))
             {
                 return Fail(
@@ -263,13 +266,15 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 return launch.ExitCode;
             }
 
-            if (!json)
+            if (!json && !quiet)
             {
-                parseResult.InvocationConfiguration.Output.WriteLine(
-                    "Recording performance. Press Ctrl+C to stop.");
-                WriteLiveEvents(
+                PerformanceLiveOutputPresenter.WriteStart(
                     parseResult.InvocationConfiguration.Output,
-                    recording.LastWrittenEvents);
+                    recording.TimelineStartedUtc);
+                liveOutput.Write(
+                    parseResult.InvocationConfiguration.Output,
+                    recording.LastWrittenEvents,
+                    recording.TargetProcess);
             }
 
             string stopReason;
@@ -282,9 +287,12 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     durationSec,
                     events =>
                     {
-                        if (!json)
+                        if (!json && !quiet)
                         {
-                            WriteLiveEvents(parseResult.InvocationConfiguration.Output, events);
+                            liveOutput.Write(
+                                parseResult.InvocationConfiguration.Output,
+                                events,
+                                recording.TargetProcess);
                         }
                     },
                     cancellationToken);
@@ -656,52 +664,6 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 await Task.Delay(PerformanceRecordingSession.PollInterval, cancellationToken);
             }
         }
-
-        internal static void WriteLiveEvents(
-            TextWriter output,
-            IReadOnlyList<PerformanceTimelineEntry> events)
-        {
-            foreach (var entry in events)
-            {
-                output.WriteLine(FormatLiveEvent(entry));
-            }
-        }
-
-        internal static string FormatLiveEvent(PerformanceTimelineEntry entry)
-        {
-            var prefix = $"[+{entry.ElapsedMs / 1000:0.000}s]";
-            var process = entry.ProcessId is { } processId ? $" PID {processId}" : string.Empty;
-            var window = entry.WindowHandle is { } windowHandle
-                ? $" HWND 0x{windowHandle:X}"
-                : string.Empty;
-            return entry.Type switch
-            {
-                nameof(StartupEventType.ActivationRequested) =>
-                    $"{prefix} Activation requested",
-                nameof(StartupEventType.ProcessObserved) =>
-                    $"{prefix} Process observed{process}{FormatPreExisting(entry)}",
-                nameof(StartupEventType.WindowObserved) =>
-                    $"{prefix} Window observed{window}{process}{FormatPreExisting(entry)}",
-                nameof(StartupEventType.WindowVisible) =>
-                    $"{prefix} Window visible{window}{process}",
-                nameof(StartupEventType.WindowResponsive) =>
-                    $"{prefix} Window responsive{window}{process}",
-                nameof(StartupEventType.WindowResponseFailed) =>
-                    $"{prefix} Window response failed{window}{process}",
-                nameof(StartupEventType.WindowResponseProbeFailed) =>
-                    $"{prefix} Window response probe failed{window}{process}; " +
-                    $"{entry.ResponseProbeOutcome ?? "Win32Failure"}" +
-                    (entry.Win32ErrorCode is { } error ? $"; Win32 {error}" : string.Empty),
-                nameof(StartupEventType.WindowResponseRecovered) =>
-                    $"{prefix} Window response recovered{window}{process}",
-                nameof(StartupEventType.ProcessExited) =>
-                    $"{prefix} Process exited{process}; code {entry.ExitCode?.ToString() ?? "unknown"}",
-                _ => $"{prefix} {entry.Type}{window}{process}",
-            };
-        }
-
-        private static string FormatPreExisting(PerformanceTimelineEntry entry) =>
-            entry.WasPresentBeforeActivation == true ? " (present before activation)" : string.Empty;
 
         private static string[] BuildRunArguments(ParseResult parseResult)
         {

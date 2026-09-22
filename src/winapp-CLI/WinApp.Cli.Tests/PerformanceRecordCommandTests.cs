@@ -73,20 +73,115 @@ public sealed class PerformanceRecordCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void FormatLiveEvent_UsesElapsedTimeAndConcreteIdentity()
+    public void LiveOutput_DefaultUsesTimelineAndHumanMeaning()
     {
-        var line = PerfRecordCommand.Handler.FormatLiveEvent(new()
+        var output = new StringWriter();
+        var presenter = new PerformanceLiveOutputPresenter(verbose: false);
+
+        presenter.Write(output,
+        [
+            Event(StartupEventType.ActivationRequested, 0),
+            Event(StartupEventType.ProcessObserved, 276),
+            Event(StartupEventType.WindowObserved, 1_447, windowHandle: 7),
+            Event(StartupEventType.WindowVisible, 1_802, windowHandle: 7),
+            Event(StartupEventType.WindowResponsive, 2_249, windowHandle: 7),
+            Event(StartupEventType.WindowResponseFailed, 7_849, windowHandle: 7),
+            Event(StartupEventType.WindowResponseRecovered, 12_222, windowHandle: 7),
+            Event(StartupEventType.ProcessExited, 18_418, exitCode: 0),
+        ]);
+
+        Assert.AreEqual(
+            string.Join(
+                Environment.NewLine,
+                "[T+00:00:00.000] App activation requested",
+                "[T+00:00:00.276] App process started",
+                "[T+00:00:01.802] App window visible",
+                "[T+00:00:02.249] App window responding - 2.25 s after activation",
+                "[T+00:00:07.849] App window stopped responding",
+                "[T+00:00:12.222] App window responding again - observed unresponsive for 4.37 s",
+                "[T+00:00:18.418] App exited normally",
+                string.Empty),
+            output.ToString());
+    }
+
+    [TestMethod]
+    public void LiveOutput_VerboseRetainsTechnicalIdentityAndProbeDetails()
+    {
+        var presenter = new PerformanceLiveOutputPresenter(verbose: true);
+        var line = presenter.Format(new()
         {
-            Type = nameof(StartupEventType.WindowResponseFailed),
+            Type = nameof(StartupEventType.WindowResponseProbeFailed),
             ElapsedMs = 37_210.29,
             BoundaryResolutionMs = 100,
             ProcessId = 14240,
             WindowHandle = 984940,
+            WindowThreadId = 73,
+            ResponseProbeOutcome = nameof(WindowResponseProbeOutcome.Win32Failure),
+            Win32ErrorCode = 0,
         });
 
         Assert.AreEqual(
-            "[+37.210s] Window response failed HWND 0xF076C PID 14240",
+            "[T+00:00:37.210] Window response probe failed; PID 14240; " +
+            "HWND 0xF076C; thread 73; probe Win32Failure; Win32 0",
             line);
+    }
+
+    [TestMethod]
+    public void LiveOutput_DefaultLabelsMultipleVisibleWindows()
+    {
+        var output = new StringWriter();
+        var presenter = new PerformanceLiveOutputPresenter(verbose: false);
+
+        presenter.Write(output,
+        [
+            Event(StartupEventType.WindowVisible, 100, windowHandle: 7),
+            Event(StartupEventType.WindowVisible, 200, windowHandle: 8),
+            Event(StartupEventType.WindowResponseFailed, 300, windowHandle: 8),
+            Event(StartupEventType.WindowResponseRecovered, 750, windowHandle: 8),
+        ]);
+
+        StringAssert.Contains(output.ToString(), "[T+00:00:00.200] App window 2 visible");
+        StringAssert.Contains(output.ToString(), "[T+00:00:00.300] App window 2 stopped responding");
+        StringAssert.Contains(
+            output.ToString(),
+            "[T+00:00:00.750] App window 2 responding again - observed unresponsive for 450 ms");
+    }
+
+    [TestMethod]
+    public void LiveOutput_TimelinePositionDoesNotWrapAfterOneHour()
+    {
+        var presenter = new PerformanceLiveOutputPresenter(verbose: false);
+
+        var line = presenter.Format(Event(
+            StartupEventType.ProcessObserved,
+            25 * 60 * 60 * 1_000 + 2_003));
+
+        Assert.AreEqual("[T+25:00:02.003] App process started", line);
+    }
+
+    [TestMethod]
+    public void LiveOutput_DefaultHidesNonTargetProcessLifecycle()
+    {
+        var output = new StringWriter();
+        var presenter = new PerformanceLiveOutputPresenter(verbose: false);
+
+        presenter.Write(
+            output,
+            [
+                Event(StartupEventType.ProcessObserved, 100, processId: 41),
+                Event(StartupEventType.ProcessObserved, 200, processId: 42),
+                Event(StartupEventType.ProcessExited, 300, processId: 41, exitCode: 0),
+                Event(StartupEventType.ProcessExited, 400, processId: 42, exitCode: 7),
+            ],
+            new ProcessIdentity(42, 1234));
+
+        Assert.AreEqual(
+            string.Join(
+                Environment.NewLine,
+                "[T+00:00:00.200] App process started",
+                "[T+00:00:00.400] App exited with code 7",
+                string.Empty),
+            output.ToString());
     }
 
     [TestMethod]
@@ -196,12 +291,31 @@ public sealed class PerformanceRecordCommandTests : BaseCommandTests
         Assert.Contains("I/O read 4.1 KiB, write 0 bytes", line);
     }
 
+    private static PerformanceTimelineEntry Event(
+        StartupEventType type,
+        double elapsedMs,
+        long? windowHandle = null,
+        int processId = 42,
+        int? exitCode = null) =>
+        new()
+        {
+            Type = type.ToString(),
+            ElapsedMs = elapsedMs,
+            BoundaryResolutionMs = 100,
+            ProcessId = processId,
+            ProcessStartTimeUtcTicks = 1234,
+            WindowHandle = windowHandle,
+            WindowThreadId = windowHandle is null ? null : 73,
+            ExitCode = exitCode,
+        };
+
     private sealed class ExitingRecordingSession(int exitAfterObservations)
         : IPerformanceRecordingSession
     {
         public int ObservationCount { get; private set; }
         public int ForcedSnapshotCount { get; private set; }
         public string BundlePath => string.Empty;
+        public DateTimeOffset TimelineStartedUtc => DateTimeOffset.UnixEpoch;
         public StartupLaunchDisposition Disposition => StartupLaunchDisposition.Launched;
         public int ActivationProcessId => 1;
         public bool HasObservedProcesses => true;
@@ -304,6 +418,7 @@ public sealed class PerformanceRecordCommandTests : BaseCommandTests
         public int ObservationCount { get; private set; }
         public int ForcedSnapshotCount { get; private set; }
         public string BundlePath => string.Empty;
+        public DateTimeOffset TimelineStartedUtc => DateTimeOffset.UnixEpoch;
         public StartupLaunchDisposition Disposition => StartupLaunchDisposition.Pending;
         public int ActivationProcessId => 42;
         public bool HasObservedProcesses => false;

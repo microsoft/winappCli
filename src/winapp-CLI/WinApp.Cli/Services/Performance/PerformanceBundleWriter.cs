@@ -264,6 +264,13 @@ internal sealed class PerformanceBundleWriter : IDisposable
 
     public int EventCount => _eventCount;
 
+    public DateTimeOffset? TimelineStartedUtc =>
+        _timelineOrigin is { } timelineOrigin
+            ? _calibration.Utc + timelineOrigin.ElapsedSince(
+                _calibration.Timestamp,
+                _calibration.Frequency)
+            : null;
+
     public (string EtlPath, string TemporaryDirectory) CreateWprPaths()
     {
         var tracesDirectory = Path.Join(_stagingDirectory, "traces");
@@ -472,9 +479,8 @@ internal sealed class PerformanceBundleWriter : IDisposable
                     PerformanceJsonContext.Default.XamlPerformanceSummary),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
-        var startedUtc = _calibration.Utc + timelineOrigin.ElapsedSince(
-            _calibration.Timestamp,
-            _calibration.Frequency);
+        var startedUtc = TimelineStartedUtc
+            ?? throw new InvalidOperationException("The timeline origin must be available.");
         var completedUtc = DateTimeOffset.UtcNow;
         var startupTiming = CreateStartupTiming();
         var responsiveness = PerformanceResponsivenessSummaryBuilder.Create(
