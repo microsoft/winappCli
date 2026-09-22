@@ -1771,7 +1771,7 @@ Search **WinUI** controls and samples for a working code example. WinUI-only: th
 winapp find-ui "<query>" [options]
 ```
 
-The Gallery, Toolkit, and Reactor corpora ship **inside the CLI**, so `find-ui` works with no network access — including on a first run in an agent sandbox or behind a corporate proxy that blocks `raw.githubusercontent.com`. When GitHub *is* reachable the CLI refreshes from it and caches the result per-user under `<global .winapp>/cache/find-ui`; the built-in corpus is only a floor, never a ceiling. Cached data is refreshed at most every 24 hours, or on demand with `--refresh`.
+The Gallery, Toolkit, and Reactor corpora ship **inside the CLI**, so `find-ui` works with no network access — including on a first run in an agent sandbox or behind a corporate proxy that blocks `raw.githubusercontent.com`. When GitHub *is* reachable the CLI refreshes from it and normally caches the result per-user under `<global .winapp>/cache/find-ui`; the built-in corpus is only a floor, never a ceiling. For fallback cache locations, see [Restricted Filesystem Access](#restricted-filesystem-access). Cached data is refreshed at most every 24 hours, or on demand with `--refresh`.
 
 The built-in corpus is re-fetched from GitHub every time a stable release is built, and a refresh that fails **stops the release build** rather than quietly shipping older data — the baker fetches through the same code path `--refresh` uses, so a failure there means the live refresh is broken too and is worth investigating before shipping. A release can still be cut against the previously committed corpus, but only as an explicit override. When results are served from the built-in copy of the Gallery/Toolkit/Reactor corpora, `find-ui` says so on stderr and `--json` output carries `"corpus": "embedded"` (other values: `"network"` for a fresh fetch, `"cache"` for the local cache). A core-only request — `--source core`, or an `--id` set that is all core patterns — reports `"embedded"` too, because the curated core patterns are compiled into the CLI and never fetched; it prints no staleness notice, since `--refresh` cannot change them. The `corpus` field is reported whenever results were served; it is absent only when no corpus could be loaded at all.
 
@@ -1824,7 +1824,7 @@ winapp find-api "<query>" [options]
 winapp find-api [command] [options]
 ```
 
-The index is built from the project's restored NuGet/SDK packages (via `project.assets.json`) on first use and refreshed automatically when the project is restored. It lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects. Restore the project first (`winapp restore` or `dotnet restore`).
+The index is built from the project's restored NuGet/SDK packages (via `project.assets.json`) on first use and refreshed automatically when the project is restored. By default, it lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects. For fallback cache locations, see [Restricted Filesystem Access](#restricted-filesystem-access). Restore the project first (`winapp restore` or `dotnet restore`).
 
 Each match is listed under its namespace with the package that ships it and a one-line summary of what it does, so a result is usable without a second `members` call:
 

@@ -211,22 +211,48 @@ public partial class LayoutLeaseTests
     }
 
     [TestMethod]
-    public async Task OtherProcess_WithDifferentWorkingAndCacheDirectories_BlocksUntilKilled()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task OtherProcess_WithDifferentWorkingAndCacheDirectories_BlocksUntilKilled(bool longPath)
     {
-        var layout = new DirectoryInfo(Path.Combine(_root.FullName, "AppX"));
+        var layout = new DirectoryInfo(longPath
+            ? Path.Combine(_root.FullName, new string('p', 180), "AppX")
+            : Path.Combine(_root.FullName, "AppX"));
         var lockPath = LayoutLease.GetLockPath(layout);
+        if (longPath)
+        {
+            Assert.IsGreaterThan(260, lockPath.Length, "The child must hold an extended-length lock path.");
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
         var childWorkingDirectory = _root.CreateSubdirectory("child-working-directory");
         var childCacheDirectory = _root.CreateSubdirectory("child-cache");
         const string script = """
             $ErrorActionPreference = 'Stop'
-            $stream = [System.IO.FileStream]::new($env:WINAPP_TEST_LAYOUT_LOCK,
-                [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite,
-                [System.IO.FileShare]::None, 1, [System.IO.FileOptions]::None)
-            [Console]::Out.WriteLine('locked')
-            [Console]::Out.Flush()
-            [Console]::In.ReadLine() | Out-Null
-            $stream.Dispose()
+            Add-Type -TypeDefinition @'
+            using System;
+            using System.Runtime.InteropServices;
+            using Microsoft.Win32.SafeHandles;
+            public static class LayoutLeaseTestFile
+            {
+                [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+                [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+                public static extern SafeFileHandle Open(
+                    string path, uint access, uint share, IntPtr security,
+                    uint disposition, uint flags, IntPtr template);
+            }
+            '@
+            $handle = [LayoutLeaseTestFile]::Open($env:WINAPP_TEST_LAYOUT_LOCK,
+                3221225472, 0, [IntPtr]::Zero, 4, 128, [IntPtr]::Zero)
+            if ($handle.IsInvalid) {
+                throw [System.ComponentModel.Win32Exception]::new(
+                    [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+            }
+            try {
+                [Console]::Out.WriteLine('locked')
+                [Console]::Out.Flush()
+                [Console]::In.ReadLine() | Out-Null
+            }
+            finally { $handle.Dispose() }
             """;
         var start = new ProcessStartInfo
         {
@@ -243,14 +269,14 @@ public partial class LayoutLeaseTests
         start.ArgumentList.Add("-NonInteractive");
         start.ArgumentList.Add("-EncodedCommand");
         start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
-        start.Environment["WINAPP_TEST_LAYOUT_LOCK"] = lockPath;
+        // The native open avoids Windows PowerShell's .NET Framework path-policy dependency.
+        start.Environment["WINAPP_TEST_LAYOUT_LOCK"] = LongPathHelper.EnsureExtendedLengthPrefix(lockPath);
         start.Environment["LOCALAPPDATA"] = childCacheDirectory.FullName;
         using var child = Process.Start(start)!;
+        var errorOutput = child.StandardError.ReadToEndAsync(TestContext.CancellationToken);
         try
         {
-            using var readyTimeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
-            readyTimeout.CancelAfter(TimeSpan.FromSeconds(15));
-            Assert.AreEqual("locked", await child.StandardOutput.ReadLineAsync(readyTimeout.Token));
+            await AssertChildReadyAsync(child, errorOutput, TestContext.CancellationToken);
 
             Assert.ThrowsExactly<TimeoutException>(() =>
                 LayoutLease.Acquire(layout, TestContext.CancellationToken, TimeSpan.Zero));
@@ -269,6 +295,54 @@ public partial class LayoutLeaseTests
             Assert.IsTrue(File.Exists(lockPath));
         }
         Assert.IsTrue(File.Exists(lockPath));
+    }
+
+    [TestMethod]
+    public async Task ChildReadinessFailure_ReportsExitCodeAndStandardError()
+    {
+        var start = new ProcessStartInfo(TestPaths.SystemExecutable("cmd.exe"))
+        {
+            ArgumentList = { "/d", "/c", "echo fixture-startup-failed 1>&2 & exit /b 42" },
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        using var child = Process.Start(start)!;
+        var errorOutput = child.StandardError.ReadToEndAsync(TestContext.CancellationToken);
+
+        var failure = await Assert.ThrowsExactlyAsync<AssertFailedException>(
+            () => AssertChildReadyAsync(child, errorOutput, TestContext.CancellationToken));
+
+        StringAssert.Contains(failure.Message, "exit code 42");
+        StringAssert.Contains(failure.Message, "fixture-startup-failed");
+    }
+
+    private static async Task AssertChildReadyAsync(Process child, Task<string> errorOutput, CancellationToken ct)
+    {
+        using var readyTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        readyTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+        string? ready;
+        try
+        {
+            ready = await child.StandardOutput.ReadLineAsync(readyTimeout.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            ready = "timed out waiting for readiness";
+        }
+        if (ready == "locked")
+        {
+            return;
+        }
+
+        if (!child.HasExited)
+        {
+            child.Kill(entireProcessTree: true);
+        }
+        await child.WaitForExitAsync(ct);
+        Assert.Fail($"Lock-holder child did not become ready; exit code {child.ExitCode}, "
+            + $"stdout: {ready ?? "<closed>"}, stderr: {await errorOutput}");
     }
 
     [TestMethod]

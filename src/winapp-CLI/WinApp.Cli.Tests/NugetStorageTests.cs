@@ -460,8 +460,15 @@ public class NugetStorageTests
     }
 
     [TestMethod]
-    public void FallbackPackageIdJunction_BlocksChildAndInProcessAccess()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FallbackPackageIdJunction_BlocksChildAndInProcessAccess(bool longPath)
     {
+        if (longPath)
+        {
+            _invocation = _invocation.CreateSubdirectory(new string('p', 180));
+            WriteConfig(_invocation);
+        }
         var provider = CreateProvider();
         DenyDefaultReads(provider);
         provider.GetPackagesDirectory();
@@ -469,20 +476,15 @@ public class NugetStorageTests
         var targetFile = Path.Combine(target.FullName, "sentinel.txt");
         File.WriteAllText(targetFile, "unchanged");
         var link = Path.Combine(LocalPackages, "linked.package");
-        using (var process = Process.Start(new ProcessStartInfo("cmd.exe")
+        if (longPath)
         {
-            ArgumentList = { "/c", "mklink", "/J", link, target.FullName },
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        })!)
-        {
-            process.WaitForExit();
-            Assert.AreEqual(0, process.ExitCode, process.StandardError.ReadToEnd());
+            Assert.IsGreaterThan(260, link.Length, "The junction must exercise an extended-length path.");
         }
+        TestJunction.Create(link, target.FullName);
         try
         {
+            Assert.AreEqual(FileAttributes.ReparsePoint, File.GetAttributes(link) & FileAttributes.ReparsePoint);
+            Assert.AreEqual("unchanged", File.ReadAllText(Path.Combine(link, "sentinel.txt")));
             using (File.Open(targetFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 AssertFallbackLinkRejected(provider);
