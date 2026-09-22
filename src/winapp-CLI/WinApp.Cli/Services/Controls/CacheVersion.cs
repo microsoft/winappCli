@@ -103,7 +103,12 @@ namespace WinApp.Cli.Services.Controls;
 ///          the old numbering against the new data. The index publishes Gallery's source
 ///          verbatim, so GalleryProvider normalizes each sample for pasting the way the
 ///          scraper used to — Gallery-private symbols rewritten, event handlers with no
-///          implementation dropped — which is itself Rule 3.
+///          implementation dropped — which is itself Rule 3. That pass also reaches two
+///          places the scraper never did: the index's xmlnsImports field (rendered as the
+///          "Setup:" line, so a "using:WinUIGallery.ControlPages" mapping was an
+///          instruction to declare a prefix that cannot resolve) and Gallery's own package
+///          assets under Assets/SampleMedia and Assets/Tiles, which rendered as a silently
+///          blank Image or an AppWindow.SetIcon that quietly did nothing.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every

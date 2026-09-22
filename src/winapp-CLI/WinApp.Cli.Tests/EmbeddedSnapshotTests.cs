@@ -327,24 +327,62 @@ public class EmbeddedSnapshotTests
     [TestMethod]
     public void GalleryCorpus_ServesNoGalleryPrivateSymbol()
     {
-        // Gallery's own page classes, its SamplePage navigation targets and its UIHelper
-        // accessibility helper exist only inside the Gallery app. A sample that still names
-        // one compiles only if the user happens to have Gallery's source, so GalleryProvider
-        // rewrites them to obvious placeholders before baking. These match identifiers, not
-        // prose: a sample may legitimately mention a Gallery source file by name.
+        // Gallery's own page classes, its SamplePage navigation targets, its UIHelper
+        // accessibility helper and its CLR namespaces exist only inside the Gallery app. A
+        // sample that still names one compiles only if the user happens to have Gallery's
+        // source, so GalleryProvider rewrites them to obvious placeholders before baking.
+        // These match identifiers, not prose: a sample may legitimately mention a Gallery
+        // source file by name, and a "using:" or trailing-dot anchor keeps a source URL
+        // (".../main/WinUIGallery/ButtonPage.xaml.cs") out of the match.
         var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
         ScenarioSanitizer.SanitizeAll(scenarios);
 
-        string[] privateSymbols = [@"\bSamplePage\d*", @"\bUIHelper\.", "x:Class=\"WinUIGallery", @"namespace\s+WinUIGallery"];
+        string[] privateSymbols =
+        [
+            @"\bSamplePage\d*",
+            @"\bUIHelper\.",
+            "x:Class=\"WinUIGallery",
+            @"namespace\s+WinUIGallery",
+            @"using:(?:WinUIGallery|AppUIBasics)",
+            @"\b(?:WinUIGallery|AppUIBasics)\.",
+        ];
 
+        // XmlnsImports is checked alongside the snippets because SearchEngine renders it as
+        // the "Setup:" line: a Gallery namespace there is an instruction to declare a prefix
+        // that cannot resolve, which the two snippet fields would never reveal.
         var leaked = scenarios
             .Where(s => privateSymbols.Any(sym =>
-                Regex.IsMatch(s.Xaml ?? "", sym) || Regex.IsMatch(s.CSharp ?? "", sym)))
+                Regex.IsMatch(s.Xaml ?? "", sym)
+                || Regex.IsMatch(s.CSharp ?? "", sym)
+                || s.XmlnsImports.Any(import => Regex.IsMatch(import, sym))))
             .Select(s => s.Id)
             .ToList();
 
         Assert.AreEqual(0, leaked.Count,
             $"these Gallery samples still name a Gallery-internal symbol: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoGalleryOnlyAsset()
+    {
+        // Gallery ships its sample photos and videos under Assets/SampleMedia and its own app
+        // icon and tile logos under Assets/Tiles, inside its package. A pasted sample naming
+        // one of those paths compiles and then renders nothing — an <Image> that is silently
+        // blank, an AppWindow.SetIcon that quietly does not take — so GalleryProvider rewrites
+        // them to a placeholder that fails visibly instead. Nothing else in this file notices:
+        // the counts pass and the XAML is well-formed either way.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var leaked = scenarios
+            .Where(s => Regex.IsMatch(s.Xaml ?? "", @"Assets/(?:SampleMedia|Tiles)/")
+                        || Regex.IsMatch(s.CSharp ?? "", @"Assets/(?:SampleMedia|Tiles)/"))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Gallery samples point at an asset that only exists in Gallery's own package: " +
+            $"{string.Join(", ", leaked.Take(10))}");
     }
 
     // ------------------------------------------------------------------
