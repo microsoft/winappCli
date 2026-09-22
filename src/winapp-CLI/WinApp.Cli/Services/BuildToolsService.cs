@@ -47,11 +47,12 @@ internal partial class BuildToolsService(
             return;
         }
 
-        throw new BuildToolSignatureException(
-            $"'{toolPath.Name}' is not validly signed by Microsoft, so it was not run ({toolPath.FullName}). " +
-            "The file on disk is not what Microsoft published, which usually means a corrupt or partial " +
-            "download. Delete the package from the NuGet cache and run the command again to re-download it.");
+        throw new BuildToolSignatureException(VerifiedTool.UnsignedMessage(toolPath));
     }
+
+    /// <inheritdoc/>
+    public VerifiedTool OpenVerifiedTool(FileInfo toolPath) =>
+        VerifiedTool.Open(toolPath, SignatureVerifier, logger);
 
     /// <summary>
     /// Find the architecture-specific bin path within a package in the NuGet global packages
@@ -346,12 +347,14 @@ internal partial class BuildToolsService(
             ?? await EnsureBuildToolAvailableAsync(tool.ExecutableName, taskContext, cancellationToken: cancellationToken);
 
         // Re-checked here because callers may supply an override that never went through
-        // resolution (the architecture-matched signtool). Memoized, so this is not a second scan.
-        VerifyToolIsMicrosoftSigned(toolPath);
+        // resolution (the architecture-matched signtool). The tool stays held until this method
+        // returns, which is after it has exited, so the binary that passed the check is the binary
+        // that ran.
+        using var verifiedTool = OpenVerifiedTool(toolPath);
 
         var psi = new ProcessStartInfo
         {
-            FileName = toolPath.FullName,
+            FileName = verifiedTool.Path,
             Arguments = arguments,
             UseShellExecute = false,
             RedirectStandardOutput = true,

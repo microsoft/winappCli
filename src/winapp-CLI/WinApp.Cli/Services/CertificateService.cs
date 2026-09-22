@@ -18,6 +18,30 @@ internal partial class CertificateService(
 {
     public const string DefaultCertFileName = "devcert.pfx";
 
+    /// <summary>
+    /// PFX password used when the caller does not supply one. Publicly known by design: the
+    /// certificate it protects is only ever meant to sign local test builds.
+    /// </summary>
+    public const string DefaultCertPassword = "password";
+
+    /// <summary>
+    /// Security disclosure that must accompany any certificate protected by <see cref="DefaultCertPassword"/>.
+    /// Plain text with no <see cref="UiSymbols"/> prefix so it is equally usable in console output
+    /// and in <c>--json</c> payloads; callers add their own presentation.
+    /// </summary>
+    public const string DefaultPasswordDisclosure =
+        "Protected with the default password ('" + DefaultCertPassword + "'), which is public. " +
+        "Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. " +
+        "Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship.";
+
+    /// <summary>
+    /// Whether a certificate protected by <paramref name="password"/> needs the public-password
+    /// disclosure. Deliberately compares the value rather than asking whether the user passed
+    /// <c>--password</c>: an explicit <c>--password password</c> is exactly as public as the default.
+    /// </summary>
+    public static bool UsesDefaultPassword(string? password) =>
+        string.Equals(password, DefaultCertPassword, StringComparison.Ordinal);
+
     // Test seams for OS/certificate-store boundaries. Each defaults to the real
     // production implementation; tests inject fakes to exercise success/error paths
     // that require administrator privileges or a matching machine-store certificate.
@@ -381,12 +405,9 @@ internal partial class CertificateService(
                 };
             }
 
-            if (password == "password")
+            if (UsesDefaultPassword(password))
             {
-                taskContext.AddStatusMessage(
-                    $"{UiSymbols.Warning} Protected with the default password ('password'), which is public. " +
-                    "Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. " +
-                    "Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship.");
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} {DefaultPasswordDisclosure}");
             }
 
             // Install certificate if requested

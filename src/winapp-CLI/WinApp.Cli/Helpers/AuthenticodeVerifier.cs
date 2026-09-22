@@ -3,6 +3,7 @@
 
 using Microsoft.Extensions.Logging;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 namespace WinApp.Cli.Helpers;
@@ -34,6 +35,14 @@ internal static unsafe partial class AuthenticodeVerifier
     private const int CERT_E_REVOCATION_FAILURE = unchecked((int)0x800B010E);
     private const int CRYPT_E_REVOCATION_OFFLINE = unchecked((int)0x80092013);
     private const int CRYPT_E_NO_REVOCATION_CHECK = unchecked((int)0x80092012);
+
+    // Attribute type of the organization (O) component of an X.509 subject.
+    private const string OrganizationOid = "2.5.4.10";
+
+    // The organization every Microsoft code-signing certificate carries, whichever team or product
+    // the common name names: "Microsoft Corporation", "Microsoft Windows", "Microsoft Windows Kits
+    // Publisher" and friends all sit under this one organization.
+    private const string MicrosoftOrganization = "Microsoft Corporation";
 
     /// <summary>
     /// Returns <c>true</c> only when <paramref name="filePath"/> has a valid Authenticode signature
@@ -157,18 +166,83 @@ internal static unsafe partial class AuthenticodeVerifier
         // non-obsolete replacement for extracting a signer from a signed file (X509CertificateLoader
         // only loads raw certificate blobs), so the SYSLIB0057 obsoletion is suppressed here.
 #pragma warning disable SYSLIB0057
-        var subject = X509Certificate.CreateFromSignedFile(filePath).Subject;
+        var signer = X509Certificate.CreateFromSignedFile(filePath);
 #pragma warning restore SYSLIB0057
-        return IsMicrosoftSubject(subject);
+
+        // Read the subject from its DER encoding rather than from the formatted Subject string, so
+        // the identity test cannot be confused by however that string escaped or quoted an
+        // attacker-chosen attribute value.
+        using var certificate = X509CertificateLoader.LoadCertificate(signer.GetRawCertData());
+        return IsMicrosoftSubject(certificate.SubjectName);
     }
 
     /// <summary>
-    /// Returns <c>true</c> when an X.509 subject distinguished name identifies Microsoft as the signer.
-    /// Extracted for unit testing the signer-identity gate independently of the native trust check.
+    /// Returns <c>true</c> when an X.509 subject names Microsoft as the signing organization: a
+    /// single organization (O) attribute whose value is exactly <c>Microsoft Corporation</c>.
     /// </summary>
-    internal static bool IsMicrosoftSubject(string subject) =>
-        subject.Contains("O=Microsoft Corporation", StringComparison.OrdinalIgnoreCase)
-        || subject.Contains("CN=Microsoft", StringComparison.OrdinalIgnoreCase);
+    /// <remarks>
+    /// The attributes are compared individually rather than searched for as text, because a
+    /// substring test asserts far less than it appears to. <c>CN=Microsoft Tools, O=Contoso Ltd</c>
+    /// contains "CN=Microsoft" but is a Contoso signer, and <c>OU=Microsoft Corporation</c> puts the
+    /// text in an attribute that says nothing about who owns the certificate.
+    ///
+    /// A subject that names more than one organization is rejected rather than searched for a
+    /// match. <c>O=Contoso Ltd, O=Microsoft Corporation</c> does not identify a signer: it names two,
+    /// and accepting it because one of them is Microsoft is the same mistake as the substring test.
+    /// </remarks>
+    internal static bool IsMicrosoftSubject(X500DistinguishedName subject)
+    {
+        string? organization = null;
+
+        try
+        {
+            foreach (var attribute in subject.EnumerateRelativeDistinguishedNames())
+            {
+                // A multi-valued attribute can pair the organization with another one in a single
+                // element, which is the same ambiguity, so it is refused rather than picked apart.
+                if (attribute.HasMultipleElements)
+                {
+                    return false;
+                }
+
+                if (attribute.GetSingleElementType().Value != OrganizationOid)
+                {
+                    continue;
+                }
+
+                if (organization is not null)
+                {
+                    return false;
+                }
+
+                organization = attribute.GetSingleElementValue();
+            }
+        }
+        catch (CryptographicException)
+        {
+            // A subject that cannot be decoded is not a Microsoft subject.
+            return false;
+        }
+
+        return string.Equals(organization, MicrosoftOrganization, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Subject-string overload of <see cref="IsMicrosoftSubject(X500DistinguishedName)"/>, so the
+    /// signer-identity gate can be unit tested without a certificate. Text that does not parse as a
+    /// distinguished name is rejected.
+    /// </summary>
+    internal static bool IsMicrosoftSubject(string subject)
+    {
+        try
+        {
+            return IsMicrosoftSubject(new X500DistinguishedName(subject));
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct WINTRUST_FILE_INFO
