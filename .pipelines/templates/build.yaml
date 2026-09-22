@@ -10,6 +10,16 @@ parameters:
     signCertName: ''
 
 steps:
+# Component Detection's RustSbomDetector otherwise shells out to `cargo metadata`, which reaches
+# index.crates.io to refresh the registry index. CFSClean network isolation blocks that public feed,
+# so it surfaces as a blocked-connection warning on every Build run (from the two Rust samples).
+# DisableRustCliScan makes the detector skip the Cargo CLI and read the committed Cargo.lock files
+# directly - both samples ship one, so component coverage is unchanged and no crates.io call is made.
+# Set as a job-scoped variable via setvariable so the injected Component Detection task inherits it;
+# a per-step env would not reach it. See
+# https://github.com/microsoft/component-detection/blob/main/docs/detectors/rust.md
+- pwsh: Write-Host "##vso[task.setvariable variable=DisableRustCliScan]true"
+  displayName: Skip Rust CLI scan in Component Detection
 - task: PowerShell@2
   displayName: Build CLI
   env:
