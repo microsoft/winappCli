@@ -269,12 +269,14 @@ with `winapp target snapshot sandbox`; it does not create a VM. Consult
 - `--manifest <path>` — auto-infer publisher from manifest (recommended)
 - `--publisher "CN=..."` — set publisher DN explicitly (single-valued, comma-separated components; multi-valued `+` RDNs and backslashes unsupported; bare names auto-wrapped as CN=\<name\>)
 - `--output <path>` — output PFX path (default: `devcert.pfx`)
-- `--password <pwd>` — PFX password (default: `password`)
+- `--password <pwd>` — PFX password (default: `password`, which is publicly known)
 - `--valid-days <n>` — certificate validity period (default: 365)
 - `--install` — also install the certificate after generation
 - `--if-exists error|skip|overwrite` — behavior when output file exists
+- `--json` — machine-readable output
 **Creates:** `devcert.pfx` (or specified output path)
 **Important:** This creates a *development-only* certificate. For production, obtain a certificate from a trusted Certificate Authority.
+**Default password is public:** Unless you pass `--password`, the PFX is protected by `password`, which anyone can guess — so anyone who obtains the file can sign as that publisher. With `--json`, check `defaultPasswordIsPublic` (always present) and the `warnings` array before handing the certificate to anything beyond your own machines. See the **winapp-signing** skill.
 
 ### `winapp cert install <cert-path>`
 **Purpose:** Trust a certificate on the local machine.

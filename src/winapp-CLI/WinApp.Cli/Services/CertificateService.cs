@@ -30,7 +30,7 @@ internal partial class CertificateService(
     /// and in <c>--json</c> payloads; callers add their own presentation.
     /// </summary>
     public const string DefaultPasswordDisclosure =
-        "Protected with the default password ('password'), which is public. " +
+        "Protected with the default password ('" + DefaultCertPassword + "'), which is public. " +
         "Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. " +
         "Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship.";
 
