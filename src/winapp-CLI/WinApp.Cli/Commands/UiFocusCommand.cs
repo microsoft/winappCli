@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -42,10 +43,14 @@ internal class UiFocusCommand : Command, IShortDescription
         ISystemUiQuery systemQuery,
         IDesktopForegroundService desktopForeground,
         IForegroundGuard foregroundGuard,
+        IPollDelay pollDelay,
         IAnsiConsole ansiConsole,
         IInteractiveDesktopLock desktopLock,
         ILogger<UiFocusCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
+        private const int FocusVerificationTimeoutMs = 500;
+        private const int FocusPollIntervalMs = 50;
+
         protected override string Operation => "ui focus";
 
         /// <summary>SetFocus changes the interactive desktop focus and must run exclusively.</summary>
@@ -154,15 +159,46 @@ internal class UiFocusCommand : Command, IShortDescription
                         return 1;
                     }
 
-                    var properties = await uiAutomation.GetPropertiesAsync(
-                        uiTarget, element, "HasKeyboardFocus", cancellationToken);
-                    if (!ConfirmTarget() || !foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "focus", errorOut))
+                    var verification = Stopwatch.StartNew();
+                    var focusConfirmed = false;
+                    // Providers can publish focus asynchronously. Observe the retained control only;
+                    // never refocus or reactivate after another window/user takes over.
+                    for (var attempt = 0; attempt <= FocusVerificationTimeoutMs / FocusPollIntervalMs; attempt++)
                     {
-                        return 1;
+                        if (!ConfirmTarget() || !foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "focus", errorOut))
+                        {
+                            return 1;
+                        }
+                        if (verification.ElapsedMilliseconds > FocusVerificationTimeoutMs)
+                        {
+                            break;
+                        }
+
+                        var properties = await uiAutomation.GetPropertiesAsync(
+                            uiTarget, element, "HasKeyboardFocus", cancellationToken);
+                        if (!ConfirmTarget() || !foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "focus", errorOut))
+                        {
+                            return 1;
+                        }
+                        var remainingMs = FocusVerificationTimeoutMs - verification.ElapsedMilliseconds;
+                        if (remainingMs < 0)
+                        {
+                            break;
+                        }
+                        if (properties.TryGetValue("HasKeyboardFocus", out var hasFocus) && hasFocus is true)
+                        {
+                            focusConfirmed = true;
+                            break;
+                        }
+                        if (remainingMs == 0 || attempt == FocusVerificationTimeoutMs / FocusPollIntervalMs)
+                        {
+                            break;
+                        }
+                        await pollDelay.DelayAsync((int)Math.Min(FocusPollIntervalMs, remainingMs), cancellationToken);
                     }
-                    if (!properties.TryGetValue("HasKeyboardFocus", out var hasFocus) || hasFocus is not true)
+                    if (!focusConfirmed)
                     {
-                        const string message = "The selected control did not confirm keyboard focus. " +
+                        const string message = "The selected control did not confirm keyboard focus within 500 ms. " +
                             "Inspect the target for a blocking dialog or a non-focusable control, then retry with its current selector.";
                         logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
                         UiJsonError.Emit(json, UiJsonError.CodeFocusNotAcquired, message, selectorStr, errorOut: errorOut);

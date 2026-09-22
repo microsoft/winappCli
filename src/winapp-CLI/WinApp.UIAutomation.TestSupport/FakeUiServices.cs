@@ -597,10 +597,14 @@ public sealed class FakePollDelay : IPollDelay
 {
     /// <summary>Number of inter-poll delays awaited — one per "condition not met, keep polling" iteration.</summary>
     public int CallCount { get; private set; }
+    public List<int> RequestedDelays { get; } = [];
+    public Action? OnDelay { get; set; }
 
     public Task DelayAsync(int milliseconds, CancellationToken ct)
     {
         CallCount++;
+        RequestedDelays.Add(milliseconds);
+        OnDelay?.Invoke();
         return Task.Delay(1, ct);
     }
 }

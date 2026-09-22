@@ -807,7 +807,9 @@ winapp ui focus txt-textbox-a4b1 -a notepad
 Activates the selected control's window when needed, then focuses the control.
 The selector is required; use `-a <app>` or `-w <HWND>` to choose the target.
 Success means that window was foreground and the selected control confirmed
-`HasKeyboardFocus` before the command returned. An owned dialog in front of the
+`HasKeyboardFocus` before the command returned. The command allows up to 500 ms
+for the control to report focus; it stops if the target disappears or loses the
+foreground rather than trying to take focus back. An owned dialog in front of the
 main window is not enough: select a control in the dialog if that is your target.
 
 This command needs an unlocked, interactive desktop and does not bypass Windows
