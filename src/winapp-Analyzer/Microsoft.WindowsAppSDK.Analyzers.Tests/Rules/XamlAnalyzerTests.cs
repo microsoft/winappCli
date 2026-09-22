@@ -213,6 +213,18 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task WuiDiagnosticsDoNotFlagTabCloseRequestedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TabView TabCloseRequested=""{x:Bind ViewModel.Events.OnClose}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task WuiDiagnosticsFlagResolvedStoryboardCompletedProperty()
     {
         const string source = @"namespace Microsoft.UI.Xaml.Media.Animation
