@@ -55,6 +55,9 @@ jobs:
             // reach for the skip label by reflex.
             const CORPUS_SOURCE_PATTERNS = [
               /^src\/winapp-CLI\/WinApp\.Cli\/Services\/Controls\/(Gallery|Toolkit|Reactor)(Fetcher|Provider)\.cs$/,
+              // Gallery and Reactor both build their corpus from a published sample index,
+              // so a change to the shared download or mapping re-shapes two sources at once.
+              /^src\/winapp-CLI\/WinApp\.Cli\/Services\/Controls\/SampleIndex(Fetcher|Parser)\.cs$/,
               /^src\/winapp-CLI\/WinApp\.Cli\/Services\/Controls\/ScenarioSanitizer\.cs$/,
               /^src\/winapp-CLI\/WinApp\.Cli\/Services\/Controls\/Models\.cs$/,
               /^src\/winapp-CLI\/WinApp\.Cli\/Services\/Controls\/CacheVersion\.cs$/,
