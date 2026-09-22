@@ -131,12 +131,24 @@ internal class CertGenerateCommand : Command, IShortDescription
                 return 1;
             }
 
+            // An explicit publisher takes precedence over --manifest, including an empty value.
+            // Reject invalid values before considering manifest inference.
+            if (publisher is not null && !PublisherDnHelper.TryNormalize(publisher, out _, out var publisherError))
+            {
+                if (json)
+                {
+                    return JsonErrorOutput.Write(ansiConsole, publisherError);
+                }
+                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, publisherError);
+                return 1;
+            }
+
             // When --manifest is named explicitly (and no --publisher overrides it), the caller is
             // asking the certificate to match that manifest's Identity/@Publisher. Resolve it up front
             // so a manifest that can't yield a publisher fails with a clear error here — before the
             // status task — instead of silently falling back to the system default and producing a
             // certificate that can never match the manifest (issue #839).
-            if (manifestPath != null && string.IsNullOrWhiteSpace(publisher))
+            if (manifestPath != null && publisher is null)
             {
                 try
                 {
@@ -154,21 +166,6 @@ internal class CertGenerateCommand : Command, IShortDescription
                     return 1;
                 }
             }
-            // Otherwise validate an explicit publisher up front so a malformed distinguished name — or
-            // an explicitly empty value — fails with a clear, actionable message instead of silently
-            // generating a certificate that can never match the manifest Identity/@Publisher.
-            // `publisher` is null only when --publisher was omitted (inference then applies); a
-            // supplied-but-empty value must still be rejected rather than fall through to a default.
-            else if (publisher is not null && !PublisherDnHelper.TryNormalize(publisher, out _, out var publisherError))
-            {
-                if (json)
-                {
-                    return JsonErrorOutput.Write(ansiConsole, publisherError);
-                }
-                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, publisherError);
-                return 1;
-            }
-
             CertificateService.CertificateResult? certResult = null;
 
             var returnCode = await statusService.ExecuteWithStatusAsync("Generating development certificate...", async (taskContext, ct) =>
