@@ -369,7 +369,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 return (long)info.Width * info.Height;
             }).ToList();
 
-            if (!json)
+            if (!json && logger.IsEnabled(LogLevel.Information))
             {
                 ansiConsole.MarkupLine($"[yellow]⚠  {windows.Count} windows detected. Compositing into single image.[/]");
             }
@@ -435,7 +435,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                         Captured = true,
                     });
 
-                    if (!json)
+                    if (!json && logger.IsEnabled(LogLevel.Information))
                     {
                         var owner = info.OwnerHwnd != 0 ? $", owner: HWND {info.OwnerHwnd}" : "";
                         ansiConsole.MarkupLine($"  [green]✓[/] HWND [cyan]{w.Hwnd}[/]: \"{Markup.Escape(title)}\" [grey]({info.Label}, {width}x{height}{owner})[/]");
@@ -504,7 +504,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 ? captures.Max(c => c.Height) + LabelBarHeight
                 : captures[0].Height;
 
-            if (pass.IsComposite && !json)
+            if (pass.IsComposite && !json && logger.IsEnabled(LogLevel.Information))
             {
                 // Keep paths intact on the wire: the host translates them after artifact delivery.
                 // Spectre rendering inserts line breaks before that translation can happen.
