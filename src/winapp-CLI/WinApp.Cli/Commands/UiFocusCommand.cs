@@ -48,6 +48,7 @@ internal class UiFocusCommand : Command, IShortDescription
         IInteractiveDesktopLock desktopLock,
         ILogger<UiFocusCommand> logger) : UiCoordinatedAction(desktopLock, logger)
     {
+        private const int ActivationSettleMs = 100;
         private const int FocusVerificationTimeoutMs = 500;
         private const int FocusPollIntervalMs = 50;
 
@@ -81,7 +82,6 @@ internal class UiFocusCommand : Command, IShortDescription
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            // Preflight rejected a missing selector, so this is non-null by construction.
             var selectorStr = parseResult.GetValue(SelectorArgument)!;
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
@@ -146,7 +146,7 @@ internal class UiFocusCommand : Command, IShortDescription
                             return 1;
                         }
                         desktopForeground.RequestForeground(targetHwnd);
-                        await Task.Delay(100, cancellationToken);
+                        await pollDelay.DelayAsync(ActivationSettleMs, cancellationToken);
                     }
 
                     if (!ConfirmTarget() || !foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "focus", errorOut))
@@ -198,7 +198,7 @@ internal class UiFocusCommand : Command, IShortDescription
                     }
                     if (!focusConfirmed)
                     {
-                        const string message = "The selected control did not confirm keyboard focus within 500 ms. " +
+                        var message = $"The selected control did not confirm keyboard focus within {FocusVerificationTimeoutMs} ms. " +
                             "Inspect the target for a blocking dialog or a non-focusable control, then retry with its current selector.";
                         logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
                         UiJsonError.Emit(json, UiJsonError.CodeFocusNotAcquired, message, selectorStr, errorOut: errorOut);

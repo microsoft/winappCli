@@ -10,6 +10,24 @@ namespace WinApp.Cli.Tests;
 public partial class UiCommandTests
 {
     [TestMethod]
+    public async Task Focus_ActivationSettle_UsesInjectedDelayBeforeFocusing()
+    {
+        ConfigureVerifiedFocus();
+        _fakeSystemQuery.ForegroundWindowResult = 9000;
+        _fakeDesktopForeground.OnRequestForeground = hwnd =>
+            _fakeSystemQuery.ForegroundWindowResult = (nint)hwnd;
+        _fakePollDelay.OnDelay = () =>
+        {
+            Assert.IsNull(_fakeUia.LastFocusedElement);
+            Assert.AreEqual(1, _fakeDesktopLock.OpenDesktopSections);
+        };
+
+        Assert.AreEqual(0, await RunVerifiedFocusAsync());
+        Assert.HasCount(1, _fakePollDelay.RequestedDelays);
+        Assert.AreEqual(100, _fakePollDelay.RequestedDelays[0]);
+    }
+
+    [TestMethod]
     public async Task Focus_DelayedKeyboardFocus_PollsOriginalControlWithoutRefocusing()
     {
         ConfigureVerifiedFocus();
