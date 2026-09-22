@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Services;
 using WinApp.Cli.Tools;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace WinApp.Cli.Tests;
 
@@ -45,6 +46,9 @@ internal sealed class FakeBuildToolsService : IBuildToolsService
     public List<bool> EnsureBuildToolsForceLatest { get; } = [];
 
     public FileInfo? GetBuildToolPath(string toolName) => new(Path.Combine(Path.GetTempPath(), toolName));
+
+    public VerifiedTool OpenVerifiedTool(FileInfo toolPath)
+        => VerifiedTool.Open(toolPath, static (_, _) => true, NullLogger.Instance);
 
     public Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default)
         => Task.FromResult(new FileInfo(Path.Combine(Path.GetTempPath(), toolName)));

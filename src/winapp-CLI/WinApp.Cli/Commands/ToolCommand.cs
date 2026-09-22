@@ -42,9 +42,14 @@ internal class ToolCommand : Command, IShortDescription
                     // Ensure the build tool is available, installing BuildTools if necessary
                     var toolPath = await buildToolsService.EnsureBuildToolAvailableAsync(toolName, taskContext, cancellationToken: cancellationToken);
 
+                    // Held until the tool has exited, so the binary that passed the signature check
+                    // is the binary Windows loads. Resolution above only reports a verdict, which
+                    // would leave the file free to be swapped before it starts.
+                    using var verifiedTool = buildToolsService.OpenVerifiedTool(toolPath);
+
                     var processStartInfo = new System.Diagnostics.ProcessStartInfo
                     {
-                        FileName = toolPath.FullName,
+                        FileName = verifiedTool.Path,
                         Arguments = string.Join(" ", toolArgs.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)),
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,

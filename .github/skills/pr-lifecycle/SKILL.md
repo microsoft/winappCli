@@ -70,8 +70,9 @@ The outcome is a clear PR and an honest readiness state, not a merge.
    NativeAOT build is needed unless that tooling requires it.
 
 Do not call a local test pass a CI pass, or call your own inspection independent
-review. Pending independent review is a pending gate, not a reason to invent
-edits to elicit a favorable review.
+review. An initial independent assessment needed to evaluate the work is part of
+preparation. Do not invent edits to elicit a favorable review; distinguish that
+assessment from waiting for re-review of feedback already addressed.
 
 ## Present
 
@@ -102,26 +103,16 @@ edit, re-read and reconcile instead of retrying an old full-body replacement.
 If the host has no guard, re-read immediately before a minimal update and stop
 on conflicting edits.
 
-Maintain **one separate lifecycle status comment** on the PR. Find it in the
-paginated comments or recover its saved ID before creating one; do not append a
-new comment for every round. Update only your workflow comment, preserving any
-collaborator edits. Keep history out of the feature body and avoid repeating it
-all in chat. A compact comment can be:
+Use the lifecycle label as the PR's readiness signal. Do not post or maintain
+automated lifecycle status comments or round-by-round progress comments.
+Necessary replies to review feedback are still required; they are not status
+updates.
 
-```markdown
-<!-- pr-lifecycle-status -->
-**State:** agent-preparing
-**Assessed:** head `<sha>` against `<base-ref>@<sha>`; main `<sha>` if stacked
-**Evidence:** <focused commands/results and links to current-head CI/review>
-**Review:** <independent coverage SHA; actionable findings; human approval status>
-**Pending:** <remaining gates, or none>
-**Blocker / owner / next step:** <concrete intervention, or none>
-**Resume:** <trigger or supported wakeup; otherwise "Not actively monitoring">
-```
-
-Record the PR URL/number, head/base SHAs (and main/parent when relevant),
-status-comment ID, pending gates and next action in a durable session checkpoint
-too. Do not commit operational checkpoints to the repository.
+Keep operational details in a durable session checkpoint: PR URL/number,
+head/base SHAs (and main/parent when relevant), review coverage, pending gates,
+blocker/owner/next step, and the configured wakeup or resume action. Do not commit
+these checkpoints or copy their history into the feature body. Ask the author
+directly when their input is needed.
 
 ## Finish
 
@@ -135,11 +126,16 @@ review, unresolved-thread count alone, or the first 100 results.
 Reply to each actionable thread with the fix/evidence or a reasoned disagreement
 **before** resolving it. Use `reply_and_resolve_review_thread` when available.
 For actionable findings in a review body or top-level comment, answer in the
-appropriate discussion surface and link the disposition from the status
-comment. Substantive disagreement stays explicit until reassessed.
+appropriate discussion surface and record the disposition in the session
+checkpoint. Keep substantive disagreement and its supporting evidence explicit
+in that reply until reassessed; do not present an unaddressed defect as a resolved
+disagreement.
 
 Never dismiss a human's changes request yourself. After addressing it, re-request
-that reviewer and keep the blocker/owner/next step explicit until they reassess.
+that reviewer and record the pending re-review and owner in the session checkpoint.
+Waiting for that reassessment is not an agent blocker: if the agent has addressed
+the feedback and completed the other technical gates, the PR is ready for review
+even while GitHub still shows the earlier `CHANGES_REQUESTED` review.
 Do not repeatedly request Copilot reviews merely to obtain favorable wording.
 Distinguish:
 
@@ -147,8 +143,8 @@ Distinguish:
 |----------|---------|
 | Current-head Copilot review with zero actionable findings | Technical review evidence, not a human approval |
 | Formal `APPROVED` review | An approval event; still check author, SHA and repository rules |
-| Human review needed, with no substantive reservations | Approval remains pending; technical readiness may still be true |
-| Unresolved defect, substantive reservation or changes request | Readiness is blocked until addressed and reassessed |
+| Review or re-review pending after feedback is addressed | Use `ready-for-review` once the other technical gates pass; approval remains pending |
+| Unaddressed defect or substantive concern | Keep preparing if the agent can resolve it; block only when the agent cannot proceed without help or author input |
 
 The absence of the exact words "Approval recommended" is not a defect. Do not
 make fake changes, rubber-stamp, or argue an automated reviewer into approval.
@@ -172,6 +168,9 @@ after 30, 60 and 120 seconds, then checkpoint). Prefer notifications or an
 available supported wakeup mechanism. This skill **cannot wake an idle agent**.
 If no mechanism is configured, say "Not actively monitoring" and name the pending
 gate and resume action. Do not claim to be watching indefinitely.
+Marking a PR ready for review does not end follow-through on a requested
+re-review: keep configured notifications or wakeups active while that feedback
+is pending, and address any new actionable findings.
 
 ### Set exactly one lifecycle label
 
@@ -180,21 +179,23 @@ exclusive. Preserve unrelated labels.
 
 | Label | Apply when |
 |-------|------------|
-| `agent-preparing` | The agent is fixing findings or waiting normally for CI/review; readiness has not yet been verified |
-| `agent-blocked` | Progress requires external intervention; name the concrete blocker, owner and next step |
-| `agent-ready-for-review` | All technical gates are verified for the final current head/base; **not** human approval or merge permission |
+| `agent-preparing` | Agent work remains: addressing feedback, completing validation/CI, or obtaining the initial independent assessment |
+| `agent-blocked` | The agent cannot finish addressing feedback or fixing CI with the available access, tools or information, or needs author input; name the concrete blocker, owner and next step |
+| `ready-for-review` | Agent work and technical checks are complete for the current head/base; waiting for review or re-review is normal, **not** human approval or merge permission |
 
-Ordinary pending human approval alone does not prevent technical readiness.
-A substantive reservation or outstanding changes request does. Agent-fixable
-findings mean preparing; a necessary reviewer reassessment or other external
-intervention means blocked.
+Choose `agent-blocked` based on the agent's inability to proceed, not a review
+status. Fixable findings, fixable CI failures and ordinary CI waits mean
+`agent-preparing`. After feedback has a fix or an evidence-backed disposition,
+waiting for reviewer acceptance or reassessment means `ready-for-review` if the
+other technical gates pass. Keep pending reviews and merge-blocking approval
+requirements in the session checkpoint; do not dismiss them or claim approval.
 
 Before **each label transition**, fetch a live snapshot. Before ready, confirm:
-independent final-diff coverage, no unresolved actionable findings/reservations,
-required CI completed successfully, required base/stack integration current,
-and no merge conflicts. Re-fetch head/base (and relevant parent/main), discussion
-and checks after assessment. If any changed, reassess rather than applying a
-stale result. Unknown conflict state means not ready.
+independent final-diff coverage and a fix or evidence-backed disposition for each
+actionable finding, required CI completed successfully, required base/stack
+integration current, and no merge conflicts. Re-fetch head/base (and relevant
+parent/main), discussion and checks after assessment. If any changed, reassess
+rather than applying a stale result. Unknown conflict state means not ready.
 
 Replace the other lifecycle labels with the selected one. When adopting this
 PR, also remove legacy `pr-review-done` if present; it is not a readiness signal

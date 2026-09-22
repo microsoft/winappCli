@@ -9,4 +9,9 @@ namespace WinApp.Cli.Services;
 /// handlers keep working, while callers that report errors can tell this apart from an install
 /// failure and avoid claiming the tool could not be found.
 /// </summary>
+/// <remarks>
+/// It deliberately carries no inner exception. Several callers report a failure with
+/// <c>GetBaseException().Message</c>, which returns the innermost exception — so anything nested
+/// here would replace this message with a lower-level one and lose the remedy it gives the user.
+/// </remarks>
 internal sealed class BuildToolSignatureException(string message) : InvalidOperationException(message);

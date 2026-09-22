@@ -37,6 +37,13 @@ internal sealed class WindowsSandboxWindowSnapshot(HWND foregroundWindow)
 /// </param>
 internal sealed record SandboxClientWindow(nint Handle, int ProcessId, long StartTicksUtc);
 
+internal enum SandboxClientSurface
+{
+    Unknown,
+    Session,
+    TerminalError,
+}
+
 /// <summary>A live client window together with the evidence used to attribute it.</summary>
 /// <param name="Window">The window itself.</param>
 /// <param name="ParentProcessId">
@@ -45,7 +52,11 @@ internal sealed record SandboxClientWindow(nint Handle, int ProcessId, long Star
 /// that asked for it, so a client whose parent is the launcher winapp started is winapp's, and one
 /// whose parent is anything else is somebody else's.
 /// </param>
-internal sealed record SandboxClientCandidate(SandboxClientWindow Window, int? ParentProcessId);
+/// <param name="Surface">Current rendering evidence; unknown windows remain candidates, not successful surfaces.</param>
+internal sealed record SandboxClientCandidate(
+    SandboxClientWindow Window,
+    int? ParentProcessId,
+    SandboxClientSurface Surface = SandboxClientSurface.Unknown);
 
 /// <summary>A resolved client window and its current host-side state.</summary>
 internal sealed record SandboxClientStatus(SandboxClientWindow Window, bool IsMinimized);
@@ -308,6 +319,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
 
         var owned = candidates
             .Where(candidate =>
+                candidate.Surface != SandboxClientSurface.TerminalError &&
                 candidate.Window.Handle != 0 &&
                 candidate.ParentProcessId == ownership.LauncherProcessId &&
                 candidate.Window.StartTicksUtc != 0 &&
@@ -317,14 +329,36 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         return owned.Count switch
         {
             0 => (null, false),
-            1 => (owned[0].Window, false),
+            1 => (owned[0].Surface == SandboxClientSurface.Session ? owned[0].Window : null, false),
             _ => (null, true),
         };
     }
 
     /// <inheritdoc/>
     public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered) =>
-        ResolveClient(remembered, [.. _listClients().Select(candidate => candidate.Window)]);
+        ResolveCandidates(remembered, _listClients());
+
+    private static SandboxClientWindow ResolveCandidates(
+        SandboxClientWindow? remembered, IReadOnlyList<SandboxClientCandidate> live)
+    {
+        var candidates = live
+            .Where(candidate => candidate.Surface != SandboxClientSurface.TerminalError)
+            .ToArray();
+        var preferred = candidates.Any(candidate => candidate.Surface == SandboxClientSurface.Unknown)
+            ? null
+            : remembered;
+        var client = ResolveClient(preferred, [.. candidates.Select(candidate => candidate.Window)]);
+        if (!candidates.Any(candidate =>
+            candidate.Window == client && candidate.Surface == SandboxClientSurface.Session))
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.NoInteractiveSession,
+                "The Windows Sandbox window is open, but its remote desktop could not be verified.",
+                userAction: "Wait for the existing Sandbox window to finish connecting, then retry. If it shows an error, follow the instructions in that window.");
+        }
+
+        return client;
+    }
 
     /// <inheritdoc/>
     public SandboxClientStatus InspectClient(SandboxClientWindow? remembered)
@@ -353,10 +387,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
 
         _park(client, previousForeground);
 
-        var stillLive = _listClients()
-            .Select(candidate => candidate.Window)
-            .Any(candidate => candidate == client);
-        var restored = stillLive && !_isIconic(client.Handle);
+        var current = _listClients();
+        var stillLive = current
+            .Any(candidate => candidate.Window == client && candidate.Surface == SandboxClientSurface.Session);
+        var restored = stillLive && ResolveCandidates(client, current) == client && !_isIconic(client.Handle);
         var foregroundPreserved =
             previousForeground.IsNull ||
             _getForeground() == previousForeground;
@@ -402,10 +436,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     /// is what stops a handle persisted by an earlier winapp process from resolving against whatever
     /// owns that number now.
     /// <para>
-    /// With no usable record, a single open client is <em>adopted</em>: read where it stands, never
+    /// With no usable record, a single eligible client is <em>adopted</em>: read where it stands, never
     /// moved, and reported as adopted so a caller can see that winapp recognised the window rather
-    /// than created it. Only one Sandbox instance can exist at a time, so a lone client is
-    /// necessarily showing this target's desktop. Zero or several fail, because the alternative is
+    /// than created it. The caller excludes proven terminal errors and verifies the selected
+    /// client's rendering evidence separately. Zero or several fail, because the alternative is
     /// capturing a desktop winapp does not manage and reporting it as this target's.
     /// </para>
     /// </remarks>
@@ -429,10 +463,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         {
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.NoInteractiveSession,
-                "The Windows Sandbox window is not open on this machine, so there is nothing to capture.",
+                "No usable Windows Sandbox window is open on this machine, so there is nothing to capture.",
                 userAction:
-                    "Run a command that needs the Sandbox desktop, such as 'winapp run . --on sandbox', so " +
-                    "winapp reconnects the window, then retry.",
+                    "Check existing Sandbox windows for errors. If none shows a connected desktop, " +
+                    "reconnect the existing Sandbox, then retry.",
                 example: "winapp target screenshot sandbox -o .\\sandbox.png");
         }
 
@@ -440,8 +474,8 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             ExecutionTargetErrorCodes.TargetAmbiguous,
             $"{live.Count} Windows Sandbox windows are open, and winapp cannot prove which one it manages.",
             userAction:
-                "Close the Windows Sandbox windows winapp did not open, then run a command that reconnects " +
-                "its own, such as 'winapp run . --on sandbox'.",
+                "Wait for any connecting Windows Sandbox windows to finish, then retry. " +
+                "If several remote desktops remain open, choose which connection to keep before retrying.",
             context: new Dictionary<string, string>
             {
                 ["clientProcessIds"] = string.Join(
@@ -459,21 +493,51 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         {
             using (process)
             {
-                process.Refresh();
-
-                if (process.MainWindowHandle != 0)
+                if (ReadCurrentWindow(process) is { } window)
                 {
-                    clients.Add(new SandboxClientCandidate(
-                        new SandboxClientWindow(
-                            process.MainWindowHandle,
-                            process.Id,
-                            TryReadStartTicks(process)),
-                        ParentProcessId.TryGet(process.Id)));
+                    var surface = SandboxClientErrorProbe.Inspect(window);
+                    var candidate = new SandboxClientCandidate(window, ParentProcessId.TryGet(process.Id), surface);
+                    if (RevalidateCandidate(candidate, ReadCurrentWindow(process)) is { } revalidated)
+                    {
+                        clients.Add(revalidated);
+                    }
                 }
             }
         }
 
         return clients;
+    }
+
+    internal static SandboxClientCandidate? RevalidateCandidate(
+        SandboxClientCandidate candidate, SandboxClientWindow? current)
+    {
+        if (current is null || current.Handle == 0)
+        {
+            return null;
+        }
+
+        return current == candidate.Window
+            ? candidate
+            : new SandboxClientCandidate(current, ParentProcessId: null, SandboxClientSurface.Unknown);
+    }
+
+    private static SandboxClientWindow? ReadCurrentWindow(Process process)
+    {
+        try
+        {
+            process.Refresh();
+            if (process.HasExited || process.MainWindowHandle == 0)
+            {
+                return null;
+            }
+
+            return new SandboxClientWindow(process.MainWindowHandle, process.Id, TryReadStartTicks(process));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Trace.TraceWarning($"Sandbox client exited while reading its window identity: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>UTC start ticks, or 0 when Windows will not say.</summary>

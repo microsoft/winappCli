@@ -90,6 +90,9 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 
 - Start with `target snapshot` when an app never appeared or a command failed. It does
   not create a VM, reconnect the client, or repair an agent.
+  For error windows or ambiguous readiness, follow the
+  [desktop readiness guidance](../../../../docs/sandbox-execution.md#automating-the-ui);
+  do not close windows or reconnect automatically to make a snapshot succeed.
 - `target screenshot`/`target record` capture the native guest desktop, not the host client window.
   `ui screenshot`/`ui record --on sandbox` capture an app window.
 - Outputs, including default filenames when `-o` is omitted, are delivered to the host.
