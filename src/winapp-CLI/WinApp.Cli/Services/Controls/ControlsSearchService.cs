@@ -47,11 +47,13 @@ internal interface IControlsSearchService
 
     /// <summary>
     /// Least-fresh origin among the providers loaded by the most recent
-    /// <see cref="GetEngineAsync"/> call, or <see cref="CorpusOrigin.None"/> when only the
-    /// curated core patterns were used. Reported to callers so an offline fallback is
+    /// <see cref="GetEngineAsync"/> call. Reported to callers so an offline fallback is
     /// distinguishable from a live answer — if one source came from the network and
     /// another from the embedded floor, the embedded one is what the caller needs to know
-    /// about.
+    /// about. A core-only request reports <see cref="CorpusOrigin.Embedded"/>: the curated
+    /// core patterns are compiled into the binary and never fetched, so they belong in the
+    /// embedded freshness tier. <see cref="CorpusOrigin.None"/> is reserved for the one
+    /// case where nothing loaded at all.
     /// </summary>
     CorpusOrigin LoadedOrigin { get; }
 
@@ -77,9 +79,9 @@ internal sealed class ControlsSearchService : IControlsSearchService, IDisposabl
     private SearchEngine? _engineWithReactor;
     // The origin each memoized engine was built from. Kept beside the engine rather than
     // only in LoadedOrigin because a memoized hit returns without rebuilding: without
-    // these, a core-only call (which sets the origin to None) followed by a cache hit on
-    // the full engine would report no corpus at all, dropping the `corpus` field from
-    // --json and suppressing the embedded-corpus notice.
+    // these, a core-only call (which reports the embedded tier) followed by a cache hit on
+    // the full engine would keep reporting "embedded" for a network- or cache-backed
+    // corpus, understating the freshness of the answer in --json and on stderr.
     private CorpusOrigin _engineOrigin = CorpusOrigin.None;
     private CorpusOrigin _engineWithReactorOrigin = CorpusOrigin.None;
     // A core-only engine (embedded patterns, no network) for requests satisfiable by
@@ -116,7 +118,11 @@ internal sealed class ControlsSearchService : IControlsSearchService, IDisposabl
         // the "fetching…" notice never fires. Returned before any provider is touched.
         if (coreOnly)
         {
-            LoadedOrigin = CorpusOrigin.None;
+            // The core patterns are baked into the binary and never fetched, so they are
+            // an embedded corpus — not "nothing loaded". Reporting None here would make
+            // the caller's `corpus` field null for a successful core result, which is
+            // indistinguishable from a genuine load failure.
+            LoadedOrigin = CorpusOrigin.Embedded;
             if (_coreOnlyEngine != null)
             {
                 return _coreOnlyEngine;
@@ -214,6 +220,13 @@ internal sealed class ControlsSearchService : IControlsSearchService, IDisposabl
                 // degraded engine must not be pinned.
                 if (allowCoreOnly)
                 {
+                    // Results are served, and they come from data compiled into the binary —
+                    // the same embedded tier a core-only request reports. Leaving None here
+                    // would again make a successful answer indistinguishable from the total
+                    // failure below. The staleness notice does fire on this path, and is
+                    // accurate: the corpus the caller asked for is missing, and --refresh is
+                    // what repopulates it.
+                    LoadedOrigin = CorpusOrigin.Embedded;
                     return new SearchEngine(
                         Array.Empty<Scenario>(),
                         DataLoader.LoadCorePatterns(),
