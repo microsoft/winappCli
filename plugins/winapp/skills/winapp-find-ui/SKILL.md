@@ -155,11 +155,11 @@ Which samples exist is upstream's call. winapp adds no samples of its own to the
 Gallery or Toolkit corpus and does not rewrite an individual sample's
 implementation to its own taste.
 
-Snippets are still processed: they're cleaned, truncated to a readable length, and
-event handlers with no accompanying code-behind are stripped. So treat a result as
-**upstream's sample, mechanically extracted** — not as a byte-for-byte copy of the
-file in their repo. Most samples paste and compile as-is; a few reference a page or
-type of their own that you'll need to define.
+Snippets are still processed: they're cleaned and event handlers with no
+accompanying code-behind are stripped. Samples are returned in full — nothing is cut
+short. So treat a result as **upstream's sample, mechanically extracted** — not as a
+byte-for-byte copy of the file in their repo. Most samples paste and compile as-is; a
+few reference a page or type of their own that you'll need to define.
 
 Where a control has a known pitfall, or two controls are easy to confuse, the CLI
 says so in the **Important** and **Family** notes attached to the result. Read
@@ -170,8 +170,8 @@ If a sample is missing or genuinely wrong **upstream**, report it against the
 source the result is tagged with: `[gallery]` →
 [WinUI-Gallery](https://github.com/microsoft/WinUI-Gallery/issues), `[toolkit]` →
 [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows/issues).
-If the defect looks like truncation, a missing handler, or markup that won't parse,
-that's winapp's extraction — report it here instead.
+If the defect looks like a cut-off snippet, a missing handler, or markup that won't
+parse, that's winapp's extraction — report it here instead.
 
 ## Related skills
 

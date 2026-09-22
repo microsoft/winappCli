@@ -66,9 +66,9 @@ internal static partial class GalleryFetcher
     ///
     /// This is not a claim that snippets are byte-identical to upstream's files. Extraction
     /// is uniform and mechanical, and deliberately lossy: content is cleaned
-    /// (<see cref="CleanGalleryContent"/>), C# is compressed, both languages are truncated,
-    /// and event handlers with no emitted code-behind are stripped so the snippet compiles
-    /// on paste. Those transforms apply to every sample by the same rule; what is gone is
+    /// (<see cref="CleanGalleryContent"/>), C# is compressed, and event handlers with no
+    /// emitted code-behind are stripped so the snippet compiles on paste. Samples are never
+    /// shortened. Those transforms apply to every sample by the same rule; what is gone is
     /// the bespoke, sample-specific editorializing.
     /// </remarks>
     internal static async Task<(Scenario[] scenarios, Dictionary<string, string[]> tags)> FetchAsync(CancellationToken cancellationToken = default)
@@ -263,8 +263,7 @@ internal static partial class GalleryFetcher
                         headerText = controlSubtitle!.Trim();
                 }
 
-                if (xaml != null) xaml = ControlSnippetText.TruncateXaml(xaml, MaxXamlChars);
-                if (csharp != null) csharp = ControlSnippetText.TruncateCode(csharp, MaxCSharpChars, "// NOTE: snippet truncated — refer to full sample for additional code");
+                if (xaml != null) xaml = ControlSnippetText.CloseUnbalancedTags(xaml);
 
                 // Gallery keeps each sample's XAML in its .txt bundle but its event
                 // handlers in the shared page code-behind we don't fetch (see #703/#704).
@@ -302,8 +301,8 @@ internal static partial class GalleryFetcher
 
     /// <summary>
     /// Fetch and parse a new-format SampleDefinition .txt bundle. Splits it into the
-    /// "--- header" / "--- xaml" / "--- c#" sections and returns cleaned xaml/c# ready for
-    /// truncation. A XAML $(...) token is resolved by position in <see cref="CleanGalleryContent"/>
+    /// "--- header" / "--- xaml" / "--- c#" sections and returns cleaned xaml/c#.
+    /// A XAML $(...) token is resolved by position in <see cref="CleanGalleryContent"/>
     /// (value-position attribute dropped so the property falls back to its own default,
     /// content-position commented), never flattened to "...". A c# section containing $(...)
     /// live-substitution tokens is dropped, because flattening them yields non-compileable code
@@ -372,9 +371,6 @@ internal static partial class GalleryFetcher
         Flush();
         return (header, xaml, csharp);
     }
-
-    private const int MaxXamlChars = 2000;
-    private const int MaxCSharpChars = 2500;
 
     /// <summary>
     /// Find all top-level &lt;controls:ControlExample&gt; blocks via stack-aware tag matching,
@@ -706,8 +702,7 @@ internal static partial class GalleryFetcher
         // explanatory comments that document the sample.
         code = Regex.Replace(code, @"^\s*//\s*C#\s*(code-behind|code)\s*\r?\n", "", RegexOptions.IgnoreCase);
 
-        // Strip #region / #endregion preprocessor directives — they're noise and
-        // can produce CS1038 errors when truncation cuts off the matching half.
+        // Strip #region / #endregion preprocessor directives — they're noise.
         code = Regex.Replace(code, @"^\s*#(?:region|endregion)\b.*\n?", "", RegexOptions.Multiline);
 
         // Drop "// Copyright (c) Microsoft..." + "// Licensed under..." header pair.

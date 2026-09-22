@@ -246,6 +246,8 @@ See also: [Debugging Guide](./docs/debugging.md) — choosing between `winapp ru
 - [`az-sign`](./docs/usage.md#az-sign) - Sign with Azure Trusted Signing (cloud-managed identity, no local PFX)
 - [`create-external-catalog`](./docs/usage.md#create-external-catalog) - Generate CodeIntegrityExternal.cat for TrustedLaunch sparse packages
 
+See also: [Security guidance](./docs/security.md) — what development certificates and Developer Mode change on your machine, safe handling of `devcert.pfx`, and production signing.
+
 **Development Tools:**
 
 - [`tool`](./docs/usage.md#tool) - Access Windows SDK tools
