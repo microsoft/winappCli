@@ -126,6 +126,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "ValueChanged", "ViewChanging", "ViewChanged", "DateChanged", "TimeChanged",
         "ItemClick", "ItemInvoked", "Expanding", "Collapsed",
         "TabCloseRequested",
+        "BackRequested", "DisplayModeChanged", "PaneOpening", "PaneOpened", "PaneClosing", "PaneClosed",
         "Navigated", "Navigating", "NavigationFailed", "NavigationStopped",
         "Opened", "Closed", "Opening", "Closing", "Completed"
     };
