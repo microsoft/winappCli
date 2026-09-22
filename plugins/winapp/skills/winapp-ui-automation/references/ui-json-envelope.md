@@ -78,10 +78,18 @@ text and JSON modes.
 
 ## `ui get-focused --json`
 
-Always emits an envelope (never a bare value):
+Successful queries emit an envelope (never a bare value):
 
-- No focus: `{ "hasFocus": false }`
+- No focused element can be verified as belonging to the target: `{ "hasFocus": false }`
 - With focus: `{ "hasFocus": true, "element": { ... } }`
+
+`-a` includes windows in the selected process. `-w` requires the exact window,
+not another same-process window or an owned popup. Ownership may be verified
+through a control's parent window when the control omits its own process ID.
+
+An actual focus or window-ownership query failure exits nonzero and emits the
+standard `{ "error": { ... } }` envelope on stderr, without a `hasFocus` result.
+Retry `get-focused`; rediscover the window with `list-windows` if it has closed.
 
 Pre-0.3.1 emitted bare `null` when nothing was focused.
 
