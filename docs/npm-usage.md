@@ -857,7 +857,7 @@ function uiFocus(options?: UiFocusOptions): Promise<WinappResult>
 
 ### `uiGetFocused()`
 
-Show the element that currently has keyboard focus in the target app.
+Show the element that currently has keyboard focus in the target app. With -w, focus must belong to that exact top-level window; owned popups are excluded.
 
 ```typescript
 function uiGetFocused(options?: UiGetFocusedOptions): Promise<WinappResult>
