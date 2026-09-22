@@ -249,6 +249,52 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task WuiDiagnosticsDoNotFlagInheritedFrameworkEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Button IsEnabledChanged=""{x:Bind ViewModel.Events.OnIsEnabledChanged}""
+          AutomationProperties.AutomationId=""button"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagOwnerQualifiedFrameworkEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Grid Button.Click=""{x:Bind ViewModel.Events.OnClick}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsFlagResolvedOwnerQualifiedProperty()
+    {
+        const string source = @"namespace Sample
+{
+    public class Owner
+    {
+        public bool Click { get; set; }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:local=""using:Sample"">
+  <Grid local:Owner.Click=""{x:Bind ViewModel.IsEnabled}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task WuiDiagnosticsFlagResolvedStoryboardCompletedProperty()
     {
         const string source = @"namespace Microsoft.UI.Xaml.Media.Animation

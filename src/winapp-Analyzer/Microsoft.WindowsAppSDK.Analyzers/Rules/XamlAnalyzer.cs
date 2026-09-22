@@ -115,7 +115,10 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "PointerCanceled", "PointerCaptureLost", "PointerWheelChanged",
         "KeyDown", "KeyUp", "PreviewKeyDown", "PreviewKeyUp", "CharacterReceived",
         "GotFocus", "LostFocus", "GettingFocus", "LosingFocus",
+        "AccessKeyDisplayDismissed", "AccessKeyDisplayRequested", "AccessKeyInvoked",
+        "BringIntoViewRequested", "NoFocusCandidateFound", "ProcessKeyboardAccelerators",
         "Loaded", "Unloaded", "Loading", "SizeChanged", "LayoutUpdated", "ActualThemeChanged",
+        "DataContextChanged", "EffectiveViewportChanged", "FocusDisengaged", "FocusEngaged", "IsEnabledChanged",
         "DragStarting", "DropCompleted", "Drop", "DragOver", "DragEnter", "DragLeave",
         "DragItemsStarting", "DragItemsCompleted",
         "ManipulationStarting", "ManipulationStarted", "ManipulationDelta",
@@ -206,7 +209,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
                     var (bindPath, bindArgs) = ParseBinding(bindExpr);
 
                     var attrName = attr.Name.LocalName;
-                    var isEvent = IsEventBindingTarget(context.Compilation, element, attrName);
+                    var isEvent = IsEventBindingTarget(context.Compilation, element, attr);
                     var isCommand = attrName == "Command" || attrName.EndsWith("Command", StringComparison.Ordinal);
                     var hasExplicitMode = bindArgs.ContainsKey("Mode");
                     var hasConverter = bindArgs.ContainsKey("Converter");
@@ -252,10 +255,23 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
     private static bool IsEventBindingTarget(
         Compilation compilation,
         XElement element,
-        string attributeName)
+        XAttribute attribute)
     {
-        var resolvedElementType = false;
-        foreach (var resolvedType in GetElementTypeNames(element)
+        var attributeName = attribute.Name.LocalName;
+        var separatorIndex = attributeName.LastIndexOf('.');
+        var memberName = separatorIndex >= 0
+            ? attributeName.Substring(separatorIndex + 1)
+            : attributeName;
+        var typeNames = separatorIndex >= 0
+            ? GetTypeNames(
+                string.IsNullOrEmpty(attribute.Name.NamespaceName)
+                    ? element.GetDefaultNamespace().NamespaceName
+                    : attribute.Name.NamespaceName,
+                attributeName.Substring(0, separatorIndex))
+            : GetElementTypeNames(element);
+
+        var resolvedTargetType = false;
+        foreach (var resolvedType in typeNames
             .Select(typeName => compilation.GetTypeByMetadataName(typeName)))
         {
             if (resolvedType == null)
@@ -263,17 +279,17 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            resolvedElementType = true;
+            resolvedTargetType = true;
             for (var type = resolvedType; type != null; type = type.BaseType)
             {
-                if (type.GetMembers(attributeName).Any(member => member.Kind == SymbolKind.Event))
+                if (type.GetMembers(memberName).Any(member => member.Kind == SymbolKind.Event))
                 {
                     return true;
                 }
             }
         }
 
-        return !resolvedElementType && EventAttributes.Contains(attributeName);
+        return !resolvedTargetType && EventAttributes.Contains(memberName);
     }
 
     private static IEnumerable<string> FindXBindExpressions(string value)
@@ -336,9 +352,11 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
 
     private static IEnumerable<string> GetElementTypeNames(XElement element)
     {
-        var namespaceName = element.Name.NamespaceName;
-        var localName = element.Name.LocalName;
+        return GetTypeNames(element.Name.NamespaceName, element.Name.LocalName);
+    }
 
+    private static IEnumerable<string> GetTypeNames(string namespaceName, string localName)
+    {
         if (namespaceName.StartsWith(UsingNamespacePrefix, StringComparison.Ordinal))
         {
             yield return namespaceName.Substring(UsingNamespacePrefix.Length) + "." + localName;
