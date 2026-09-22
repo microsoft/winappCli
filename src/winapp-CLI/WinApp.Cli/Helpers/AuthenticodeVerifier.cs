@@ -177,41 +177,54 @@ internal static unsafe partial class AuthenticodeVerifier
     }
 
     /// <summary>
-    /// Returns <c>true</c> when an X.509 subject names Microsoft as the signing organization: an
-    /// organization (O) attribute whose value is exactly <c>Microsoft Corporation</c>.
+    /// Returns <c>true</c> when an X.509 subject names Microsoft as the signing organization: a
+    /// single organization (O) attribute whose value is exactly <c>Microsoft Corporation</c>.
     /// </summary>
     /// <remarks>
     /// The attributes are compared individually rather than searched for as text, because a
     /// substring test asserts far less than it appears to. <c>CN=Microsoft Tools, O=Contoso Ltd</c>
     /// contains "CN=Microsoft" but is a Contoso signer, and <c>OU=Microsoft Corporation</c> puts the
     /// text in an attribute that says nothing about who owns the certificate.
+    ///
+    /// A subject that names more than one organization is rejected rather than searched for a
+    /// match. <c>O=Contoso Ltd, O=Microsoft Corporation</c> does not identify a signer: it names two,
+    /// and accepting it because one of them is Microsoft is the same mistake as the substring test.
     /// </remarks>
     internal static bool IsMicrosoftSubject(X500DistinguishedName subject)
     {
+        string? organization = null;
+
         try
         {
             foreach (var attribute in subject.EnumerateRelativeDistinguishedNames())
             {
-                // A multi-valued attribute is left to fail the check rather than picked apart: real
-                // Microsoft subjects do not use them, so the only thing to gain is a way in.
+                // A multi-valued attribute can pair the organization with another one in a single
+                // element, which is the same ambiguity, so it is refused rather than picked apart.
                 if (attribute.HasMultipleElements)
+                {
+                    return false;
+                }
+
+                if (attribute.GetSingleElementType().Value != OrganizationOid)
                 {
                     continue;
                 }
 
-                if (attribute.GetSingleElementType().Value == OrganizationOid
-                    && string.Equals(attribute.GetSingleElementValue(), MicrosoftOrganization, StringComparison.OrdinalIgnoreCase))
+                if (organization is not null)
                 {
-                    return true;
+                    return false;
                 }
+
+                organization = attribute.GetSingleElementValue();
             }
         }
         catch (CryptographicException)
         {
             // A subject that cannot be decoded is not a Microsoft subject.
+            return false;
         }
 
-        return false;
+        return string.Equals(organization, MicrosoftOrganization, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

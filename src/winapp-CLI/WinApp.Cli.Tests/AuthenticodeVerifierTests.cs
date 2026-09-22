@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Formats.Asn1;
+using System.Security.Cryptography.X509Certificates;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Tests;
@@ -103,6 +105,84 @@ public class AuthenticodeVerifierTests
     public void IsMicrosoftSubject_LookalikeWithoutMicrosoftMarkers_ReturnsFalse()
     {
         Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("O=Not Microsoft-Affiliated Vendor, CN=Acme"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_SecondOrganizationAlongsideMicrosoft_ReturnsFalse()
+    {
+        // Two organizations name two owners. Accepting this because one of them happens to be
+        // Microsoft is the same mistake as the substring test this check replaced.
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("CN=Acme, O=Contoso Ltd, O=Microsoft Corporation"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_MicrosoftOrganizationListedFirst_StillReturnsFalse()
+    {
+        // Order must not decide the verdict, or the check becomes "is Microsoft in here somewhere".
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("CN=Acme, O=Microsoft Corporation, O=Contoso Ltd"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_RepeatedMicrosoftOrganization_ReturnsFalse()
+    {
+        // A subject is expected to name its organization once; anything else is malformed enough
+        // that the safe reading is to refuse it.
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("O=Microsoft Corporation, O=Microsoft Corporation"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_NonMicrosoftOrganizationHiddenInAMultiValuedAttribute_ReturnsFalse()
+    {
+        // The dangerous shape: a second organization tucked into a multi-valued attribute, next to
+        // a well-formed O=Microsoft Corporation. Skipping the attribute we cannot read plainly
+        // would let the Microsoft one answer for a subject that also names Contoso.
+        var subject = EncodeSubject(
+        [
+            [("2.5.4.10", "Contoso Ltd"), ("2.5.4.3", "Acme")],
+            [("2.5.4.10", "Microsoft Corporation")],
+        ]);
+
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject(subject));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_EncodedMicrosoftOrganization_ReturnsTrue()
+    {
+        // Control for the test above: the same encoding path, with the one organization a real
+        // Microsoft certificate carries, must still pass.
+        var subject = EncodeSubject([[("2.5.4.10", "Microsoft Corporation")]]);
+
+        Assert.IsTrue(AuthenticodeVerifier.IsMicrosoftSubject(subject));
+    }
+
+    /// <summary>
+    /// Builds an encoded subject directly, so a relative distinguished name can hold several
+    /// attributes at once. That form is legal in a certificate but cannot be expressed through the
+    /// distinguished-name string, whose parser rejects it outright.
+    /// </summary>
+    private static X500DistinguishedName EncodeSubject((string Oid, string Value)[][] relativeNames)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+
+        using (writer.PushSequence())
+        {
+            foreach (var attributes in relativeNames)
+            {
+                using (writer.PushSetOf())
+                {
+                    foreach (var (oid, value) in attributes)
+                    {
+                        using (writer.PushSequence())
+                        {
+                            writer.WriteObjectIdentifier(oid);
+                            writer.WriteCharacterString(UniversalTagNumber.UTF8String, value);
+                        }
+                    }
+                }
+            }
+        }
+
+        return new X500DistinguishedName(writer.Encode());
     }
 
     [TestMethod]
