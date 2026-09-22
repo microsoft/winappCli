@@ -122,7 +122,13 @@ public class SandboxClientErrorProbeTests
     {
         var mapped = System.Runtime.InteropServices.Marshal.GetExceptionForHR(hresult);
         Assert.IsNotNull(mapped);
-        Assert.AreEqual(expectedException, mapped.GetType().Name);
+        var expectedType = expectedException switch
+        {
+            nameof(UnauthorizedAccessException) => typeof(UnauthorizedAccessException),
+            nameof(ArgumentException) => typeof(ArgumentException),
+            _ => throw new AssertFailedException("Unrecognized exception discriminator."),
+        };
+        Assert.AreEqual(expectedType, mapped.GetType());
         var surface = SandboxClientErrorProbe.Inspect(new SandboxClientWindow(1, 2, 3), _ =>
         {
             System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(hresult);
