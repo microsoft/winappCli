@@ -4,7 +4,9 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using SkiaSharp;
 using Spectre.Console;
 using Spectre.Console.Testing;
 using WinApp.Cli.Commands;
@@ -24,6 +26,16 @@ namespace WinApp.Cli.Tests;
 public partial class UiCommandTests
 {
     private string ShotPath() => Path.Combine(_tempDirectory.FullName, "shot.png");
+
+    private UiScreenshotCommand CreateScreenshotCommand(ILogger<UiScreenshotCommand> logger)
+    {
+        var command = new UiScreenshotCommand();
+        var handler = new UiScreenshotCommand.Handler(
+            _fakeTargetResolver, _fakeUia, _fakeWindowFinder, _fakeSystemQuery,
+            TestAnsiConsole, _fakeDesktopLock, logger);
+        command.SetAction((result, ct) => handler.InvokeAsync(result, ct));
+        return command;
+    }
 
     [TestMethod]
     [DataRow(40, false, false, false)]
@@ -119,17 +131,120 @@ public partial class UiCommandTests
     public async Task Screenshot_SingleWindow_DisabledInformationLog_DoesNotPrintSuccess()
     {
         _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
-        var command = new UiScreenshotCommand();
-        var handler = new UiScreenshotCommand.Handler(
-            _fakeTargetResolver, _fakeUia, _fakeWindowFinder, _fakeSystemQuery,
-            TestAnsiConsole, _fakeDesktopLock, NullLogger<UiScreenshotCommand>.Instance);
-        command.SetAction((result, ct) => handler.InvokeAsync(result, ct));
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "-o", ShotPath()]);
 
         Assert.AreEqual(0, exitCode);
         Assert.IsTrue(File.Exists(ShotPath()));
         Assert.AreEqual("", TestAnsiConsole.Output);
+    }
+
+    [TestMethod]
+    [DataRow(false, false, LogLevel.Information)]
+    [DataRow(true, false, LogLevel.Information)]
+    [DataRow(false, false, LogLevel.Warning)]
+    [DataRow(true, false, LogLevel.Warning)]
+    [DataRow(false, true, LogLevel.None)]
+    [DataRow(true, true, LogLevel.None)]
+    public async Task Screenshot_Composite_OutputHonorsLoggingMode(bool ownedDialog, bool json, LogLevel minimumLevel)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 11;
+        _fakeTargetResolver.TargetResult.ProcessId = 4321;
+        _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
+        _fakeSystemQuery.ProcessIdByHwnd[11] = 4321;
+        _fakeSystemQuery.ProcessIdByHwnd[12] = ownedDialog ? 9876u : 4321u;
+        if (ownedDialog)
+        {
+            _fakeWindowFinder.OwnedWindowsResult = [((nint)12, 9876, "Dialog")];
+            _fakeSystemQuery.WindowOwnerByHwnd[12] = 11;
+        }
+        else
+        {
+            _fakeUia.WindowsByPidResult = [((nint)11, 4321, "Main"), ((nint)12, 4321, "Dialog")];
+        }
+        var path = ShotPath();
+        using var logger = new LevelLogger<UiScreenshotCommand>(minimumLevel);
+        var command = CreateScreenshotCommand(logger);
+        string[] args = ["-a", "4321", "-o", path];
+        if (json)
+        {
+            args = [.. args, "--json"];
+        }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+
+        Assert.AreEqual(0, exitCode);
+        using var image = SKBitmap.Decode(path);
+        Assert.IsNotNull(image);
+        Assert.AreEqual(10, image.Width);
+        Assert.AreEqual(29, image.Height);
+        Assert.HasCount(2, _fakeUia.ScreenshotCalls);
+        if (json)
+        {
+            using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+            var result = document.RootElement;
+            Assert.AreEqual(path, result.GetProperty("filePath").GetString());
+            Assert.AreEqual(image.Width, result.GetProperty("width").GetInt32());
+            Assert.AreEqual(image.Height, result.GetProperty("height").GetInt32());
+            var windows = result.GetProperty("windows").EnumerateArray().ToList();
+            Assert.HasCount(2, windows);
+            Assert.IsTrue(windows.All(w => w.GetProperty("captured").GetBoolean()));
+            CollectionAssert.AreEquivalent(
+                new long[] { 11, 12 }, windows.Select(w => w.GetProperty("hwnd").GetInt64()).ToArray());
+        }
+        else if (minimumLevel == LogLevel.Information)
+        {
+            StringAssert.Contains(TestAnsiConsole.Output, "2 windows detected. Compositing into single image.");
+            StringAssert.Contains(TestAnsiConsole.Output, "✓ HWND 11:");
+            StringAssert.Contains(TestAnsiConsole.Output, "✓ HWND 12:");
+            StringAssert.Contains(TestAnsiConsole.Output, $"✓ Saved composite: {path}");
+        }
+        else
+        {
+            Assert.AreEqual("", TestAnsiConsole.Output);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Screenshot_Composite_Quiet_PreservesFailureDiagnostics(bool allCapturesFail)
+    {
+        _fakeUia.WindowsByPidResult = [((nint)11, 4321, "Main"), ((nint)12, 4321, "Dialog")];
+        _fakeSystemQuery.ProcessIdByHwnd[11] = 4321;
+        _fakeSystemQuery.ProcessIdByHwnd[12] = allCapturesFail ? 4321u : 9999u;
+        _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
+        var failure = "The window handle now belongs to a different process.";
+        if (allCapturesFail)
+        {
+            failure = "Capture failed for test window.";
+            _fakeUia.ScreenshotThrow = new InvalidOperationException(failure);
+        }
+        var path = ShotPath();
+        using var logger = new LevelLogger<UiScreenshotCommand>(LogLevel.Warning);
+        var command = CreateScreenshotCommand(logger);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "-o", path]);
+
+        Assert.AreEqual(allCapturesFail ? 1 : 0, exitCode);
+        Assert.AreEqual(!allCapturesFail, File.Exists(path));
+        StringAssert.Contains(TestAnsiConsole.Output, "✗ HWND 12:");
+        StringAssert.Contains(TestAnsiConsole.Output.ReplaceLineEndings(""), failure);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("windows detected", StringComparison.Ordinal));
+        Assert.IsFalse(TestAnsiConsole.Output.Contains('✓'));
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("Saved composite", StringComparison.Ordinal));
+        if (allCapturesFail)
+        {
+            Assert.IsTrue(logger.Entries.Any(e => e.Level == LogLevel.Error && e.Message == "No windows could be captured."));
+        }
+        else
+        {
+            using var image = SKBitmap.Decode(path);
+            Assert.IsNotNull(image);
+            Assert.AreEqual(1, image.Width);
+            Assert.AreEqual(29, image.Height);
+        }
     }
 
     [TestMethod]
