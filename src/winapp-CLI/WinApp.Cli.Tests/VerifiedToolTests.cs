@@ -31,7 +31,9 @@ public class VerifiedToolTests
     [TestCleanup]
     public void Cleanup()
     {
-        try { _root.Delete(true); } catch { }
+        try { _root.Delete(true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private static VerifiedTool Open(FileInfo tool, Func<string, bool>? verdict = null) =>

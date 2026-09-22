@@ -59,7 +59,7 @@ internal sealed partial class VerifiedTool : IDisposable
             // describe the same file. Checking the path the tool was found at and launching the
             // resolved one would let a junction re-pointed in between offer a signed file to the
             // check while a different file stays held and runs.
-            var path = ResolveHeldPath(held, toolPath, logger);
+            var path = ResolveHeldPath(held, toolPath);
 
             if (!signatureVerifier(path, logger))
             {
@@ -104,7 +104,7 @@ internal sealed partial class VerifiedTool : IDisposable
         }
     }
 
-    private static string ResolveHeldPath(FileStream held, FileInfo toolPath, ILogger logger)
+    private static string ResolveHeldPath(FileStream held, FileInfo toolPath)
     {
         try
         {
@@ -112,11 +112,14 @@ internal sealed partial class VerifiedTool : IDisposable
         }
         catch (Exception ex) when (ex is Win32Exception or ObjectDisposedException)
         {
-            // Falling back to the path we opened leaves the caller exactly where it would have been
-            // without this class: the file itself is still held, so it cannot be modified, renamed or
-            // deleted while it runs. Only the narrower junction substitution stays possible.
-            logger.LogDebug(ex, "Could not resolve the real location of {File}; launching the path it was found at.", toolPath.FullName);
-            return toolPath.FullName;
+            // Falling back to the path the tool was found at would quietly reopen the substitution
+            // window this class exists to close, and nothing downstream could tell the difference.
+            // Refusing to run is the honest outcome: the guarantee either holds or the tool does
+            // not run.
+            throw new BuildToolSignatureException(
+                $"'{toolPath.Name}' could not be pinned to a stable location, so it was not run ({toolPath.FullName}). " +
+                "winapp could not confirm that the file it checked is the file Windows would load. Delete the " +
+                "package from the NuGet cache and run the command again to re-download it.");
         }
     }
 

@@ -65,7 +65,7 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
 
         var psi = new ProcessStartInfo
         {
-            FileName = cppwinrtExe.FullName,
+            FileName = verifiedCppWinrt.Path,
             Arguments = $"@{rspPath}",
             UseShellExecute = false,
             RedirectStandardOutput = true,
