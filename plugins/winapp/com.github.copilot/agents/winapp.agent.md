@@ -276,7 +276,7 @@ with `winapp target snapshot sandbox`; it does not create a VM. Consult
 - `--json` — machine-readable output
 **Creates:** `devcert.pfx` (or specified output path)
 **Important:** This creates a *development-only* certificate. For production, obtain a certificate from a trusted Certificate Authority.
-**Default password is public:** Unless you pass `--password`, the PFX is protected by `password`, which anyone can guess — so anyone who obtains the file can sign as that publisher. With `--json`, check `defaultPasswordIsPublic` (always present) and the `warnings` array before handing the certificate to anything beyond your own machines. See the **winapp-signing** skill.
+**Default password is public:** The PFX is protected by `password` whenever you omit `--password` **or** pass `--password password` explicitly — supplying the option does not make it private. Anyone can guess that value, so anyone who obtains the file can sign as that publisher. With `--json`, check `defaultPasswordIsPublic` (always present, and driven by the password's value rather than by whether the option was passed) and the `warnings` array before handing the certificate to anything beyond your own machines. See the **winapp-signing** skill.
 
 ### `winapp cert install <cert-path>`
 **Purpose:** Trust a certificate on the local machine.
