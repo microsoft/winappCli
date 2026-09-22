@@ -115,7 +115,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "PointerCanceled", "PointerCaptureLost", "PointerWheelChanged",
         "KeyDown", "KeyUp", "PreviewKeyDown", "PreviewKeyUp", "CharacterReceived",
         "GotFocus", "LostFocus", "GettingFocus", "LosingFocus",
-        "Loaded", "Unloaded", "Loading", "SizeChanged", "LayoutUpdated",
+        "Loaded", "Unloaded", "Loading", "SizeChanged", "LayoutUpdated", "ActualThemeChanged",
         "DragStarting", "DropCompleted", "Drop", "DragOver", "DragEnter", "DragLeave",
         "DragItemsStarting", "DragItemsCompleted",
         "ManipulationStarting", "ManipulationStarted", "ManipulationDelta",

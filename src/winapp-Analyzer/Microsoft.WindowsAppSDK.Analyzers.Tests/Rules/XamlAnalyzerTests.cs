@@ -202,6 +202,17 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task WuiDiagnosticsDoNotFlagActualThemeChangedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       ActualThemeChanged=""{x:Bind ViewModel.Events.OnActualThemeChanged}"" />";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task WuiDiagnosticsFlagResolvedStoryboardCompletedProperty()
     {
         const string source = @"namespace Microsoft.UI.Xaml.Media.Animation
