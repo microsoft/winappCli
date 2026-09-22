@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Tests;
@@ -206,6 +207,41 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exitCode);
     }
 
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task GetFocused_QueryFailure_JsonDoesNotEmitFocusNegative(bool comFailure)
+    {
+        var previousError = Console.Error;
+        try
+        {
+            Console.SetError(ConsoleStdErr);
+            _fakeUia.GetFocusedThrow = comFailure ? FakeComException : FakeGenericException;
+            var exitCode = await ParseAndInvokeWithCaptureAsync(
+                GetRequiredService<UiGetFocusedCommand>(), ["-a", "TestApp", "--json"]);
+
+            Assert.AreEqual(1, exitCode);
+            AssertJsonErrorCode(comFailure ? UiJsonError.CodeStaleElement : UiJsonError.CodeInternalError);
+            Assert.DoesNotContain("hasFocus", TestAnsiConsole.Output);
+        }
+        finally
+        {
+            Console.SetError(previousError);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetFocused_Help_ExplainsExactWindowScope()
+    {
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<WinAppRootCommand>(), ["ui", "get-focused", "--help"]);
+
+        Assert.AreEqual(0, exitCode);
+        var help = TestAnsiConsole.Output.ReplaceLineEndings(" ");
+        StringAssert.Contains(help, "exact top-level window");
+        StringAssert.Contains(help, "owned popups are excluded");
+    }
+
     // ---------- get-property ----------
 
     [TestMethod]
@@ -329,6 +365,24 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e1", "-a", "TestApp"]);
 
         Assert.AreEqual(0, exitCode);
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow(" \t\r\n")]
+    [DataRow("Field value")]
+    public async Task GetValue_Json_PreservesSuccessfulRead(string value)
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e1", Type = "Edit", Name = "Title, required" };
+        _fakeUia.GetTextResult = value;
+
+        var command = GetRequiredService<UiGetValueCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["e1", "-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual("e1", document.RootElement.GetProperty("elementId").GetString());
+        Assert.AreEqual(value, document.RootElement.GetProperty("text").GetString());
     }
 
     [TestMethod]

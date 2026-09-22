@@ -18,6 +18,30 @@ internal partial class CertificateService(
 {
     public const string DefaultCertFileName = "devcert.pfx";
 
+    /// <summary>
+    /// PFX password used when the caller does not supply one. Publicly known by design: the
+    /// certificate it protects is only ever meant to sign local test builds.
+    /// </summary>
+    public const string DefaultCertPassword = "password";
+
+    /// <summary>
+    /// Security disclosure that must accompany any certificate protected by <see cref="DefaultCertPassword"/>.
+    /// Plain text with no <see cref="UiSymbols"/> prefix so it is equally usable in console output
+    /// and in <c>--json</c> payloads; callers add their own presentation.
+    /// </summary>
+    public const string DefaultPasswordDisclosure =
+        "Protected with the default password ('" + DefaultCertPassword + "'), which is public. " +
+        "Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. " +
+        "Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship.";
+
+    /// <summary>
+    /// Whether a certificate protected by <paramref name="password"/> needs the public-password
+    /// disclosure. Deliberately compares the value rather than asking whether the user passed
+    /// <c>--password</c>: an explicit <c>--password password</c> is exactly as public as the default.
+    /// </summary>
+    public static bool UsesDefaultPassword(string? password) =>
+        string.Equals(password, DefaultCertPassword, StringComparison.Ordinal);
+
     // Test seams for OS/certificate-store boundaries. Each defaults to the real
     // production implementation; tests inject fakes to exercise success/error paths
     // that require administrator privileges or a matching machine-store certificate.
@@ -145,8 +169,8 @@ internal partial class CertificateService(
                 try
                 {
                     // Load the certificate to get its thumbprint/subject for comparison
-                    using var certToCheck = X509CertificateLoader.LoadPkcs12FromFile(
-                        certPath.FullName,
+                    using var certToCheck = LoadCertificate(
+                        certPath,
                         password,
                         X509KeyStorageFlags.Exportable);
 
@@ -164,12 +188,15 @@ internal partial class CertificateService(
                 }
             }
 
-            // Install to TrustedPeople store (required for MSIX sideloading)
-            // Load the certificate from the PFX file. The key-storage flags are seamed so unit
-            // tests load with EphemeralKeySet (no persisted key container); production uses the
-            // default MachineKeySet|PersistKeySet so the installed certificate stays usable.
-            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                certPath.FullName,
+            // Install to TrustedPeople store (required for MSIX sideloading).
+            // A PFX carries a private key; a public-only .cer (e.g. one produced by
+            // `cert generate --export-cer`) is loaded as a certificate-only object. Either is
+            // valid to trust — the TrustedPeople store only needs the public certificate. The
+            // key-storage flags are seamed so unit tests load a PFX with EphemeralKeySet (no
+            // persisted key container); production uses the default MachineKeySet|PersistKeySet
+            // so an installed PFX stays usable.
+            using var cert = LoadCertificate(
+                certPath,
                 password,
                 InstallKeyStorageFlags);
 
@@ -193,6 +220,27 @@ internal partial class CertificateService(
         {
             throw new InvalidOperationException($"Failed to install development certificate: {error.Message}", error);
         }
+    }
+
+    /// <summary>
+    /// Loads a certificate from either a PKCS#12 (.pfx) file or a public-only DER/PEM (.cer) file.
+    /// The format is detected up front with <see cref="X509Certificate2.GetCertContentType(string)"/>
+    /// — which classifies PFX and certificate files without needing the password — so a PKCS#12
+    /// file always loads through the PFX path. A public-only .cer (e.g. one produced by
+    /// `cert generate --export-cer`) loads as a certificate-only object. Detecting rather than
+    /// catch-and-fallback keeps a genuine PFX error (such as a wrong password) as the error the
+    /// user sees instead of masking it with a certificate-decoding failure. <paramref name="pfxKeyStorageFlags"/>
+    /// applies only to the PFX path; a .cer carries no private key, so the flags and password are
+    /// ignored for it.
+    /// </summary>
+    internal static X509Certificate2 LoadCertificate(
+        FileInfo certPath,
+        string password,
+        X509KeyStorageFlags pfxKeyStorageFlags)
+    {
+        return X509Certificate2.GetCertContentType(certPath.FullName) == X509ContentType.Pfx
+            ? X509CertificateLoader.LoadPkcs12FromFile(certPath.FullName, password, pfxKeyStorageFlags)
+            : X509CertificateLoader.LoadCertificateFromFile(certPath.FullName);
     }
 
     /// <summary>
@@ -357,12 +405,9 @@ internal partial class CertificateService(
                 };
             }
 
-            if (password == "password")
+            if (UsesDefaultPassword(password))
             {
-                taskContext.AddStatusMessage(
-                    $"{UiSymbols.Warning} Protected with the default password ('password'), which is public. " +
-                    "Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. " +
-                    "Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship.");
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} {DefaultPasswordDisclosure}");
             }
 
             // Install certificate if requested

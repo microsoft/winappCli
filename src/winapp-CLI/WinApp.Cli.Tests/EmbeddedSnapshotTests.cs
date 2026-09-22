@@ -104,6 +104,30 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
+    public void EmbeddedCorpus_CarriesNoTruncationMarker()
+    {
+        // find-ui used to cap snippet length and leave a "<!-- ...truncated -->" /
+        // "// ...truncated" marker behind, so a long sample didn't build when pasted
+        // (issue #716). The extraction no longer shortens anything; a marker in the
+        // baked corpus means a stale bake or that a cap came back.
+        foreach (var descriptor in ProviderRegistry.Descriptors)
+        {
+            var scenarios = ReadEmbeddedSnapshot(descriptor.Id)!.Scenarios;
+
+            var offenders = scenarios
+                .Where(s => (s.Xaml?.Contains("...truncated", StringComparison.Ordinal) ?? false)
+                         || (s.CSharp?.Contains("...truncated", StringComparison.Ordinal) ?? false)
+                         || (s.CSharp?.Contains("snippet truncated", StringComparison.Ordinal) ?? false))
+                .Select(s => s.Id)
+                .ToArray();
+
+            Assert.AreEqual(0, offenders.Length,
+                $"the '{descriptor.Id}' snapshot ships truncated samples ({string.Join(", ", offenders)}). " +
+                "Re-bake with the current fetchers.");
+        }
+    }
+
+    [TestMethod]
     public void GalleryCorpus_CarriesNoWinappAuthoredSample()
     {
         // Gallery samples are served exactly as upstream publishes them. Scenario.Source
@@ -164,8 +188,8 @@ public class EmbeddedSnapshotTests
         //
         // The bar is deliberately a regression floor rather than zero. A handful of
         // upstream samples genuinely are unbalanced fragments, and the sanitizer strips
-        // them identically on a live fetch — that is issue #716 (truncated samples), not a
-        // property of baking. What this test must catch is the snapshot becoming materially
+        // them identically on a live fetch — that is a property of the upstream corpus,
+        // not of baking. What this test must catch is the snapshot becoming materially
         // worse than the live corpus it stands in for.
         // Deserialized fresh from the embedded resource rather than through
         // EmbeddedSnapshot.TryLoad: TryLoad memoizes one ProviderData per provider for the
@@ -569,13 +593,51 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
-    public async Task LoadedOrigin_CoreOnly_ReportsNoCorpus()
+    public async Task LoadedOrigin_CoreOnly_ReportsEmbedded()
     {
-        // --source core never consults a provider, so there is no upstream origin to claim.
+        // --source core never consults a provider, but the curated core patterns are
+        // compiled into the binary — that is the embedded freshness tier, not "nothing
+        // loaded". Reporting None would make a successful core search's `corpus` null,
+        // indistinguishable from a failed load on the JSON surface.
         var gallery = new FakeSearchProvider("gallery", DataWithOrigin("gallery", "tabview", CorpusOrigin.Network));
         var sut = new ControlsSearchService([gallery]);
 
         await sut.GetEngineAsync(coreOnly: true);
+
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+    }
+
+    [TestMethod]
+    public async Task LoadedOrigin_AllProvidersEmpty_AllowCoreOnly_ReportsEmbedded()
+    {
+        // The degraded fallback: the snapshot is missing/unreadable and every provider came
+        // back empty, but the compiled-in core patterns still answer --list. Results were
+        // served from data baked into the binary, so the origin is the embedded tier — a
+        // None here would put a successful answer back in the same bucket as a total
+        // failure, which is exactly what this contract exists to separate.
+        var gallery = new FakeSearchProvider("gallery", ProviderData.Empty);
+        var sut = new ControlsSearchService([gallery]);
+
+        var engine = await sut.GetEngineAsync(allowCoreOnly: true);
+
+        Assert.IsTrue(engine.ListAll().Any(), "the core patterns must still answer");
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+    }
+
+    [TestMethod]
+    public async Task LoadedOrigin_AllProvidersEmpty_WithoutCoreOnly_ResetsToNone()
+    {
+        // Nothing was served at all — the one case an absent corpus is reserved for. The
+        // core-only call first puts the service in the embedded tier, so this pins that the
+        // failure path actively resets the origin rather than passing by default.
+        var gallery = new FakeSearchProvider("gallery", ProviderData.Empty);
+        var sut = new ControlsSearchService([gallery]);
+
+        await sut.GetEngineAsync(coreOnly: true);
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+
+        await Assert.ThrowsExactlyAsync<ControlsDataUnavailableException>(
+            () => sut.GetEngineAsync());
 
         Assert.AreEqual(CorpusOrigin.None, sut.LoadedOrigin);
     }
@@ -584,22 +646,21 @@ public class EmbeddedSnapshotTests
     public async Task LoadedOrigin_MemoizedEngineHit_ReportsThatEngineSOrigin()
     {
         // The origin has to travel with the engine it describes. A core-only request
-        // legitimately reports "no corpus", and the memoized full engine is returned
-        // without being rebuilt — so if the fast path doesn't restore its origin, the next
-        // search silently loses `"corpus"` from --json and stops warning that results came
-        // from the embedded floor.
-        var gallery = new FakeSearchProvider("gallery", DataWithOrigin("gallery", "tabview", CorpusOrigin.Embedded));
+        // reports the embedded tier, and the memoized full engine is returned without
+        // being rebuilt — so if the fast path doesn't restore its origin, a later network
+        // or cache result keeps claiming "embedded" and understates its own freshness.
+        var gallery = new FakeSearchProvider("gallery", DataWithOrigin("gallery", "tabview", CorpusOrigin.Cache));
         var sut = new ControlsSearchService([gallery]);
 
         await sut.GetEngineAsync();
-        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+        Assert.AreEqual(CorpusOrigin.Cache, sut.LoadedOrigin);
 
         await sut.GetEngineAsync(coreOnly: true);
-        Assert.AreEqual(CorpusOrigin.None, sut.LoadedOrigin);
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
 
         await sut.GetEngineAsync();
 
-        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin,
+        Assert.AreEqual(CorpusOrigin.Cache, sut.LoadedOrigin,
             "a memoized engine must keep reporting the origin its corpus was loaded from");
     }
 

@@ -485,22 +485,24 @@ For example, the formatting portion of `properties` is:
 ```
 
 ### screenshot
-Capture a window or element as PNG. When multiple windows exist (e.g., app + open dialog), they are composited into a single PNG with each window stitched in.
+Capture a window or element as PNG.
 ```bash
 winapp ui screenshot -a notepad                     # saves screenshot.png in cwd
 winapp ui screenshot -a notepad --output my.png     # custom filename
 winapp ui screenshot -a notepad --json              # returns file path as JSON
 winapp ui screenshot -w 131906                      # target specific HWND (+ its dialogs)
 winapp ui screenshot txt-searchbox-e5f6 -a myapp          # crop to element bounds
-winapp ui screenshot -a myapp --capture-screen      # capture from screen (includes popups/overlays; foregrounds window)
+winapp ui screenshot -w 131906 --capture-screen     # one screen region, with visible overlays in place; foregrounds window
 winapp ui screenshot -a myapp --focus               # bring window to foreground first, then capture (default WGC path)
 ```
 
-When dialogs or popups are open, all windows are composited into one PNG so you can see the full UI state in a single image.
+Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
+
+With `--on sandbox`, `--output` names the host destination. Successful plain output and `--json` report that host path after the image is delivered.
 
 The default capture path uses **Windows.Graphics.Capture (WGC)**, reading the actual DWM-composited surface — preserving rounded corners, transparency, and working even while the window is occluded by other windows. If WGC is unavailable (older Windows builds) the CLI falls back to **PrintWindow**.
 
-Use `--capture-screen` when you need to capture popup menus, dropdowns, flyouts, or tooltip overlays that aren't owned by the target window. `--capture-screen` reads from the screen DC and brings the window to the foreground first. Use `--focus` if you just want to foreground the window without switching capture modes (e.g., to ensure the screenshot matches what the user is currently looking at).
+Use `--capture-screen -w <hwnd>` when you need visible popups or tooltips in their on-screen positions, including overlays that aren't owned by the target window. It reads that window's screen region rather than composing labeled panels, and brings the window to the foreground first. With `-a`, it requires exactly one matching window; if several top-level or owned windows match, use `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. Use `--focus` if you just want to foreground the window without switching capture modes (e.g., to ensure the screenshot matches what the user is currently looking at).
 
 > Because the screen DC captures whatever is actually in front, `--capture-screen` **verifies the target reached the foreground immediately before capturing** and fails with **`foreground_not_target`** if it didn't (focus-stealing prevention, a UAC prompt, or another window activating itself). No image is written in that case — previously the command exited 0 and handed back a picture of the wrong window. `ui record --capture-screen` applies the same check before the first frame.
 
@@ -581,7 +583,7 @@ recordings and whole-desktop capture.
 - `frame_output_failed` — Neither artifact could be preserved after frame output failed.
 - `partial_output` — Only one artifact completed; inspect `partialOutput` and `recoveryHint`.
 
-**Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or use `ui screenshot --capture-screen`. See [#646](https://github.com/microsoft/winappCli/issues/646).
+**Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or follow the [screenshot overlay workflow](#screenshot) for a still image. See [#646](https://github.com/microsoft/winappCli/issues/646).
 
 
 ### invoke
@@ -714,7 +716,8 @@ Move the mouse to an element's center to trigger hover effects (tooltips, flyout
 ```bash
 winapp ui hover btn-info-a1b2 -a myapp                          # hover with default 800ms dwell
 winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200        # longer dwell for slow tooltips
-winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -a myapp --capture-screen  # hover then capture tooltip
+winapp ui list-windows -a myapp                              # use the main window's HWND below
+winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture-screen  # hover then capture tooltip in place
 ```
 
 **Options:**
@@ -786,6 +789,16 @@ winapp ui get-value sld-volume-b2c3 -a myapp                # read Slider value
 winapp ui get-value lbl-title-a1b2 -a myapp --json          # JSON: { "elementId": "...", "text": "..." }
 ```
 
+```powershell
+winapp ui get-value SearchBox -a myapp --json
+winapp ui wait-for SearchBox -a myapp --value "" --timeout 5000
+```
+
+A successfully read empty text field returns `"text": ""`, not its accessibility
+label. Whitespace-only content is also preserved in JSON. `wait-for --value ""`
+matches an empty field, whether it is fresh or was cleared after editing. To read
+the accessibility label instead, use `get-property --property Name`.
+
 ### focus
 Move keyboard focus to an element.
 ```bash
@@ -839,10 +852,17 @@ winapp ui scroll img-map-a1b2 --wheel -1 -a myapp
 > `--direction`, `--to`, and `--wheel` are mutually exclusive — pass exactly one. Because `--wheel` injects OS-wide input at screen coordinates, it brings the target to the foreground first and **fails (`foreground_not_target`)** if focus couldn't be transferred, rather than scrolling the wrong window.
 
 ### get-focused
-Show the element that currently has keyboard focus.
 ```bash
 winapp ui get-focused -a myapp
+winapp ui get-focused -w <HWND> --json
 ```
+Show the element that currently has keyboard focus in the selected app, including
+controls whose app ownership is available only through their parent window.
+With `-w`, focus must belong to that window, not another window or an owned popup
+in the same process. With `-a`, other windows in the selected process are included.
+JSON output has `hasFocus:false` when no focused element can be verified as belonging
+to the target. If a focus or window-ownership query fails, the command exits nonzero instead;
+retry `get-focused`, and rediscover the window with `list-windows` if it has closed.
 
 ### list-windows
 List all visible windows for an app, including popups and dialogs.
@@ -956,7 +976,7 @@ for example `MSTest.Windows.UIAutomation`, whose `WindowTest.MainWindow` is a UI
 | "does not support any invoke pattern" | Element can't be invoked | Use `inspect` on the element to find an invokable child |
 | "No UIA window found" | UIA can't see the process | Use `list-windows` to find the HWND, then `-w` |
 | "Window has zero size" | Window is minimized | App will be auto-restored |
-| Popup/dropdown not in screenshot | Default capture is per-window and doesn't include unowned overlays | Use `--capture-screen` flag |
+| Popup/dropdown not in screenshot | Default capture is per-window and doesn't include unowned overlays | Follow the [screenshot overlay workflow](#screenshot) to select a window with `-w <hwnd> --capture-screen` |
 | `foreground_not_target` from `--capture-screen` | Windows refused the activation, so a screen capture would have recorded whatever window is actually in front | Click the target window or close the focus-stealing window and retry, or drop `--capture-screen` |
 | `element_not_found` during record | Selector given but no matching element | Re-run `inspect` or `search` to get a fresh selector |
 | WGC unavailable during record | WGC capture init failed; no silent fallback | Check GPU/driver; use `--capture-screen` to consent to screen-DC capture |
@@ -986,7 +1006,8 @@ winapp ui search '#Image' -a myapp; winapp ui invoke itm-image-a2b3 -a myapp
 
 ### Screenshot with popup overlays
 ```powershell
-winapp ui set-value txt-searchbox-e5f6 "query" -a myapp; winapp ui screenshot -a myapp --capture-screen
+winapp ui list-windows -a myapp # use the main window's HWND below
+winapp ui set-value txt-searchbox-e5f6 "query" -a myapp; winapp ui screenshot -w <hwnd> --capture-screen
 ```
 
 ### Navigate, wait, and verify (single chain)
