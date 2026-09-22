@@ -342,6 +342,14 @@ See the [formatting reference](https://github.com/microsoft/winappcli/blob/main/
 for units and state meanings, and `references/ui-json-envelope.md` for the JSON shape.
 
 ### Set values
+To prepare a control for keyboard input, use `winapp ui focus <selector> -a <app>`
+(keep `--on sandbox` when working in Sandbox). It activates the control's window
+and verifies both foreground and keyboard focus before success. Do not use a
+screenshot as a focus workaround. If activation is refused, inspect for a blocking
+dialog and ask the user to activate the intended window; do not retry in a loop
+or switch to the local desktop. See the [focus reference](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#focus)
+for failure codes and recovery.
+
 `set-value` writes programmatically (no keystrokes, no foreground) via a fallback chain: ValuePattern → RangeValuePattern (numeric) → LegacyIAccessible `put_accValue` for TextPattern-only edit controls.
 ```powershell
 winapp ui set-value txt-searchbox-e5f6 "hello" -a myapp        # TextBox/ComboBox via ValuePattern

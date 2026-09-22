@@ -835,17 +835,17 @@ function uiDrag(options?: UiDragOptions): Promise<WinappResult>
 
 ### `uiFocus()`
 
-Move keyboard focus to the specified element using UIA SetFocus.
+Activate the specified element's window, focus the element, and verify foreground and keyboard focus. Fails if Windows refuses activation or focus cannot be confirmed.
 
 ```typescript
-function uiFocus(options?: UiFocusOptions): Promise<WinappResult>
+function uiFocus(options: UiFocusOptions): Promise<WinappResult>
 ```
 
 **Options:**
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string` | Yes | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2251,7 +2251,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string` | Yes | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |

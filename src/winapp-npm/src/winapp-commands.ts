@@ -1313,7 +1313,7 @@ export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult>
 
 export interface UiFocusOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
-  selector?: string;
+  selector: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
@@ -1325,12 +1325,12 @@ export interface UiFocusOptions extends CommonOptions {
 }
 
 /**
- * Move keyboard focus to the specified element using UIA SetFocus.
+ * Activate the specified element's window, focus the element, and verify foreground and keyboard focus. Fails if Windows refuses activation or focus cannot be confirmed.
  */
-export async function uiFocus(options: UiFocusOptions = {}): Promise<WinappResult> {
+export async function uiFocus(options: UiFocusOptions): Promise<WinappResult> {
   const args: string[] = ['ui', 'focus'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.json) args.push('--json');
