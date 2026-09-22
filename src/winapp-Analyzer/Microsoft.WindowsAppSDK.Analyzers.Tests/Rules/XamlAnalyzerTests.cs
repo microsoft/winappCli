@@ -165,6 +165,18 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task Wui2011DoesNotFlagFrameNavigationEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Frame Navigated=""{x:Bind ViewModel.OnNavigated}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task Wui2011DoesNotFlagCustomControlEvent()
     {
         const string source = @"namespace Sample
@@ -216,6 +228,31 @@ public sealed class XamlAnalyzerTests
         await new AnalyzerTest<XamlAnalyzer>()
             .WithSource(MinimalCs)
             .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2010DoesNotFlagFallbackAfterNestedMarkupExtension()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind ViewModel.Profile.Name, Converter={StaticResource Converter}, FallbackValue=''}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011ParsesFunctionBindingWithEscapedQuote()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind ViewModel.Format('it^'s')}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
             .RunAsync();
     }
 

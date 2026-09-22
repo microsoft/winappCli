@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -125,14 +124,13 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "QuerySubmitted", "TextSubmitted", "SuggestionChosen",
         "Checked", "Unchecked", "Indeterminate", "Toggled",
         "ValueChanged", "DateChanged", "TimeChanged", "ItemClick", "ItemInvoked", "Expanding", "Collapsed",
+        "Navigated", "Navigating", "NavigationFailed", "NavigationStopped",
         "Opened", "Closed", "Opening", "Closing"
     };
 
     private const string PresentationNamespace = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private const string XamlLanguageNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
     private const string UsingNamespacePrefix = "using:";
-
-    private static readonly Regex XBindRegex = new(@"\{x:Bind\s+([^}]+)\}", RegexOptions.Compiled);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -200,9 +198,8 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
                     context.ReportDiagnostic(Diagnostic.Create(NullConverterRule, location));
                 }
 
-                foreach (Match match in XBindRegex.Matches(value))
+                foreach (var bindExpr in FindXBindExpressions(value))
                 {
-                    var bindExpr = match.Groups[1].Value.Trim();
                     var (bindPath, bindArgs) = ParseBinding(bindExpr);
 
                     var attrName = attr.Name.LocalName;
@@ -255,16 +252,16 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         string attributeName)
     {
         var resolvedElementType = false;
-        foreach (var typeName in GetElementTypeNames(element))
+        foreach (var resolvedType in GetElementTypeNames(element)
+            .Select(typeName => compilation.GetTypeByMetadataName(typeName)))
         {
-            var type = compilation.GetTypeByMetadataName(typeName);
-            if (type == null)
+            if (resolvedType == null)
             {
                 continue;
             }
 
             resolvedElementType = true;
-            for (; type != null; type = type.BaseType)
+            for (var type = resolvedType; type != null; type = type.BaseType)
             {
                 if (type.GetMembers(attributeName).Any(member => member.Kind == SymbolKind.Event))
                 {
@@ -274,6 +271,64 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         }
 
         return !resolvedElementType && EventAttributes.Contains(attributeName);
+    }
+
+    private static IEnumerable<string> FindXBindExpressions(string value)
+    {
+        const string prefix = "{x:Bind";
+        var searchStart = 0;
+
+        while (searchStart < value.Length)
+        {
+            var bindStart = value.IndexOf(prefix, searchStart, StringComparison.Ordinal);
+            if (bindStart < 0)
+            {
+                yield break;
+            }
+
+            var expressionStart = bindStart + prefix.Length;
+            if (expressionStart >= value.Length || !char.IsWhiteSpace(value[expressionStart]))
+            {
+                searchStart = expressionStart;
+                continue;
+            }
+
+            while (expressionStart < value.Length && char.IsWhiteSpace(value[expressionStart]))
+            {
+                expressionStart++;
+            }
+
+            var braceDepth = 1;
+            var quote = '\0';
+            for (var i = expressionStart; i < value.Length; i++)
+            {
+                var c = value[i];
+                var escaped = IsCaretEscaped(value, i);
+                if (quote != '\0')
+                {
+                    quote = c == quote && !escaped ? '\0' : quote;
+                }
+                else if ((c == '\'' || c == '"') && !escaped)
+                {
+                    quote = c;
+                }
+                else if (c == '{' && !escaped)
+                {
+                    braceDepth++;
+                }
+                else if (c == '}' && !escaped && --braceDepth == 0)
+                {
+                    yield return value.Substring(expressionStart, i - expressionStart).Trim();
+                    searchStart = i + 1;
+                    break;
+                }
+            }
+
+            if (braceDepth > 0)
+            {
+                yield break;
+            }
+        }
     }
 
     private static IEnumerable<string> GetElementTypeNames(XElement element)
@@ -299,7 +354,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
     /// <summary>
     /// Splits an <c>{x:Bind}</c> expression into its path and named arguments, tolerant of any
     /// whitespace around <c>,</c> and <c>=</c> (so <c>Mode = OneWay</c> is recognized). Commas
-    /// inside function-call parentheses are not treated as argument separators.
+    /// inside function-call parentheses or nested markup extensions are not treated as separators.
     /// </summary>
     private static (string path, Dictionary<string, string> args) ParseBinding(string bindExpr)
     {
@@ -330,29 +385,39 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
     private static List<string> SplitTopLevel(string expr)
     {
         var result = new List<string>();
-        var depth = 0;
+        var parenthesisDepth = 0;
+        var braceDepth = 0;
         var start = 0;
         var quote = '\0';
         for (var i = 0; i < expr.Length; i++)
         {
             var c = expr[i];
+            var escaped = IsCaretEscaped(expr, i);
             if (quote != '\0')
             {
-                quote = c == quote ? '\0' : quote;
+                quote = c == quote && !escaped ? '\0' : quote;
             }
-            else if (c == '\'' || c == '"')
+            else if ((c == '\'' || c == '"') && !escaped)
             {
                 quote = c;
             }
-            else if (c == '(')
+            else if (c == '(' && !escaped)
             {
-                depth++;
+                parenthesisDepth++;
             }
-            else if (c == ')' && depth > 0)
+            else if (c == ')' && !escaped && parenthesisDepth > 0)
             {
-                depth--;
+                parenthesisDepth--;
             }
-            else if (c == ',' && depth == 0)
+            else if (c == '{' && !escaped)
+            {
+                braceDepth++;
+            }
+            else if (c == '}' && !escaped && braceDepth > 0)
+            {
+                braceDepth--;
+            }
+            else if (c == ',' && !escaped && parenthesisDepth == 0 && braceDepth == 0)
             {
                 result.Add(expr.Substring(start, i - start));
                 start = i + 1;
@@ -364,34 +429,54 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
 
     private static int IndexOfTopLevelEquals(string value)
     {
-        var depth = 0;
+        var parenthesisDepth = 0;
+        var braceDepth = 0;
         var quote = '\0';
         for (var i = 0; i < value.Length; i++)
         {
             var c = value[i];
+            var escaped = IsCaretEscaped(value, i);
             if (quote != '\0')
             {
-                quote = c == quote ? '\0' : quote;
+                quote = c == quote && !escaped ? '\0' : quote;
             }
-            else if (c == '\'' || c == '"')
+            else if ((c == '\'' || c == '"') && !escaped)
             {
                 quote = c;
             }
-            else if (c == '(')
+            else if (c == '(' && !escaped)
             {
-                depth++;
+                parenthesisDepth++;
             }
-            else if (c == ')' && depth > 0)
+            else if (c == ')' && !escaped && parenthesisDepth > 0)
             {
-                depth--;
+                parenthesisDepth--;
             }
-            else if (c == '=' && depth == 0)
+            else if (c == '{' && !escaped)
+            {
+                braceDepth++;
+            }
+            else if (c == '}' && !escaped && braceDepth > 0)
+            {
+                braceDepth--;
+            }
+            else if (c == '=' && !escaped && parenthesisDepth == 0 && braceDepth == 0)
             {
                 return i;
             }
         }
 
         return -1;
+    }
+
+    private static bool IsCaretEscaped(string value, int index)
+    {
+        var caretCount = 0;
+        for (var i = index - 1; i >= 0 && value[i] == '^'; i--)
+        {
+            caretCount++;
+        }
+        return caretCount % 2 != 0;
     }
 
     private static Location CreateLocation(AdditionalText file, SourceText sourceText, XElement element)
