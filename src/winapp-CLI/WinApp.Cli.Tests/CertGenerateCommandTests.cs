@@ -156,6 +156,29 @@ public class CertGenerateCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("", DisplayName = "Empty string")]
+    [DataRow("   ", DisplayName = "Whitespace only")]
+    public async Task ExplicitEmptyPublisher_WithManifest_ReturnsErrorWithoutGenerating(string publisher)
+    {
+        var manifestPath = Path.Join(_tempDirectory.FullName, "ValidPublisher.appxmanifest");
+        await File.WriteAllTextAsync(manifestPath, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Publisher="CN=ManifestPublisher" Version="1.0.0.0" />
+            </Package>
+            """);
+        var pfxPath = Path.Join(_tempDirectory.FullName, "empty-publisher-with-manifest.pfx");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<CertGenerateCommand>(),
+            ["--manifest", manifestPath, "--publisher", publisher, "--output", pfxPath, "--password", "testpw"]);
+
+        Assert.AreEqual(1, exitCode, "An explicitly empty --publisher must not be replaced by the manifest publisher.");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Publisher name cannot be empty");
+        Assert.IsFalse(File.Exists(pfxPath));
+    }
+
+    [TestMethod]
     public void OutputOption_AcceptsPlainFileName()
     {
         // Arrange
