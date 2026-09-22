@@ -571,6 +571,42 @@ public partial class TargetCaptureCommandTests
     }
 
     [TestMethod]
+    [DataRow(unchecked((int)0x80070005))]
+    [DataRow(unchecked((int)0x80070057))]
+    public async Task Snapshot_MappedViewerFailure_PreservesUnavailableJson(int hresult)
+    {
+        await using var harness = new Harness(GuestWindows());
+        using var console = new TestConsole();
+        var window = new SandboxClientWindow(DesktopHwnd, DesktopProcessId, 1);
+        var controller = new WindowsSandboxWindowController(
+            () =>
+            {
+                var surface = SandboxClientErrorProbe.Inspect(window, _ =>
+                {
+                    System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(hresult);
+                    throw new AssertFailedException("The failing HRESULT must throw.");
+                });
+                return [new SandboxClientCandidate(window, ParentProcessId: null, surface)];
+            },
+            isIconic: _ => false);
+        harness.Rendering.InspectSurface = () =>
+        {
+            var status = controller.InspectClient(null);
+            return new TargetDesktopSurface(status.Window.Handle, status.Window.ProcessId,
+                "WindowsSandboxRemoteSession", Adopted: true, IsMinimized: status.IsMinimized);
+        };
+
+        Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
+        var output = Deserialize(console.Output);
+        Assert.IsFalse(output.Desktop.Rendered);
+        Assert.IsFalse(output.Desktop.EffectiveInputReady);
+        Assert.IsFalse(output.Desktop.EffectiveCaptureReady);
+        Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, output.Desktop.Unavailable);
+        Assert.AreEqual(0, harness.Backend.EnsureCalls);
+        Assert.AreEqual(0, harness.Rendering.ResolveSurfaceCalls);
+    }
+
+    [TestMethod]
     public async Task Snapshot_UnknownTarget_IsRefusedBeforeTheTargetIsTouched()
     {
         await using var harness = new Harness(GuestWindows());
@@ -1285,6 +1321,8 @@ public partial class TargetCaptureCommandTests
 
         public bool Minimized { get; set; }
 
+        public Func<TargetDesktopSurface>? InspectSurface { get; set; }
+
         public List<TargetDesktopUse> ResolvedUses { get; } = [];
 
         public TargetDesktopSurface ResolveDesktopSurface(TargetDesktopUse use)
@@ -1297,7 +1335,7 @@ public partial class TargetCaptureCommandTests
         public TargetDesktopSurface InspectDesktopSurface()
         {
             InspectSurfaceCalls++;
-            return Surface();
+            return InspectSurface?.Invoke() ?? Surface();
         }
 
         private TargetDesktopSurface Surface() =>
