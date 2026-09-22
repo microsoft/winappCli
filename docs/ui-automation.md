@@ -855,10 +855,17 @@ winapp ui scroll img-map-a1b2 --wheel -1 -a myapp
 > `--direction`, `--to`, and `--wheel` are mutually exclusive — pass exactly one. Because `--wheel` injects OS-wide input at screen coordinates, it brings the target to the foreground first and **fails (`foreground_not_target`)** if focus couldn't be transferred, rather than scrolling the wrong window.
 
 ### get-focused
-Show the element that currently has keyboard focus.
 ```bash
 winapp ui get-focused -a myapp
+winapp ui get-focused -w <HWND> --json
 ```
+Show the element that currently has keyboard focus in the selected app, including
+controls whose app ownership is available only through their parent window.
+With `-w`, focus must belong to that window, not another window or an owned popup
+in the same process. With `-a`, other windows in the selected process are included.
+JSON output has `hasFocus:false` when no focused element can be verified as belonging
+to the target. If a focus or window-ownership query fails, the command exits nonzero instead;
+retry `get-focused`, and rediscover the window with `list-windows` if it has closed.
 
 ### list-windows
 List all visible windows for an app, including popups and dialogs.
