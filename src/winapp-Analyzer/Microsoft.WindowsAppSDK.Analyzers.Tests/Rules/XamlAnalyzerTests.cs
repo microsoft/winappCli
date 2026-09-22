@@ -225,6 +225,18 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task WuiDiagnosticsDoNotFlagTabViewAddTabButtonClickEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TabView AddTabButtonClick=""{x:Bind ViewModel.Events.OnAddTabButtonClick}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task WuiDiagnosticsDoNotFlagScrollViewerViewChangedEvent()
     {
         var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">

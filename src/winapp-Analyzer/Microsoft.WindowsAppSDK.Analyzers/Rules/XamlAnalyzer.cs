@@ -128,7 +128,10 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "Checked", "Unchecked", "Indeterminate", "Toggled",
         "ValueChanged", "ViewChanging", "ViewChanged", "DateChanged", "TimeChanged",
         "ItemClick", "ItemInvoked", "Expanding", "Collapsed",
-        "TabCloseRequested",
+        "AddTabButtonClick", "TabCloseRequested", "TabDragCompleted", "TabDragStarting",
+        "TabDroppedOutside", "TabItemsChanged", "TabStripDragOver", "TabStripDrop",
+        "ExternalTornOutTabsDropped", "ExternalTornOutTabsDropping",
+        "TabTearOutRequested", "TabTearOutWindowRequested",
         "BackRequested", "DisplayModeChanged", "PaneOpening", "PaneOpened", "PaneClosing", "PaneClosed",
         "Navigated", "Navigating", "NavigationFailed", "NavigationStopped",
         "Opened", "Closed", "Opening", "Closing", "Completed"
