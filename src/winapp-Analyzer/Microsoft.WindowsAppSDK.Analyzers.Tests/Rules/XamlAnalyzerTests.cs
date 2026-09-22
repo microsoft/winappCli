@@ -190,6 +190,39 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task WuiDiagnosticsDoNotFlagStoryboardCompletedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Storyboard Completed=""{x:Bind ViewModel.Events.OnCompleted}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsFlagResolvedStoryboardCompletedProperty()
+    {
+        const string source = @"namespace Microsoft.UI.Xaml.Media.Animation
+{
+    public class Storyboard
+    {
+        public bool Completed { get; set; }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Storyboard Completed=""{x:Bind ViewModel.Events.OnCompleted}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindNestedNoFallback)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task Wui2011DoesNotFlagCustomControlEvent()
     {
         const string source = @"namespace Sample

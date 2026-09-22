@@ -125,7 +125,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "Checked", "Unchecked", "Indeterminate", "Toggled",
         "ValueChanged", "DateChanged", "TimeChanged", "ItemClick", "ItemInvoked", "Expanding", "Collapsed",
         "Navigated", "Navigating", "NavigationFailed", "NavigationStopped",
-        "Opened", "Closed", "Opening", "Closing"
+        "Opened", "Closed", "Opening", "Closing", "Completed"
     };
 
     private const string PresentationNamespace = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
@@ -344,9 +344,11 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         {
             yield return "Microsoft.UI.Xaml.Controls." + localName;
             yield return "Microsoft.UI.Xaml.Controls.Primitives." + localName;
+            yield return "Microsoft.UI.Xaml.Media.Animation." + localName;
             yield return "Microsoft.UI.Xaml." + localName;
             yield return "Windows.UI.Xaml.Controls." + localName;
             yield return "Windows.UI.Xaml.Controls.Primitives." + localName;
+            yield return "Windows.UI.Xaml.Media.Animation." + localName;
             yield return "Windows.UI.Xaml." + localName;
         }
     }
