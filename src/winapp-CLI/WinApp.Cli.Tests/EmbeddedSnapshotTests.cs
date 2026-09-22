@@ -495,11 +495,16 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
-    public async Task LoadedOrigin_AllProvidersEmpty_WithoutCoreOnly_StaysNone()
+    public async Task LoadedOrigin_AllProvidersEmpty_WithoutCoreOnly_ResetsToNone()
     {
-        // Nothing was served at all — the one case an absent corpus is reserved for.
+        // Nothing was served at all — the one case an absent corpus is reserved for. The
+        // core-only call first puts the service in the embedded tier, so this pins that the
+        // failure path actively resets the origin rather than passing by default.
         var gallery = new FakeSearchProvider("gallery", ProviderData.Empty);
         var sut = new ControlsSearchService([gallery]);
+
+        await sut.GetEngineAsync(coreOnly: true);
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
 
         await Assert.ThrowsExactlyAsync<ControlsDataUnavailableException>(
             () => sut.GetEngineAsync());
