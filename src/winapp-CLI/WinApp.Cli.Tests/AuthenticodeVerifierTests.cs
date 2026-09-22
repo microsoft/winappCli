@@ -35,9 +35,12 @@ public class AuthenticodeVerifierTests
     }
 
     [TestMethod]
-    public void IsMicrosoftSubject_MicrosoftCommonName_ReturnsTrue()
+    public void IsMicrosoftSubject_MicrosoftOrganizationWithProductCommonName_ReturnsTrue()
     {
-        Assert.IsTrue(AuthenticodeVerifier.IsMicrosoftSubject("CN=Microsoft Corporation"));
+        // The arm64 SDK build tools ship under this subject, so the gate must accept a common name
+        // that names a team or product rather than the company.
+        Assert.IsTrue(AuthenticodeVerifier.IsMicrosoftSubject(
+            "CN=Microsoft Windows Kits Publisher, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"));
     }
 
     [TestMethod]
@@ -54,10 +57,65 @@ public class AuthenticodeVerifierTests
     }
 
     [TestMethod]
+    public void IsMicrosoftSubject_MicrosoftCommonNameUnderAnotherOrganization_ReturnsFalse()
+    {
+        // The whole point of the check: this signer is Contoso, however its common name reads.
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("CN=Microsoft Tools, O=Contoso Ltd"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_NoOrganizationAttribute_ReturnsFalse()
+    {
+        // A common name alone proves nothing about who owns the certificate, and every real
+        // Microsoft code-signing certificate carries O=Microsoft Corporation.
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("CN=Microsoft Corporation"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_OrganizationThatMerelyStartsWithMicrosoft_ReturnsFalse()
+    {
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("CN=Acme, O=Microsoft Corporation Ltd"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_MicrosoftNameInANonOrganizationAttribute_ReturnsFalse()
+    {
+        // Organizational unit is chosen by the requester, not asserted by the CA about the owner.
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("CN=Acme, OU=Microsoft Corporation"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_OrganizationSmuggledIntoACommonNameValue_ReturnsFalse()
+    {
+        // An escaped '=' keeps this all one common name value; there is no organization attribute.
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject(@"CN=O\=Microsoft Corporation, O=Contoso"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_OrganizationSmuggledIntoAQuotedCommonName_ReturnsFalse()
+    {
+        // Quoting is how a common name containing a comma is written, so the text after it is part
+        // of the common name and not a second attribute.
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject(@"CN=""Acme, O=Microsoft Corporation"", O=Contoso"));
+    }
+
+    [TestMethod]
     public void IsMicrosoftSubject_LookalikeWithoutMicrosoftMarkers_ReturnsFalse()
     {
-        // "Microsoftish" text that is not an O=Microsoft Corporation or CN=Microsoft* subject.
         Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("O=Not Microsoft-Affiliated Vendor, CN=Acme"));
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_MalformedSubject_ReturnsFalse()
+    {
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("not a distinguished name at all"),
+            "A subject that cannot be parsed must fail closed.");
+    }
+
+    [TestMethod]
+    public void IsMicrosoftSubject_EmptySubject_ReturnsFalse()
+    {
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject(string.Empty));
     }
 
     [TestMethod]

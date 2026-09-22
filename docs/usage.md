@@ -1587,13 +1587,21 @@ winapp tool signtool verify /pa MyApp.msix
 
 **Signature verification**
 
-Build tools are downloaded from NuGet and then executed, so winapp checks each one for a valid Microsoft Authenticode signature immediately before running it. This applies to every command that shells out to an SDK tool, including `tool`, `package`, and `sign`. A tool that fails the check is not run:
+Build tools are downloaded from NuGet and then executed, so winapp checks each one for a valid Microsoft Authenticode signature immediately before running it. The certificate must name Microsoft Corporation as the signing organization. This applies to every command that shells out to an SDK tool, including `tool`, `package`, and `sign`. A tool that fails the check is not run:
 
 ```text
 'mt.exe' is not validly signed by Microsoft, so it was not run (C:\...\mt.exe).
 ```
 
 A failure here means the file on disk is not what Microsoft published — most often a corrupt or partial download. Delete the package from the NuGet cache and run the command again so winapp re-downloads it.
+
+winapp then keeps the tool open for as long as it runs, so the file it checked is the file Windows loads. If it cannot hold the tool in place, it is not run either:
+
+```text
+'mt.exe' could not be held open for verification, so it was not run (C:\...\mt.exe).
+```
+
+Close whatever is using the file — an antivirus scan or an open editor is the usual cause — and run the command again. If the tool is gone rather than in use, delete the package from the NuGet cache so winapp re-downloads it.
 
 ---
 

@@ -40,14 +40,10 @@ internal sealed class CppWinrtService(ILogger<CppWinrtService> logger) : ICppWin
         // point of use — the same gate BuildToolsService applies to every build tool. Without it a custom or
         // compromised feed could supply an unsigned replacement that runs as the invoking user.
         // Deliberately not memoized, for the reason given in BuildToolsService: any cache key cheap enough to
-        // compute here is metadata that whoever can replace the file can also reproduce.
-        if (!SignatureVerifier(cppwinrtExe.FullName, logger))
-        {
-            throw new BuildToolSignatureException(
-                $"'{cppwinrtExe.Name}' is not validly signed by Microsoft, so it was not run ({cppwinrtExe.FullName}). " +
-                "The file on disk is not what Microsoft published, which usually means a corrupt or partial " +
-                "download. Delete the package from the NuGet cache and run the command again to re-download it.");
-        }
+        // compute here is metadata that whoever can replace the file can also reproduce. The tool stays held
+        // until this method returns, which is after cppwinrt has exited, so the binary that passed the check
+        // is the binary that ran.
+        using var verifiedCppWinrt = VerifiedTool.Open(cppwinrtExe, SignatureVerifier, logger);
 
         var rspPath = new FileInfo(Path.Combine(outputDir.FullName, ".cppwinrt.rsp"));
 
