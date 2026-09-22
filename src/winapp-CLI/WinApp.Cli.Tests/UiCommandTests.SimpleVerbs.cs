@@ -128,6 +128,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Focus_Com_ReturnsError()
     {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Button", Name = "OK" };
         _fakeUia.FocusThrow = FakeComException;
         var command = GetRequiredService<UiFocusCommand>();
@@ -138,6 +139,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Focus_Generic_ReturnsError()
     {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Button", Name = "OK" };
         _fakeUia.FocusThrow = FakeGenericException;
         var command = GetRequiredService<UiFocusCommand>();

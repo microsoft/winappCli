@@ -23,7 +23,8 @@ internal static class UiInjectionReporting
     /// </summary>
     /// <param name="action">Verb used in the message, e.g. "click", "drag", "scroll --wheel".</param>
     public static bool TryEnsureForeground(
-        this IForegroundGuard guard, long targetHwnd, ILogger logger, bool json, string action)
+        this IForegroundGuard guard, long targetHwnd, ILogger logger, bool json, string action,
+        TextWriter? errorOut = null)
     {
         switch (guard.CheckForeground(targetHwnd))
         {
@@ -32,19 +33,21 @@ internal static class UiInjectionReporting
 
             case ForegroundCheck.NoInteractiveDesktop:
                 logger.LogError(
-                    "{Symbol} No interactive desktop is available — the session is locked or on a secure desktop, so input can't be injected. Unlock the session and retry, or use a UIA-pattern verb (invoke, set-value, scroll --direction/--to) which doesn't need the desktop.",
+                    "{Symbol} No interactive desktop is available — the session is locked or on a secure desktop. Unlock the session and retry.",
                     UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeNoInteractiveDesktop,
-                    "No interactive desktop is available (session locked or on a secure desktop) — cannot inject input. Unlock the session, or use a UIA-pattern verb.");
+                    "No interactive desktop is available (session locked or on a secure desktop). Unlock the session and retry.",
+                    errorOut: errorOut);
                 return false;
 
             case ForegroundCheck.ForegroundNotTarget:
             default:
                 logger.LogError(
-                    "{Symbol} Target window is not in the foreground — refusing to {Action} to avoid acting on the wrong window. Focus or click the window first.",
+                    "{Symbol} Target window is not in the foreground — refusing to {Action} to avoid acting on the wrong window. Activate the intended window manually, check for a blocking dialog, then retry.",
                     UiSymbols.Error, action);
                 UiJsonError.Emit(json, UiJsonError.CodeForegroundNotTarget,
-                    $"Target window is not in the foreground — refusing to {action} to avoid injecting into the wrong window. Bring it to the foreground first.");
+                    $"Target window is not in the foreground — refusing to {action} to avoid acting on the wrong window. Activate the intended window manually, check for a blocking dialog, then retry.",
+                    errorOut: errorOut);
                 return false;
         }
     }

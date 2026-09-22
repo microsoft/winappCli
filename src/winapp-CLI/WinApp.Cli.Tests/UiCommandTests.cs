@@ -388,6 +388,8 @@ public partial class UiCommandTests : BaseCommandTests
     [TestMethod]
     public async Task Focus_ReturnsSuccess()
     {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeUia.PropertiesResult["HasKeyboardFocus"] = true;
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Button", Name = "OK" };
 
         var command = GetRequiredService<UiFocusCommand>();
@@ -1009,6 +1011,8 @@ public partial class UiCommandTests : BaseCommandTests
     [TestMethod]
     public async Task Focus_Json_EmitsEnvelope()
     {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeUia.PropertiesResult["HasKeyboardFocus"] = true;
         _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Edit", Selector = "edit-name-1234" };
 
         var command = GetRequiredService<UiFocusCommand>();
