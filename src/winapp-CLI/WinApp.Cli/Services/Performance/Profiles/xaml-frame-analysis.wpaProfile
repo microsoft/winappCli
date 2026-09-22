@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WpaProfileContainer xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" Version="2" xmlns="http://tempuri.org/SerializableElement.xsd">
+  <Content xsi:type="WpaProfile2">
+    <Sessions>
+      <Session Index="0">
+        <FileReferences />
+      </Session>
+    </Sessions>
+    <Views>
+      <View Guid="d36325c0-5b8d-44ff-8827-1e305eee7325" IsVisible="true" Title="Analysis">
+        <Graphs>
+          <Graph Guid="c7081c2f-5527-46c3-a60c-8739efaa47b8" LayoutStyle="All" GraphHeight="125" IsMinimized="false" IsShown="true" IsExpanded="false">
+            <Preset Name="All Xaml Info" BarGraphIntervalCount="50" IsThreadActivityTable="false" GraphColumnCount="15" KeyColumnCount="6" LeftFrozenColumnCount="0" RightFrozenColumnCount="5" InitialFilterQuery="" InitialFilterShouldKeep="true" InitialExpansionQuery="[Series Depth]:&lt;=6" GraphFilterTopValue="0" GraphFilterThresholdValue="0">
+              <MetadataEntries>
+                <MetadataEntry Guid="9d699df8-9ffc-409b-bbda-4843cd753aad" Name="Start" ColumnMetadata="StartTime" />
+                <MetadataEntry Guid="bd86727e-60a3-5ac4-57dc-b8902fcece38" Name="Duration" ColumnMetadata="Duration" />
+              </MetadataEntries>
+              <HighlightEntries />
+              <Columns>
+                <Column Guid="846e2fc5-81a2-4343-a710-9e06c252d4e3" Name="Process Name" SortPriority="0" Width="150" IsVisible="false">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="c965a23d-7609-495f-a629-1f7506e2e6b4" Name="Display Name" SortPriority="0" Width="150" IsVisible="false">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="09b10dd8-9f8b-4b8f-b2eb-f46926016919" Name="Process" SortPriority="0" Width="200" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="80091fd5-c2cf-49c6-ab8b-e134237c27dc" Name="Thread ID" SortPriority="0" Width="90" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="cb796d44-2927-5ac1-d231-4b71904c18f5" Name="Thread Name" SortPriority="0" Width="80" IsVisible="false">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="82ddfdff-ee93-5f35-08ac-4705069618dc" Name="Thread Activity Tag" SortPriority="0" Width="80" IsVisible="false">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="2818954f-2d30-5569-4510-dade0a5a605c" Name="Annotation" SortPriority="0" Width="80" IsVisible="false">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="20c6a89e-5a63-4e96-873a-6aad13ab53c1" Name="Type" SortPriority="0" Width="200" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="b7e1880b-0655-45b7-bed4-a73c64e0048f" Name="IsInteresting" SortPriority="0" Width="60" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="bd86727e-60a3-5ac4-57dc-b8902fcece38" Name="Duration" SortPriority="0" TextAlignment="Right" Width="90" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="a9de6295-448d-5a73-ec1c-023e472d635e" Name="Weight" SortPriority="0" TextAlignment="Right" Width="90" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="6d01367f-cbd1-44bb-986a-29dec7337d64" Name="Count" AggregationMode="Count" SortPriority="0" TextAlignment="Right" Width="40" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="9d699df8-9ffc-409b-bbda-4843cd753aad" Name="Start" SortOrder="Ascending" SortPriority="0" TextAlignment="Right" Width="90" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Guid="fd552d55-07de-4f3f-ac6a-bf74aeb1655d" Name="Stop" SortPriority="0" TextAlignment="Right" Width="90" IsVisible="true">
+                  <ColorQueryEntries />
+                </Column>
+              </Columns>
+            </Preset>
+          </Graph>
+        </Graphs>
+        <SessionIndices>
+          <SessionIndex>0</SessionIndex>
+        </SessionIndices>
+      </View>
+    </Views>
+    <ModifiedGraphs />
+  </Content>
+</WpaProfileContainer>

@@ -1167,17 +1167,29 @@ winapp perf record .\src\MyApp\MyApp.csproj --duration-sec 10
 
 `perf record` uses the same project, solution, .NET file-based app, and build-output-directory
 resolution as [`winapp run`](#run). It builds in `Release` by default, starts observation immediately
-before activation, and writes a `.winappperf` directory containing:
+before activation, prints milestones while recording, and writes a `.winappperf` directory containing:
 
+- `report.json` — the canonical post-record report: recording duration and outcome, startup timing
+  and stages, resource summary, collector and XAML coverage, and paths to retained evidence. The
+  terminal prints a concise view of this same report when recording ends.
 - `timeline.ndjson` — append-only startup events for activation, observed process generations,
-  top-level windows, first visibility, first successful response, response failures/recovery, and
-  raw process exits, plus resource samples every 500 ms.
+  top-level windows and their owning thread IDs, first visibility, typed response outcomes,
+  response timeout/recovery, raw process exits, and resource samples every 500 ms.
+- `startup/summary.json` — startup-only stages from activation through the last observed startup
+  boundary, with each duration, observation resolution, completion state, and evidence coverage.
+  Resource counters captured immediately after consecutive boundaries provide per-stage CPU time,
+  private-memory change, and I/O deltas; the summary records each snapshot's actual time and delay
+  from its boundary. If startup does not reach a responsive window, it also records the last
+  boundary, stop reason, observation end, and generation-safe process exits with raw decimal and
+  hexadecimal exit codes. A nonzero exit is not labeled as a crash without additional evidence.
+  The summary reports observed facts only; it does not infer a bottleneck or cause.
 - `manifest.json` — completion status, stop reason, monotonic-clock calibration, startup
-  disposition, activation PID, resource summary, collector lifecycle/status, retained artifacts,
-  sizes, quotas, loss-inspection status, and recommended viewers.
+  disposition, activation PID, the report and startup-summary paths, whole-recording resource summary,
+  collector lifecycle/status, XAML analysis coverage, retained artifacts, sizes, quotas,
+  loss-inspection status, and recommended viewers.
 
 ```powershell
-# Record the current project until Enter, Ctrl+C, redirected input completion, or target exit
+# Record the current project until Ctrl+C or target exit
 winapp perf record .
 
 # Record an existing build without rebuilding it
@@ -1186,11 +1198,11 @@ winapp perf record .\bin\x64\Release --no-build --duration-sec 15
 # Choose the evidence directory; it must not already exist
 winapp perf record . --output .\startup.winappperf --duration-sec 10
 
-# From an elevated terminal, retain module/loader and storage evidence for WPA
+# From an elevated terminal, record and summarize WinUI 3 XAML activity
 winapp perf record . --with-wpr --duration-sec 10
 
-# Attach .NET diagnostics after winapp observes a newly launched managed process
-winapp perf record . --with-dotnet-trace --with-dotnet-counters --duration-sec 10
+# A newly observed CoreCLR target automatically adds managed EventPipe evidence
+winapp perf record . --args "--scenario cpu-work"
 
 # Open the retained ETL in WPA, or use the registered viewer for a managed trace
 winapp perf open .\startup.winappperf --with wpa
@@ -1200,16 +1212,21 @@ winapp perf open .\startup.winappperf --with default
 A `completed` result means an owned visible top-level window was observed. `attached-late` means
 activation reached a process that was already running, as can happen with a single-instance app.
 `partial` means the recording retained valid evidence but did not observe a visible window before it
-stopped. Process exit codes are recorded as raw evidence and are not labeled as crashes.
+stopped. Process exit time and code are recording-lifecycle facts only. `perf record` does not
+capture or diagnose crashes; use `winapp run <target> --debug-output` (and `--symbols` when needed)
+for the existing crash-diagnostics workflow.
 
 Resource samples retain cumulative and derived counters for every owned process generation: CPU
 user/kernel/total time, CPU cores used and percentage of the machine, private bytes, working set,
 read/write/other I/O operations and bytes, read/write rates, threads, handles, and GDI/USER object
-counts. A process added during recording starts with its own baseline; winapp never calculates a
-rate from a different process generation or an assumed-zero counter. Aggregate fields are omitted
-when any owned process lacks that counter, and the manifest reports partial sample coverage. The
-summary reports observed averages, peaks, memory change, and I/O deltas; it does not label growth
-as a leak or claim a cause.
+counts. Each live process sample also retains generation-safe per-thread CPU time, derived CPU
+cores, sampled `Running`/`Ready`/`Wait` state, and wait reason when Windows exposes it. Window
+events retain the owning TID so UI-thread activity can be distinguished from worker-thread
+activity. A process or thread added during recording starts with its own creation-time baseline;
+winapp never calculates a rate across a reused PID/TID or from an assumed-zero counter. Aggregate
+fields are omitted when any owned process lacks that counter, and the manifest reports partial
+sample coverage. The summary reports observed averages, peaks, memory change, and I/O deltas; it
+does not label growth as a leak or claim a cause.
 
 When an owned process exits, winapp uses its retained process handle to capture one terminal CPU
 and I/O counter snapshot even if the exit occurs before the next 500 ms sample. Terminal snapshots
@@ -1217,47 +1234,130 @@ are marked in the timeline and excluded from cadence statistics. Windows does no
 post-exit memory, thread, handle, or GUI-resource counts, so those terminal fields remain absent;
 short-lived peaks between periodic samples cannot be reconstructed.
 
-Response probes use a bounded `SendMessageTimeout(WM_NULL)` call against each visible owned
-top-level window. The manifest records the 250 ms requested cadence and 100 ms per-window timeout.
-A failed probe means the window did not service this probe within the timeout; it is not an exact
-Windows "hung" boundary or a source-level diagnosis.
+Response probes use a bounded `SendMessageTimeout(WM_NULL)` call against visible owned top-level
+windows. The manifest records the 250 ms requested cadence and 100 ms probe timeout. Timeline
+events distinguish a real timeout from an invalid/destroyed HWND, access denial, and another
+Win32 failure; those failures are not labeled as response timeouts. A timeout means only that the
+window did not service this probe within the threshold at that sample. It is not an exact Windows
+"hung" boundary, an application-wide responsiveness verdict, or a source-level diagnosis.
 
 `--with-wpr` requires an elevated terminal, an explicit `--duration-sec` from 1 through 300, and at
 least 1 GiB free on the output volume. It starts a uniquely named
-`FileIO.Verbose` WPR session immediately before activation and soft-stops that same owned session
-when recording ends. A successful collection adds `traces/system.etl`, containing Loader,
-ProcessThread, File I/O, Disk I/O, hard-fault, and related stack evidence for analysis in Windows
-Performance Analyzer (WPA). Use WPA to inspect module first-load timestamps and order; winapp does
-not invent a single "DLL load duration" from evidence whose cost can span image reads, page faults,
-loader work, initialization, and JIT. If WPR is unavailable or fails, the startup evidence is still
-published as `partial`, with the collector status recorded in `manifest.json`.
+purpose-built `WinAppPerf.Verbose` WPR session immediately before activation and soft-stops that
+same owned session when recording ends. The bounded profile adds sampled CPU, scheduling/ready
+thread, process/thread/image, hard-fault, and file-I/O events to the proven XAML providers without
+the broad stacks and unrelated providers in built-in Verbose presets. A successful collection adds
+`traces/system.etl`. When a compatible
+Windows Performance Toolkit is installed, winapp also runs its Microsoft-signed
+`wpaexporter.exe` and `perf_xaml.dll` with the shipped `All Xaml Info` profile, then writes
+`summaries/xaml.json`. The terminal summary reports the target's XAML initialization, longest
+interesting Frame and UpdateLayout intervals, and UI thread when observed. These intervals can
+overlap or nest and must not be added together; Region of Interest is a plugin-derived analysis
+envelope, not direct framework execution time.
+
+Automatic interpretation requires Windows Performance Toolkit 10.1.26100.1 or newer with
+`perf_xaml.dll` enabled in its co-located `perfcore.ini`. Winapp searches only trusted Windows Kits
+install roots, or the absolute directory specified by `WINAPP_WPT_DIR`; it never executes a
+same-named tool found only on `PATH` and never modifies `perfcore.ini`. If the analyzer is missing
+or fails, the ETL remains available for WPA and `manifest.json` reports `analysis-unavailable` or
+`analysis-failed` with an action instead of presenting an empty summary as no XAML activity. The
+exported table exposes PID but not process creation time, so winapp filters rows to the observed
+target PID and records its creation time separately; the bounded owned recording limits, but
+cannot independently prove, process-generation matching from the exported CSV alone.
+
+If WPR itself is unavailable or fails, the startup evidence is still published as `partial`, with
+the collector status recorded in `manifest.json`.
 
 WPR stop merges the trace and may generate an `system.etl.NGENPDB` sidecar directory after the
-requested recording duration ends. The manifest records the collection and merge timestamps, ETL
-size, total trace-artifact size, and that event loss has not yet been independently inspected.
+requested recording duration ends. When trusted `xperf.exe` is available in the same WPT
+installation, winapp runs `tracestats` and records the total lost-buffer and lost-event counts.
+Any detected loss makes the recording `partial`, marks XAML analysis coverage accordingly, and
+returns nonzero. If loss inspection itself is unavailable or fails, the manifest says
+`not-inspected` or `inspection-failed`; it never claims zero loss from a successful WPR stop alone.
+The manifest also records the collection and merge timestamps, ETL size, and total trace-artifact
+size.
 
-`--with-dotnet-trace` and `--with-dotnet-counters` never install tools. winapp resolves
-`dotnet-trace.exe` and `dotnet-counters.exe` from absolute directories on `PATH` or
-`%USERPROFILE%\.dotnet\tools`, records each tool version, and attaches only after it observes a new,
-generation-checked process that has loaded the .NET runtime. It does not attach to a process that
-predated activation, including an `attached-late` single-instance app. Successful collection retains
-the original `traces/managed.nettrace` and `traces/managed-counters.json`; winapp does not parse them
-or claim that they contain no lost events.
+`perf record` automatically tries one in-process Managed EventPipe session after it observes a new,
+generation-checked process that has loaded `coreclr.dll`. It collects sampled stacks,
+runtime events, and `System.Runtime` counters together in `traces/managed.nettrace`; no global .NET
+diagnostic tools or recording duration are required. It does not attach to a process that predated
+activation, including an `attached-late` single-instance app. The terminal and manifest report one
+`Managed EventPipe` status. A native target still succeeds with `not-observed` or
+`non-managed-target`; `inspection-failed`, `start-failed`, and stop failures describe only the
+managed evidence and do not turn standard recording into a command failure.
 
-Any deep collector requires `--duration-sec 1-300` and at least 1 GiB free on the output volume.
-Missing tools, a non-managed target, attach/start/stop failure, or an artifact exceeding its recorded
-1 GiB quota makes the overall result `partial` while preserving the baseline startup/resource bundle
-and any artifact that was produced. Install the requested .NET diagnostic tool yourself and retry if
-its status is `unavailable`.
+The managed artifact has a 1 GiB write limit. At the limit, winapp keeps draining the EventPipe
+stream so the session can stop cleanly, writes no additional bytes, and reports
+`quota-exceeded` with partial coverage. winapp retains the original nettrace but does not parse it
+or claim that it contains no lost events; open it in PerfView or Visual Studio for trace analysis.
 
 `perf open` reads `manifest.json`, rejects artifact paths that leave the bundle, and launches a viewer
 without changing the evidence. `--with wpa` requires `traces/system.etl` and an installed Windows
-Performance Analyzer. `--with default` asks Windows to open the managed trace, ETL, or JSON artifact
-with its registered application. If no viewer is available, winapp prints the original artifact path
-and the next action instead of downloading software.
+Performance Analyzer. `--with default` asks Windows to open only a declared `.nettrace`, `.etl`, or
+`.json` data artifact with its registered application; executable, script, shortcut, URL, and
+kind/extension-mismatched artifacts are never launched. If no viewer is available, winapp prints the
+original artifact path and the next action instead of downloading software.
+
+### perf scenario and perf compare
+
+Validate a repeatable scenario and write a `.winappperfset`:
+
+```powershell
+winapp perf scenario .\startup.json .\src\MyApp\MyApp.csproj --warmup 1 --repeat 5 --output .\startup.winappperfset
+winapp perf compare .\baseline.winappperfset .\candidate.winappperfset --output .\comparison.json
+```
+
+Scenario JSON is versioned and uses the existing `winapp ui` argument syntax. Each metric selects
+exactly one absolute tolerance or percentage tolerance:
+
+```json
+{
+  "schemaVersion": "0.1",
+  "id": "open-settings",
+  "setup": [],
+  "measure": [
+    { "ui": ["click", "btn-settings"] },
+    { "ui": ["wait-for", "Settings"] }
+  ],
+  "cleanup": [],
+  "metrics": [
+    { "name": "measure.durationMs", "percentTolerance": 5 },
+    { "name": "measure.peakPrivateBytes", "absoluteTolerance": 10485760 }
+  ]
+}
+```
+
+The scenario parser rejects `ui yield` and embedded app, window, output, JSON, help, or
+workflow-control options. Set manifests retain only the scenario id/hash and each step's ordinal,
+UI verb, status, duration, and exit code; selectors, entered values, app arguments, child output,
+and workflow ids are not retained.
+
+Warmups default to 1 and repeats to 5. Warmups remain in the set but are excluded from comparison.
+Comparison uses the deterministic median (the middle value, or the mean of the two middle values)
+without outlier removal. It reports each baseline and candidate median, signed change, configured
+tolerance, normalized allowed difference, unit, and expected direction as facts. It does not label
+the result as a pass or regression. Scenario, metric, machine, probe, cadence, or schema mismatches
+are invalid.
+
+The fixed metric names are `startup.firstProcessMs`, `startup.firstWindowMs`,
+`startup.firstVisibleMs`, `startup.firstResponsiveMs`, `measure.durationMs`,
+`measure.cpuTimeMs`, `measure.averageCpuCores`, `measure.peakPrivateBytes`,
+`measure.privateBytesChange`, `measure.readBytes`, `measure.writeBytes`, and
+`measure.failedProbeDurationMs`.
+
+`perf scenario` launches every warmup and measured iteration through the same generation-safe
+observation path as `perf record`. It waits for a newly launched owned visible responsive window,
+targets that exact HWND for every setup, measure, and cleanup UI command, records sanitized phase and
+step markers plus forced resource snapshots around measurement, yields the workflow turn, and waits
+for all newly owned processes to exit naturally. Project and single-file targets build in `Release`
+by default; the command accepts the same build selection and app-argument options as `perf record`.
+The scenario's cleanup phase or app arguments must close the app; otherwise the iteration eventually
+times out while waiting for natural exit. The command never kills or drives an `attached-late`
+pre-existing process. Each iteration bundle is retained in the set. `perf compare` exits 0 only for
+a completed factual comparison; invalid or incomplete sets exit 1, and cancellation exits 130.
 
 The current recording slice does not include automatic analysis, pre-activation diagnostic ports,
-live multi-process managed tracing, or UI interaction capture.
+or live multi-process managed tracing.
 
 ---
 

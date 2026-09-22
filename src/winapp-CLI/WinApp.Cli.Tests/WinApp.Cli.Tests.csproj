@@ -36,6 +36,7 @@
 
   <ItemGroup>
     <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" />
     <PackageReference Include="Spectre.Console.Testing" />
   </ItemGroup>
 

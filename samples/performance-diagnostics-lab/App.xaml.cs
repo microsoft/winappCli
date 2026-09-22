@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using PerformanceDiagnosticsLab.Contracts;
 using PerformanceDiagnosticsLab.Services;
 
 namespace PerformanceDiagnosticsLab;
@@ -17,9 +18,22 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         LaunchOptions = LaunchOptions.Parse(Environment.GetCommandLineArgs().Skip(1));
-        LaunchOptions.ApplyPreWindowWorkload();
+        if (LaunchOptions.ExitBeforeWindowCode is { } exitCode)
+        {
+            Environment.Exit(exitCode);
+        }
 
-        Window = new MainWindow(LaunchOptions);
+        var startup = new StartupOrchestrator(LaunchOptions.ToStartupContext());
+        var featurePages = new FeaturePageLoader();
+        startup.RunCore();
+
+        if (LaunchOptions.StartupMode == StartupMode.Eager)
+        {
+            startup.RunAll();
+        }
+
+        var launchContext = new AppLaunchContext(LaunchOptions, startup, featurePages);
+        Window = new MainWindow(launchContext);
         Window.Activate();
     }
 }

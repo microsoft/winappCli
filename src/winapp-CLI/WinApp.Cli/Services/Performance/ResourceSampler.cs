@@ -20,7 +20,31 @@ internal sealed record ProcessResourceCounters(
     int? ThreadCount = null,
     int? HandleCount = null,
     uint? GdiObjectCount = null,
-    uint? UserObjectCount = null);
+    uint? UserObjectCount = null,
+    IReadOnlyList<ThreadResourceCounters>? Threads = null);
+
+internal sealed record ThreadResourceCounters(
+    int ThreadId,
+    long? ThreadStartTimeUtcTicks,
+    long? TotalProcessorTimeTicks,
+    long? UserProcessorTimeTicks,
+    long? KernelProcessorTimeTicks,
+    string? State,
+    string? WaitReason);
+
+internal sealed record ThreadResourceSample
+{
+    public required int ThreadId { get; init; }
+    public long? ThreadStartTimeUtcTicks { get; init; }
+    public double? TotalProcessorTimeMs { get; init; }
+    public double? UserProcessorTimeMs { get; init; }
+    public double? KernelProcessorTimeMs { get; init; }
+    public double? CpuCoresUsed { get; init; }
+    public double? CpuPercentOfMachine { get; init; }
+    public string? State { get; init; }
+    public string? WaitReason { get; init; }
+    public required bool IsPartial { get; init; }
+}
 
 internal sealed record ProcessResourceSample
 {
@@ -45,6 +69,8 @@ internal sealed record ProcessResourceSample
     public int? HandleCount { get; init; }
     public uint? GdiObjectCount { get; init; }
     public uint? UserObjectCount { get; init; }
+    public string ThreadCaptureStatus { get; init; } = "unavailable";
+    public IReadOnlyList<ThreadResourceSample> Threads { get; init; } = [];
     public required bool IsTerminal { get; init; }
     public required bool IsPartial { get; init; }
 }
@@ -82,11 +108,15 @@ internal sealed class ResourceSampler(
     int logicalProcessorCount)
 {
     private readonly Dictionary<ProcessIdentity, (PerformanceTimestamp Timestamp, ProcessResourceCounters Counters)> _previous = [];
+    private readonly Dictionary<(ProcessIdentity Process, int ThreadId, long StartTimeUtcTicks),
+        (PerformanceTimestamp Timestamp, ThreadResourceCounters Counters)> _previousThreads = [];
     private PerformanceTimestamp? _lastSample;
 
     public TimeSpan RequestedCadence { get; } = requestedCadence;
 
-    public ResourceSample? TrySample(IReadOnlyList<ProcessResourceCounters> counters)
+    public ResourceSample? TrySample(
+        IReadOnlyList<ProcessResourceCounters> counters,
+        bool force = false)
     {
         if (counters.Count == 0)
         {
@@ -96,6 +126,7 @@ internal sealed class ResourceSampler(
         var timestamp = clock.GetTimestamp();
         var isTerminal = counters.Any(counter => counter.IsTerminal);
         if (_lastSample is { } previousSample
+            && !force
             && !isTerminal
             && timestamp.ElapsedSince(previousSample, clock.Frequency) < RequestedCadence)
         {
@@ -113,6 +144,19 @@ internal sealed class ResourceSampler(
         foreach (var current in counters)
         {
             _previous[current.Process] = (timestamp, current);
+            if (current.Threads is null)
+            {
+                continue;
+            }
+
+            foreach (var thread in current.Threads.Where(thread =>
+                         thread.ThreadStartTimeUtcTicks is not null))
+            {
+                _previousThreads[(
+                    current.Process,
+                    thread.ThreadId,
+                    thread.ThreadStartTimeUtcTicks!.Value)] = (timestamp, thread);
+            }
         }
 
         return new()
@@ -191,8 +235,57 @@ internal sealed class ResourceSampler(
             HandleCount = current.HandleCount,
             GdiObjectCount = current.GdiObjectCount,
             UserObjectCount = current.UserObjectCount,
+            ThreadCaptureStatus = current.IsTerminal
+                ? "terminal"
+                : current.Threads is null
+                    ? "unavailable"
+                    : "complete",
+            Threads = current.Threads?
+                .Select(thread => CreateThreadSample(timestamp, current.Process, thread))
+                .ToArray() ?? [],
             IsTerminal = current.IsTerminal,
             IsPartial = partial,
+        };
+    }
+
+    private ThreadResourceSample CreateThreadSample(
+        PerformanceTimestamp timestamp,
+        ProcessIdentity process,
+        ThreadResourceCounters current)
+    {
+        double? cpuCores = null;
+        if (current.ThreadStartTimeUtcTicks is { } startTime
+            && _previousThreads.TryGetValue(
+                (process, current.ThreadId, startTime),
+                out var previous))
+        {
+            var elapsedSeconds =
+                timestamp.ElapsedSince(previous.Timestamp, clock.Frequency).TotalSeconds;
+            if (elapsedSeconds > 0
+                && Delta(
+                    current.TotalProcessorTimeTicks,
+                    previous.Counters.TotalProcessorTimeTicks) is { } cpuTicks)
+            {
+                cpuCores = Math.Max(0, TimeSpan.FromTicks(cpuTicks).TotalSeconds / elapsedSeconds);
+            }
+        }
+
+        return new()
+        {
+            ThreadId = current.ThreadId,
+            ThreadStartTimeUtcTicks = current.ThreadStartTimeUtcTicks,
+            TotalProcessorTimeMs = ToMilliseconds(current.TotalProcessorTimeTicks),
+            UserProcessorTimeMs = ToMilliseconds(current.UserProcessorTimeTicks),
+            KernelProcessorTimeMs = ToMilliseconds(current.KernelProcessorTimeTicks),
+            CpuCoresUsed = cpuCores,
+            CpuPercentOfMachine = cpuCores * 100 / logicalProcessorCount,
+            State = current.State,
+            WaitReason = current.WaitReason,
+            IsPartial = current.ThreadStartTimeUtcTicks is null
+                || current.TotalProcessorTimeTicks is null
+                || current.UserProcessorTimeTicks is null
+                || current.KernelProcessorTimeTicks is null
+                || current.State is null,
         };
     }
 

@@ -1801,9 +1801,96 @@
       }
     },
     "perf": {
-      "description": "Record and open target-scoped performance evidence for Windows apps",
+      "description": "Record, repeat, compare, and open target-scoped performance evidence for Windows apps",
       "hidden": false,
       "subcommands": {
+        "compare": {
+          "description": "Compare deterministic medians from two compatible .winappperfset directories.",
+          "hidden": false,
+          "arguments": {
+            "baseline-set": {
+              "description": "Baseline .winappperfset directory.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.IO.DirectoryInfo",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "candidate-set": {
+              "description": "Candidate .winappperfset directory.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.IO.DirectoryInfo",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "Optional atomic JSON comparison result path.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
         "open": {
           "description": "Safely open an original artifact from a .winappperf bundle.",
           "hidden": false,
@@ -1882,7 +1969,7 @@
           }
         },
         "record": {
-          "description": "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain original WPR and .NET diagnostic artifacts.",
+          "description": "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, retain managed EventPipe evidence for newly launched CoreCLR targets, and optionally collect a WPR trace.",
           "hidden": false,
           "arguments": {
             "target": {
@@ -1948,7 +2035,7 @@
               "recursive": false
             },
             "--duration-sec": {
-              "description": "Stop after this many seconds. Use 0 to record until Enter, Ctrl+C, redirected-input completion, or target exit (default: 0).",
+              "description": "Stop after this many seconds. Use 0 to record until Ctrl+C or target exit (default: 0).",
               "hidden": false,
               "valueType": "System.Int32",
               "hasDefaultValue": true,
@@ -2099,40 +2186,258 @@
               "required": false,
               "recursive": false
             },
-            "--with-dotnet-counters": {
-              "description": "Attach dotnet-counters after a newly launched managed process is evidenced and retain traces/managed-counters.json.",
-              "hidden": false,
-              "valueType": "System.Boolean",
-              "hasDefaultValue": true,
-              "defaultValue": false,
-              "arity": {
-                "minimum": 0,
-                "maximum": 1
-              },
-              "required": false,
-              "recursive": false
-            },
-            "--with-dotnet-trace": {
-              "description": "Attach dotnet-trace after a newly launched managed process is evidenced and retain traces/managed.nettrace.",
-              "hidden": false,
-              "valueType": "System.Boolean",
-              "hasDefaultValue": true,
-              "defaultValue": false,
-              "arity": {
-                "minimum": 0,
-                "maximum": 1
-              },
-              "required": false,
-              "recursive": false
-            },
             "--with-wpr": {
-              "description": "Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA.",
+              "description": "Collect an elevated WinUI/XAML WPR trace and retain traces/system.etl.",
               "hidden": false,
               "valueType": "System.Boolean",
               "hasDefaultValue": true,
               "defaultValue": false,
               "arity": {
                 "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "scenario": {
+          "description": "Validate a versioned UI scenario and produce an atomic repeatable performance set.",
+          "hidden": false,
+          "arguments": {
+            "scenario": {
+              "description": "Versioned performance scenario JSON file.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.IO.FileInfo",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            },
+            "target": {
+              "description": "Optional app target accepted by winapp run.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.IO.FileSystemInfo",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "app-args": {
+              "order": 2,
+              "hidden": true,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0
+              }
+            }
+          },
+          "options": {
+            "--arch": {
+              "description": "Project and single-file mode: target architecture (x64, arm64, or x86).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--args": {
+              "description": "Arguments to pass to the app. Alternatively, place arguments after --.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--configuration": {
+              "description": "Project and single-file mode: build configuration (default: Release).",
+              "hidden": false,
+              "aliases": [
+                "-c"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": true,
+              "defaultValue": "Release",
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--framework": {
+              "description": "Project mode: target framework moniker.",
+              "hidden": false,
+              "aliases": [
+                "-f"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--no-build": {
+              "description": "Run existing build output without building.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--no-restore": {
+              "description": "Skip restore before building.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "New atomic .winappperfset output directory.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--project": {
+              "description": "Select a project when the target is a solution or ambiguous directory.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--property": {
+              "description": "MSBuild property as Name=Value. Repeatable.",
+              "hidden": false,
+              "aliases": [
+                "-p"
+              ],
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--repeat": {
+              "description": "Measured iterations (default: 5; range: 1-50).",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 5,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--runtime": {
+              "description": "Project mode: target .NET runtime identifier.",
+              "hidden": false,
+              "aliases": [
+                "-r"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--warmup": {
+              "description": "Warmup iterations retained in the set but excluded from statistics (default: 1; range: 0-20).",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 1,
+              "arity": {
+                "minimum": 1,
                 "maximum": 1
               },
               "required": false,

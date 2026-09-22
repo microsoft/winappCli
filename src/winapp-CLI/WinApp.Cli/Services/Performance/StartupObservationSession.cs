@@ -10,6 +10,7 @@ internal enum StartupEventType
     WindowObserved,
     WindowVisible,
     WindowResponseFailed,
+    WindowResponseProbeFailed,
     WindowResponsive,
     WindowResponseRecovered,
     ProcessExited,
@@ -29,7 +30,10 @@ internal readonly record struct StartupEvent(
     ProcessIdentity? Process = null,
     long? WindowHandle = null,
     int? ExitCode = null,
-    bool WasPresentBeforeActivation = false);
+    WindowResponseProbeOutcome? ResponseProbeOutcome = null,
+    int? Win32ErrorCode = null,
+    bool WasPresentBeforeActivation = false,
+    int? WindowThreadId = null);
 
 internal readonly record struct StartupObservationUpdate(
     IReadOnlyList<StartupEvent> Events,
@@ -57,6 +61,7 @@ internal sealed class StartupObservationSession : IDisposable
     private readonly HashSet<OwnedWindow> _reportedVisibleWindows = [];
     private readonly HashSet<OwnedWindow> _reportedResponsiveWindows = [];
     private readonly Dictionary<OwnedWindow, bool> _windowResponseStates = [];
+    private readonly Dictionary<OwnedWindow, WindowResponseProbeResult> _windowProbeFailures = [];
     private readonly List<StartupEvent> _events;
     private PerformanceTimestamp _previousSnapshot;
 
@@ -171,7 +176,8 @@ internal sealed class StartupObservationSession : IDisposable
                     boundaryResolution,
                     Process: owner.Process,
                     WindowHandle: window.WindowHandle,
-                    WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process)), newEvents);
+                    WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process),
+                    WindowThreadId: window.ThreadId), newEvents);
             }
 
             if (window.IsVisible && _reportedVisibleWindows.Add(owner))
@@ -182,35 +188,64 @@ internal sealed class StartupObservationSession : IDisposable
                     boundaryResolution,
                     Process: owner.Process,
                     WindowHandle: window.WindowHandle,
-                    WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process)), newEvents);
+                    WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process),
+                    WindowThreadId: window.ThreadId), newEvents);
 
-                if (Disposition == StartupLaunchDisposition.Pending)
+                if (!_preActivationProcesses.Contains(owner.Process))
                 {
-                    Disposition = _preActivationProcesses.Contains(owner.Process)
-                        ? StartupLaunchDisposition.AttachedLate
-                        : StartupLaunchDisposition.Launched;
+                    Disposition = StartupLaunchDisposition.Launched;
+                }
+                else if (Disposition == StartupLaunchDisposition.Pending)
+                {
+                    Disposition = StartupLaunchDisposition.AttachedLate;
                 }
             }
 
-            if (!window.IsVisible || window.IsResponsive is not { } isResponsive)
+            if (!window.IsVisible || window.Response is not { } response)
             {
                 continue;
             }
 
+            if (response.Outcome is not
+                (WindowResponseProbeOutcome.Responsive or WindowResponseProbeOutcome.Timeout))
+            {
+                if (!_windowProbeFailures.TryGetValue(owner, out var previousFailure)
+                    || previousFailure != response)
+                {
+                    AddEvent(new(
+                        StartupEventType.WindowResponseProbeFailed,
+                        observedAt,
+                        boundaryResolution,
+                        Process: owner.Process,
+                        WindowHandle: window.WindowHandle,
+                        ResponseProbeOutcome: response.Outcome,
+                        Win32ErrorCode: response.Win32ErrorCode,
+                        WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process),
+                        WindowThreadId: window.ThreadId), newEvents);
+                    _windowProbeFailures[owner] = response;
+                }
+                continue;
+            }
+
+            _windowProbeFailures.Remove(owner);
             var hadPreviousState = _windowResponseStates.TryGetValue(owner, out var wasResponsive);
+            var isResponsive = response.Outcome == WindowResponseProbeOutcome.Responsive;
             if (isResponsive)
             {
-                if (_reportedResponsiveWindows.Add(owner))
+                var wasEverResponsive = _reportedResponsiveWindows.Contains(owner);
+                if (!wasEverResponsive)
                 {
+                    _reportedResponsiveWindows.Add(owner);
                     AddEvent(new(
                         StartupEventType.WindowResponsive,
                         observedAt,
                         boundaryResolution,
                         Process: owner.Process,
                         WindowHandle: window.WindowHandle,
-                        WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process)), newEvents);
+                        WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process),
+                        WindowThreadId: window.ThreadId), newEvents);
                 }
-                if (hadPreviousState && !wasResponsive)
+                if (wasEverResponsive && hadPreviousState && !wasResponsive)
                 {
                     AddEvent(new(
                         StartupEventType.WindowResponseRecovered,
@@ -218,10 +253,11 @@ internal sealed class StartupObservationSession : IDisposable
                         boundaryResolution,
                         Process: owner.Process,
                         WindowHandle: window.WindowHandle,
-                        WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process)), newEvents);
+                        WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process),
+                        WindowThreadId: window.ThreadId), newEvents);
                 }
             }
-            else if (!hadPreviousState || wasResponsive)
+            else if (hadPreviousState && wasResponsive)
             {
                 AddEvent(new(
                     StartupEventType.WindowResponseFailed,
@@ -229,7 +265,10 @@ internal sealed class StartupObservationSession : IDisposable
                     boundaryResolution,
                     Process: owner.Process,
                     WindowHandle: window.WindowHandle,
-                    WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process)), newEvents);
+                    ResponseProbeOutcome: response.Outcome,
+                    Win32ErrorCode: response.Win32ErrorCode,
+                    WasPresentBeforeActivation: _preActivationProcesses.Contains(owner.Process),
+                    WindowThreadId: window.ThreadId), newEvents);
             }
             _windowResponseStates[owner] = isResponsive;
         }

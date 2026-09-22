@@ -12,7 +12,7 @@ internal sealed record PerformanceOpenManifest
     public string? SchemaVersion { get; init; }
     public IReadOnlyList<PerformanceArtifact>? Artifacts { get; init; }
     public WprCollectorResult? Wpr { get; init; }
-    public ManagedCollectorsResult? Managed { get; init; }
+    public JsonElement? Managed { get; init; }
 }
 
 internal sealed record PerformanceOpenResult
@@ -105,7 +105,7 @@ internal sealed class PerformanceBundleOpener(
         {
             return Invalid(bundle, $"Cannot read manifest.json: {ex.Message}");
         }
-        if (manifest.SchemaVersion is not ("0.1" or "0.2"))
+        if (!PerformanceBundleSchema.IsSupported(manifest.SchemaVersion))
         {
             return Invalid(
                 bundle,
@@ -170,17 +170,18 @@ internal sealed class PerformanceBundleOpener(
         IReadOnlyList<PerformanceArtifact> artifacts)
     {
         var artifact = artifacts.FirstOrDefault(value =>
-                value.Kind.Equals("nettrace", StringComparison.OrdinalIgnoreCase))
+                IsSafeDefaultViewerArtifact(value, "nettrace", ".nettrace"))
             ?? artifacts.FirstOrDefault(value =>
-                value.Kind.Equals("etl", StringComparison.OrdinalIgnoreCase))
-            ?? (artifacts.Count > 0 ? artifacts[0] : null);
+                IsSafeDefaultViewerArtifact(value, "etl", ".etl"))
+            ?? artifacts.FirstOrDefault(value =>
+                IsSafeDefaultViewerArtifact(value, "json", ".json"));
         if (artifact is null)
         {
             return Unavailable(
                 bundle,
                 "default",
                 null,
-                "This bundle declares no retained artifacts.",
+                "This bundle declares no artifact with a safe trace or data type for the default viewer.",
                 "Inspect manifest.json and timeline.ndjson directly.");
         }
         if (!TryResolveArtifact(bundle, artifact.Path, out var artifactPath, out var error))
@@ -195,6 +196,15 @@ internal sealed class PerformanceBundleOpener(
         };
         return Launch(bundle, "default", artifactPath!, startInfo);
     }
+
+    private static bool IsSafeDefaultViewerArtifact(
+        PerformanceArtifact artifact,
+        string expectedKind,
+        string expectedExtension) =>
+        artifact.Kind.Equals(expectedKind, StringComparison.OrdinalIgnoreCase)
+        && Path.GetExtension(artifact.Path).Equals(
+            expectedExtension,
+            StringComparison.OrdinalIgnoreCase);
 
     private PerformanceOpenResult Launch(
         string bundle,
@@ -238,18 +248,60 @@ internal sealed class PerformanceBundleOpener(
 
         var artifacts = new List<PerformanceArtifact>();
         Add(manifest.Wpr?.Artifact, "etl", "wpr", manifest.Wpr?.FileSize, manifest.Wpr?.RecommendedViewer, manifest.Wpr?.LossStatus);
-        AddManaged(manifest.Managed?.DotNetTrace, "nettrace");
-        AddManaged(manifest.Managed?.DotNetCounters, "json");
+        AddManaged(manifest.Managed);
         return artifacts;
 
-        void AddManaged(ManagedCollectorResult? result, string kind) =>
+        void AddManaged(JsonElement? managed)
+        {
+            if (managed is not { ValueKind: JsonValueKind.Object } value)
+            {
+                return;
+            }
+
+            // Schema 0.7 records one combined EventPipe session. Schema 0.6
+            // recorded the two external collectors separately.
+            if (value.TryGetProperty("artifact", out _))
+            {
+                AddManagedResult(value, "nettrace", "Managed EventPipe");
+                return;
+            }
+            if (value.TryGetProperty("dotNetTrace", out var trace))
+            {
+                AddManagedResult(trace, "nettrace", "managed");
+            }
+            if (value.TryGetProperty("dotNetCounters", out var counters))
+            {
+                AddManagedResult(counters, "json", "managed");
+            }
+        }
+
+        void AddManagedResult(JsonElement result, string kind, string defaultCollector)
+        {
+            if (result.ValueKind != JsonValueKind.Object
+                || !result.TryGetProperty("artifact", out var artifact))
+            {
+                return;
+            }
+
             Add(
-                result?.Artifact,
+                artifact.GetString(),
                 kind,
-                result?.Tool ?? "managed",
-                result?.FileSize,
-                result?.RecommendedViewer,
-                result?.LossStatus);
+                result.TryGetProperty("collector", out var collector)
+                    ? collector.GetString() ?? defaultCollector
+                    : result.TryGetProperty("tool", out var tool)
+                        ? tool.GetString() ?? defaultCollector
+                        : defaultCollector,
+                result.TryGetProperty("fileSize", out var fileSize)
+                    && fileSize.TryGetInt64(out var size)
+                    ? size
+                    : null,
+                result.TryGetProperty("recommendedViewer", out var recommendedViewer)
+                    ? recommendedViewer.GetString()
+                    : null,
+                result.TryGetProperty("lossStatus", out var lossStatus)
+                    ? lossStatus.GetString()
+                    : null);
+        }
 
         void Add(
             string? path,

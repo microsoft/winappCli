@@ -29,6 +29,11 @@ public sealed class PerformanceScenarioRunner
             case "background-cpu":
                 await Task.Run(() => BurnCpu(durationMilliseconds, cancellationToken), cancellationToken);
                 break;
+            case "deep-call-stack":
+                await Task.Run(
+                    () => DeepCallStackScenario.Execute(durationMilliseconds, cancellationToken),
+                    cancellationToken);
+                break;
             case "memory-step":
                 await RunMemoryStepAsync(
                     options.MemoryMegabytes ?? scenario.MemoryMegabytes,

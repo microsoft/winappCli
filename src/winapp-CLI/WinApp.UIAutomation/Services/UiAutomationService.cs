@@ -24,6 +24,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
     private readonly ILogger<UiAutomationService> _logger;
     private readonly IUIAutomation _automation;
     private readonly IUiSelectorParser _selectorParser;
+    private readonly IUiActionBoundaryReporter _actionReporter;
 
     internal static Func<UiAutomationService, UiTarget, IUIAutomationElement?> s_getRootElement = (service, uiTarget) => service.GetRootElementCore(uiTarget);
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_getRootElementForHwnd = (service, hwnd) => service.GetRootElementForHwndCore(hwnd);
@@ -56,10 +57,21 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_sleepForBlankRetry = Thread.Sleep;
     }
 
-    public UiAutomationService(ILogger<UiAutomationService> logger, IUiSelectorParser selectorParser)
+    public UiAutomationService(
+        ILogger<UiAutomationService> logger,
+        IUiSelectorParser selectorParser)
+        : this(logger, selectorParser, new UiActionBoundaryReporter())
+    {
+    }
+
+    public UiAutomationService(
+        ILogger<UiAutomationService> logger,
+        IUiSelectorParser selectorParser,
+        IUiActionBoundaryReporter actionReporter)
     {
         _logger = logger;
         _selectorParser = selectorParser;
+        _actionReporter = actionReporter;
         _automation = CUIAutomation8.CreateInstance<IUIAutomation>();
     }
 
@@ -766,7 +778,7 @@ return Task.FromResult<UiElement?>(null);
                     _ => pattern.get_CurrentToggleState().ToString()
                 };
             }
-            catch { }
+            catch (Exception ex) when (ex is not UiActionBoundaryReportingException) { }
 
             try
             {
@@ -775,7 +787,7 @@ return Task.FromResult<UiElement?>(null);
                 props["Value"] = v.ToString();
                 props["IsReadOnly"] = (bool)pattern.get_CurrentIsReadOnly();
             }
-            catch { }
+            catch (Exception ex) when (ex is not UiActionBoundaryReportingException) { }
 
             try
             {
@@ -789,7 +801,7 @@ return Task.FromResult<UiElement?>(null);
                     props["IsSelected"] = (bool)pattern.get_CurrentIsSelected();
                 }
             }
-            catch { }
+            catch (Exception ex) when (ex is not UiActionBoundaryReportingException) { }
 
             try
             {
@@ -803,7 +815,7 @@ return Task.FromResult<UiElement?>(null);
                     _ => pattern.get_CurrentExpandCollapseState().ToString()
                 };
             }
-            catch { }
+            catch (Exception ex) when (ex is not UiActionBoundaryReportingException) { }
 
             try
             {
@@ -844,7 +856,9 @@ return Task.FromResult<UiElement?>(null);
         try
         {
             var pattern = (IUIAutomationInvokePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_InvokePatternId);
+            using var action = _actionReporter.Begin("InvokePattern");
             pattern.Invoke();
+            action.Complete();
             return Task.FromResult("InvokePattern");
         }
         catch { }
@@ -853,7 +867,9 @@ return Task.FromResult<UiElement?>(null);
         try
         {
             var pattern = (IUIAutomationTogglePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_TogglePatternId);
+            using var action = _actionReporter.Begin("TogglePattern");
             pattern.Toggle();
+            action.Complete();
             return Task.FromResult("TogglePattern");
         }
         catch { }
@@ -862,7 +878,9 @@ return Task.FromResult<UiElement?>(null);
         try
         {
             var pattern = (IUIAutomationSelectionItemPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_SelectionItemPatternId);
+            using var action = _actionReporter.Begin("SelectionItemPattern");
             pattern.Select();
+            action.Complete();
             return Task.FromResult("SelectionItemPattern");
         }
         catch { }
@@ -871,7 +889,9 @@ return Task.FromResult<UiElement?>(null);
         try
         {
             var pattern = (IUIAutomationExpandCollapsePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_ExpandCollapsePatternId);
+            using var action = _actionReporter.Begin("ExpandCollapsePattern");
             pattern.Expand();
+            action.Complete();
             return Task.FromResult("ExpandCollapsePattern");
         }
         catch { }
@@ -899,7 +919,10 @@ return Task.FromResult<UiElement?>(null);
         // The fallback ordering (ValuePattern → RangeValuePattern → LegacyIAccessible/put_accValue,
         // then a send-keys hint) lives in the pure, unit-tested ValueSetter; ComValueSetStrategy
         // supplies the live UIA COM mechanics.
-        ValueSetter.Apply(new ComValueSetStrategy(comElement, _logger), element, text);
+        ValueSetter.Apply(
+            new ComValueSetStrategy(comElement, _logger, _actionReporter),
+            element,
+            text);
         return Task.CompletedTask;
     }
 

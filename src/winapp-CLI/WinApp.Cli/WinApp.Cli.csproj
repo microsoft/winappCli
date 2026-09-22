@@ -51,6 +51,10 @@
     <!-- Embed templates and default MSIX assets -->
     <EmbeddedResource Include="Templates\**\*.*" />
     <EmbeddedResource Include="Assets\msix_default_assets\**\*.*" />
+    <EmbeddedResource Include="Services\Performance\Profiles\xaml-frame-analysis.wpaProfile"
+                      LogicalName="xaml-frame-analysis.wpaProfile" />
+    <EmbeddedResource Include="Services\Performance\Profiles\winapp-performance.wprp"
+                      LogicalName="winapp-performance.wprp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -87,6 +91,7 @@
     <PackageReference Include="System.Drawing.Common" />
     <PackageReference Include="Microsoft.Diagnostics.Runtime" />
     <PackageReference Include="Microsoft.Diagnostics.Runtime.Utilities" />
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" />
     <!-- NuGet client libraries: let winapp honor the user's nuget.config (custom/private package
          sources, credentials, globalPackagesFolder) when restoring SDK packages. -->
     <PackageReference Include="NuGet.Protocol" />

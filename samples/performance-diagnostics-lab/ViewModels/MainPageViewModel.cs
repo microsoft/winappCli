@@ -3,12 +3,13 @@ using CommunityToolkit.Mvvm.Input;
 using PerformanceDiagnosticsLab.Models;
 using PerformanceDiagnosticsLab.Services;
 using System.Collections.ObjectModel;
-using System.Runtime.InteropServices;
 
 namespace PerformanceDiagnosticsLab.ViewModels;
 
 public partial class MainPageViewModel : ObservableObject
 {
+    private static readonly TimeSpan StartupScenarioSettleDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ExitAfterScenarioDelay = TimeSpan.FromMilliseconds(500);
     private readonly LaunchOptions _launchOptions;
     private readonly PerformanceScenarioRunner _runner = new();
     private CancellationTokenSource? _scenarioCancellation;
@@ -18,51 +19,15 @@ public partial class MainPageViewModel : ObservableObject
         _launchOptions = launchOptions;
         Scenarios = new ObservableCollection<ScenarioCardViewModel>(
             ScenarioDefinition.All.Select(definition => new ScenarioCardViewModel(definition, RunScenarioAsync)));
-
-        try
-        {
-            PackageIdentity = Windows.ApplicationModel.Package.Current.Id.FullName;
-        }
-        catch (InvalidOperationException)
-        {
-            PackageIdentity = "Unpackaged";
-        }
     }
 
     public ObservableCollection<ScenarioCardViewModel> Scenarios { get; }
-
-    public IReadOnlyList<string> SemanticItems { get; } = ["Document 1", "Document 2", "Document 3"];
-
-    public string ProcessId { get; } = Environment.ProcessId.ToString();
-
-    public string ProcessArchitecture { get; } = RuntimeInformation.ProcessArchitecture.ToString();
-
-    public string RuntimeVersion { get; } = RuntimeInformation.FrameworkDescription;
-
-    public string PackageIdentity { get; }
 
     [ObservableProperty]
     public partial string StatusText { get; set; } = "Ready";
 
     [ObservableProperty]
     public partial bool IsCancelEnabled { get; set; }
-
-    [ObservableProperty]
-    public partial int SemanticCounter { get; set; }
-
-    [ObservableProperty]
-    public partial bool IsSemanticFeatureEnabled { get; set; }
-
-    [ObservableProperty]
-    public partial string SemanticInput { get; set; } = string.Empty;
-
-    [ObservableProperty]
-    public partial string? SelectedSemanticItem { get; set; }
-
-    [ObservableProperty]
-    public partial string SemanticResult { get; set; } = "No interaction submitted.";
-
-    public string SemanticCounterText => $"Invoked {SemanticCounter} time{(SemanticCounter == 1 ? string.Empty : "s")}";
 
     public async Task RunStartupScenarioAsync()
     {
@@ -80,6 +45,7 @@ public partial class MainPageViewModel : ObservableObject
             return;
         }
 
+        await Task.Delay(StartupScenarioSettleDelay);
         await RunScenarioAsync(scenario, _launchOptions);
     }
 
@@ -107,6 +73,7 @@ public partial class MainPageViewModel : ObservableObject
 
             if (options.ExitAfterScenario)
             {
+                await Task.Delay(ExitAfterScenarioDelay);
                 App.Window.Close();
             }
         }
@@ -141,17 +108,4 @@ public partial class MainPageViewModel : ObservableObject
         _scenarioCancellation?.Cancel();
     }
 
-    [RelayCommand]
-    private void IncrementSemanticCounter()
-    {
-        SemanticCounter++;
-        OnPropertyChanged(nameof(SemanticCounterText));
-    }
-
-    [RelayCommand]
-    private void SubmitSemanticInteraction()
-    {
-        var selection = SelectedSemanticItem ?? "no item";
-        SemanticResult = $"Submitted '{SemanticInput}' with {selection}; feature is {(IsSemanticFeatureEnabled ? "on" : "off")}.";
-    }
 }

@@ -20,7 +20,10 @@ internal sealed partial class UiAutomationService
     /// debug level) when the pattern is unavailable or the COM call throws so the caller falls through
     /// to the next mechanism.
     /// </summary>
-    private sealed class ComValueSetStrategy(IUIAutomationElement comElement, ILogger logger) : IValueSetStrategy
+    private sealed class ComValueSetStrategy(
+        IUIAutomationElement comElement,
+        ILogger logger,
+        IUiActionBoundaryReporter actionReporter) : IValueSetStrategy
     {
         public bool TrySetViaValuePattern(string text)
         {
@@ -32,7 +35,9 @@ internal sealed partial class UiAutomationService
                     var bstrPtr = Marshal.StringToBSTR(text);
                     try
                     {
+                        using var action = actionReporter.Begin("ValuePattern.SetValue");
                         pattern.SetValue(new global::Windows.Win32.Foundation.BSTR((char*)bstrPtr));
+                        action.Complete();
                     }
                     finally
                     {
@@ -41,7 +46,7 @@ internal sealed partial class UiAutomationService
                 }
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not UiActionBoundaryReportingException)
             {
                 logger.LogDebug("ValuePattern.SetValue failed, trying fallbacks: {Message}", ex.Message);
                 return false;
@@ -53,10 +58,12 @@ internal sealed partial class UiAutomationService
             try
             {
                 var rangePattern = (IUIAutomationRangeValuePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_RangeValuePatternId);
+                using var action = actionReporter.Begin("RangeValuePattern.SetValue");
                 rangePattern.SetValue(value);
+                action.Complete();
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not UiActionBoundaryReportingException)
             {
                 logger.LogDebug("RangeValuePattern.SetValue failed: {Message}", ex.Message);
                 return false;
@@ -72,12 +79,14 @@ internal sealed partial class UiAutomationService
                 {
                     fixed (char* valuePtr = text)
                     {
+                        using var action = actionReporter.Begin("LegacyIAccessible.SetValue");
                         legacyPattern.SetValue(new global::Windows.Win32.Foundation.PCWSTR(valuePtr));
+                        action.Complete();
                     }
                 }
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not UiActionBoundaryReportingException)
             {
                 logger.LogDebug("LegacyIAccessible.SetValue failed: {Message}", ex.Message);
                 return false;

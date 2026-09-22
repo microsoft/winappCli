@@ -37,9 +37,9 @@ public sealed class PerformanceBundleWriterTests
             1_000,
             TimeSpan.FromMilliseconds(0.25));
         using var writer = new PerformanceBundleWriter(output, calibration);
-        var managedPaths = writer.CreateManagedPaths();
-        Directory.CreateDirectory(Path.GetDirectoryName(managedPaths.TracePath)!);
-        File.WriteAllBytes(managedPaths.TracePath, [1, 2, 3, 4]);
+        var managedPath = writer.CreateManagedPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(managedPath)!);
+        File.WriteAllBytes(managedPath, [1, 2, 3, 4]);
         writer.Write(
         [
             new(StartupEventType.ActivationRequested, new PerformanceTimestamp(1_100), TimeSpan.Zero),
@@ -49,13 +49,15 @@ public sealed class PerformanceBundleWriterTests
                 TimeSpan.FromMilliseconds(150),
                 new ProcessIdentity(42, 1234)),
         ]);
-        writer.Write(ResourceSampleAt(
-            counter: 1_250,
-            intervalMs: 0,
-            cpuCores: null,
-            privateBytes: 1_000,
-            readBytes: 100,
-            writeBytes: 200));
+        writer.Write(
+            ResourceSampleAt(
+                counter: 1_250,
+                intervalMs: 0,
+                cpuCores: null,
+                privateBytes: 1_000,
+                readBytes: 100,
+                writeBytes: 200),
+            ["process"]);
         writer.Write(ResourceSampleAt(
             counter: 1_750,
             intervalMs: 500,
@@ -87,7 +89,7 @@ public sealed class PerformanceBundleWriterTests
             {
                 Requested = false,
                 Status = "not-requested",
-                Profile = "FileIO.Verbose",
+                Profile = XamlPerformanceAnalyzer.ProfileName,
                 Coverage = "not-requested",
                 LossStatus = "not-applicable",
             },
@@ -95,6 +97,8 @@ public sealed class PerformanceBundleWriterTests
 
         Assert.AreEqual(output, result.Bundle);
         Assert.IsTrue(File.Exists(Path.Join(output, "manifest.json")));
+        Assert.IsTrue(File.Exists(Path.Join(output, "report.json")));
+        Assert.IsTrue(File.Exists(Path.Join(output, "startup", "summary.json")));
         var lines = File.ReadAllLines(Path.Join(output, "timeline.ndjson"));
         Assert.HasCount(5, lines);
         foreach (var line in lines)
@@ -110,6 +114,9 @@ public sealed class PerformanceBundleWriterTests
         {
             Assert.AreEqual("ResourceSample", resource.RootElement.GetProperty("type").GetString());
             Assert.AreEqual(150, resource.RootElement.GetProperty("elapsedMs").GetDouble());
+            Assert.AreEqual(
+                "process",
+                resource.RootElement.GetProperty("startupBoundaries")[0].GetString());
             Assert.AreEqual(1_000, resource.RootElement
                 .GetProperty("aggregate")
                 .GetProperty("privateBytes")
@@ -128,14 +135,21 @@ public sealed class PerformanceBundleWriterTests
         Assert.AreEqual(
             "not-requested",
             manifest.RootElement.GetProperty("wpr").GetProperty("status").GetString());
-        Assert.AreEqual("0.2", manifest.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.AreEqual("0.8", manifest.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.AreEqual("report.json", manifest.RootElement.GetProperty("reportPath").GetString());
+        Assert.AreEqual(
+            "startup/summary.json",
+            manifest.RootElement.GetProperty("startupSummaryPath").GetString());
+        Assert.IsFalse(manifest.RootElement.TryGetProperty("crashEvidence", out _));
         Assert.AreEqual(
             "recorded",
             manifest.RootElement
                 .GetProperty("managed")
-                .GetProperty("dotNetTrace")
                 .GetProperty("status")
                 .GetString());
+        Assert.AreEqual(
+            "not-requested",
+            manifest.RootElement.GetProperty("xaml").GetProperty("status").GetString());
         var artifacts = manifest.RootElement.GetProperty("artifacts");
         Assert.AreEqual(1, artifacts.GetArrayLength());
         Assert.AreEqual(
@@ -147,34 +161,189 @@ public sealed class PerformanceBundleWriterTests
         Assert.AreEqual(1, resources.GetProperty("terminalSampleCount").GetInt32());
         Assert.AreEqual(1, resources.GetProperty("processGenerationCount").GetInt32());
         var summary = resources.GetProperty("summary");
-        Assert.AreEqual(0.375, summary.GetProperty("averageCpuCoresUsed").GetDouble());
+        Assert.AreEqual(
+            (0.5 * 500 + 0.25 * 150) / 650,
+            summary.GetProperty("averageCpuCoresUsed").GetDouble(),
+            0.000_001);
         Assert.AreEqual(1_500, summary.GetProperty("peakPrivateBytes").GetInt64());
         Assert.AreEqual(500, summary.GetProperty("privateBytesChange").GetInt64());
         Assert.AreEqual(800UL, summary.GetProperty("readBytesDuringRecording").GetUInt64());
         Assert.AreEqual(1_500UL, summary.GetProperty("writeBytesDuringRecording").GetUInt64());
+
+        using var report = JsonDocument.Parse(
+            File.ReadAllText(Path.Join(output, "report.json")));
+        Assert.AreEqual("0.1", report.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.AreEqual(
+            "partial",
+            report.RootElement.GetProperty("recording").GetProperty("status").GetString());
+        Assert.IsTrue(
+            report.RootElement.GetProperty("recording").GetProperty("durationMs").GetDouble() >= 0);
+        Assert.AreEqual(
+            150,
+            report.RootElement
+                .GetProperty("startup")
+                .GetProperty("timing")
+                .GetProperty("firstProcessMs")
+                .GetDouble());
+        Assert.AreEqual(
+            "recording-ended-before-responsive",
+            report.RootElement
+                .GetProperty("startup")
+                .GetProperty("summary")
+                .GetProperty("outcome")
+                .GetString());
+        Assert.AreEqual(
+            1_500,
+            report.RootElement
+                .GetProperty("resources")
+                .GetProperty("summary")
+                .GetProperty("peakPrivateBytes")
+                .GetInt64());
+        Assert.AreEqual(
+            "recorded",
+            report.RootElement
+                .GetProperty("collectors")
+                .GetProperty("managed")
+                .GetProperty("status")
+                .GetString());
+        Assert.AreEqual(
+            "timeline.ndjson",
+            report.RootElement
+                .GetProperty("evidence")
+                .GetProperty("timelinePath")
+                .GetString());
+        Assert.AreEqual(
+            "traces/managed.nettrace",
+            report.RootElement
+                .GetProperty("evidence")
+                .GetProperty("artifacts")[0]
+                .GetProperty("path")
+                .GetString());
+
+        using var startup = JsonDocument.Parse(
+            File.ReadAllText(Path.Join(output, "startup", "summary.json")));
+        Assert.AreEqual("0.3", startup.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.AreEqual("partial", startup.RootElement.GetProperty("status").GetString());
+        Assert.AreEqual(
+            "recording-ended-before-responsive",
+            startup.RootElement.GetProperty("outcome").GetString());
+        Assert.AreEqual("process", startup.RootElement.GetProperty("lastBoundary").GetString());
+        Assert.AreEqual(1, startup.RootElement.GetProperty("stages").GetArrayLength());
+        Assert.AreEqual(
+            "activation-to-process",
+            startup.RootElement.GetProperty("stages")[0].GetProperty("name").GetString());
     }
 
-    private static ManagedCollectorsResult RecordedManagedTrace() => new()
+    [TestMethod]
+    public void Complete_WritesXamlSummaryWhenAnalysisSucceeded()
     {
-        DotNetTrace = new()
+        var output = Path.Join(_root, "xaml.winappperf");
+        using var writer = new PerformanceBundleWriter(
+            output,
+            new PerformanceClockCalibration(
+                new PerformanceTimestamp(1_000),
+                DateTimeOffset.UnixEpoch,
+                1_000,
+                TimeSpan.Zero));
+        writer.Write([
+            new(
+                StartupEventType.ActivationRequested,
+                new PerformanceTimestamp(1_000),
+                TimeSpan.Zero),
+        ]);
+        var xamlSummary = new XamlPerformanceSummary
         {
-            Requested = true,
-            Tool = "dotnet-trace",
-            Status = "recorded",
-            Coverage = "attached-after-activation",
-            Artifact = "traces/managed.nettrace",
-            FileSize = 4,
-            RecommendedViewer = "PerfView or Visual Studio",
-            LossStatus = "not-inspected",
-        },
-        DotNetCounters = new()
-        {
-            Requested = false,
-            Tool = "dotnet-counters",
-            Status = "not-requested",
-            Coverage = "not-requested",
-            LossStatus = "not-applicable",
-        },
+            SchemaVersion = XamlPerformanceSummary.CurrentSchemaVersion,
+            TargetProcessId = 42,
+            TargetProcessStartTimeUtcTicks = 1234,
+            Profile = XamlPerformanceAnalyzer.ProfileName,
+            Coverage = "complete",
+            Intervals =
+            [
+                new()
+                {
+                    ProcessId = 42,
+                    ThreadId = 7,
+                    Type = "Frame",
+                    IsInteresting = true,
+                    DurationMs = 12.5,
+                    WeightMs = 0,
+                    Count = 1,
+                    TraceStartSeconds = 1,
+                    TraceStopSeconds = 1.0125,
+                },
+            ],
+            Summary = new()
+            {
+                UiThreadId = 7,
+                LongestInterestingFrameMs = 12.5,
+            },
+        };
+
+        writer.Complete(
+            "completed",
+            "target-exited",
+            StartupLaunchDisposition.Launched,
+            42,
+            new ResponseProbeManifest
+            {
+                CadenceMs = 250,
+                TimeoutMs = 100,
+                Method = "SendMessageTimeout(WM_NULL)",
+            },
+            new WprCollectorResult
+            {
+                Requested = true,
+                Status = "recorded",
+                Profile = XamlPerformanceAnalyzer.ProfileName,
+                Coverage = "bounded",
+                LossStatus = "none",
+            },
+            new ManagedDiagnosticsResult
+            {
+                Collector = "Managed EventPipe",
+                Status = "not-collected",
+                Coverage = "not-collected",
+                LossStatus = "not-applicable",
+            },
+            new XamlAnalysisResult(
+            new()
+            {
+                Requested = true,
+                Status = "analyzed",
+                Coverage = "complete",
+                Profile = XamlPerformanceAnalyzer.ProfileName,
+                TargetProcessId = 42,
+                TargetProcessStartTimeUtcTicks = 1234,
+                MatchedIntervalCount = 1,
+                    SummaryPath = "summaries/xaml.json",
+                    Summary = xamlSummary.Summary,
+                },
+                xamlSummary));
+
+        var summaryPath = Path.Join(output, "summaries", "xaml.json");
+        Assert.IsTrue(File.Exists(summaryPath));
+        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Join(output, "manifest.json")));
+        Assert.AreEqual(
+            "summaries/xaml.json",
+            manifest.RootElement.GetProperty("xaml").GetProperty("summaryPath").GetString());
+        using var summary = JsonDocument.Parse(File.ReadAllText(summaryPath));
+        Assert.AreEqual(42, summary.RootElement.GetProperty("targetProcessId").GetInt32());
+        Assert.AreEqual(12.5, summary.RootElement
+            .GetProperty("summary")
+            .GetProperty("longestInterestingFrameMs")
+            .GetDouble());
+    }
+
+    private static ManagedDiagnosticsResult RecordedManagedTrace() => new()
+    {
+        Collector = "Managed EventPipe",
+        Status = "recorded",
+        Coverage = "attached-after-activation",
+        Artifact = "traces/managed.nettrace",
+        FileSize = 4,
+        RecommendedViewer = "PerfView or Visual Studio",
+        LossStatus = "not-inspected",
     };
 
     [TestMethod]

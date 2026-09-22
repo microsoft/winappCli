@@ -3,6 +3,7 @@
 
 using System.Text;
 using System.Text.Json;
+using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 
 namespace WinApp.Cli.Services.Performance;
 
@@ -14,7 +15,10 @@ internal sealed record PerformanceTimelineEntry
     public int? ProcessId { get; init; }
     public long? ProcessStartTimeUtcTicks { get; init; }
     public long? WindowHandle { get; init; }
+    public int? WindowThreadId { get; init; }
     public int? ExitCode { get; init; }
+    public string? ResponseProbeOutcome { get; init; }
+    public int? Win32ErrorCode { get; init; }
     public bool? WasPresentBeforeActivation { get; init; }
 }
 
@@ -33,10 +37,55 @@ internal sealed record PerformanceBundleManifest
     public required int ActivationProcessId { get; init; }
     public required int EventCount { get; init; }
     public required StartupTimingManifest Startup { get; init; }
+    public required string StartupSummaryPath { get; init; }
+    public required string ReportPath { get; init; }
     public required ResponseProbeManifest ResponseProbe { get; init; }
     public required ResourceCaptureManifest Resources { get; init; }
     public required WprCollectorResult Wpr { get; init; }
-    public required ManagedCollectorsResult Managed { get; init; }
+    public required ManagedDiagnosticsResult Managed { get; init; }
+    public required XamlAnalysisManifest Xaml { get; init; }
+    public required IReadOnlyList<PerformanceArtifact> Artifacts { get; init; }
+}
+
+internal sealed record PerformanceReport
+{
+    public const string CurrentSchemaVersion = "0.1";
+
+    public required string SchemaVersion { get; init; }
+    public required PerformanceReportRecording Recording { get; init; }
+    public required PerformanceReportStartup Startup { get; init; }
+    public required PerformanceResponsivenessSummary Responsiveness { get; init; }
+    public required ResourceCaptureManifest Resources { get; init; }
+    public required PerformanceReportCollectors Collectors { get; init; }
+    public required XamlAnalysisManifest Xaml { get; init; }
+    public required PerformanceReportEvidence Evidence { get; init; }
+}
+
+internal sealed record PerformanceReportRecording
+{
+    public required string Status { get; init; }
+    public required string StopReason { get; init; }
+    public required DateTimeOffset StartedUtc { get; init; }
+    public required DateTimeOffset CompletedUtc { get; init; }
+    public required double DurationMs { get; init; }
+}
+
+internal sealed record PerformanceReportStartup
+{
+    public required StartupTimingManifest Timing { get; init; }
+    public required string SummaryPath { get; init; }
+    public required PerformanceStartupSummary Summary { get; init; }
+}
+
+internal sealed record PerformanceReportCollectors
+{
+    public required WprCollectorResult Wpr { get; init; }
+    public required ManagedDiagnosticsResult Managed { get; init; }
+}
+
+internal sealed record PerformanceReportEvidence
+{
+    public required string TimelinePath { get; init; }
     public required IReadOnlyList<PerformanceArtifact> Artifacts { get; init; }
 }
 
@@ -71,11 +120,38 @@ internal sealed record ResourceTimelineEntry
     public required string Type { get; init; }
     public required double ElapsedMs { get; init; }
     public required double IntervalMs { get; init; }
+    public IReadOnlyList<string>? StartupBoundaries { get; init; }
     public required int OwnedProcessCount { get; init; }
     public required int PartialProcessCount { get; init; }
     public required bool IsTerminal { get; init; }
     public required IReadOnlyList<ProcessResourceSample> Processes { get; init; }
     public required AggregateResourceSample Aggregate { get; init; }
+}
+
+internal sealed record PerformanceScenarioMarkerEntry
+{
+    public required string Type { get; init; }
+    public required double ElapsedMs { get; init; }
+    public required string Phase { get; init; }
+    public required string Boundary { get; init; }
+    public int? StepOrdinal { get; init; }
+    public string? Verb { get; init; }
+    public string? Status { get; init; }
+}
+
+internal sealed record PerformanceUiActionEntry
+{
+    public required string Type { get; init; }
+    public required double ElapsedMs { get; init; }
+    public required string Phase { get; init; }
+    public required int StepOrdinal { get; init; }
+    public required string Verb { get; init; }
+    public required string Boundary { get; init; }
+    public required string ActionKind { get; init; }
+    public string? Status { get; init; }
+    public required int ProcessId { get; init; }
+    public required long ProcessStartTimeUtcTicks { get; init; }
+    public required long WindowHandle { get; init; }
 }
 
 internal sealed record ResourceCaptureManifest
@@ -117,10 +193,15 @@ internal sealed record PerformanceRecordResult
     public required int ActivationProcessId { get; init; }
     public required int EventCount { get; init; }
     public required StartupTimingManifest Startup { get; init; }
+    public required PerformanceStartupSummary StartupSummary { get; init; }
+    public required string StartupSummaryPath { get; init; }
+    public required string ReportPath { get; init; }
+    public required PerformanceReport Report { get; init; }
     public required ResponseProbeManifest ResponseProbe { get; init; }
     public required ResourceCaptureManifest Resources { get; init; }
     public required WprCollectorResult Wpr { get; init; }
-    public required ManagedCollectorsResult Managed { get; init; }
+    public required ManagedDiagnosticsResult Managed { get; init; }
+    public required XamlAnalysisManifest Xaml { get; init; }
     public required IReadOnlyList<PerformanceArtifact> Artifacts { get; init; }
 }
 
@@ -135,6 +216,7 @@ internal sealed class PerformanceBundleWriter : IDisposable
     private double? _firstWindowMs;
     private double? _firstVisibleWindowMs;
     private double? _firstResponsiveWindowMs;
+    private readonly List<PerformanceTimelineEntry> _startupEvents = [];
     private readonly List<ResourceTimelineEntry> _resourceSamples = [];
     private int _eventCount;
     private bool _published;
@@ -191,16 +273,15 @@ internal sealed class PerformanceBundleWriter : IDisposable
             Path.Join(tracesDirectory, ".wpr-temp"));
     }
 
-    public (string TracePath, string CountersPath) CreateManagedPaths()
+    public string CreateManagedPath()
     {
         var tracesDirectory = Path.Join(_stagingDirectory, "traces");
-        return (
-            Path.Join(tracesDirectory, "managed.nettrace"),
-            Path.Join(tracesDirectory, "managed-counters.json"));
+        return Path.Join(tracesDirectory, "managed.nettrace");
     }
 
-    public void Write(IEnumerable<StartupEvent> events)
+    public IReadOnlyList<PerformanceTimelineEntry> Write(IEnumerable<StartupEvent> events)
     {
+        var written = new List<PerformanceTimelineEntry>();
         foreach (var startupEvent in events)
         {
             _timelineOrigin ??= startupEvent.Timestamp;
@@ -214,7 +295,10 @@ internal sealed class PerformanceBundleWriter : IDisposable
                 ProcessId = startupEvent.Process?.ProcessId,
                 ProcessStartTimeUtcTicks = startupEvent.Process?.StartTimeUtcTicks,
                 WindowHandle = startupEvent.WindowHandle,
+                WindowThreadId = startupEvent.WindowThreadId,
                 ExitCode = startupEvent.ExitCode,
+                ResponseProbeOutcome = startupEvent.ResponseProbeOutcome?.ToString(),
+                Win32ErrorCode = startupEvent.Win32ErrorCode,
                 WasPresentBeforeActivation = startupEvent.WasPresentBeforeActivation ? true : null,
             };
             CaptureStartupMilestone(entry);
@@ -223,10 +307,15 @@ internal sealed class PerformanceBundleWriter : IDisposable
                 PerformanceJsonContext.Default.PerformanceTimelineEntry));
             _timelineWriter.Flush();
             _eventCount++;
+            _startupEvents.Add(entry);
+            written.Add(entry);
         }
+        return written;
     }
 
-    public void Write(ResourceSample? sample)
+    public void Write(
+        ResourceSample? sample,
+        IReadOnlyList<string>? startupBoundaries = null)
     {
         if (sample is null)
         {
@@ -242,6 +331,9 @@ internal sealed class PerformanceBundleWriter : IDisposable
                 timelineOrigin,
                 _calibration.Frequency).TotalMilliseconds,
             IntervalMs = sample.IntervalMs,
+            StartupBoundaries = startupBoundaries is { Count: > 0 }
+                ? startupBoundaries
+                : null,
             OwnedProcessCount = sample.OwnedProcessCount,
             PartialProcessCount = sample.PartialProcessCount,
             IsTerminal = sample.IsTerminal,
@@ -256,6 +348,70 @@ internal sealed class PerformanceBundleWriter : IDisposable
         _eventCount++;
     }
 
+    public double WriteScenarioMarker(
+        PerformanceTimestamp timestamp,
+        string phase,
+        string boundary,
+        int? stepOrdinal = null,
+        string? verb = null,
+        string? status = null)
+    {
+        var timelineOrigin = _timelineOrigin
+            ?? throw new InvalidOperationException("Startup events must establish the timeline before scenario markers.");
+        var elapsedMs = timestamp.ElapsedSince(
+            timelineOrigin,
+            _calibration.Frequency).TotalMilliseconds;
+        var entry = new PerformanceScenarioMarkerEntry
+        {
+            Type = "ScenarioMarker",
+            ElapsedMs = elapsedMs,
+            Phase = phase,
+            Boundary = boundary,
+            StepOrdinal = stepOrdinal,
+            Verb = verb,
+            Status = status,
+        };
+        _timelineWriter.WriteLine(JsonSerializer.Serialize(
+            entry,
+            PerformanceJsonContext.Default.PerformanceScenarioMarkerEntry));
+        _timelineWriter.Flush();
+        _eventCount++;
+        return elapsedMs;
+    }
+
+    public void WriteUiAction(
+        PerformanceTimestamp timestamp,
+        string phase,
+        int stepOrdinal,
+        string verb,
+        UiActionBoundary boundary,
+        PerformanceWindowTarget target)
+    {
+        var timelineOrigin = _timelineOrigin
+            ?? throw new InvalidOperationException("Startup events must establish the timeline before UI actions.");
+        var entry = new PerformanceUiActionEntry
+        {
+            Type = "UiAction",
+            ElapsedMs = timestamp.ElapsedSince(
+                timelineOrigin,
+                _calibration.Frequency).TotalMilliseconds,
+            Phase = phase,
+            StepOrdinal = stepOrdinal,
+            Verb = verb,
+            Boundary = boundary.Boundary,
+            ActionKind = boundary.ActionKind,
+            Status = boundary.Status,
+            ProcessId = target.Process.ProcessId,
+            ProcessStartTimeUtcTicks = target.Process.StartTimeUtcTicks,
+            WindowHandle = target.WindowHandle,
+        };
+        _timelineWriter.WriteLine(JsonSerializer.Serialize(
+            entry,
+            PerformanceJsonContext.Default.PerformanceUiActionEntry));
+        _timelineWriter.Flush();
+        _eventCount++;
+    }
+
     public PerformanceRecordResult Complete(
         string status,
         string stopReason,
@@ -263,7 +419,8 @@ internal sealed class PerformanceBundleWriter : IDisposable
         int activationProcessId,
         ResponseProbeManifest responseProbe,
         WprCollectorResult wpr,
-        ManagedCollectorsResult managed)
+        ManagedDiagnosticsResult managed,
+        XamlAnalysisResult? xaml = null)
     {
         if (_published)
         {
@@ -275,15 +432,96 @@ internal sealed class PerformanceBundleWriter : IDisposable
             ?? throw new InvalidOperationException("A performance bundle cannot be published without timeline events.");
         var resources = CreateResourceManifest();
         var artifacts = CreateArtifacts(wpr, managed);
+        const string startupSummaryPath = "startup/summary.json";
+        const string reportPath = "report.json";
+        var startupSummary = PerformanceStartupSummaryBuilder.Create(
+            disposition,
+            stopReason,
+            _startupEvents,
+            _resourceSamples);
+        var startupDirectory = Path.Join(_stagingDirectory, "startup");
+        Directory.CreateDirectory(startupDirectory);
+        File.WriteAllText(
+            Path.Join(_stagingDirectory, startupSummaryPath),
+            JsonSerializer.Serialize(
+                startupSummary,
+                PerformanceJsonContext.Default.PerformanceStartupSummary),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        var xamlResult = xaml ?? new(
+            new()
+            {
+                Requested = false,
+                Status = "not-requested",
+                Coverage = "not-requested",
+                Profile = XamlPerformanceAnalyzer.ProfileName,
+                MatchedIntervalCount = 0,
+            },
+            null);
+        if (xamlResult.Summary is { } xamlSummary)
+        {
+            var xamlSummaryPath = xamlResult.Manifest.SummaryPath
+                ?? throw new InvalidOperationException("An analyzed XAML result must declare its summary path.");
+            var xamlSummaryDirectory = Path.GetDirectoryName(
+                Path.Join(_stagingDirectory, xamlSummaryPath))
+                ?? throw new InvalidOperationException("The XAML summary path must have a parent directory.");
+            Directory.CreateDirectory(xamlSummaryDirectory);
+            File.WriteAllText(
+                Path.Join(_stagingDirectory, xamlSummaryPath),
+                JsonSerializer.Serialize(
+                    xamlSummary,
+                    PerformanceJsonContext.Default.XamlPerformanceSummary),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+        var startedUtc = _calibration.Utc + timelineOrigin.ElapsedSince(
+            _calibration.Timestamp,
+            _calibration.Frequency);
+        var completedUtc = DateTimeOffset.UtcNow;
+        var startupTiming = CreateStartupTiming();
+        var responsiveness = PerformanceResponsivenessSummaryBuilder.Create(
+            _startupEvents,
+            (completedUtc - startedUtc).TotalMilliseconds);
+        var report = new PerformanceReport
+        {
+            SchemaVersion = PerformanceReport.CurrentSchemaVersion,
+            Recording = new()
+            {
+                Status = status,
+                StopReason = stopReason,
+                StartedUtc = startedUtc,
+                CompletedUtc = completedUtc,
+                DurationMs = (completedUtc - startedUtc).TotalMilliseconds,
+            },
+            Startup = new()
+            {
+                Timing = startupTiming,
+                SummaryPath = startupSummaryPath,
+                Summary = startupSummary,
+            },
+            Responsiveness = responsiveness,
+            Resources = resources,
+            Collectors = new()
+            {
+                Wpr = wpr,
+                Managed = managed,
+            },
+            Xaml = xamlResult.Manifest,
+            Evidence = new()
+            {
+                TimelinePath = "timeline.ndjson",
+                Artifacts = artifacts,
+            },
+        };
+        File.WriteAllText(
+            Path.Join(_stagingDirectory, reportPath),
+            JsonSerializer.Serialize(report, PerformanceJsonContext.Default.PerformanceReport),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         var manifest = new PerformanceBundleManifest
         {
-            SchemaVersion = "0.2",
+            SchemaVersion = PerformanceBundleSchema.CurrentVersion,
             Status = status,
             StopReason = stopReason,
-            StartedUtc = _calibration.Utc + timelineOrigin.ElapsedSince(
-                _calibration.Timestamp,
-                _calibration.Frequency),
-            CompletedUtc = DateTimeOffset.UtcNow,
+            StartedUtc = startedUtc,
+            CompletedUtc = completedUtc,
             MonotonicFrequency = _calibration.Frequency,
             UtcCalibrationCounter = _calibration.Timestamp.Counter,
             UtcCalibrationUncertaintyMs = _calibration.Uncertainty.TotalMilliseconds,
@@ -291,11 +529,14 @@ internal sealed class PerformanceBundleWriter : IDisposable
             StartupDisposition = disposition.ToString(),
             ActivationProcessId = activationProcessId,
             EventCount = _eventCount,
-            Startup = CreateStartupTiming(),
+            Startup = startupTiming,
+            StartupSummaryPath = startupSummaryPath,
+            ReportPath = reportPath,
             ResponseProbe = responseProbe,
             Resources = resources,
             Wpr = wpr,
             Managed = managed,
+            Xaml = xamlResult.Manifest,
             Artifacts = artifacts,
         };
         File.WriteAllText(
@@ -317,35 +558,33 @@ internal sealed class PerformanceBundleWriter : IDisposable
             StartupDisposition = disposition.ToString(),
             ActivationProcessId = activationProcessId,
             EventCount = _eventCount,
-            Startup = CreateStartupTiming(),
+            Startup = startupTiming,
+            StartupSummary = startupSummary,
+            StartupSummaryPath = startupSummaryPath,
+            ReportPath = reportPath,
+            Report = report,
             ResponseProbe = responseProbe,
             Resources = resources,
             Wpr = wpr,
             Managed = managed,
+            Xaml = xamlResult.Manifest,
             Artifacts = artifacts,
         };
     }
 
     private static List<PerformanceArtifact> CreateArtifacts(
         WprCollectorResult wpr,
-        ManagedCollectorsResult managed)
+        ManagedDiagnosticsResult managed)
     {
         var artifacts = new List<PerformanceArtifact>();
         Add(wpr.Artifact, "etl", "wpr", wpr.FileSize, wpr.RecommendedViewer, wpr.LossStatus);
         Add(
-            managed.DotNetTrace.Artifact,
+            managed.Artifact,
             "nettrace",
-            managed.DotNetTrace.Tool,
-            managed.DotNetTrace.FileSize,
-            managed.DotNetTrace.RecommendedViewer,
-            managed.DotNetTrace.LossStatus);
-        Add(
-            managed.DotNetCounters.Artifact,
-            "json",
-            managed.DotNetCounters.Tool,
-            managed.DotNetCounters.FileSize,
-            managed.DotNetCounters.RecommendedViewer,
-            managed.DotNetCounters.LossStatus);
+            managed.Collector,
+            managed.FileSize,
+            managed.RecommendedViewer,
+            managed.LossStatus);
         return artifacts;
 
         void Add(
@@ -438,9 +677,13 @@ internal sealed class PerformanceBundleWriter : IDisposable
         var lastPrivate = periodicAggregates.LastOrDefault()?.PrivateBytes;
         return new()
         {
-            AverageCpuCoresUsed = AveragePresent(aggregates.Select(sample => sample.CpuCoresUsed)),
+            AverageCpuCoresUsed = WeightedAveragePresent(
+                _resourceSamples,
+                sample => sample.Aggregate.CpuCoresUsed),
             PeakCpuCoresUsed = MaxPresent(aggregates.Select(sample => sample.CpuCoresUsed)),
-            AverageCpuPercentOfMachine = AveragePresent(aggregates.Select(sample => sample.CpuPercentOfMachine)),
+            AverageCpuPercentOfMachine = WeightedAveragePresent(
+                _resourceSamples,
+                sample => sample.Aggregate.CpuPercentOfMachine),
             PeakCpuPercentOfMachine = MaxPresent(aggregates.Select(sample => sample.CpuPercentOfMachine)),
             InitialPrivateBytes = firstPrivate,
             FinalPrivateBytes = lastPrivate,
@@ -454,6 +697,26 @@ internal sealed class PerformanceBundleWriter : IDisposable
             PeakGdiObjectCount = MaxPresent(periodicAggregates.Select(sample => sample.GdiObjectCount)),
             PeakUserObjectCount = MaxPresent(periodicAggregates.Select(sample => sample.UserObjectCount)),
         };
+    }
+
+    private static double? WeightedAveragePresent(
+        IEnumerable<ResourceTimelineEntry> samples,
+        Func<ResourceTimelineEntry, double?> select)
+    {
+        double weightedTotal = 0;
+        double totalInterval = 0;
+        foreach (var sample in samples)
+        {
+            var value = select(sample);
+            if (value is null || sample.IntervalMs <= 0)
+            {
+                continue;
+            }
+
+            weightedTotal += value.Value * sample.IntervalMs;
+            totalInterval += sample.IntervalMs;
+        }
+        return totalInterval > 0 ? weightedTotal / totalInterval : null;
     }
 
     private ulong? SumCounterDeltas(

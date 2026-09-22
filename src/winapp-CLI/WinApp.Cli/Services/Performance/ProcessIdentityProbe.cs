@@ -176,7 +176,8 @@ internal sealed class ObservedProcess(
             ThreadCount: TryRead(() => process.Threads.Count),
             HandleCount: TryRead(() => process.HandleCount),
             GdiObjectCount: TryGetGuiResources(GET_GUI_RESOURCES_FLAGS.GR_GDIOBJECTS),
-            UserObjectCount: TryGetGuiResources(GET_GUI_RESOURCES_FLAGS.GR_USEROBJECTS));
+            UserObjectCount: TryGetGuiResources(GET_GUI_RESOURCES_FLAGS.GR_USEROBJECTS),
+            Threads: TryCaptureThreadCounters());
         return HasExited
             ? CreateTerminalCounters(TryGetProcessorTimes(), TryGetIoCounters())
             : counters;
@@ -234,6 +235,41 @@ internal sealed class ObservedProcess(
             ReadBytes: io?.ReadTransferCount,
             WriteBytes: io?.WriteTransferCount,
             OtherBytes: io?.OtherTransferCount);
+
+    private ThreadResourceCounters[]? TryCaptureThreadCounters()
+    {
+        try
+        {
+            return process.Threads
+                .Cast<ProcessThread>()
+                .Select(CaptureThreadCounters)
+                .OrderBy(thread => thread.ThreadId)
+                .ToArray();
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException or Win32Exception or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static ThreadResourceCounters CaptureThreadCounters(ProcessThread thread)
+    {
+        using (thread)
+        {
+            var state = TryRead(() => thread.ThreadState);
+            return new(
+                thread.Id,
+                TryRead(() => thread.StartTime.ToUniversalTime().Ticks),
+                TryRead(() => thread.TotalProcessorTime.Ticks),
+                TryRead(() => thread.UserProcessorTime.Ticks),
+                TryRead(() => thread.PrivilegedProcessorTime.Ticks),
+                state?.ToString(),
+                state == System.Diagnostics.ThreadState.Wait
+                    ? TryRead(() => thread.WaitReason)?.ToString()
+                    : null);
+        }
+    }
 
     private static long ToTicks(System.Runtime.InteropServices.ComTypes.FILETIME value) =>
         unchecked((long)(((ulong)(uint)value.dwHighDateTime << 32) | (uint)value.dwLowDateTime));

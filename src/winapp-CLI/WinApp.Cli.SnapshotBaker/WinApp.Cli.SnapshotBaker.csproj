@@ -39,6 +39,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" />
     <!-- SampleIndexWriter is internal and lives here rather than in the shipped CLI (winapp
          reads published indexes, it never writes one), so its contract tests need access. -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">

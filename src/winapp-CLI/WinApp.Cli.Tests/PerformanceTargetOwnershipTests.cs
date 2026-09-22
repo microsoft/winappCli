@@ -29,6 +29,9 @@ public class PerformanceTargetOwnershipTests
         Assert.IsTrue(resources.WorkingSetBytes > 0);
         Assert.IsNotNull(resources.ReadBytes);
         Assert.IsNotNull(resources.HandleCount);
+        Assert.IsNotNull(resources.Threads);
+        Assert.IsTrue(resources.Threads.Count > 0);
+        Assert.IsTrue(resources.Threads.All(thread => thread.ThreadId > 0));
         observation.Process.Dispose();
     }
 

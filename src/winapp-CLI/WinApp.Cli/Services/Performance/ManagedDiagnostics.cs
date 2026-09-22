@@ -1,32 +1,19 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Buffers;
 using System.ComponentModel;
 using System.Diagnostics;
-using WinApp.Cli.Services;
+using System.Diagnostics.Tracing;
+using Microsoft.Diagnostics.NETCore.Client;
 
 namespace WinApp.Cli.Services.Performance;
 
-internal enum ManagedDiagnosticTool
+internal sealed record ManagedDiagnosticsResult
 {
-    DotNetTrace,
-    DotNetCounters,
-}
-
-internal sealed record DiagnosticToolResolution(
-    ManagedDiagnosticTool Tool,
-    bool IsAvailable,
-    string? ExecutablePath = null,
-    string? Version = null,
-    string? Error = null);
-
-internal sealed record ManagedCollectorResult
-{
-    public required bool Requested { get; init; }
-    public required string Tool { get; init; }
+    public required string Collector { get; init; }
     public required string Status { get; init; }
     public required string Coverage { get; init; }
-    public string? ToolVersion { get; init; }
     public string? Artifact { get; init; }
     public long? FileSize { get; init; }
     public long? QuotaBytes { get; init; }
@@ -41,108 +28,66 @@ internal sealed record ManagedCollectorResult
     public string? Error { get; init; }
 }
 
-internal sealed record ManagedCollectorsResult
+internal sealed record ManagedEventPipeProvider(
+    string Name,
+    EventLevel EventLevel,
+    long Keywords,
+    IReadOnlyDictionary<string, string> Arguments);
+
+internal sealed record ManagedEventPipeConfiguration(
+    IReadOnlyList<ManagedEventPipeProvider> Providers,
+    int CircularBufferSizeInMegabytes,
+    bool RequestRundown,
+    bool RequestStackwalk);
+
+internal interface IManagedEventPipeSession : IDisposable
 {
-    public required ManagedCollectorResult DotNetTrace { get; init; }
-    public required ManagedCollectorResult DotNetCounters { get; init; }
+    Stream EventStream { get; }
+
+    Task StopAsync(CancellationToken cancellationToken);
 }
 
-internal interface IDiagnosticToolResolver
+internal interface IManagedEventPipeClient
 {
-    Task<DiagnosticToolResolution> ResolveAsync(
-        ManagedDiagnosticTool tool,
+    Task<IManagedEventPipeSession> StartSessionAsync(
+        ProcessIdentity target,
+        ManagedEventPipeConfiguration configuration,
         CancellationToken cancellationToken);
 }
 
-internal sealed class DiagnosticToolResolver : IDiagnosticToolResolver
+internal sealed class ManagedEventPipeClient : IManagedEventPipeClient
 {
-    private static readonly TimeSpan VersionTimeout = TimeSpan.FromSeconds(5);
-    private readonly IProcessRunner _processRunner;
-    private readonly Func<string, string?> _getEnvironmentVariable;
-    private readonly Func<string> _getUserProfile;
-
-    public DiagnosticToolResolver(IProcessRunner processRunner)
-        : this(
-            processRunner,
-            Environment.GetEnvironmentVariable,
-            () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
-    {
-    }
-
-    internal DiagnosticToolResolver(
-        IProcessRunner processRunner,
-        Func<string, string?> getEnvironmentVariable,
-        Func<string> getUserProfile)
-    {
-        _processRunner = processRunner;
-        _getEnvironmentVariable = getEnvironmentVariable;
-        _getUserProfile = getUserProfile;
-    }
-
-    public async Task<DiagnosticToolResolution> ResolveAsync(
-        ManagedDiagnosticTool tool,
+    public async Task<IManagedEventPipeSession> StartSessionAsync(
+        ProcessIdentity target,
+        ManagedEventPipeConfiguration configuration,
         CancellationToken cancellationToken)
     {
-        var executableName = tool switch
-        {
-            ManagedDiagnosticTool.DotNetTrace => "dotnet-trace.exe",
-            ManagedDiagnosticTool.DotNetCounters => "dotnet-counters.exe",
-            _ => throw new ArgumentOutOfRangeException(nameof(tool)),
-        };
-        var profile = _getUserProfile();
-        var executablePath = SafeExecutableResolver.Resolve(
-            executableName,
-            _getEnvironmentVariable("PATH"),
-            string.IsNullOrWhiteSpace(profile)
-                ? []
-                : [Path.Join(profile, ".dotnet", "tools")]);
-        if (executablePath is null)
-        {
-            return new(
-                tool,
-                false,
-                Error: $"{executableName} was not found on PATH or in %USERPROFILE%\\.dotnet\\tools. Install it explicitly, then retry.");
-        }
+        var providers = configuration.Providers
+            .Select(provider => new EventPipeProvider(
+                provider.Name,
+                provider.EventLevel,
+                provider.Keywords,
+                provider.Arguments.ToDictionary()))
+            .ToArray();
+        var sessionConfiguration = new EventPipeSessionConfiguration(
+            providers,
+            configuration.CircularBufferSizeInMegabytes,
+            configuration.RequestRundown,
+            configuration.RequestStackwalk);
+        var session = await new DiagnosticsClient(target.ProcessId)
+            .StartEventPipeSessionAsync(sessionConfiguration, cancellationToken)
+            .ConfigureAwait(false);
+        return new ManagedEventPipeSession(session);
+    }
 
-        ProcessRunResult version;
-        using var versionTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        versionTimeout.CancelAfter(VersionTimeout);
-        try
-        {
-            version = await _processRunner.RunAsync(
-                new(executablePath, ["--version"]),
-                cancellationToken: versionTimeout.Token);
-        }
-        catch (OperationCanceledException) when (
-            !cancellationToken.IsCancellationRequested
-            && versionTimeout.IsCancellationRequested)
-        {
-            return new(
-                tool,
-                false,
-                executablePath,
-                Error: $"{executableName} did not report its version within {VersionTimeout.TotalSeconds:0} seconds.");
-        }
-        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException)
-        {
-            return new(tool, false, executablePath, Error: ex.Message);
-        }
+    private sealed class ManagedEventPipeSession(EventPipeSession session) : IManagedEventPipeSession
+    {
+        public Stream EventStream => session.EventStream;
 
-        if (version.ExitCode != 0)
-        {
-            return new(
-                tool,
-                false,
-                executablePath,
-                Error: ManagedDiagnosticCollector.GetProcessError(version, executableName));
-        }
+        public Task StopAsync(CancellationToken cancellationToken) =>
+            session.StopAsync(cancellationToken);
 
-        var value = version.StandardOutput.Trim();
-        return new(
-            tool,
-            true,
-            executablePath,
-            string.IsNullOrEmpty(value) ? "unknown" : value.Split(['\r', '\n'])[0]);
+        public void Dispose() => session.Dispose();
     }
 }
 
@@ -185,8 +130,7 @@ internal sealed class ManagedProcessProbe : IManagedProcessProbe
 
                 foreach (ProcessModule module in process.Modules)
                 {
-                    if (module.ModuleName.Equals("coreclr.dll", StringComparison.OrdinalIgnoreCase)
-                        || module.ModuleName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase))
+                    if (module.ModuleName.Equals("coreclr.dll", StringComparison.OrdinalIgnoreCase))
                     {
                         return new(ManagedProcessKind.Managed);
                     }
@@ -203,7 +147,7 @@ internal sealed class ManagedProcessProbe : IManagedProcessProbe
 
 internal interface IManagedDiagnosticsSession : IAsyncDisposable
 {
-    ManagedCollectorsResult Result { get; }
+    ManagedDiagnosticsResult Result { get; }
 
     Task ObserveAsync(
         IReadOnlyList<StartupEvent> events,
@@ -215,98 +159,93 @@ internal interface IManagedDiagnosticsSession : IAsyncDisposable
 
 internal interface IManagedDiagnosticsSessionFactory
 {
-    Task<IManagedDiagnosticsSession> CreateAsync(
-        bool withTrace,
-        bool withCounters,
-        string tracePath,
-        string countersPath,
-        int durationSeconds,
-        CancellationToken cancellationToken);
+    IManagedDiagnosticsSession Create(string tracePath);
 }
 
 internal sealed class ManagedDiagnosticsSessionFactory(
-    IDiagnosticToolResolver resolver,
     IManagedProcessProbe managedProcessProbe,
-    IOwnedToolProcessFactory processFactory) : IManagedDiagnosticsSessionFactory
+    IManagedEventPipeClient eventPipeClient) : IManagedDiagnosticsSessionFactory
 {
-    public async Task<IManagedDiagnosticsSession> CreateAsync(
-        bool withTrace,
-        bool withCounters,
-        string tracePath,
-        string countersPath,
-        int durationSeconds,
-        CancellationToken cancellationToken)
-    {
-        var traceResolution = withTrace
-            ? await resolver.ResolveAsync(ManagedDiagnosticTool.DotNetTrace, cancellationToken)
-            : new(ManagedDiagnosticTool.DotNetTrace, false);
-        var countersResolution = withCounters
-            ? await resolver.ResolveAsync(ManagedDiagnosticTool.DotNetCounters, cancellationToken)
-            : new(ManagedDiagnosticTool.DotNetCounters, false);
-        return new ManagedDiagnosticsSession(
-            managedProcessProbe,
-            processFactory,
-            traceResolution,
-            countersResolution,
-            withTrace,
-            withCounters,
-            tracePath,
-            countersPath,
-            durationSeconds);
-    }
+    public IManagedDiagnosticsSession Create(string tracePath) =>
+        new ManagedDiagnosticsSession(managedProcessProbe, eventPipeClient, tracePath);
 }
 
 internal sealed class ManagedDiagnosticsSession : IManagedDiagnosticsSession
 {
     internal const long ArtifactQuotaBytes = 1024L * 1024 * 1024;
+    internal const int CircularBufferSizeInMegabytes = 64;
+    internal static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan StopGracePeriod = TimeSpan.FromSeconds(15);
+    private const long DotNetRuntimeKeywords = 0x100003801D;
+
+    private static readonly ManagedEventPipeConfiguration Configuration = new(
+        [
+            new(
+                "Microsoft-DotNETCore-SampleProfiler",
+                EventLevel.Informational,
+                0,
+                new Dictionary<string, string>()),
+            new(
+                "Microsoft-Windows-DotNETRuntime",
+                EventLevel.Informational,
+                DotNetRuntimeKeywords,
+                new Dictionary<string, string>()),
+            new(
+                "System.Runtime",
+                EventLevel.Informational,
+                -1,
+                new Dictionary<string, string>
+                {
+                    ["EventCounterIntervalSec"] = "1",
+                }),
+        ],
+        CircularBufferSizeInMegabytes,
+        RequestRundown: true,
+        // SampleProfiler collects its own stacks. Avoid requesting stacks for every
+        // System.Runtime counter event, which increases collection overhead substantially.
+        RequestStackwalk: false);
+
     private readonly IManagedProcessProbe _managedProcessProbe;
-    private readonly ManagedDiagnosticCollector _trace;
-    private readonly ManagedDiagnosticCollector _counters;
+    private readonly IManagedEventPipeClient _eventPipeClient;
+    private readonly string _outputPath;
+    private readonly long _artifactQuotaBytes;
+    private readonly TimeSpan _stopGracePeriod;
     private readonly List<ProcessIdentity> _newProcesses = [];
+    private readonly CancellationTokenSource _drainCancellation = new();
+    private IManagedEventPipeSession? _eventPipeSession;
+    private Task<ManagedEventPipeCopyResult>? _copyTask;
     private bool _sawNonManagedProcess;
     private string? _lastProbeError;
-    private bool _attached;
+    private bool _stopped;
 
     public ManagedDiagnosticsSession(
         IManagedProcessProbe managedProcessProbe,
-        IOwnedToolProcessFactory processFactory,
-        DiagnosticToolResolution traceResolution,
-        DiagnosticToolResolution countersResolution,
-        bool withTrace,
-        bool withCounters,
-        string tracePath,
-        string countersPath,
-        int durationSeconds)
+        IManagedEventPipeClient eventPipeClient,
+        string outputPath,
+        long artifactQuotaBytes = ArtifactQuotaBytes,
+        TimeSpan? stopGracePeriod = null)
     {
         _managedProcessProbe = managedProcessProbe;
-        _trace = new(
-            processFactory,
-            traceResolution,
-            withTrace,
-            tracePath,
-            "traces/managed.nettrace",
-            durationSeconds);
-        _counters = new(
-            processFactory,
-            countersResolution,
-            withCounters,
-            countersPath,
-            "traces/managed-counters.json",
-            durationSeconds);
+        _eventPipeClient = eventPipeClient;
+        _outputPath = outputPath;
+        _artifactQuotaBytes = artifactQuotaBytes;
+        _stopGracePeriod = stopGracePeriod ?? StopGracePeriod;
+        Result = CreateInitialResult(artifactQuotaBytes);
     }
 
-    public ManagedCollectorsResult Result => new()
-    {
-        DotNetTrace = _trace.Result,
-        DotNetCounters = _counters.Result,
-    };
+    public ManagedDiagnosticsResult Result { get; private set; }
+
+    internal static ManagedEventPipeConfiguration EventPipeConfiguration => Configuration;
 
     public async Task ObserveAsync(
         IReadOnlyList<StartupEvent> events,
         StartupLaunchDisposition disposition,
         CancellationToken cancellationToken)
     {
-        if (_attached || disposition == StartupLaunchDisposition.AttachedLate)
+        if (_eventPipeSession is not null
+            || _stopped
+            || disposition == StartupLaunchDisposition.AttachedLate
+            || Result.Status != "pending")
         {
             return;
         }
@@ -327,10 +266,7 @@ internal sealed class ManagedDiagnosticsSession : IManagedDiagnosticsSession
             var probe = _managedProcessProbe.Probe(process);
             if (probe.Kind == ManagedProcessKind.Managed)
             {
-                _attached = true;
-                await Task.WhenAll(
-                    _trace.StartAsync(process, cancellationToken),
-                    _counters.StartAsync(process, cancellationToken));
+                await StartAsync(process, cancellationToken).ConfigureAwait(false);
                 return;
             }
             if (probe.Kind == ManagedProcessKind.NotManaged)
@@ -346,332 +282,312 @@ internal sealed class ManagedDiagnosticsSession : IManagedDiagnosticsSession
 
     public async Task StopAsync(StartupLaunchDisposition disposition)
     {
-        if (!_attached)
-        {
-            var status = disposition == StartupLaunchDisposition.AttachedLate
-                ? "attached-late-not-supported"
-                : _newProcesses.Count > 0 && !_sawNonManagedProcess && _lastProbeError is not null
-                    ? "managed-inspection-failed"
-                : _newProcesses.Count > 0
-                    ? "non-managed-target"
-                    : "target-not-observed";
-            var error = disposition == StartupLaunchDisposition.AttachedLate
-                ? "Managed diagnostics are not attached to a process generation that existed before activation."
-                : _newProcesses.Count > 0 && !_sawNonManagedProcess && _lastProbeError is not null
-                    ? $"Managed-runtime inspection failed: {_lastProbeError}"
-                : _newProcesses.Count > 0
-                    ? "No newly launched managed process was evidenced during the recording."
-                    : "No newly launched process generation was evidenced during the recording.";
-            ProcessIdentity? candidate = _newProcesses.Count > 0 ? _newProcesses[0] : null;
-            _trace.MarkNotAttached(status, error, candidate);
-            _counters.MarkNotAttached(status, error, candidate);
-            return;
-        }
-
-        await Task.WhenAll(_trace.StopAsync(), _counters.StopAsync());
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await _trace.DisposeAsync();
-        await _counters.DisposeAsync();
-    }
-}
-
-internal sealed class ManagedDiagnosticCollector : IAsyncDisposable
-{
-    private static readonly TimeSpan StopGracePeriod = TimeSpan.FromSeconds(15);
-    private readonly IOwnedToolProcessFactory _processFactory;
-    private readonly DiagnosticToolResolution _resolution;
-    private readonly bool _requested;
-    private readonly string _outputPath;
-    private readonly string _artifactPath;
-    private readonly int _durationSeconds;
-    private IOwnedToolProcess? _process;
-
-    public ManagedDiagnosticCollector(
-        IOwnedToolProcessFactory processFactory,
-        DiagnosticToolResolution resolution,
-        bool requested,
-        string outputPath,
-        string artifactPath,
-        int durationSeconds)
-    {
-        _processFactory = processFactory;
-        _resolution = resolution;
-        _requested = requested;
-        _outputPath = outputPath;
-        _artifactPath = artifactPath;
-        _durationSeconds = durationSeconds;
-        Result = CreateInitialResult();
-    }
-
-    public ManagedCollectorResult Result { get; private set; }
-
-    public async Task StartAsync(ProcessIdentity target, CancellationToken cancellationToken)
-    {
-        if (!_requested || _process is not null)
+        if (_stopped)
         {
             return;
         }
+        _stopped = true;
 
+        if (_eventPipeSession is null)
+        {
+            MarkNotAttached(disposition);
+            return;
+        }
+
+        var stopStarted = DateTimeOffset.UtcNow;
+        using var gracePeriod = new CancellationTokenSource(_stopGracePeriod);
+        try
+        {
+            await _eventPipeSession.StopAsync(gracePeriod.Token).ConfigureAwait(false);
+            var copy = await _copyTask!
+                .WaitAsync(gracePeriod.Token)
+                .ConfigureAwait(false);
+            CompleteFromCopy(copy, "recorded", stopStarted);
+            DisposeEventPipeSession();
+        }
+        catch (OperationCanceledException) when (gracePeriod.IsCancellationRequested)
+        {
+            await AbortCopyAsync().ConfigureAwait(false);
+            CompleteFromCopy(
+                await GetCopyResultAsync().ConfigureAwait(false),
+                "stop-timeout",
+                stopStarted,
+                $"Managed EventPipe did not stop and drain within the {_stopGracePeriod.TotalSeconds:0}-second grace period.");
+        }
+        catch (Exception ex)
+        {
+            var targetExited = ex is ServerNotAvailableException;
+            try
+            {
+                var copy = await _copyTask!
+                    .WaitAsync(gracePeriod.Token)
+                    .ConfigureAwait(false);
+                CompleteFromCopy(
+                    copy,
+                    targetExited ? "recorded" : "stop-failed",
+                    stopStarted,
+                    targetExited ? null : ex.Message);
+                DisposeEventPipeSession();
+            }
+            catch (OperationCanceledException) when (gracePeriod.IsCancellationRequested)
+            {
+                await AbortCopyAsync().ConfigureAwait(false);
+                CompleteFromCopy(
+                    await GetCopyResultAsync().ConfigureAwait(false),
+                    "stop-timeout",
+                    stopStarted,
+                    targetExited
+                        ? $"The target exited, but the managed EventPipe stream did not drain within the {_stopGracePeriod.TotalSeconds:0}-second grace period."
+                        : $"Managed EventPipe stop failed ({ex.Message}) and the stream did not drain within the {_stopGracePeriod.TotalSeconds:0}-second grace period.");
+            }
+        }
+    }
+
+    private async Task StartAsync(ProcessIdentity target, CancellationToken cancellationToken)
+    {
         Result = Result with
         {
             TargetProcessId = target.ProcessId,
             TargetProcessStartTimeUtcTicks = target.StartTimeUtcTicks,
         };
-        if (!_resolution.IsAvailable)
-        {
-            return;
-        }
-
         Directory.CreateDirectory(Path.GetDirectoryName(_outputPath)!);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(AttachTimeout);
         try
         {
-            _process = _processFactory.Start(new(
-                _resolution.ExecutablePath!,
-                CreateArguments(_resolution.Tool, target.ProcessId, _outputPath, _durationSeconds)));
+            _eventPipeSession = await _eventPipeClient
+                .StartSessionAsync(target, Configuration, timeout.Token)
+                .ConfigureAwait(false);
+            _copyTask = CopyCappedAsync(
+                _eventPipeSession.EventStream,
+                _outputPath,
+                _artifactQuotaBytes,
+                _drainCancellation.Token);
+            Result = Result with
+            {
+                Status = "recording",
+                Coverage = "attached-after-activation",
+                StartedUtc = DateTimeOffset.UtcNow,
+            };
         }
-        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException)
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested
+            && timeout.IsCancellationRequested)
         {
             Result = Result with
             {
                 Status = "start-failed",
                 Coverage = "unavailable",
-                TargetProcessId = target.ProcessId,
-                TargetProcessStartTimeUtcTicks = target.StartTimeUtcTicks,
+                Error = $"Managed EventPipe did not attach within {AttachTimeout.TotalSeconds:0} seconds.",
+                LossStatus = "not-produced",
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is ArgumentException
+            or InvalidOperationException
+            or IOException
+            or UnauthorizedAccessException
+            or Win32Exception
+            or TimeoutException
+            or DiagnosticsClientException)
+        {
+            Result = Result with
+            {
+                Status = "start-failed",
+                Coverage = "unavailable",
                 Error = ex.Message,
                 LossStatus = "not-produced",
             };
+        }
+    }
+
+    private void MarkNotAttached(StartupLaunchDisposition disposition)
+    {
+        if (Result.Status != "pending")
+        {
             return;
         }
 
+        var (status, error) = disposition == StartupLaunchDisposition.AttachedLate
+            ? (
+                "attached-late",
+                "Managed EventPipe does not attach to a process generation that existed before activation.")
+            : _newProcesses.Count == 0
+                ? (
+                    "not-observed",
+                    "No newly launched process generation was evidenced during the recording.")
+                : !_sawNonManagedProcess && _lastProbeError is not null
+                    ? (
+                        "inspection-failed",
+                        $"Managed-runtime inspection failed: {_lastProbeError}")
+                    : (
+                        "non-managed-target",
+                        "No newly launched CoreCLR process was observed during the recording.");
+        var candidate = _newProcesses.FirstOrDefault();
         Result = Result with
         {
-            Status = "recording",
-            Coverage = "attached-after-activation",
-            TargetProcessId = target.ProcessId,
-            TargetProcessStartTimeUtcTicks = target.StartTimeUtcTicks,
-            StartedUtc = DateTimeOffset.UtcNow,
+            Status = status,
+            Coverage = "not-attached",
+            TargetProcessId = candidate.ProcessId == 0 ? null : candidate.ProcessId,
+            TargetProcessStartTimeUtcTicks = candidate.ProcessId == 0
+                ? null
+                : candidate.StartTimeUtcTicks,
+            Error = error,
+            LossStatus = "not-produced",
         };
+    }
 
-        var completed = await Task.WhenAny(
-            _process.Completion,
-            Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken));
-        if (completed == _process.Completion)
+    private async Task AbortCopyAsync()
+    {
+        _drainCancellation.Cancel();
+        DisposeEventPipeSession();
+        await GetCopyResultAsync().ConfigureAwait(false);
+    }
+
+    private async Task<ManagedEventPipeCopyResult> GetCopyResultAsync()
+    {
+        if (_copyTask is null)
         {
-            await FinishAsync(await _process.Completion, startPhase: true);
+            return new(0, false, null);
+        }
+        try
+        {
+            return await _copyTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return new(0, false, null);
         }
     }
 
-    public void MarkNotAttached(string status, string error, ProcessIdentity? candidate)
+    private void CompleteFromCopy(
+        ManagedEventPipeCopyResult copy,
+        string status,
+        DateTimeOffset stopStarted,
+        string? error = null)
     {
-        if (!_requested || _process is not null)
-        {
-            return;
-        }
-
+        var quotaDetail = copy.QuotaExceeded
+            ? $"Managed EventPipe artifact reached its {Result.QuotaBytes} byte quota; additional bytes were discarded while draining."
+            : null;
+        var fileSize = File.Exists(_outputPath)
+            ? new FileInfo(_outputPath).Length
+            : 0;
         Result = Result with
         {
-            Status = _resolution.IsAvailable ? status : Result.Status,
-            Coverage = _resolution.IsAvailable ? "not-attached" : Result.Coverage,
-            TargetProcessId = candidate?.ProcessId,
-            TargetProcessStartTimeUtcTicks = candidate?.StartTimeUtcTicks,
-            Error = _resolution.IsAvailable ? error : Result.Error,
-        };
-    }
-
-    public async Task StopAsync()
-    {
-        if (_process is null || Result.Status != "recording")
-        {
-            return;
-        }
-
-        var stopStarted = DateTimeOffset.UtcNow;
-        var input = _resolution.Tool == ManagedDiagnosticTool.DotNetTrace ? Environment.NewLine : "q";
-        var naturalStopUtc = Result.StartedUtc!.Value.AddSeconds(_durationSeconds);
-        var softStopTimeout = naturalStopUtc > stopStarted
-            ? naturalStopUtc - stopStarted + StopGracePeriod
-            : StopGracePeriod;
-        var stopped = await _process.RequestSoftStopAsync(input, softStopTimeout);
-        if (!stopped)
-        {
-            Result = Result with
-            {
-                Status = "stop-timeout",
-                StopStartedUtc = stopStarted,
-                StopCompletedUtc = DateTimeOffset.UtcNow,
-                Error = $"The collector did not exit by its bounded duration plus the {StopGracePeriod.TotalSeconds:0}-second stop grace period.",
-            };
-            CaptureArtifact();
-            await _process.DisposeAsync();
-            return;
-        }
-
-        await FinishAsync(await _process.Completion, startPhase: false, stopStarted);
-    }
-
-    private async Task FinishAsync(
-        ProcessRunResult processResult,
-        bool startPhase,
-        DateTimeOffset? stopStarted = null)
-    {
-        if (processResult.ExitCode != 0)
-        {
-            Result = Result with
-            {
-                Status = startPhase ? "start-failed" : "stop-failed",
-                Coverage = startPhase ? "unavailable" : Result.Coverage,
-                StopStartedUtc = stopStarted,
-                StopCompletedUtc = startPhase ? null : DateTimeOffset.UtcNow,
-                Error = GetProcessError(
-                    processResult,
-                    Path.GetFileName(_resolution.ExecutablePath) ?? Result.Tool),
-                LossStatus = File.Exists(_outputPath) ? Result.LossStatus : "not-produced",
-            };
-            CaptureArtifact();
-            return;
-        }
-
-        if (!File.Exists(_outputPath))
-        {
-            Result = Result with
-            {
-                Status = startPhase ? "start-failed" : "stop-failed",
-                Coverage = startPhase ? "unavailable" : Result.Coverage,
-                StopStartedUtc = stopStarted,
-                StopCompletedUtc = startPhase ? null : DateTimeOffset.UtcNow,
-                Error = $"{Path.GetFileName(_resolution.ExecutablePath)} exited successfully but did not create {_artifactPath}.",
-                LossStatus = "not-produced",
-            };
-            return;
-        }
-
-        Result = Result with
-        {
-            Status = "recorded",
+            Status = copy.QuotaExceeded && status == "recorded"
+                ? "quota-exceeded"
+                : copy.Error is not null && status == "recorded"
+                    ? "stop-failed"
+                    : status,
+            Coverage = copy.QuotaExceeded
+                ? "partial"
+                : Result.Coverage,
+            Artifact = File.Exists(_outputPath) ? "traces/managed.nettrace" : null,
+            FileSize = File.Exists(_outputPath) ? fileSize : null,
+            QuotaStatus = copy.QuotaExceeded ? "exceeded" : "within-limit",
+            LossStatus = copy.QuotaExceeded
+                ? "partial"
+                : copy.Error is null && status == "recorded"
+                    ? "not-inspected"
+                    : "not-produced",
             StopStartedUtc = stopStarted,
             StopCompletedUtc = DateTimeOffset.UtcNow,
+            Error = error is null
+                ? copy.Error ?? quotaDetail
+                : quotaDetail is null
+                    ? error
+                    : $"{error} {quotaDetail}",
         };
-        CaptureArtifact();
-        await Task.CompletedTask;
     }
 
-    private void CaptureArtifact()
+    private void DisposeEventPipeSession()
     {
-        if (!File.Exists(_outputPath))
-        {
-            return;
-        }
-
-        var size = new FileInfo(_outputPath).Length;
-        Result = Result with
-        {
-            Artifact = _artifactPath,
-            FileSize = size,
-            QuotaStatus = size <= ManagedDiagnosticsSession.ArtifactQuotaBytes
-                ? "within-limit"
-                : "exceeded",
-            Status = size <= ManagedDiagnosticsSession.ArtifactQuotaBytes
-                ? Result.Status
-                : "quota-exceeded",
-        };
+        _eventPipeSession?.Dispose();
+        _eventPipeSession = null;
     }
 
-    private ManagedCollectorResult CreateInitialResult()
-    {
-        var toolName = _resolution.Tool == ManagedDiagnosticTool.DotNetTrace
-            ? "dotnet-trace"
-            : "dotnet-counters";
-        if (!_requested)
-        {
-            return new()
-            {
-                Requested = false,
-                Tool = toolName,
-                Status = "not-requested",
-                Coverage = "not-requested",
-                LossStatus = "not-applicable",
-            };
-        }
-        if (!_resolution.IsAvailable)
-        {
-            return new()
-            {
-                Requested = true,
-                Tool = toolName,
-                Status = "unavailable",
-                Coverage = "unavailable",
-                QuotaBytes = ManagedDiagnosticsSession.ArtifactQuotaBytes,
-                QuotaStatus = "not-produced",
-                LossStatus = "not-produced",
-                Error = _resolution.Error,
-            };
-        }
-
-        return new()
-        {
-            Requested = true,
-            Tool = toolName,
-            Status = "pending",
-            Coverage = "not-attached",
-            ToolVersion = _resolution.Version,
-            QuotaBytes = ManagedDiagnosticsSession.ArtifactQuotaBytes,
-            QuotaStatus = "not-produced",
-            LossStatus = "not-inspected",
-            RecommendedViewer = _resolution.Tool == ManagedDiagnosticTool.DotNetTrace
-                ? "PerfView or Visual Studio"
-                : "JSON viewer",
-        };
-    }
-
-    private static IReadOnlyList<string> CreateArguments(
-        ManagedDiagnosticTool tool,
-        int processId,
+    private static async Task<ManagedEventPipeCopyResult> CopyCappedAsync(
+        Stream source,
         string outputPath,
-        int durationSeconds)
+        long artifactQuotaBytes,
+        CancellationToken cancellationToken)
     {
-        var duration = TimeSpan.FromSeconds(durationSeconds).ToString(@"dd\:hh\:mm\:ss");
-        return tool switch
+        var buffer = ArrayPool<byte>.Shared.Rent(80 * 1024);
+        long written = 0;
+        var quotaExceeded = false;
+        try
         {
-            ManagedDiagnosticTool.DotNetTrace =>
-            [
-                "collect",
-                "--process-id", processId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                "--output", outputPath,
-                "--format", "NetTrace",
-                "--duration", duration,
-            ],
-            ManagedDiagnosticTool.DotNetCounters =>
-            [
-                "collect",
-                "--process-id", processId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                "--output", outputPath,
-                "--format", "json",
-                "--refresh-interval", "1",
-                "--duration", duration,
-            ],
-            _ => throw new ArgumentOutOfRangeException(nameof(tool)),
-        };
+            await using var destination = new FileStream(
+                outputPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 80 * 1024,
+                useAsync: true);
+            while (true)
+            {
+                var count = await source
+                    .ReadAsync(buffer.AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                if (count == 0)
+                {
+                    break;
+                }
+
+                var remaining = artifactQuotaBytes - written;
+                var bytesToWrite = remaining <= 0
+                    ? 0
+                    : (int)Math.Min(remaining, count);
+                if (bytesToWrite > 0)
+                {
+                    await destination
+                        .WriteAsync(buffer.AsMemory(0, bytesToWrite), cancellationToken)
+                        .ConfigureAwait(false);
+                    written += bytesToWrite;
+                }
+                quotaExceeded |= bytesToWrite != count;
+            }
+            return new(written, quotaExceeded, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new(written, quotaExceeded, null);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            return new(written, quotaExceeded, ex.Message);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
-    internal static string GetProcessError(ProcessRunResult result, string toolName)
+    private static ManagedDiagnosticsResult CreateInitialResult(long artifactQuotaBytes) => new()
     {
-        var message = string.IsNullOrWhiteSpace(result.StandardError)
-            ? result.StandardOutput
-            : result.StandardError;
-        message = message.Trim();
-        return string.IsNullOrEmpty(message)
-            ? $"{toolName} exited with code {result.ExitCode}."
-            : message.Length <= 1_000 ? message : message[..1_000];
-    }
+        Collector = "Managed EventPipe",
+        Status = "pending",
+        Coverage = "not-attached",
+        QuotaBytes = artifactQuotaBytes,
+        QuotaStatus = "not-produced",
+        LossStatus = "not-inspected",
+        RecommendedViewer = "PerfView or Visual Studio",
+    };
 
     public async ValueTask DisposeAsync()
     {
-        if (_process is not null)
+        if (!_stopped && _eventPipeSession is not null)
         {
-            await _process.DisposeAsync();
+            await StopAsync(StartupLaunchDisposition.Pending).ConfigureAwait(false);
         }
+        _drainCancellation.Dispose();
     }
+
+    private sealed record ManagedEventPipeCopyResult(
+        long BytesWritten,
+        bool QuotaExceeded,
+        string? Error);
 }

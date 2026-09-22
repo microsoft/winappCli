@@ -11,7 +11,7 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint windowHandle);
 
-    public MainWindow(LaunchOptions launchOptions)
+    public MainWindow(AppLaunchContext launchContext)
     {
         InitializeComponent();
 
@@ -23,6 +23,6 @@ public sealed partial class MainWindow : Window
         var scale = GetDpiForWindow(windowHandle) / 96.0;
         AppWindow.Resize(new SizeInt32((int)(1180 * scale), (int)(780 * scale)));
 
-        RootFrame.Navigate(typeof(MainPage), launchOptions);
+        RootFrame.Navigate(typeof(MainPage), launchContext);
     }
 }

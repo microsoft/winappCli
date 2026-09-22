@@ -7,12 +7,18 @@ namespace WinApp.Cli.Commands;
 
 internal sealed class PerfCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Record and open target-scoped app performance evidence";
+    public string ShortDescription => "Record, repeat, compare, and open app performance evidence";
 
-    public PerfCommand(PerfRecordCommand recordCommand, PerfOpenCommand openCommand)
-        : base("perf", "Record and open target-scoped performance evidence for Windows apps")
+    public PerfCommand(
+        PerfRecordCommand recordCommand,
+        PerfScenarioCommand scenarioCommand,
+        PerfCompareCommand compareCommand,
+        PerfOpenCommand openCommand)
+        : base("perf", "Record, repeat, compare, and open target-scoped performance evidence for Windows apps")
     {
         Subcommands.Add(recordCommand);
+        Subcommands.Add(scenarioCommand);
+        Subcommands.Add(compareCommand);
         Subcommands.Add(openCommand);
     }
 }

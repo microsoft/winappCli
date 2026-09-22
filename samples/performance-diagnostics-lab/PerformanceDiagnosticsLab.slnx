@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="PerformanceDiagnosticsLab.Contracts/PerformanceDiagnosticsLab.Contracts.csproj" />
+  <Project Path="PerformanceDiagnosticsLab.csproj" />
+  <Project Path="PerformanceDiagnosticsLab.Page.StartupPayload/PerformanceDiagnosticsLab.Page.StartupPayload.csproj" />
+  <Project Path="PerformanceDiagnosticsLab.Page.Rendering/PerformanceDiagnosticsLab.Page.Rendering.csproj" />
+  <Project Path="PerformanceDiagnosticsLab.Startup.Core/PerformanceDiagnosticsLab.Startup.Core.csproj" />
+  <Project Path="PerformanceDiagnosticsLab.Startup.Data/PerformanceDiagnosticsLab.Startup.Data.csproj" />
+  <Project Path="PerformanceDiagnosticsLab.Startup.Search/PerformanceDiagnosticsLab.Startup.Search.csproj" />
+</Solution>

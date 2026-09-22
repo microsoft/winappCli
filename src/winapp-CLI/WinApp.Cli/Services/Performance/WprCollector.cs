@@ -24,6 +24,10 @@ internal sealed record WprCollectorResult
     public bool? TemporaryFilesRetained { get; init; }
     public required string Coverage { get; init; }
     public string? LossStatus { get; init; }
+    public int? LostBufferCount { get; init; }
+    public int? LostEventCount { get; init; }
+    public string? LossInspectionToolVersion { get; init; }
+    public string? LossInspectionError { get; init; }
     public string? RecommendedViewer { get; init; }
     public string? Error { get; init; }
 }
@@ -46,7 +50,7 @@ internal interface IWprCollectorFactory
 
 internal sealed class WprCollectorFactory(IProcessRunner processRunner) : IWprCollectorFactory
 {
-    private const string Profile = "FileIO.Verbose";
+    private const string Profile = XamlPerformanceAnalyzer.ProfileName;
     private readonly string _wprPath = Path.Join(
         Environment.GetFolderPath(Environment.SpecialFolder.Windows),
         "System32",
@@ -103,15 +107,27 @@ internal sealed class WprCollectorFactory(IProcessRunner processRunner) : IWprCo
             }
 
             Directory.CreateDirectory(temporaryDirectory);
+            var captureProfilePath = Path.Join(
+                temporaryDirectory,
+                WptXamlProfileResources.CaptureProfileResourceName);
             ProcessRunResult result;
             try
             {
+                await using (var source = WptXamlProfileResources.OpenCaptureProfile())
+                await using (var destination = new FileStream(
+                    captureProfilePath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None))
+                {
+                    await source.CopyToAsync(destination, CancellationToken.None);
+                }
                 result = await processRunner.RunAsync(
                     new(
                         wprPath,
                         [
                             "-start",
-                            Profile,
+                            $"{captureProfilePath}!{Profile}",
                             "-filemode",
                             "-recordtempto",
                             temporaryDirectory,
@@ -143,6 +159,18 @@ internal sealed class WprCollectorFactory(IProcessRunner processRunner) : IWprCo
                     Error = ex.Message,
                 };
                 return;
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(captureProfilePath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // The private WPR temp directory is removed after stop; preserve it rather
+                    // than turning successful capture startup into a failure.
+                }
             }
 
             if (result.ExitCode != 0)

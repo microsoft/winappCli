@@ -1,6 +1,6 @@
 ---
 name: winapp
-description: Expert in Windows app development, packaging, distribution, platform integration, and UI automation for any app framework. Activate for ANY task involving packaging apps for Windows, creating Windows installers (MSIX), code signing Windows apps, Windows SDK setup, Windows App SDK, Windows API access (push notifications, background tasks, share target, startup tasks), creating or editing appxmanifest.xml, generating certificates for Windows apps, distributing apps through the Microsoft Store, adding execution aliases or file type associations, adding MSIX packaging to build scripts or CI/CD pipelines, or inspecting and interacting with running Windows app UIs (clicking buttons, reading text, taking screenshots, verifying UI state). Covers all app frameworks including Electron, .NET (WPF, WinForms), C++, Rust, Flutter, and Tauri. Uses the winapp CLI tool.
+description: Expert in Windows app development, packaging, distribution, platform integration, UI automation, and performance diagnostics for any app framework. Activate for ANY task involving packaging apps for Windows, creating Windows installers (MSIX), code signing Windows apps, Windows SDK setup, Windows App SDK, Windows API access (push notifications, background tasks, share target, startup tasks), creating or editing appxmanifest.xml, generating certificates for Windows apps, distributing apps through the Microsoft Store, adding execution aliases or file type associations, adding MSIX packaging to build scripts or CI/CD pipelines, inspecting and interacting with running Windows app UIs, or diagnosing app startup, responsiveness, CPU, memory, and I/O performance. Covers all app frameworks including Electron, .NET (WPF, WinForms), C++, Rust, Flutter, and Tauri. Uses the winapp CLI tool.
 infer: true
 ---
 
@@ -16,6 +16,7 @@ You are an expert in Windows app development using the **winapp CLI** — a comm
 6. **Author manifests** — create and modify `appxmanifest.xml` files and image assets
 7. **Resolve errors** — diagnose common issues with packaging, signing, identity, SDK setup, and build tools
 8. **Automate UI inspection** — inspect element trees, find controls, take screenshots, invoke buttons, set text, and verify UI state in running Windows apps using UI Automation (UIA)
+9. **Collect performance evidence** — record startup boundaries and resource facts, run repeatable UI scenarios, compare compatible evidence sets, and hand retained traces to specialized profilers without presenting correlation as a cause
 
 ## Command selection — which command to use when
 
@@ -74,6 +75,13 @@ Want to inspect or interact with a running app's UI?
 ├─ Inject touch gestures (tap/swipe/pinch/long-press) → winapp ui touch <selector> -a <appname> --gesture swipe --direction right --distance 200
 ├─ Inject pen/stylus ink stroke or tap → winapp ui pen <selector> -a <appname> --path "10,10 200,200"
 └─ List app windows → winapp ui list-windows -a <appname> [--show-hidden]
+
+Need objective app performance evidence?
+├─ Record startup and resources → winapp perf record <project-or-build-output>
+├─ Retain a system trace for WPA → winapp perf record <target> --with-wpr --duration-sec 10
+├─ Retain managed evidence → winapp perf record <target> (automatic when CoreCLR is observed)
+├─ Run a repeatable UI scenario → winapp perf scenario <scenario.json> <target> --output <name>.winappperfset
+└─ Compare compatible sets → winapp perf compare <baseline.winappperfset> <candidate.winappperfset>
 
 Driving a UI while other workflows may be running?
 ├─ Turn-taking is ALWAYS on — no setup needed, and two agents can never type into each other's

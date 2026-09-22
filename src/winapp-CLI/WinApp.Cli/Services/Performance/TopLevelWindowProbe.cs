@@ -3,11 +3,14 @@
 
 namespace WinApp.Cli.Services.Performance;
 
+using System.Diagnostics;
+
 internal readonly record struct TopLevelWindowSnapshot(
     long WindowHandle,
     int ProcessId,
     bool IsVisible,
-    bool? IsResponsive = null);
+    WindowResponseProbeResult? Response = null,
+    int? ThreadId = null);
 
 internal interface ITopLevelWindowProbe
 {
@@ -43,9 +46,12 @@ internal sealed class TopLevelWindowProbe(IWindowResponseProbe responseProbe) : 
             }
 
             uint processId = 0;
+            uint threadId;
             unsafe
             {
-                global::Windows.Win32.PInvoke.GetWindowThreadProcessId(window, &processId);
+                threadId = global::Windows.Win32.PInvoke.GetWindowThreadProcessId(
+                    window,
+                    &processId);
             }
 
             if (processId <= int.MaxValue && processIds.Contains((int)processId))
@@ -55,8 +61,28 @@ internal sealed class TopLevelWindowProbe(IWindowResponseProbe responseProbe) : 
                     (long)(nint)window,
                     (int)processId,
                     isVisible,
-                    isVisible ? responseProbe.IsResponsive((long)(nint)window) : null));
+                    ThreadId: threadId is > 0 and <= int.MaxValue
+                        ? (int)threadId
+                        : null));
             }
+        }
+
+        var probeStarted = Stopwatch.GetTimestamp();
+        for (var index = 0; index < windows.Count; index++)
+        {
+            if (!windows[index].IsVisible)
+            {
+                continue;
+            }
+            if (Stopwatch.GetElapsedTime(probeStarted) >= responseProbe.Timeout)
+            {
+                break;
+            }
+
+            windows[index] = windows[index] with
+            {
+                Response = responseProbe.Probe(windows[index].WindowHandle),
+            };
         }
 
         return windows;

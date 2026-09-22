@@ -7,6 +7,8 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.Text.Json;
+using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.Performance;
 
@@ -33,7 +35,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
 
     internal static readonly Option<int> DurationOption = new("--duration-sec")
     {
-        Description = "Stop after this many seconds. Use 0 to record until Enter, Ctrl+C, redirected-input completion, or target exit (default: 0).",
+        Description = "Stop after this many seconds. Use 0 to record until Ctrl+C or target exit (default: 0).",
         DefaultValueFactory = _ => 0,
     };
 
@@ -87,23 +89,13 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
 
     internal static readonly Option<bool> WithWprOption = new("--with-wpr")
     {
-        Description = "Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA.",
+        Description = "Collect an elevated WinUI/XAML WPR trace and retain traces/system.etl.",
     };
 
-    internal static readonly Option<bool> WithDotNetTraceOption = new("--with-dotnet-trace")
-    {
-        Description = "Attach dotnet-trace after a newly launched managed process is evidenced and retain traces/managed.nettrace.",
-    };
-
-    internal static readonly Option<bool> WithDotNetCountersOption = new("--with-dotnet-counters")
-    {
-        Description = "Attach dotnet-counters after a newly launched managed process is evidenced and retain traces/managed-counters.json.",
-    };
-
-    public string ShortDescription => "Record app startup, resources, and optional system or managed traces";
+    public string ShortDescription => "Record app startup, resources, managed EventPipe, and optional system traces";
 
     public PerfRecordCommand()
-        : base("record", "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain original WPR and .NET diagnostic artifacts.")
+        : base("record", "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, retain managed EventPipe evidence for newly launched CoreCLR targets, and optionally collect a WPR trace.")
     {
         Arguments.Add(TargetArgument);
         Arguments.Add(PassthroughArgument);
@@ -119,36 +111,44 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         Options.Add(PropertyOption);
         Options.Add(ArgsOption);
         Options.Add(WithWprOption);
-        Options.Add(WithDotNetTraceOption);
-        Options.Add(WithDotNetCountersOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
     internal sealed class Handler(
-        RunCommand runCommand,
-        RunCommand.Handler runHandler,
-        IPerformanceClock clock,
-        IPackageProcessSnapshot packageProcesses,
-        ITopLevelWindowProbe windowProbe,
-        IWindowResponseProbe responseProbe,
-        IProcessIdentityProbe processProbe,
-        ISystemUiQuery systemUiQuery,
+        IPerformanceRecordingSessionFactory recordingSessionFactory,
         IWprCollectorFactory wprCollectorFactory,
         IManagedDiagnosticsSessionFactory managedDiagnosticsFactory,
+        IEtlLossInspector etlLossInspector,
+        IXamlPerformanceAnalyzer xamlAnalyzer,
         IStorageSpaceProbe storageSpaceProbe,
         ICurrentDirectoryProvider currentDirectory,
         ILogger<PerfRecordCommand> logger) : AsynchronousCommandLineAction
     {
-        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
-        private static readonly TimeSpan ResourceCadence = TimeSpan.FromMilliseconds(500);
-
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
+            var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
+            if (RunCommand.Handler.HasValuelessProperty(parseResult, PropertyOption))
+            {
+                return Fail(
+                    parseResult,
+                    json,
+                    "A --property/-p option was provided without a value. Expected Name=Value (for example: -p WindowsPackageType=None).");
+            }
+            var allAbsorbed = parseResult.GetValue(PassthroughArgument) ?? [];
+            var (_, invalidPreDashTokens) = WindowsCommandLine.SplitPassthroughTokens(
+                parseResult.Tokens,
+                allAbsorbed);
+            if (invalidPreDashTokens.Count > 0)
+            {
+                var invalid = invalidPreDashTokens.Count == 1
+                    ? $"Unrecognized argument: '{invalidPreDashTokens[0]}'."
+                    : $"Unrecognized arguments: {string.Join(", ", invalidPreDashTokens.Select(value => $"'{value}'"))}.";
+                return Fail(parseResult, json, invalid);
+            }
             var durationSec = parseResult.GetValue(DurationOption);
             if (durationSec < 0 || durationSec > 86_400)
             {
-                logger.LogError("--duration-sec must be between 0 and 86400.");
-                return 1;
+                return Fail(parseResult, json, "--duration-sec must be between 0 and 86400.");
             }
 
             var output = parseResult.GetValue(OutputOption);
@@ -158,44 +158,36 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     $"performance-{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.winappperf")
                 : Path.GetFullPath(output, currentDirectory.GetCurrentDirectory());
             var withWpr = parseResult.GetValue(WithWprOption);
-            var withDotNetTrace = parseResult.GetValue(WithDotNetTraceOption);
-            var withDotNetCounters = parseResult.GetValue(WithDotNetCountersOption);
-            var withDeepDiagnostics = withWpr || withDotNetTrace || withDotNetCounters;
-            if (withDeepDiagnostics
+            if (withWpr
                 && PerformanceRecordingSafety.Validate(
                     durationSec,
                     storageSpaceProbe.GetAvailableBytes(output)) is { } safetyError)
             {
-                logger.LogError("{Message}", safetyError);
-                return 1;
+                return Fail(parseResult, json, safetyError);
             }
 
-            var calibration = clock.Calibrate();
-            using var writer = new PerformanceBundleWriter(output, calibration);
-            var managedPaths = writer.CreateManagedPaths();
-            await using var managedDiagnostics = await managedDiagnosticsFactory.CreateAsync(
-                withDotNetTrace,
-                withDotNetCounters,
-                managedPaths.TracePath,
-                managedPaths.CountersPath,
-                durationSec,
-                cancellationToken);
+            using var recording = recordingSessionFactory.Create(output);
+            await using var managedDiagnostics = managedDiagnosticsFactory.Create(
+                recording.CreateManagedPath());
             var wprResult = new WprCollectorResult
             {
                 Requested = false,
                 Status = "not-requested",
-                Profile = "FileIO.Verbose",
+                Profile = XamlPerformanceAnalyzer.ProfileName,
                 Coverage = "not-requested",
                 LossStatus = "not-applicable",
             };
             IWprCollector? wprCollector = null;
+            string? wprEtlPath = null;
             if (withWpr)
             {
                 var availability = wprCollectorFactory.CheckAvailability();
                 if (availability.IsAvailable)
                 {
-                    var paths = writer.CreateWprPaths();
+                    var paths = recording.CreateWprPaths();
+                    wprEtlPath = paths.EtlPath;
                     wprCollector = wprCollectorFactory.Create(paths.EtlPath, paths.TemporaryDirectory);
+                    recording.ConfigureWprCollector(wprCollector);
                     wprResult = wprCollector.Result;
                 }
                 else
@@ -204,7 +196,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     {
                         Requested = true,
                         Status = "unavailable",
-                        Profile = "FileIO.Verbose",
+                        Profile = XamlPerformanceAnalyzer.ProfileName,
                         Coverage = "unavailable",
                         QuotaBytes = PerformanceRecordingSafety.ArtifactQuotaBytes,
                         QuotaStatus = "not-produced",
@@ -216,43 +208,36 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
             }
             await using var wprLifetime = wprCollector;
 
-            using var observer = new StartupLaunchObserver(
-                clock,
-                packageProcesses,
-                windowProbe,
-                processProbe,
-                systemUiQuery,
-                calibration,
-                wprCollector);
-
-            var runParseResult = runCommand.Parse(BuildRunArguments(parseResult));
-            if (runParseResult.Errors.Count > 0)
-            {
-                foreach (var error in runParseResult.Errors)
-                {
-                    logger.LogError("{Message}", error.Message);
-                }
-                return 1;
-            }
-            runParseResult.InvocationConfiguration.Output = parseResult.InvocationConfiguration.Output;
-            runParseResult.InvocationConfiguration.Error = parseResult.InvocationConfiguration.Error;
-
-            var launchResult = await runHandler.InvokeForObservationAsync(
-                runParseResult,
-                observer,
+            var nestedOutput = json
+                ? TextWriter.Null
+                : parseResult.InvocationConfiguration.Output;
+            var nestedError = json
+                ? TextWriter.Null
+                : parseResult.InvocationConfiguration.Error;
+            var launch = await recording.LaunchAsync(
+                BuildRunArguments(parseResult),
+                nestedOutput,
+                nestedError,
                 cancellationToken);
-            if (observer.Session is null)
+            await managedDiagnostics.ObserveAsync(
+                recording.LastObservedEvents,
+                recording.Disposition,
+                cancellationToken);
+            if (launch.ParseErrors.Count > 0)
             {
-                return launchResult == 0 ? 1 : launchResult;
+                return Fail(parseResult, json, string.Join(" ", launch.ParseErrors));
+            }
+            if (!launch.ObservationStarted)
+            {
+                var exitCode = launch.ExitCode == 0 ? 1 : launch.ExitCode;
+                return Fail(
+                    parseResult,
+                    json,
+                    $"The target launch failed before performance observation began (exit code {exitCode}).",
+                    exitCode);
             }
 
-            writer.Write(observer.Session.Events);
-            var resourceSampler = new ResourceSampler(
-                clock,
-                ResourceCadence,
-                Environment.ProcessorCount);
-            writer.Write(resourceSampler.TrySample(observer.Session.CaptureResourceCounters()));
-            if (launchResult != 0)
+            if (launch.ExitCode != 0)
             {
                 if (wprCollector is not null)
                 {
@@ -260,17 +245,31 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     await wprCollector.StopAsync();
                     wprResult = wprCollector.Result;
                 }
-                await managedDiagnostics.StopAsync(observer.Session.Disposition);
-                var failedResult = writer.Complete(
+                wprResult = await InspectWprLossAsync(wprResult, wprEtlPath);
+                await managedDiagnostics.StopAsync(recording.Disposition);
+                var xaml = await xamlAnalyzer.AnalyzeAsync(
+                    withWpr,
+                    wprEtlPath,
+                    recording.TargetProcess,
+                    wprResult.LossStatus,
+                    CancellationToken.None);
+                var failedResult = recording.Complete(
                     "failed",
                     "launch-failed",
-                    observer.Session.Disposition,
-                    observer.ActivationProcessId,
-                    CreateResponseProbeManifest(responseProbe),
                     wprResult,
-                    managedDiagnostics.Result);
+                    managedDiagnostics.Result,
+                    xaml);
                 WriteResult(parseResult, failedResult);
-                return launchResult;
+                return launch.ExitCode;
+            }
+
+            if (!json)
+            {
+                parseResult.InvocationConfiguration.Output.WriteLine(
+                    "Recording performance. Press Ctrl+C to stop.");
+                WriteLiveEvents(
+                    parseResult.InvocationConfiguration.Output,
+                    recording.LastWrittenEvents);
             }
 
             string stopReason;
@@ -278,15 +277,20 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
             try
             {
                 stopReason = await ObserveUntilStoppedAsync(
-                    observer,
-                    writer,
-                    resourceSampler,
+                    recording,
                     managedDiagnostics,
                     durationSec,
+                    events =>
+                    {
+                        if (!json)
+                        {
+                            WriteLiveEvents(parseResult.InvocationConfiguration.Output, events);
+                        }
+                    },
                     cancellationToken);
-                status = observer.Session.Disposition == StartupLaunchDisposition.Pending
+                status = recording.Disposition == StartupLaunchDisposition.Pending
                     ? "partial"
-                    : observer.Session.Disposition == StartupLaunchDisposition.AttachedLate
+                    : recording.Disposition == StartupLaunchDisposition.AttachedLate
                         ? "attached-late"
                         : "completed";
             }
@@ -302,39 +306,84 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 await wprCollector.StopAsync();
                 wprResult = wprCollector.Result;
             }
-            await managedDiagnostics.StopAsync(observer.Session.Disposition);
+            wprResult = await InspectWprLossAsync(wprResult, wprEtlPath);
+            await managedDiagnostics.StopAsync(recording.Disposition);
+            var xamlResult = await xamlAnalyzer.AnalyzeAsync(
+                withWpr,
+                wprEtlPath,
+                recording.TargetProcess,
+                wprResult.LossStatus,
+                CancellationToken.None);
+            var requestedCollectorFailed =
+                wprResult.Requested && wprResult.Status != "recorded";
             if ((status is "completed" or "attached-late")
-                && wprResult.Requested
-                && wprResult.Status != "recorded")
-            {
-                status = "partial";
-            }
-            if ((status is "completed" or "attached-late")
-                && RequestedManagedCollectorFailed(managedDiagnostics.Result))
+                && requestedCollectorFailed)
             {
                 status = "partial";
             }
 
-            var result = writer.Complete(
+            var result = recording.Complete(
                 status,
                 stopReason,
-                observer.Session.Disposition,
-                observer.ActivationProcessId,
-                CreateResponseProbeManifest(responseProbe),
                 wprResult,
-                managedDiagnostics.Result);
+                managedDiagnostics.Result,
+                xamlResult);
             WriteResult(parseResult, result);
 
-            return status == "cancelled" ? 130 : 0;
+            return status == "cancelled"
+                ? 130
+                : requestedCollectorFailed ? 1 : 0;
         }
 
-        private static ResponseProbeManifest CreateResponseProbeManifest(
-            IWindowResponseProbe responseProbe) => new()
+        private async Task<WprCollectorResult> InspectWprLossAsync(
+            WprCollectorResult result,
+            string? etlPath)
+        {
+            if (etlPath is null || result.Artifact is null)
             {
-                CadenceMs = PollInterval.TotalMilliseconds,
-                TimeoutMs = responseProbe.Timeout.TotalMilliseconds,
-                Method = "SendMessageTimeout(WM_NULL)",
+                return result;
+            }
+
+            var inspection = await etlLossInspector.InspectAsync(
+                etlPath,
+                CancellationToken.None);
+            return result with
+            {
+                Status = inspection.Status == "detected"
+                    ? "recorded-with-loss"
+                    : result.Status,
+                Coverage = inspection.Status switch
+                {
+                    "none" => "raw-etl-complete",
+                    "detected" => "partial-event-loss",
+                    _ => result.Coverage,
+                },
+                LossStatus = inspection.Status,
+                LostBufferCount = inspection.LostBuffers,
+                LostEventCount = inspection.LostEvents,
+                LossInspectionToolVersion = inspection.ToolVersion,
+                LossInspectionError = inspection.Error,
             };
+        }
+
+        private int Fail(
+            ParseResult parseResult,
+            bool json,
+            string message,
+            int exitCode = 1)
+        {
+            if (json)
+            {
+                parseResult.InvocationConfiguration.Output.WriteLine(JsonSerializer.Serialize(
+                    new JsonErrorOutput { Error = message },
+                    WinAppJsonContext.Default.JsonErrorOutput));
+            }
+            else
+            {
+                logger.LogError("{Message}", message);
+            }
+            return exitCode;
+        }
 
         private static void WriteResult(ParseResult parseResult, PerformanceRecordResult result)
         {
@@ -347,12 +396,27 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
             else
             {
                 parseResult.InvocationConfiguration.Output.WriteLine(
-                    $"Performance recording: {result.Status}");
+                    $"Performance report: {result.Report.Recording.Status}");
                 parseResult.InvocationConfiguration.Output.WriteLine(
-                    $"Startup: {result.StartupDisposition}; process {FormatMilliseconds(result.Startup.FirstProcessMs)}; " +
-                    $"visible {FormatMilliseconds(result.Startup.FirstVisibleWindowMs)}; " +
-                    $"responsive {FormatMilliseconds(result.Startup.FirstResponsiveWindowMs)} " +
+                    $"Startup: {result.StartupDisposition}; {result.StartupSummary.Status} " +
                     $"[{result.ResponseProbe.CadenceMs:0} ms cadence, {result.ResponseProbe.TimeoutMs:0} ms timeout]");
+                foreach (var stage in result.StartupSummary.Stages)
+                {
+                    parseResult.InvocationConfiguration.Output.WriteLine(
+                        $"  {FormatStartupStage(stage)}");
+                }
+                if (result.StartupSummary.Outcome is not
+                    ("responsive-observed" or "attached-late"))
+                {
+                    parseResult.InvocationConfiguration.Output.WriteLine(
+                        FormatStartupOutcome(result.StartupSummary));
+                    foreach (var processExit in result.StartupSummary.ProcessExits)
+                    {
+                        parseResult.InvocationConfiguration.Output.WriteLine(
+                            $"  {FormatStartupProcessExit(processExit)}");
+                    }
+                }
+                WriteResponsiveness(parseResult, result.Report.Responsiveness);
                 parseResult.InvocationConfiguration.Output.WriteLine(
                     $"Resources: CPU avg {FormatCores(result.Resources.Summary.AverageCpuCoresUsed)}, " +
                     $"peak {FormatCores(result.Resources.Summary.PeakCpuCoresUsed)}; " +
@@ -360,8 +424,8 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                     $"{result.Resources.SampleCount} samples");
                 parseResult.InvocationConfiguration.Output.WriteLine(
                     $"Resource change: private {FormatByteChange(result.Resources.Summary.PrivateBytesChange)}; " +
-                    $"I/O read {FormatBytes(result.Resources.Summary.ReadBytesDuringRecording)}, " +
-                    $"write {FormatBytes(result.Resources.Summary.WriteBytesDuringRecording)}");
+                    $"I/O read {FormatIoBytes(result.Resources.Summary.ReadBytesDuringRecording)}, " +
+                    $"write {FormatIoBytes(result.Resources.Summary.WriteBytesDuringRecording)}");
                 if (result.Wpr.Requested)
                 {
                     var artifact = result.Wpr.Artifact is null
@@ -375,36 +439,90 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                             $"WPR detail: {result.Wpr.Error}");
                     }
                 }
-                WriteManagedCollector(parseResult, result.Managed.DotNetTrace);
-                WriteManagedCollector(parseResult, result.Managed.DotNetCounters);
+                WriteXamlAnalysis(parseResult, result.Xaml);
+                WriteManagedCollector(parseResult, result.Managed);
+                parseResult.InvocationConfiguration.Output.WriteLine(
+                    $"Report: {Path.Join(result.Bundle, result.ReportPath)}");
                 parseResult.InvocationConfiguration.Output.WriteLine($"Evidence: {result.Bundle}");
+            }
+        }
+
+        private static void WriteResponsiveness(
+            ParseResult parseResult,
+            PerformanceResponsivenessSummary summary)
+        {
+            var detail = summary.FailureCount == 0
+                ? "no response failures"
+                : $"{summary.FailureCount} response failure(s), " +
+                  $"{summary.RecoveryCount} recovered; longest observed " +
+                  $"{FormatMilliseconds(summary.LongestObservedFailureMs)}";
+            parseResult.InvocationConfiguration.Output.WriteLine(
+                $"Responsiveness: {summary.Status}; {detail}");
+            if (summary.ProbeErrorCount > 0)
+            {
+                parseResult.InvocationConfiguration.Output.WriteLine(
+                    $"  Response probe errors: {summary.ProbeErrorCount}");
+            }
+        }
+
+        private static void WriteXamlAnalysis(
+            ParseResult parseResult,
+            XamlAnalysisManifest xaml)
+        {
+            if (!xaml.Requested)
+            {
+                return;
+            }
+
+            parseResult.InvocationConfiguration.Output.WriteLine(
+                $"XAML: {xaml.Status}; {xaml.MatchedIntervalCount} target intervals; coverage {xaml.Coverage}");
+            if (xaml.Summary is { } summary)
+            {
+                WriteXamlMetric(parseResult, "Initialization", summary.InitializationMs);
+                WriteXamlMetric(parseResult, "Longest interesting Frame", summary.LongestInterestingFrameMs);
+                WriteXamlMetric(parseResult, "Longest interesting UpdateLayout", summary.LongestInterestingUpdateLayoutMs);
+                if (summary.UiThreadId is { } uiThreadId)
+                {
+                    parseResult.InvocationConfiguration.Output.WriteLine($"  UI thread: {uiThreadId}");
+                }
+            }
+            if (xaml.Error is not null)
+            {
+                parseResult.InvocationConfiguration.Output.WriteLine($"XAML detail: {xaml.Error}");
+            }
+            if (xaml.Remediation is not null)
+            {
+                parseResult.InvocationConfiguration.Output.WriteLine($"XAML action: {xaml.Remediation}");
+            }
+        }
+
+        private static void WriteXamlMetric(
+            ParseResult parseResult,
+            string name,
+            double? durationMs)
+        {
+            if (durationMs is not null)
+            {
+                parseResult.InvocationConfiguration.Output.WriteLine(
+                    $"  {name}: {durationMs.Value:0.0} ms");
             }
         }
 
         private static void WriteManagedCollector(
             ParseResult parseResult,
-            ManagedCollectorResult collector)
+            ManagedDiagnosticsResult collector)
         {
-            if (!collector.Requested)
-            {
-                return;
-            }
-
             var artifact = collector.Artifact is null
                 ? string.Empty
                 : $"; {collector.Artifact} ({collector.FileSize} bytes)";
             parseResult.InvocationConfiguration.Output.WriteLine(
-                $"{collector.Tool}: {collector.Status}{artifact}");
+                $"{collector.Collector}: {collector.Status}{artifact}");
             if (collector.Error is not null)
             {
                 parseResult.InvocationConfiguration.Output.WriteLine(
-                    $"{collector.Tool} detail: {collector.Error}");
+                    $"{collector.Collector} detail: {collector.Error}");
             }
         }
-
-        private static bool RequestedManagedCollectorFailed(ManagedCollectorsResult result) =>
-            (result.DotNetTrace.Requested && result.DotNetTrace.Status != "recorded")
-            || (result.DotNetCounters.Requested && result.DotNetCounters.Status != "recorded");
 
         private static string FormatMilliseconds(double? value) =>
             value is null ? "not observed" : $"{value.Value:0.0} ms";
@@ -415,60 +533,175 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         private static string FormatBytes(long? value) =>
             value is null ? "not observed" : $"{value.Value / (1024d * 1024d):0.0} MiB";
 
-        private static string FormatBytes(ulong? value) =>
-            value is null ? "not observed" : $"{value.Value / (1024d * 1024d):0.0} MiB";
+        private static string FormatIoBytes(ulong? value) => value switch
+        {
+            null => "not observed",
+            < 1024 => $"{value.Value} bytes",
+            < 1024 * 1024 => $"{value.Value / 1024d:0.0} KiB",
+            _ => $"{value.Value / (1024d * 1024d):0.0} MiB",
+        };
 
         private static string FormatByteChange(long? value) =>
             value is null ? "not observed" : $"{value.Value / (1024d * 1024d):+0.0;-0.0;0.0} MiB";
 
-        private static async Task<string> ObserveUntilStoppedAsync(
-            StartupLaunchObserver observer,
-            PerformanceBundleWriter writer,
-            ResourceSampler resourceSampler,
+        internal static string FormatStartupStage(StartupStageSummary stage)
+        {
+            var resources = stage.Resources;
+            var details = new List<string>
+            {
+                $"{FormatBoundary(stage.StartBoundary)} -> {FormatBoundary(stage.EndBoundary)}: " +
+                $"{stage.DurationMs:0.0} ms",
+            };
+            if (resources.Status == "not-observed")
+            {
+                details.Add("resources not observed");
+            }
+            else
+            {
+                var sampleWindow = resources.StartSampleMs is { } sampleStart
+                    && resources.EndSampleMs is { } sampleEnd
+                    ? $" over {Math.Max(0, sampleEnd - sampleStart):0.0} ms sample window"
+                    : string.Empty;
+                details.Add($"CPU {FormatMilliseconds(resources.CpuTimeMs)}{sampleWindow}");
+                details.Add($"private {FormatByteChange(resources.PrivateBytesChange)}");
+                details.Add($"I/O read {FormatIoBytes(resources.ReadBytes)}, write {FormatIoBytes(resources.WriteBytes)}");
+                if (resources.Status == "partial")
+                {
+                    details.Add("partial resource evidence");
+                }
+            }
+            if (stage.ResponseFailureDurationMs > 0)
+            {
+                details.Add($"unresponsive {stage.ResponseFailureDurationMs:0.0} ms");
+            }
+            return string.Join("; ", details);
+        }
+
+        internal static string FormatStartupOutcome(PerformanceStartupSummary summary) =>
+            $"Startup outcome: {FormatOutcome(summary.Outcome)}; last observed " +
+            $"{FormatBoundary(summary.LastBoundary)} at {summary.LastBoundaryMs:0.0} ms; " +
+            $"stop reason {summary.StopReason}";
+
+        internal static string FormatStartupProcessExit(StartupProcessExit processExit)
+        {
+            var process = processExit.ProcessId is { } processId
+                ? $"PID {processId}"
+                : "unknown process";
+            var code = processExit.ExitCode is { } exitCode
+                ? $"{exitCode} ({processExit.ExitCodeHex})"
+                : "unknown";
+            var before = processExit.BeforeBoundary is { } boundary
+                ? $"; before {FormatBoundary(boundary)}"
+                : string.Empty;
+            return $"Process exit: {process} at {processExit.ElapsedMs:0.0} ms; " +
+                $"code {code}; {processExit.ExitKind} exit{before}";
+        }
+
+        private static string FormatOutcome(string outcome) => outcome switch
+        {
+            "activation-failed" => "activation failed",
+            "process-not-observed" => "process not observed",
+            "exited-before-responsive" => "process exited before Responsive",
+            "recording-ended-before-responsive" => "recording ended before Responsive",
+            _ => outcome,
+        };
+
+        private static string FormatBoundary(string boundary) => boundary switch
+        {
+            "activation" => "Activation",
+            "process" => "Process",
+            "first-window" => "First window",
+            "visible" => "Visible",
+            "responsive" => "Responsive",
+            _ => boundary,
+        };
+
+        internal static async Task<string> ObserveUntilStoppedAsync(
+            IPerformanceRecordingSession recording,
             IManagedDiagnosticsSession managedDiagnostics,
             int durationSec,
+            Action<IReadOnlyList<PerformanceTimelineEntry>>? onEvents,
             CancellationToken cancellationToken)
         {
             var deadline = durationSec > 0
                 ? DateTimeOffset.UtcNow.AddSeconds(durationSec)
                 : DateTimeOffset.MaxValue;
-            Task<string?>? inputTask = durationSec == 0
-                ? Console.In.ReadLineAsync(cancellationToken).AsTask()
-                : null;
 
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var update = observer.Observe();
-                writer.Write(update.Events);
+                var update = recording.Observe();
                 await managedDiagnostics.ObserveAsync(
                     update.Events,
                     update.Disposition,
                     cancellationToken);
-                writer.Write(resourceSampler.TrySample(
-                    observer.Session!.CaptureResourceCounters()));
-
-                if (observer.Session.HasObservedProcesses && !observer.Session.HasActiveProcesses)
+                onEvents?.Invoke(recording.LastWrittenEvents);
+                if (recording.LaunchProcessAdmissionFailed
+                    && !recording.HasObservedProcesses)
                 {
-                    var finalUpdate = observer.Observe();
-                    writer.Write(finalUpdate.Events);
-                    writer.Write(resourceSampler.TrySample(
-                        observer.Session.CaptureResourceCounters()));
+                    recording.CaptureResourceSnapshot(force: true);
+                    return "launch-process-not-observed";
+                }
+                if (recording.HasObservedProcesses && !recording.HasActiveProcesses)
+                {
+                    recording.Observe();
+                    recording.CaptureResourceSnapshot(force: true);
                     return "target-exited";
                 }
                 if (DateTimeOffset.UtcNow >= deadline)
                 {
                     return "duration";
                 }
-                if (inputTask?.IsCompleted == true)
-                {
-                    await inputTask;
-                    return "input";
-                }
 
-                await Task.Delay(PollInterval, cancellationToken);
+                await Task.Delay(PerformanceRecordingSession.PollInterval, cancellationToken);
             }
         }
+
+        internal static void WriteLiveEvents(
+            TextWriter output,
+            IReadOnlyList<PerformanceTimelineEntry> events)
+        {
+            foreach (var entry in events)
+            {
+                output.WriteLine(FormatLiveEvent(entry));
+            }
+        }
+
+        internal static string FormatLiveEvent(PerformanceTimelineEntry entry)
+        {
+            var prefix = $"[+{entry.ElapsedMs / 1000:0.000}s]";
+            var process = entry.ProcessId is { } processId ? $" PID {processId}" : string.Empty;
+            var window = entry.WindowHandle is { } windowHandle
+                ? $" HWND 0x{windowHandle:X}"
+                : string.Empty;
+            return entry.Type switch
+            {
+                nameof(StartupEventType.ActivationRequested) =>
+                    $"{prefix} Activation requested",
+                nameof(StartupEventType.ProcessObserved) =>
+                    $"{prefix} Process observed{process}{FormatPreExisting(entry)}",
+                nameof(StartupEventType.WindowObserved) =>
+                    $"{prefix} Window observed{window}{process}{FormatPreExisting(entry)}",
+                nameof(StartupEventType.WindowVisible) =>
+                    $"{prefix} Window visible{window}{process}",
+                nameof(StartupEventType.WindowResponsive) =>
+                    $"{prefix} Window responsive{window}{process}",
+                nameof(StartupEventType.WindowResponseFailed) =>
+                    $"{prefix} Window response failed{window}{process}",
+                nameof(StartupEventType.WindowResponseProbeFailed) =>
+                    $"{prefix} Window response probe failed{window}{process}; " +
+                    $"{entry.ResponseProbeOutcome ?? "Win32Failure"}" +
+                    (entry.Win32ErrorCode is { } error ? $"; Win32 {error}" : string.Empty),
+                nameof(StartupEventType.WindowResponseRecovered) =>
+                    $"{prefix} Window response recovered{window}{process}",
+                nameof(StartupEventType.ProcessExited) =>
+                    $"{prefix} Process exited{process}; code {entry.ExitCode?.ToString() ?? "unknown"}",
+                _ => $"{prefix} {entry.Type}{window}{process}",
+            };
+        }
+
+        private static string FormatPreExisting(PerformanceTimelineEntry entry) =>
+            entry.WasPresentBeforeActivation == true ? " (present before activation)" : string.Empty;
 
         private static string[] BuildRunArguments(ParseResult parseResult)
         {

@@ -224,6 +224,12 @@ internal partial class RunCommand : Command, IShortDescription
         IProjectContextDetector projectContextDetector,
         ILogger<RunCommand> logger) : AsynchronousCommandLineAction
     {
+        internal static bool HasValuelessProperty(
+            ParseResult parseResult,
+            Option<string[]> propertyOption) =>
+            parseResult.GetResult(propertyOption) is OptionResult propertyResult
+            && propertyResult.IdentifierTokenCount > propertyResult.Tokens.Count;
+
         // Test seams for the execution-alias launch path. They isolate the two operating-system
         // boundaries — resolving the Windows App Execution Alias proxy location and starting the
         // resolved process — so tests can exercise all of the surrounding validation, debug,
@@ -299,8 +305,7 @@ internal partial class RunCommand : Command, IShortDescription
             // plain text. Detect it from the raw result: there is one identifier token per '-p'
             // occurrence, so more identifiers than captured value tokens means at least one '-p' was
             // supplied without its argument. Handling it here lets --json callers get structured JSON.
-            if (parseResult.GetResult(PropertyOption) is OptionResult propertyResult &&
-                propertyResult.IdentifierTokenCount > propertyResult.Tokens.Count)
+            if (HasValuelessProperty(parseResult, PropertyOption))
             {
                 return Fail("A --property/-p option was provided without a value. Expected Name=Value (for example: -p WindowsPackageType=None).", isJson);
             }

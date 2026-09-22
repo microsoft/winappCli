@@ -132,6 +132,80 @@ public sealed class ResourceSamplerTests
         Assert.AreEqual(0, terminal.PartialProcessCount);
     }
 
+    [TestMethod]
+    public void TrySample_DerivesGenerationSafePerThreadCpuAndRetainsState()
+    {
+        var process = new ProcessIdentity(42, 100);
+        var firstThread = new ThreadResourceCounters(
+            7,
+            200,
+            10_000_000,
+            8_000_000,
+            2_000_000,
+            "Running",
+            null);
+        var secondThread = firstThread with
+        {
+            TotalProcessorTimeTicks = 12_500_000,
+            UserProcessorTimeTicks = 10_000_000,
+            KernelProcessorTimeTicks = 2_500_000,
+            State = "Wait",
+            WaitReason = "UserRequest",
+        };
+        var sampler = new ResourceSampler(
+            new FakePerformanceClock(1_000, 1_000, 1_500),
+            TimeSpan.FromMilliseconds(500),
+            4);
+
+        var first = sampler.TrySample(
+            [Counters(process, 10_000_000, 0, 0) with { Threads = [firstThread] }]);
+        var second = sampler.TrySample(
+            [Counters(process, 12_500_000, 0, 0) with { Threads = [secondThread] }]);
+
+        Assert.IsNotNull(first);
+        Assert.AreEqual("complete", first.Processes[0].ThreadCaptureStatus);
+        Assert.HasCount(1, first.Processes[0].Threads);
+        Assert.IsNull(first.Processes[0].Threads[0].CpuCoresUsed);
+        Assert.IsNotNull(second);
+        var sample = second.Processes[0].Threads[0];
+        Assert.AreEqual(0.5, sample.CpuCoresUsed);
+        Assert.AreEqual(12.5, sample.CpuPercentOfMachine);
+        Assert.AreEqual("Wait", sample.State);
+        Assert.AreEqual("UserRequest", sample.WaitReason);
+        Assert.IsFalse(sample.IsPartial);
+    }
+
+    [TestMethod]
+    public void TrySample_DoesNotDeriveCpuAcrossReusedThreadId()
+    {
+        var process = new ProcessIdentity(42, 100);
+        var sampler = new ResourceSampler(
+            new FakePerformanceClock(1_000, 1_000, 1_500),
+            TimeSpan.FromMilliseconds(500),
+            1);
+        var first = new ThreadResourceCounters(
+            7,
+            200,
+            10_000_000,
+            10_000_000,
+            0,
+            "Running",
+            null);
+        var reused = first with
+        {
+            ThreadStartTimeUtcTicks = 300,
+            TotalProcessorTimeTicks = 1_000_000,
+            UserProcessorTimeTicks = 1_000_000,
+        };
+
+        sampler.TrySample([Counters(process, 10_000_000, 0, 0) with { Threads = [first] }]);
+        var sample = sampler.TrySample(
+            [Counters(process, 11_000_000, 0, 0) with { Threads = [reused] }]);
+
+        Assert.IsNotNull(sample);
+        Assert.IsNull(sample.Processes[0].Threads[0].CpuCoresUsed);
+    }
+
     private static ProcessResourceCounters Counters(
         ProcessIdentity process,
         long cpuTicks,

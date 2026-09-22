@@ -110,9 +110,61 @@ public sealed class PerformanceBundleOpenerTests
         Assert.IsEmpty(launcher.StartInfo.ArgumentList);
     }
 
+    [TestMethod]
+    public void Open_AcceptsCurrentWriterSchema()
+    {
+        var bundle = CreateBundle(
+            "traces/managed.nettrace",
+            "nettrace",
+            PerformanceBundleSchema.CurrentVersion);
+        var launcher = new CapturingLauncher();
+        var opener = new PerformanceBundleOpener(new FixedViewerResolver(null), launcher);
+
+        var result = opener.Open(bundle, "default");
+
+        Assert.AreEqual("opened", result.Status);
+        Assert.IsNotNull(launcher.StartInfo);
+    }
+
+    [TestMethod]
+    public void Open_ReadsSchema06ManagedArtifactWithoutAnArtifactList()
+    {
+        var bundle = Path.Join(_root, "legacy.winappperf");
+        var artifact = Path.Join(bundle, "traces", "managed.nettrace");
+        Directory.CreateDirectory(Path.GetDirectoryName(artifact)!);
+        File.WriteAllBytes(artifact, [1]);
+        File.WriteAllText(
+            Path.Join(bundle, "manifest.json"),
+            """{"schemaVersion":"0.6","managed":{"dotNetTrace":{"artifact":"traces/managed.nettrace","fileSize":1,"tool":"dotnet-trace"}}}""");
+        var launcher = new CapturingLauncher();
+        var opener = new PerformanceBundleOpener(new FixedViewerResolver(null), launcher);
+
+        var result = opener.Open(bundle, "default");
+
+        Assert.AreEqual("opened", result.Status);
+        Assert.AreEqual(artifact, launcher.StartInfo!.FileName);
+    }
+
+    [TestMethod]
+    public void OpenWithDefault_RejectsExecutableArtifactEvenWhenManifestCallsItData()
+    {
+        var bundle = CreateBundle("traces/run.cmd", "nettrace");
+        var launcher = new CapturingLauncher();
+        var opener = new PerformanceBundleOpener(new FixedViewerResolver(null), launcher);
+
+        var result = opener.Open(bundle, "default");
+
+        Assert.AreEqual("unavailable", result.Status);
+        StringAssert.Contains(result.Error, "safe trace or data type");
+        Assert.IsNull(launcher.StartInfo);
+    }
+
     public TestContext TestContext { get; set; } = null!;
 
-    private string CreateBundle(string artifact, string kind)
+    private string CreateBundle(
+        string artifact,
+        string kind,
+        string schemaVersion = "0.2")
     {
         var bundle = Path.Join(_root, $"{Guid.NewGuid():N}.winappperf");
         var artifactPath = Path.Join(bundle, artifact.Replace('/', Path.DirectorySeparatorChar));
@@ -120,7 +172,7 @@ public sealed class PerformanceBundleOpenerTests
         File.WriteAllBytes(artifactPath, [1, 2, 3]);
         File.WriteAllText(
             Path.Join(bundle, "manifest.json"),
-            $$"""{"schemaVersion":"0.2","artifacts":[{"path":"{{artifact}}","kind":"{{kind}}","collector":"test","sizeBytes":3}]}""");
+            $$"""{"schemaVersion":"{{schemaVersion}}","artifacts":[{"path":"{{artifact}}","kind":"{{kind}}","collector":"test","sizeBytes":3}]}""");
         return bundle;
     }
 

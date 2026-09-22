@@ -37,7 +37,7 @@ Describe 'performance-diagnostics-lab sample' {
         }
 
         It 'Restores NuGet packages' -Skip:$script:skip {
-            dotnet restore
+            dotnet restore (Join-Path $script:sampleDir 'PerformanceDiagnosticsLab.csproj')
             $LASTEXITCODE | Should -Be 0
         }
 
@@ -48,10 +48,12 @@ Describe 'performance-diagnostics-lab sample' {
                 'win-x64'
             }
 
-            dotnet build -c Debug -r $rid --nologo
+            $project = Join-Path $script:sampleDir 'PerformanceDiagnosticsLab.csproj'
+
+            dotnet build $project -c Debug -r $rid --nologo
             $LASTEXITCODE | Should -Be 0
 
-            dotnet build -c Release -r $rid --nologo
+            dotnet build $project -c Release -r $rid --nologo
             $LASTEXITCODE | Should -Be 0
         }
     }

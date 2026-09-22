@@ -43,6 +43,20 @@ public class PerformanceStartupObservationTests
     }
 
     [TestMethod]
+    public void WindowResponseProbe_DistinguishesTimeoutInvalidHandleAccessDeniedAndOtherFailures()
+    {
+        AssertProbeResult(1460, WindowResponseProbeOutcome.Timeout);
+        AssertProbeResult(1400, WindowResponseProbeOutcome.InvalidWindowHandle);
+        AssertProbeResult(5, WindowResponseProbeOutcome.AccessDenied);
+        AssertProbeResult(87, WindowResponseProbeOutcome.Win32Failure);
+
+        var responsive = new WindowResponseProbe(new FakeWindowResponseNative(
+            new(Succeeded: true, Win32ErrorCode: 1460))).Probe(7);
+        Assert.AreEqual(WindowResponseProbeOutcome.Responsive, responsive.Outcome);
+        Assert.IsNull(responsive.Win32ErrorCode);
+    }
+
+    [TestMethod]
     public void CapturePackageBaseline_PreservesProcessGenerationsBeforeActivation()
     {
         ProcessIdentity[] expected =
@@ -119,26 +133,29 @@ public class PerformanceStartupObservationTests
     }
 
     [TestMethod]
-    public void Observe_ResponseFailureThenSuccessRecordsFirstResponseAndRecovery()
+    public void Observe_InitialTimeoutThenSuccessReportsOnlyFirstResponsiveBoundary()
     {
         var fixture = CreateFixture(activationProcessId: 42);
-        fixture.Windows.Windows.Add(new(9001, 42, IsVisible: true, IsResponsive: false));
+        fixture.Windows.Windows.Add(new(
+            9001,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.Timeout, 1460)));
         fixture.SystemQuery.ProcessIdByHwnd[9001] = 42;
 
         var failed = fixture.Session.Observe(42, []);
-        fixture.Windows.Windows[0] = new(9001, 42, IsVisible: true, IsResponsive: true);
+        fixture.Windows.Windows[0] = new(
+            9001,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.Responsive));
         var recovered = fixture.Session.Observe(42, []);
         var stable = fixture.Session.Observe(42, []);
 
-        CollectionAssert.Contains(
-            failed.Events.Select(startupEvent => startupEvent.Type).ToArray(),
-            StartupEventType.WindowResponseFailed);
+        Assert.IsFalse(failed.Events.Any(startupEvent =>
+            startupEvent.Type == StartupEventType.WindowResponseFailed));
         CollectionAssert.AreEqual(
-            new[]
-            {
-                StartupEventType.WindowResponsive,
-                StartupEventType.WindowResponseRecovered,
-            },
+            new[] { StartupEventType.WindowResponsive },
             recovered.Events.Select(startupEvent => startupEvent.Type).ToArray());
         Assert.IsEmpty(stable.Events);
         fixture.Dispose();
@@ -148,7 +165,12 @@ public class PerformanceStartupObservationTests
     public void Observe_ResponsiveWindowReportsFirstSuccessOnlyOnce()
     {
         var fixture = CreateFixture(activationProcessId: 42);
-        fixture.Windows.Windows.Add(new(9001, 42, IsVisible: true, IsResponsive: true));
+        fixture.Windows.Windows.Add(new(
+            9001,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.Responsive),
+            ThreadId: 73));
         fixture.SystemQuery.ProcessIdByHwnd[9001] = 42;
 
         var first = fixture.Session.Observe(42, []);
@@ -157,6 +179,9 @@ public class PerformanceStartupObservationTests
         CollectionAssert.Contains(
             first.Events.Select(startupEvent => startupEvent.Type).ToArray(),
             StartupEventType.WindowResponsive);
+        Assert.IsTrue(first.Events
+            .Where(startupEvent => startupEvent.WindowHandle == 9001)
+            .All(startupEvent => startupEvent.WindowThreadId == 73));
         Assert.IsFalse(second.Events.Any(startupEvent =>
             startupEvent.Type == StartupEventType.WindowResponsive));
         fixture.Dispose();
@@ -166,19 +191,67 @@ public class PerformanceStartupObservationTests
     public void Observe_ResponseTransitionsAreTrackedPerOwnedWindow()
     {
         var fixture = CreateFixture(activationProcessId: 42);
-        fixture.Windows.Windows.Add(new(9001, 42, IsVisible: true, IsResponsive: false));
-        fixture.Windows.Windows.Add(new(9002, 42, IsVisible: true, IsResponsive: true));
+        fixture.Windows.Windows.Add(new(
+            9001,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.Responsive)));
+        fixture.Windows.Windows.Add(new(
+            9002,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.Responsive)));
         fixture.SystemQuery.ProcessIdByHwnd[9001] = 42;
         fixture.SystemQuery.ProcessIdByHwnd[9002] = 42;
 
+        fixture.Session.Observe(42, []);
+        fixture.Windows.Windows[0] = new(
+            9001,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.Timeout, 1460));
         var update = fixture.Session.Observe(42, []);
 
         Assert.IsTrue(update.Events.Any(startupEvent =>
             startupEvent.Type == StartupEventType.WindowResponseFailed
             && startupEvent.WindowHandle == 9001));
-        Assert.IsTrue(update.Events.Any(startupEvent =>
-            startupEvent.Type == StartupEventType.WindowResponsive
+        Assert.IsFalse(update.Events.Any(startupEvent =>
+            startupEvent.Type == StartupEventType.WindowResponseFailed
             && startupEvent.WindowHandle == 9002));
+        fixture.Dispose();
+    }
+
+    [TestMethod]
+    public void Observe_InvalidOrInaccessibleWindowRecordsProbeFailureNotTimeout()
+    {
+        var fixture = CreateFixture(activationProcessId: 42);
+        fixture.Windows.Windows.Add(new(
+            9001,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.InvalidWindowHandle, 1400)));
+        fixture.Windows.Windows.Add(new(
+            9002,
+            42,
+            IsVisible: true,
+            Response: Response(WindowResponseProbeOutcome.AccessDenied, 5)));
+        fixture.SystemQuery.ProcessIdByHwnd[9001] = 42;
+        fixture.SystemQuery.ProcessIdByHwnd[9002] = 42;
+
+        var update = fixture.Session.Observe(42, []);
+
+        Assert.IsFalse(update.Events.Any(startupEvent =>
+            startupEvent.Type == StartupEventType.WindowResponseFailed));
+        var failures = update.Events
+            .Where(startupEvent =>
+                startupEvent.Type == StartupEventType.WindowResponseProbeFailed)
+            .OrderBy(startupEvent => startupEvent.WindowHandle)
+            .ToArray();
+        Assert.HasCount(2, failures);
+        Assert.AreEqual(WindowResponseProbeOutcome.InvalidWindowHandle, failures[0].ResponseProbeOutcome);
+        Assert.AreEqual(1400, failures[0].Win32ErrorCode);
+        Assert.AreEqual(WindowResponseProbeOutcome.AccessDenied, failures[1].ResponseProbeOutcome);
+        Assert.AreEqual(5, failures[1].Win32ErrorCode);
         fixture.Dispose();
     }
 
@@ -211,6 +284,39 @@ public class PerformanceStartupObservationTests
             startupEvent => startupEvent.Type == StartupEventType.WindowVisible);
         Assert.AreEqual(existing, visible.Process);
         Assert.IsTrue(visible.WasPresentBeforeActivation);
+    }
+
+    [TestMethod]
+    public void Observe_NewLaunchWindowSupersedesEarlierPreExistingWindow()
+    {
+        var processProbe = new FakeProcessIdentityProbe();
+        var existing = Identity(10, 100);
+        var launched = Identity(20, 200);
+        processProbe.Set(10, existing);
+        processProbe.Set(20, launched);
+        var systemQuery = new FakeSystemUiQuery();
+        systemQuery.ProcessIdByHwnd[7001] = 10;
+        systemQuery.ProcessIdByHwnd[7002] = 20;
+        var windows = new FakeTopLevelWindowProbe();
+        windows.Windows.Add(new(7001, 10, IsVisible: true));
+        var clock = new FakePerformanceClock(1_000, 1_100, 1_200);
+        using var session = new StartupObservationSession(
+            clock,
+            windows,
+            new TargetOwnership(processProbe, systemQuery),
+            new PerformanceTimestamp(1_000),
+            [existing]);
+
+        var first = session.Observe(20, [existing, launched]);
+        windows.Windows.Add(new(7002, 20, IsVisible: true));
+        var second = session.Observe(20, [existing, launched]);
+
+        Assert.AreEqual(StartupLaunchDisposition.AttachedLate, first.Disposition);
+        Assert.AreEqual(StartupLaunchDisposition.Launched, second.Disposition);
+        Assert.IsTrue(second.Events.Any(startupEvent =>
+            startupEvent.Type == StartupEventType.WindowVisible
+            && startupEvent.Process == launched
+            && !startupEvent.WasPresentBeforeActivation));
     }
 
     [TestMethod]
@@ -303,6 +409,22 @@ public class PerformanceStartupObservationTests
     private static ProcessIdentity Identity(int processId, long startTimeUtcTicks) =>
         new(processId, startTimeUtcTicks);
 
+    private static WindowResponseProbeResult Response(
+        WindowResponseProbeOutcome outcome,
+        int? win32ErrorCode = null) =>
+        new(outcome, win32ErrorCode);
+
+    private static void AssertProbeResult(
+        int win32ErrorCode,
+        WindowResponseProbeOutcome expected)
+    {
+        var result = new WindowResponseProbe(new FakeWindowResponseNative(
+            new(Succeeded: false, win32ErrorCode))).Probe(7);
+
+        Assert.AreEqual(expected, result.Outcome);
+        Assert.AreEqual(win32ErrorCode, result.Win32ErrorCode);
+    }
+
     private sealed record Fixture(
         FakeProcessIdentityProbe ProcessProbe,
         FakeSystemUiQuery SystemQuery,
@@ -332,6 +454,13 @@ public class PerformanceStartupObservationTests
 
         public IReadOnlyList<TopLevelWindowSnapshot> Snapshot(IReadOnlySet<int> processIds) =>
             Windows.Where(window => processIds.Contains(window.ProcessId)).ToArray();
+    }
+
+    private sealed class FakeWindowResponseNative(WindowMessageProbeResult result)
+        : IWindowResponseNative
+    {
+        public WindowMessageProbeResult SendNullMessage(long windowHandle, TimeSpan timeout) =>
+            result;
     }
 
     private sealed class FakePackageProcessSnapshot(

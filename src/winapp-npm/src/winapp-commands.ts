@@ -597,30 +597,6 @@ export async function packageApp(options: PackageOptions): Promise<WinappResult>
 }
 
 // ---------------------------------------------------------------------------
-// perf open
-// ---------------------------------------------------------------------------
-
-export interface PerfOpenOptions extends CommonOptions {
-  /** Performance evidence bundle directory. */
-  bundle: string;
-  /** Format output as JSON */
-  json?: boolean;
-  /** Viewer to launch: wpa or default (default: auto-select WPA for ETL, otherwise the OS file association). */
-  with?: string;
-}
-
-/**
- * Safely open an original artifact from a .winappperf bundle.
- */
-export async function perfOpen(options: PerfOpenOptions): Promise<WinappResult> {
-  const args: string[] = ['perf', 'open'];
-  args.push(options.bundle);
-  if (options.json) args.push('--json');
-  if (options.with) args.push('--with', options.with);
-  return execCommand(args, options);
-}
-
-// ---------------------------------------------------------------------------
 // perf record
 // ---------------------------------------------------------------------------
 
@@ -653,16 +629,12 @@ export interface PerfRecordOptions extends CommonOptions {
   property?: string | string[];
   /** Project mode: target .NET runtime identifier. */
   runtime?: string;
-  /** Attach dotnet-counters after a newly launched managed process is evidenced and retain traces/managed-counters.json. */
-  withDotnetCounters?: boolean;
-  /** Attach dotnet-trace after a newly launched managed process is evidenced and retain traces/managed.nettrace. */
-  withDotnetTrace?: boolean;
   /** Collect an elevated WPR FileIO/Loader trace as traces/system.etl for analysis in WPA. */
   withWpr?: boolean;
 }
 
 /**
- * Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain original WPR and .NET diagnostic artifacts.
+ * Build and launch an app through winapp run, observe generation-safe startup and resource evidence, and optionally retain an elevated WPR loader/storage trace for WPA.
  */
 export async function perfRecord(options: PerfRecordOptions = {}): Promise<WinappResult> {
   const args: string[] = ['perf', 'record'];
@@ -686,8 +658,6 @@ export async function perfRecord(options: PerfRecordOptions = {}): Promise<Winap
     for (const v of propertyArr) args.push('--property', v);
   }
   if (options.runtime) args.push('--runtime', options.runtime);
-  if (options.withDotnetCounters) args.push('--with-dotnet-counters');
-  if (options.withDotnetTrace) args.push('--with-dotnet-trace');
   if (options.withWpr) args.push('--with-wpr');
   return execCommand(args, options);
 }

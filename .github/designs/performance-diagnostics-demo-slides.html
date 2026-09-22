@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Winapp Performance Diagnostics Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+      background: #060b14;
+      color: #f4f8ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 18% 14%, rgb(18 104 214 / 24%), transparent 32%),
+        radial-gradient(circle at 82% 86%, rgb(24 180 198 / 16%), transparent 30%),
+        #060b14;
+    }
+
+    .deck {
+      position: relative;
+      width: min(100vw, calc(100vh * 16 / 9));
+      height: min(100vh, calc(100vw * 9 / 16));
+      overflow: hidden;
+      background: #07101e;
+      box-shadow: 0 36px 100px rgb(0 0 0 / 48%);
+    }
+
+    .deck::before {
+      position: absolute;
+      z-index: 20;
+      inset: 0;
+      border: 1px solid rgb(130 190 255 / 12%);
+      content: "";
+      pointer-events: none;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 5.5% 6.6% 4.2%;
+      opacity: 0;
+      transform: translateX(4%);
+      transition: opacity 280ms ease, transform 360ms cubic-bezier(.2, .8, .2, 1);
+      pointer-events: none;
+    }
+
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+
+    .slide.leaving {
+      transform: translateX(-4%);
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 0.7em;
+      margin: 0;
+      color: #78c6ff;
+      font-size: clamp(12px, 1.15vw, 23px);
+      font-weight: 650;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      width: 1.8em;
+      height: 0.18em;
+      border-radius: 10px;
+      background: linear-gradient(90deg, #2089ff, #40decb);
+      content: "";
+    }
+
+    h1 {
+      max-width: 12em;
+      margin: 0.32em 0 0;
+      font-size: clamp(42px, 5.4vw, 104px);
+      font-weight: 670;
+      letter-spacing: -0.045em;
+      line-height: 0.98;
+    }
+
+    h2 {
+      margin: 0.35em 0 0;
+      font-size: clamp(35px, 4.4vw, 84px);
+      font-weight: 660;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .accent {
+      color: #79cbff;
+    }
+
+    .hero-content {
+      align-self: center;
+    }
+
+    .promise {
+      max-width: 24em;
+      margin: 1em 0 1.5em;
+      color: #aebed4;
+      font-size: clamp(18px, 1.8vw, 35px);
+      line-height: 1.35;
+    }
+
+    .terminal {
+      width: 82%;
+      overflow: hidden;
+      border: 1px solid rgb(117 190 255 / 24%);
+      border-radius: 0.65em;
+      background: rgb(3 9 18 / 86%);
+      box-shadow: 0 22px 52px rgb(0 0 0 / 34%);
+      font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+      padding: 0.75em 1em;
+      border-bottom: 1px solid rgb(117 190 255 / 14%);
+      background: rgb(255 255 255 / 3%);
+    }
+
+    .terminal-dot {
+      width: 0.52em;
+      height: 0.52em;
+      border-radius: 50%;
+      background: #40526a;
+    }
+
+    .terminal-command {
+      padding: 1em 1.2em 1.1em;
+      color: #eaf4ff;
+      font-size: clamp(16px, 1.55vw, 30px);
+      white-space: nowrap;
+    }
+
+    .prompt {
+      margin-right: 0.65em;
+      color: #41d6c3;
+    }
+
+    .command-name {
+      color: #78c6ff;
+    }
+
+    .capabilities {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.1%;
+      margin-top: 2.1%;
+    }
+
+    .capability {
+      padding: 0.85em 0.95em;
+      border: 1px solid rgb(118 194 255 / 16%);
+      border-radius: 0.6em;
+      background: linear-gradient(150deg, rgb(33 121 220 / 12%), rgb(19 34 55 / 38%));
+      color: #dcecff;
+      font-size: clamp(14px, 1.25vw, 24px);
+      font-weight: 620;
+      text-align: center;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #6f849f;
+      font-size: clamp(11px, 0.92vw, 18px);
+    }
+
+    .tagline {
+      color: #9eb2ca;
+      letter-spacing: 0.02em;
+    }
+
+    .slide-number {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .contrast-content {
+      align-self: center;
+      display: grid;
+      gap: 6%;
+    }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: 1.05fr 5fr;
+      align-items: center;
+      gap: 2.5%;
+    }
+
+    .workflow-label {
+      font-size: clamp(14px, 1.25vw, 24px);
+      font-weight: 720;
+      letter-spacing: 0.12em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .without .workflow-label {
+      color: #8293a9;
+    }
+
+    .with .workflow-label {
+      color: #69d6ca;
+    }
+
+    .steps {
+      display: flex;
+      align-items: stretch;
+      gap: 1.2%;
+    }
+
+    .step {
+      position: relative;
+      display: grid;
+      flex: 1;
+      min-height: 5.2em;
+      place-items: center;
+      padding: 0.9em;
+      border: 1px solid rgb(135 160 190 / 18%);
+      border-radius: 0.65em;
+      background: rgb(21 31 46 / 72%);
+      color: #a5b2c2;
+      font-size: clamp(13px, 1.12vw, 22px);
+      font-weight: 590;
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    .step:not(:last-child)::after {
+      position: absolute;
+      z-index: 2;
+      right: -0.95em;
+      color: #53677e;
+      content: "\2192";
+      font-size: 1.25em;
+    }
+
+    .with .step {
+      border-color: rgb(68 207 195 / 28%);
+      background: linear-gradient(145deg, rgb(14 104 120 / 26%), rgb(20 45 63 / 80%));
+      color: #e0fffa;
+    }
+
+    .with .step:not(:last-child)::after {
+      color: #42bdba;
+    }
+
+    .step.primary {
+      border-color: rgb(81 171 255 / 52%);
+      background: linear-gradient(145deg, rgb(19 115 220 / 44%), rgb(20 56 93 / 80%));
+      box-shadow: 0 12px 32px rgb(19 115 220 / 18%);
+      color: #fff;
+    }
+
+    .evidence-branch {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.7em;
+      margin: 1.15em 1.1em 0 0;
+      color: #8da7c3;
+      font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+      font-size: clamp(12px, 1.05vw, 20px);
+    }
+
+    .evidence-branch strong {
+      color: #77c8ff;
+      font-weight: 600;
+    }
+
+    .handoff {
+      justify-self: center;
+      margin-top: 1%;
+      padding: 0.7em 1.2em;
+      border: 1px solid rgb(84 181 255 / 25%);
+      border-radius: 999px;
+      background: rgb(12 62 104 / 35%);
+      color: #a9dcff;
+      font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+      font-size: clamp(12px, 1vw, 20px);
+    }
+
+    .help {
+      position: fixed;
+      z-index: 30;
+      right: 1rem;
+      bottom: 0.75rem;
+      color: rgb(190 214 240 / 30%);
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 180ms ease;
+      user-select: none;
+    }
+
+    body:hover .help {
+      opacity: 1;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .slide {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" aria-label="Winapp Performance Diagnostics demo slides">
+    <section class="slide active" aria-hidden="false">
+      <header>
+        <p class="eyebrow">WinUI 3 performance workflow</p>
+      </header>
+
+      <div class="hero-content">
+        <h1>Winapp<br><span class="accent">Performance Diagnostics</span></h1>
+        <p class="promise">One command from reproduction to explanation.</p>
+
+        <div class="terminal" aria-label="Winapp performance recording command">
+          <div class="terminal-bar" aria-hidden="true">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+          </div>
+          <div class="terminal-command">
+            <span class="prompt">&gt;</span><span class="command-name">winapp perf record</span>
+            .\MyApp.csproj --with-wpr
+          </div>
+        </div>
+
+        <div class="capabilities">
+          <div class="capability">Startup stages</div>
+          <div class="capability">UI responsiveness</div>
+          <div class="capability">XAML analysis</div>
+          <div class="capability">Agent-ready evidence</div>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <span class="tagline">Record once. Explain where time and resources went. Keep the evidence.</span>
+        <span class="slide-number">01 / 02</span>
+      </footer>
+    </section>
+
+    <section class="slide" aria-hidden="true">
+      <header>
+        <p class="eyebrow">Change the starting point</p>
+        <h2>From tool selection to <span class="accent">reproduction</span></h2>
+      </header>
+
+      <div class="contrast-content">
+        <div class="workflow without">
+          <div class="workflow-label">Without<br>Winapp</div>
+          <div>
+            <div class="steps">
+              <div class="step">Symptom</div>
+              <div class="step">Choose a profiler</div>
+              <div class="step">Configure collection</div>
+              <div class="step">Reproduce</div>
+              <div class="step">Correlate evidence</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="workflow with">
+          <div class="workflow-label">With<br>Winapp</div>
+          <div>
+            <div class="steps">
+              <div class="step primary">Reproduce once</div>
+              <div class="step">See it live</div>
+              <div class="step">Get the report</div>
+              <div class="step">Debug with an Agent</div>
+            </div>
+            <div class="evidence-branch">
+              <span aria-hidden="true">&rdsh;</span>
+              <strong>ETL &rarr; WPA &nbsp;|&nbsp; nettrace &rarr; PerfView / Visual Studio &nbsp;|&nbsp; JSON &rarr; Agents</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="handoff">&gt; winapp perf record .\NorthwindOrderDesk.csproj --with-wpr</div>
+      </div>
+
+      <footer class="footer">
+        <span class="tagline">Immediate explanation. Standard evidence. Existing expert tools.</span>
+        <span class="slide-number">02 / 02</span>
+      </footer>
+    </section>
+  </main>
+
+  <div class="help">Arrow keys / Space: navigate &nbsp;&middot;&nbsp; F: fullscreen</div>
+
+  <script>
+    const slides = [...document.querySelectorAll(".slide")];
+    let current = 0;
+
+    function showSlide(next) {
+      const target = Math.max(0, Math.min(slides.length - 1, next));
+      if (target === current) {
+        return;
+      }
+
+      slides[current].classList.toggle("leaving", target > current);
+      slides[current].classList.remove("active");
+      slides[current].setAttribute("aria-hidden", "true");
+
+      current = target;
+      slides[current].classList.remove("leaving");
+      slides[current].classList.add("active");
+      slides[current].setAttribute("aria-hidden", "false");
+    }
+
+    document.addEventListener("keydown", async (event) => {
+      if (["ArrowRight", "PageDown", "Enter", " "].includes(event.key)) {
+        event.preventDefault();
+        showSlide(current + 1);
+      } else if (["ArrowLeft", "PageUp", "Backspace"].includes(event.key)) {
+        event.preventDefault();
+        showSlide(current - 1);
+      } else if (event.key.toLowerCase() === "f") {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
+      } else if (event.key === "Home") {
+        showSlide(0);
+      } else if (event.key === "End") {
+        showSlide(slides.length - 1);
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      showSlide(event.clientX < window.innerWidth / 2 ? current - 1 : current + 1);
+    });
+  </script>
+</body>
+</html>

@@ -1,327 +1,340 @@
-# WinUI 3 App Performance Diagnostics
+# WinUI 3 Performance Diagnostics
 
 [简体中文](performance-diagnostics.zh-CN.md)
 
-The first capability in winapp performance diagnostics is a target-scoped recording for WinUI 3 apps.
+[Two-minute demo brief](performance-diagnostics-demo.md)
 
-## Problem
+## Status
 
-WinUI 3 app performance evidence is split across launch tools, UI Automation, process metrics, crash diagnostics, WPR, PresentMon, and managed or native profilers. These tools do not normally share app identity, target processes and windows, user interactions, or a common recording timeline.
+This is a discussion proposal. The current feature branch already contains the
+basic recorder, `.winappperf` bundle, startup and resource summaries, optional
+collector adapters, repeatable scenarios, comparison, typed window-response
+results, and controlled-action boundaries. The simplified default capture and
+`--full` contracts below are the proposed product direction, not a statement
+that every part is implemented.
 
-## Proposed experience
+## Product definition
+
+> **Winapp turns one WinUI 3 performance reproduction into a bounded,
+> time-aligned, machine-readable record: it explains common latency,
+> responsiveness, smoothness, and resource symptoms, then preserves the
+> original evidence for deeper analysis.**
+
+In short:
+
+> **Record once. Explain where time and resources went. Keep the evidence.**
+
+Winapp is not another general-purpose profiler. It is the WinUI 3-specific
+entry point and interpretation layer over proven Windows and .NET diagnostics.
+
+## The gap
+
+WinUI 3 already has powerful low-level diagnostics. WPR/WPA, EventPipe,
+Visual Studio, PerfView, PresentMon, and Windows process APIs each expose useful
+parts of the picture. The missing piece is a WinUI 3-first workflow that turns
+one reproduction into a bounded, correlated, and automatically explainable
+performance record.
+
+Today the developer must know before recording whether the problem belongs to
+CPU, XAML, GC, I/O, scheduling, or presentation. They may reproduce the same
+problem several times with different tools, then manually reconcile:
+
+- Windows App SDK activation and the correct process generation.
+- The HWND, its owning UI thread, and the relevant child processes.
+- Startup, interaction, XAML, runtime, scheduling, and presentation clocks.
+- Late attachment, unsupported environments, event loss, and empty tables.
+
+That work requires specialist knowledge and can invalidate a one-time
+reproduction. Winapp owns this coordination; the underlying profilers remain
+the authorities for their data.
+
+## User problems
+
+The product is scoped to four WinUI 3 performance questions:
+
+| User symptom | What winapp should explain |
+|---|---|
+| Startup or first-window latency | Where observed time fell across activation, process startup, first window/response, WinUI/XAML initialization, Frame, and layout |
+| UI stalls or slow interactions | Whether the target HWND stopped responding and whether its UI thread was running, waiting, ready-but-unscheduled, or executing a long observed phase |
+| Poor smoothness | Whether XAML frame/layout work, CPU scheduling, or validated presentation evidence overlaps the affected interval |
+| Unexpected resource use | Which target process/thread showed sustained CPU, memory growth, GC, I/O, handle, or other bounded resource activity |
+
+A short recording may report memory growth; it does not diagnose a memory leak.
+Throughput, power, long-duration leak analysis, and arbitrary system-wide
+profiling are outside the initial product boundary.
+
+## Product promises
+
+### Record once
+
+The user selects a target and scenario, not a collection technology:
 
 ```powershell
+# Standard-user, process-scoped recording.
 winapp perf record .\src\MyApp\MyApp.csproj
-winapp perf record .\publish
-winapp perf record .\publish\MyUnpackagedApp.exe
+
+# The same workflow plus bounded system-level evidence.
+winapp perf record .\src\MyApp\MyApp.csproj --full
 ```
 
-The positional `target` identifies the WinUI 3 app to launch and record. Project and build-output-directory targets use the same detection as `winapp run`; `.` remains a shortcut for an app resolved from the current directory. A bare executable target is a new best-effort mode for directly launchable unpackaged apps. A packaged binary requires registered package/AUMID or manifest context and cannot be launched by treating its EXE as unpackaged. Winapp limits recording to the evidenced app processes and windows. Other app frameworks are outside this design.
+Both commands launch the app once and publish one `.winappperf` bundle.
+`--full` adds privileged system evidence; it does not require a different
+analysis workflow or make the default terminal output larger.
 
-The developer uses the app normally or reproduces a suspected issue. During the session, winapp records:
+`--with-wpr` is the current explicit system-evidence control. Managed EventPipe
+capture starts automatically after a newly observed CoreCLR process generation,
+without a global diagnostic tool or required duration.
 
-- Startup milestones.
-- Target-scoped semantic interactions.
-- Window response-probe failures and recovery.
-- CPU, memory, I/O, thread, handle, and applicable GDI/USER trends.
-- Process exits and crash evidence.
-- Optional external traces.
+### Explain automatically
 
-Press Enter or Ctrl+C to finish. Winapp writes one evidence bundle and a factual summary, then identifies the appropriate specialist tool for deeper analysis. A bounded duration or target exit can also end the recording.
-
-```powershell
-# Core command
-winapp perf record .\src\MyApp\MyApp.csproj
-
-# Optional deep collectors
-winapp perf record . --with-wpr
-winapp perf record . --with-dotnet-trace
-winapp perf record . --with-rendering
-
-# Later commands
-winapp perf analyze .\capture.winappperf
-winapp perf open .\capture.winappperf --with wpa
-```
-
-`record` creates the bundle. `analyze` reads winapp-owned timeline data and emits a deterministic factual summary without interpreting ETL. `open` launches an appropriate external viewer for a retained artifact and never changes the recording.
-
-An attach form may later reuse the existing app-target vocabulary:
-
-```powershell
-winapp perf record --app 8420
-```
-
-Launch mode can cover startup because recording begins before activation. Attach mode records only events observed after attachment and must report startup coverage as unavailable.
-
-Default recording is unprivileged and low overhead. Deep collectors are explicit:
-
-| Collector | Default | Requirement and cost | Output |
-|---|---|---|---|
-| Winapp process, window, UIA, and resource observers | On | No administrator requirement; achieved cadence and probe uncertainty are reported | `manifest.json`, `timeline.ndjson` |
-| WPR | Off | Requires an elevated terminal for the required system/XAML profiles; higher storage and collection overhead | Original `system.etl` for WPA |
-| `dotnet-trace` | Off | Managed WinUI 3 apps only; runtime and sampling overhead | Original `.nettrace` and optional Speedscope conversion |
-| PresentMon/WPR rendering | Off | Tool and capability preflight; process-scoped unless stronger attribution is proven | Original CSV or ETL |
-| Screenshot or video | Off | Measurement-affecting CPU, GPU, and I/O overhead | Visual evidence from a separate reproduction |
-
-## Representative output
-
-One recording produces one timeline and a bounded factual result:
+The default output is a concise factual explanation, for example:
 
 ```text
-Performance recording: partial
-Target: Contoso.App (package Contoso.App_123), process set: 8420, 9012
+First responsive window: 2.43 s
 
-Startup
-  0.000 s activation requested
-  0.184 s first process
-  0.912 s first owned top-level window
-  1.108 s first visible window
-  1.763 s first successful response probe [250 ms cadence]
+Observed WinUI phases:
+  XAML initialization        1.44 s
+  Longest interesting Frame 137 ms
+  Longest UpdateLayout       96 ms
 
-Interactions
-  12.401 s Button "Load Data" invoked [uia-observed]
-
-Responsiveness
-  12.750-14.500 s response probes failed; then recovered [250 ms boundary resolution]
-
-Resources
-  CPU peak 87%; private commit 412 -> 563 MB; handles 381 -> 404
-
-Collectors
-  WPR unavailable: run from an elevated terminal to collect system.etl
-
-Result
-  The observed interaction preceded the failed response-probe interval and CPU peak. This records correlation, not a source-level cause.
-
-Evidence
-  .\capture.winappperf
-  Next: rerun from an elevated terminal with --with-wpr to collect an ETL for WPA
+UI thread: 9340
+Trace loss: none
+Evidence: startup.winappperf
 ```
 
-The session reports what was requested, what ran, and the strongest result the retained evidence supports. `completed`, `partial`, `attached-late`, `unavailable`, `failed`, and `cancelled` describe collection coverage rather than diagnosis. Events use a monotonic session timeline calibrated to UTC; external artifacts retain their own clock domain when reliable alignment is not possible.
-
-## Existing foundation
-
-- `run`: build, package/register, and launch packaged or unpackaged WinUI 3 apps.
-- `ui`: target windows and controls, perform actions, and wait for UI state.
-- `ui screenshot` and `ui record`: visual evidence.
-- Debug output, crash dumps, ClrMD, DbgEng, and XAML triage: failure evidence.
-
-These produce useful individual results but do not continuously observe and correlate app behavior in one recording.
-
-The existing debug-output path attaches a native debugger and is intentionally not part of default performance recording because debugger attachment changes timing, conflicts with other debuggers, and can affect target lifetime.
-
-## What winapp perf adds
-
-The genuinely new user-visible capabilities are:
-
-- Continuous resource time series.
-- Startup milestones.
-- Target-scoped UIA interaction recording.
-- Window response-probe failures and recovery.
-- Process, window, and package ownership.
-- Correlation on one monotonic timeline.
-- A partial-failure-safe evidence bundle and factual summary.
-- Optional external collector lifecycle and handoff.
-
-Existing features are reused as inputs to the recording rather than rebuilt.
-
-Recording starts before launch, remains active during use, and finalizes retained evidence when the user stops it, its timeout expires, the target exits, or a collector partially fails.
-
-## Recording pipeline
-
-| Stage and function | What the user gets in the output | Existing/reuse | Adjustments required | Net-new work | External tool |
-|---|---|---|---|---|---|
-| Session, startup, and target ownership | Activation, first process, first top-level window, visible, first successful response probe, exit, package/process/HWND scope | `run`, package and AUMID launch, process and window discovery | Handle bare unpackaged EXEs and distinguish a new launch from single-instance redirection to a pre-existing process | Session ID, QPC/QPF clock, UTC calibration, evidenced ownership graph, startup milestones | None |
-| Interaction observation | `winapp ui` operations and target UIA events by default; optional manual input correlation only after privacy and overhead validation | `ui` targeting, actions, waits, UI Automation | Reuse UI semantics and isolate every cross-process UIA call with timeout and failure status | UIA event timeline; optional asynchronous input observer and redaction | UI Automation |
-| Window/UI state and responsiveness | Per-HWND lifecycle and response-probe intervals with cadence, threshold, and boundary uncertainty | UI targeting and window discovery | Observe rather than assume app-ready state; avoid blocking UIA work against a hung target | Isolated window-state probe and correlation with interactions | Win32 window APIs, UI Automation |
-| Baseline resources | CPU, memory, I/O, thread, handle, and applicable GDI/USER samples, trends, and peaks | Process/package context | Record achieved cadence and scope rather than treating one PID as the app | Low-overhead sampler and resource time series | None |
-| Exit and crash evidence | Exit disposition and already-available dump/crash artifacts without attaching a debugger by default | Dump, ClrMD, DbgEng, XAML triage | Keep intrusive debugger capture separate and associate artifacts only with the evidenced process set | Partial-result-safe finalization and factual failure correlation | ClrMD, DbgEng |
-| Optional deep collectors | Original traces, collector status, clock metadata, and recommended viewer | Launch and target ownership | Preflight elevation/capabilities, use uniquely owned sessions, retain on soft stop, enforce storage limits, and preserve rather than reinterpret output | Adapter lifecycle, loss/quota reporting, and handoff records | WPR; `dotnet-trace` and `dotnet-counters` for managed WinUI 3 apps |
-| Optional rendering enrichment | Process-scoped presentation evidence associated with the same session; visual evidence only when requested | Process targeting, Windows Graphics Capture, screenshots/recording | Do not claim per-HWND PresentMon attribution unless independently proven; keep visual-capture overhead separate | Presentation-to-process association and collector metadata | PresentMon, WPR |
-| Correlation, summary, and bundle finalization | One readable bundle, unified timeline, factual summary, coverage and next-tool guidance | Existing artifact writers | Summarize only winapp-owned facts; retain external traces unchanged and explicitly report unavailable, late, lossy, partial, or cancelled work | Versioned manifest, typed timeline events, bounded deterministic rules | WPA or other specialist viewer |
-
-Winapp owns session lifecycle, status, correlation, and handoff. Specialist tools own deep trace analysis. Winapp preserves original external-tool output, never silently claims missing coverage, does not stop unrelated machine-wide sessions, and does not terminate a pre-existing or ambiguously owned app instance.
-
-## External-tool integration boundary
-
-Winapp implements the common recording and correlation layer. For runtime, system, or GPU internals, it reuses existing tools instead of rebuilding their collection or analysis engines. The table distinguishes existing reuse, adapters this project must develop, and tools that winapp only recommends or opens for the user.
-
-| Category | Tools | What winapp does |
-|---|---|---|
-| Existing reuse | `dotnet` CLI; relevant Windows SDK build tools; ClrMD; DbgEng; Windows Graphics Capture; UI Automation | Current code already integrates these. Performance recording connects their applicable output and capabilities to the session and artifact model. |
-| New adapters | WPR; PresentMon; `dotnet-trace` and `dotnet-counters` for managed WinUI 3 apps | This project implements availability/elevation checks, uniquely owned start/soft-stop, target and configuration, quotas and event-loss reporting, partial-failure handling, artifact preservation, and manifest status. It does not parse ETL into deep conclusions. |
-| Recommend or open only | WPA; PerfView; PIX; GPUView; WinDbg/TTD; ProcMon; Visual Studio Profiler; Application Verifier/GFlags | Winapp does not implement their collectors or analyzers; it prints the appropriate artifact or command, or optionally launches an installed tool. |
-
-## Recording tracks
-
-One recording combines several evidence tracks on the same monotonic session timeline. Each track retains its own coverage and collector status, so an unavailable optional collector does not invalidate evidence captured by the other tracks.
-
-### Startup detail
-
-The default recording starts before activation and records activation requested, first process, first owned top-level window, first visible window, first successful response probe, and target exit. Probe cadence and boundary uncertainty are part of the result.
-
-Cold and warm startup are controlled test conditions, not facts that default user-mode recording can always discover. A result labels them only when the scenario declares the condition or a deep trace provides supporting page-fault and storage evidence. Results with different or unknown conditions are not treated as directly comparable.
-
-Opt-in WPR and WinUI XAML ETW preserve evidence that WPA can use to divide the same startup interval into more detailed phases:
-
-| Area | Detail available in the retained trace |
-|---|---|
-| Process and activation | Activation request, process creation, initial thread activity, and owned window creation |
-| Modules and storage | Module first-load timestamps, order and count; image reads, file I/O, hard faults, and loader-related CPU stacks |
-| Managed runtime | For managed WinUI 3 apps: CLR initialization, assembly and module loads, JIT activity, and startup GC events |
-| WinUI initialization | WinUI thread initialization, graphics-device creation, and other framework initialization events exposed by the trace |
-| Initial UI | Navigation, XAML frame activity, layout passes such as `UpdateLayout`, and control-template work visible in WinUI events or stacks |
-| First frame | First observed XAML frame and presentation activity; this does not by itself prove application-defined readiness |
-| Deferred work | Module loads, CPU, I/O, resource growth, and UI updates that continue after the first visible or responsive window |
-
-Module loading is not reported as a fabricated single duration for each DLL. A module-load event reliably establishes when a module first appeared, while its cost may be distributed across dependency resolution, image reads, hard faults, initialization code, assembly loading, and JIT. Winapp preserves the ETL and its coverage metadata; WPA owns module, stack, and critical-path analysis.
-
-Application method boundaries such as the exact start and end of `App` construction, `OnLaunched`, or application-defined readiness are reported only when explicit trace events or optional application markers support them. Default output uses the first visible window and first successful response probe rather than claiming a first interactive frame.
-
-### Interaction recording and privacy
-
-Default interaction recording uses two evidence sources that do not require desktop-wide input interception:
-
-- Operations performed by `winapp ui`, for which the target control, UIA pattern, and requested action are already known.
-- Semantic UIA events from the target window tree, such as invoke, focus, selection, toggle, and relevant property changes.
-
-These events share the session timeline with window and resource data and can produce facts such as `Button "Load Data" invoked`, `TextBox "Search" focused`, `ToggleSwitch "Dark Mode" toggled`, and `ListItem "Document 1" selected`.
-
-Passive manual input correlation is a separate opt-in capability that must pass a privacy and overhead proof before shipping. If enabled, its input callback immediately records only time, input type, and pointer location after a foreground/target-window check. UIA hit-testing and property access happen asynchronously on an isolated worker with strict timeouts; they never block the input callback. Relative coordinates exist only as a fallback for this optional mode.
-
-| Evidence level | Meaning | Default |
-|---|---|---|
-| `winapp-controlled` | Winapp UI Automation performed the operation; target, pattern, and requested result are known. | Yes |
-| `uia-observed` | A semantic UIA event was observed within the target window tree without recording raw input. | Yes |
-| `input-correlated` | Opt-in manual input was associated asynchronously with a UIA element or confirming event. | No |
-| `window-only` | Opt-in manual input could only be associated with the target HWND and window-relative coordinates. | No |
-
-Default recording does not observe raw keyboard input. UIA focus and safe semantic state changes may still show that a control was used, but entered text, passwords, tokens, document content, and character counts are not collected. Any future manual-input mode must fail closed when target ownership, foreground focus, observer health, integrity level, or secure-desktop state is uncertain.
-
-### Responsiveness and window state
-
-Winapp tracks the owned top-level windows throughout the recording, including creation, visibility, activation, focus and relevant UIA state changes. A versioned response probe records failed-probe intervals and later recovery together with its cadence, timeout, threshold, and boundary uncertainty.
-
-A failed-probe interval is evidence that the window did not service the selected probe in time; it is not an exact OS-defined hung boundary or a source-level diagnosis. UIA work runs on isolated threads with timeouts so an unresponsive target cannot block recording. If the app has multiple windows, each interval identifies the affected HWND rather than treating the entire process set as uniformly hung.
-
-For deeper analysis, winapp records the HWND-to-thread mapping and relevant time interval in the bundle. WPR can supply sampled native/system CPU stacks and thread scheduling data; `dotnet-trace` can add managed sampled stacks and runtime events. Winapp preserves those traces and opens them in WPA, PerfView, or Speedscope rather than claiming to have performed the trace analysis itself.
-
-| Trace view | What specialist analysis can establish without app markers |
-|---|---|
-| Running | CPU-consuming call paths on the UI thread, aggregated into a flame-graph-style stack profile |
-| Ready | Time when the UI thread could run but was not scheduled, with competing CPU activity and scheduling context |
-| Waiting | The stack on which the UI thread entered a wait, the wait interval and reason, and related wake-up, lock, or I/O activity when the trace contains sufficient evidence |
-| Slow WinUI frame | WinUI frame and layout intervals correlated with the CPU or wait stacks occurring inside the same time range |
-
-Stack widths and reported hot-path times are sampled CPU or thread-time weights, not exact timings for every method invocation. Operations with explicit ETW start/stop events, such as supported WinUI frame activities, can have measured durations. Arbitrary method-level wall-clock duration requires profiler instrumentation or application markers and is not inferred from samples.
-
-Async continuations, cross-thread work, and cross-process calls can break the apparent call chain. Specialist analysis or a future bounded analyzer may connect only edges supported by runtime transfer events, scheduling evidence, shared activity identifiers, or application markers. Winapp does not fabricate a continuous business call chain across missing evidence.
-
-### Interaction-to-feedback latency
-
-When both endpoints are observable, winapp correlates an interaction with the next UIA state change, successful response probe, XAML frame, or presentation. This provides measurements such as input-to-state-change and input-to-next-presentation without claiming that the first subsequent event was necessarily caused by the interaction.
-
-`winapp-controlled` operations provide the strongest start boundary. A passive UIA event can provide an observed semantic boundary but not the physical input timestamp. Presentation latency is available only when a rendering collector is active and remains process-scoped for multi-window processes unless stronger attribution is proven.
-
-### Resource time series
-
-Throughout the recording, winapp samples CPU, memory, I/O, thread, handle, and applicable GDI/USER metrics for the owned process set. Each sample uses the session's monotonic timeline, allowing the values to be plotted as resource curves and aligned with startup milestones, interactions, and failed response-probe intervals.
-
-Raw samples retain per-process values and an application-level aggregate so helper processes are visible without requiring the user to interpret each process separately. The manifest records the requested and achieved sampling cadence. The factual summary extracts bounded results such as peaks, growth, and sustained high-usage intervals without replacing the original time series.
-
-Optional traces can add finer data without changing the default sampler:
-
-| Area | Optional detail |
-|---|---|
-| Thread activity | Per-thread CPU and Running/Ready/Waiting intervals |
-| Managed memory | GC heap size, allocation rate, GC count and pause duration, and large-object-heap activity |
-| Managed runtime | JIT, contention, exceptions, thread-pool and assembly-loader events |
-| Storage | File-level reads/writes, latency, hard faults, and related stacks; paths are treated as sensitive data |
-| Network | Process-attributed connection and transfer evidence when available; endpoints and payload-related metadata require explicit privacy handling |
-
-The default-recording MVP produces the data required for visualization, but does not require winapp to provide a built-in chart interface.
-
-### Exit and crash evidence
-
-Recording finalization preserves whether the app exited normally, returned a nonzero exit code, crashed, was terminated, or was still running when collection stopped. Existing dumps and WinUI/XAML failure evidence are associated only with the evidenced process set and retain their original artifacts.
-
-The summary can correlate a crash or exit with the immediately preceding interaction, failed response-probe interval, resource state, or trace coverage. It does not claim that temporal proximity proves the root cause, and a collector failure produces a partial recording rather than discarding evidence already captured.
-
-Default recording does not attach `DebugActiveProcess`. Intrusive debug-output or first-chance-exception capture must be a separate measurement-affecting mode that warns about debugger conflicts and target-lifetime behavior.
-
-### Optional rendering diagnostics
-
-For investigations of stutter, dropped presentation, or display latency, winapp can optionally enable PresentMon or WPR to collect presentation events and frame-time series for the target process set. Rendering data uses the same session timeline as interactions, resource activity, and failed response probes. It supports frame-time distributions, long-frame intervals, periods with no observed presentation, and interaction-to-next-presentation timing when the start boundary is known.
-
-Winapp associates presentation data with the evidenced process set and preserves the original trace. PresentMon does not by itself prove which HWND owns a swap chain in a multi-window process, so results remain process-scoped unless a separate mapping has been validated. Detailed frame-pipeline, GPU-scheduling, and driver analysis remains the responsibility of specialist tools such as WPA, PIX, or GPUView.
-
-Rendering measurement is different from screenshot or video capture. PresentMon and WPR observe presentation behavior; visual capture shows what appeared on screen but adds CPU, GPU, and I/O overhead. Visual evidence is therefore off by default and should be collected in a separate reproduction when needed.
-
-## Observation vs instrumentation
-
-The baseline recording requires no app changes. It can observe:
-
-- `winapp ui` operations and semantic interactions exposed through target-scoped UI Automation events.
-- Process and window lifecycle, response-probe failures and recovery, and UIA state changes.
-- CPU, memory, I/O, thread, handle, and applicable GDI/USER data.
-- Exits, existing crash evidence, and optional externally collected runtime, system, or rendering traces.
-
-Some facts cannot be recovered reliably from outside the app and require explicit app markers or spans:
-
-- The business operation represented by an interaction when it is not exposed by the UI, such as `RefreshCustomerCache`.
-- The exact start, completion, cancellation, or failure of background and asynchronous work that causes no observable UI transition.
-- Internal phase boundaries such as database query, network wait, parsing, model inference, cache update, or data binding.
-- A correlation ID that connects one user action across tasks, threads, processes, services, or retries.
-- An application-defined ready or completed state when no window, UIA property, or other external signal represents it.
-- Domain measurements such as items processed, records loaded, cache hit status, or operation result.
-
-External tools may collect raw network activity, call stacks, GC events, scheduling, or presentation data without app instrumentation. However, assigning that data to a specific business operation still requires an observable external boundary or an app-provided correlation marker.
-
-When source is available, a future agent skill can inspect the WinUI 3 project and, with the user's approval, add optional markers or spans around selected business operations. Winapp remains responsible for recording and correlating those events; the skill only assists with source changes and configuration.
-
-When only a built executable is available, winapp cannot add markers. The same external recording still provides startup, UIA interaction, window responsiveness, resource, exit, and existing crash evidence; optional collectors can add WinUI, CPU-stack, thread-wait, and rendering traces. Symbol quality controls how precisely stacks are named: without matching symbols, native frames may resolve only to a module and address. Missing business names and async correlation are reported as coverage limits rather than treated as collection failure.
-
-App instrumentation is an optional enhancement, not a baseline requirement. Its contract must add internal facts without making application changes necessary for ordinary or binary-only recording.
-
-## Artifact example
+Winapp aligns target identity, HWND, UI thread, controlled actions, XAML
+intervals, runtime events, resource samples, and available system evidence on
+one timeline. It states what was observed, the affected scope, and whether the
+evidence was complete.
+
+It does not turn temporal correlation into a root-cause claim. In particular,
+XAML activity can establish initialization, Frame, navigation, and layout
+intervals, but cannot by itself identify a specific element, Binding, Template,
+or application method as the cause.
+
+### Keep the evidence
+
+The same bundle retains the original ETL, EventPipe, presentation, and
+winapp-owned timeline artifacts when collected. A developer, Agent, WPA,
+PerfView, or another specialist tool can inspect them without another
+reproduction.
+
+This is **one bounded recording with two analysis levels**:
+
+1. Level 1 is the automatic factual summary.
+2. Level 2 examines deeper evidence already present in the same bundle.
+
+Agent use is optional. Collection, summary generation, and the bundle contract
+must work without an Agent.
+
+The output contract has three surfaces:
+
+1. A live terminal view reports recording progress and collector state.
+2. A concise terminal result and canonical `report.json` explain the completed
+   recording using the same typed startup, resource, XAML, and coverage facts.
+3. `timeline.ndjson`, ETL, nettrace, and focused summaries retain the underlying
+   evidence referenced by the report.
+
+## WinUI 3-specific value
+
+Generic CPU and memory counters are supporting evidence, not the product
+identity. Winapp is useful because it can correlate them with WinUI 3 concepts:
+
+- Windows App SDK activation and packaged or unpackaged targets.
+- Generation-safe process and process-tree ownership.
+- Win32 HWND discovery, visibility, responsiveness, and owning UI thread.
+- WinUI/XAML initialization, Frame, navigation, and `UpdateLayout`.
+- Managed/native execution, scheduling, and presentation around the same
+  user-visible interval.
+- Operations performed through `winapp ui`.
+
+A proposed datum belongs in the default product only if it helps explain
+startup, responsiveness, smoothness, or resource use for a WinUI 3 target.
+
+## Recording levels
+
+| Capability | Standard | `--full` |
+|---|---:|---:|
+| Process generation, startup, window, response, exit lifecycle | Yes | Yes |
+| Process/thread resources and sampled thread state | Yes | Yes |
+| Controlled `winapp ui` action boundaries | Yes | Yes |
+| Managed EventPipe when CoreCLR is observed | Yes | Yes |
+| System scheduling, waits, and native stacks | No | Yes |
+| Detailed Loader and file I/O | No | Yes |
+| WinUI/XAML activity | No | Yes |
+| Validated process-scoped presentation evidence | No | Yes |
+| Original deep artifacts | When applicable | Yes |
+
+Standard recording must work as a standard user and remain process-scoped.
+`--full` is an explicit, elevated, bounded system capture. It must preflight
+permissions, conflicting machine-wide sessions, free space, required capture
+profiles, event-loss support, and presentation-environment support before
+launching the target.
+
+The elevated profile is one purpose-built preset. It must not concatenate
+`CPU.Verbose`, `FileIO.Verbose`, `XAMLActivity.Verbose`, and
+`DotNET.Verbose` wholesale; that combination has already produced an invalid
+1.33 GB trace with 535,446 lost events. The current `WinAppPerf.Verbose`
+profile keeps the proven XAML providers and adds only sampled CPU,
+CSwitch/ReadyThread, process/thread/image, hard-fault, and File I/O events.
+Stackwalking is limited to sampled CPU and ReadyThread; managed runtime evidence
+remains in the separate process-scoped EventPipe session.
+
+## Evidence and interpretation contract
+
+Every reported fact includes or inherits:
+
+- PID plus process creation time.
+- HWND and owning process generation when applicable.
+- TID and observed time range when applicable.
+- A monotonic QPC timeline aligned to external artifact clocks.
+- Collector start/stop, tool/configuration version, coverage, quota, loss, and
+  artifact metadata.
+
+Coverage values distinguish `complete`, `attached-after-activation`, `partial`,
+`unavailable`, and `not-observed`. An empty result is never treated as proof of
+no activity unless collection and analysis coverage are known to be complete.
+
+Specific interpretation limits:
+
+- An HWND timeout means only that the selected message was not serviced within
+  the threshold at that sample.
+- EventPipe cannot reconstruct CLR work completed before attachment.
+- Module appearance establishes order, not module-load cost.
+- Sampled stacks can miss short or inlined work.
+- XAML durations can overlap or nest and must not be summed.
+- XAML Region of Interest is a plugin-derived analysis envelope, not direct
+  framework execution cost.
+- Exit time and code are lifecycle facts only. Crash diagnosis belongs to
+  `winapp run --debug-output`, optionally with symbols.
+
+## XAML capture and analysis
+
+XAML capture and interpretation have separate dependency contracts:
+
+- Capture uses inbox `%WINDIR%\System32\wpr.exe` with a bounded XAML profile.
+- Automatic interpretation resolves a compatible installed Windows Performance
+  Toolkit, including `wpaexporter.exe`, `perf_xaml.dll`, and enabled plugin
+  registration, from trusted locations.
+- Winapp ships a versioned `All Xaml Info` `.wpaProfile`, exports the complete
+  hierarchy, filters it to the observed target PID, records the target process
+  creation time separately, and writes factual XAML intervals into the bundle.
+  WPA's exported table does not expose process creation time, so the bounded
+  owned capture limits PID-reuse risk but cannot prove generation matching from
+  that CSV alone.
+- Winapp does not silently modify machine-wide `perfcore.ini`.
+- If compatible analysis tooling is unavailable, winapp retains the ETL and
+  reports `analysis-unavailable` with the missing prerequisite and action. It
+  must not present an empty XAML summary as “no activity.”
+
+The initial contract uses compatible installed WPT, matching the existing
+`perf open` dependency pattern. WPT must not be bundled or downloaded on first
+use until a supported standalone package and redistribution terms are proven.
+If that later becomes viable, acquisition must pin versions, reuse a cache,
+verify integrity and Microsoft signatures, and enforce component compatibility.
+
+## Bundle and failure semantics
 
 ```text
 capture.winappperf\
-  manifest.json                 # session, ownership, summary, clocks, versions, coverage and sensitivity
-  timeline.ndjson               # typed startup, interaction, resource, window and exit events
-  crashes\                      # optional existing dumps and retained crash evidence
-  profiles\managed.speedscope.json # optional converted managed stack profile
-  traces\system.etl             # optional original WPR output
-  traces\managed.nettrace       # optional original dotnet-trace output
-  traces\presentmon.csv         # optional original rendering output
-  visual\recording.mp4          # optional separate visual evidence; measurement-affecting
+  manifest.json
+  timeline.ndjson
+  summaries\
+    startup.json
+    resources.json
+    xaml.json
+  traces\
+    managed.nettrace
+    system.etl
+    presentation.csv
 ```
 
-The manifest records target and ownership evidence, the factual summary, requested and achieved cadence, probe uncertainty, collector/tool versions, artifact coverage, clock alignment method/error, quotas and event loss, sensitivity metadata, collector status, and recommended viewer. `timeline.ndjson` is one monotonic append-only stream with an event `type`, avoiding cross-file temporal merging.
+`manifest.json` records schema/tool versions, target ownership, clocks,
+collector coverage, sensitivity, quotas, event loss, and artifact hashes.
+`timeline.ndjson` contains typed winapp-owned events. Deep artifacts retain
+their native formats. The bundle is published atomically.
 
-`analyze` applies bounded deterministic rules only to the manifest and timeline facts owned by winapp. It does not parse ETL or diagnose a source-level root cause. `open` selects the retained external artifact and launches its specialist viewer.
-
-## Delivery stages
-
-| Stage | Deliverable |
+| Situation | Result |
 |---|---|
-| 1. Default recording MVP | From a non-elevated terminal, record evidenced process/window ownership, external startup milestones, controlled/UIA-observed interactions, response-probe intervals, resource trends, exit status, a unified timeline, and a factual summary. |
-| 2. Deep diagnostic data | Add explicit WPR and .NET adapters with elevation/capability preflight, unique session ownership, soft stop, quotas, loss reporting, original artifact preservation, and specialist-tool handoff. |
-| 3. Repeatable scenarios and comparison | Reuse `winapp ui` selectors, actions, and waits for CI/agent scenarios, with warmup, repetition, and comparison based on explicitly defined metrics. |
-| 4. Rendering diagnostics | Add process-scoped PresentMon/WPR data, frame distributions and interaction-to-next-presentation timing; capture visual evidence in a separate run when needed. |
-| 5. Optional app semantics | Add an optional marker contract and an agent skill that can assist source-available WinUI 3 apps without making application changes a recording requirement. |
+| All required capture tracks complete | `completed`, command exit 0 |
+| Target exits normally or nonzero while capture completes | `completed`; target outcome recorded separately |
+| Required collector starts and fails | Retain `partial`; command exits nonzero |
+| Material loss or quota truncation | Retain `partial`; suppress affected conclusions; command exits nonzero |
+| CoreCLR is not observed | `completed`, `managed: not-observed` |
+| Optional post-capture analyzer is unavailable | Retain raw evidence and report `analysis-unavailable` |
+| `--full` capture preflight fails | Do not launch the target or publish a success-shaped bundle |
 
-## Risks and validation questions
+## Privacy and safety boundary
 
-| Risk or unknown | Delivery impact | Required validation |
+Normal summaries do not retain UI text/value content, raw keyboard or pointer
+input, screenshots/video, file or network contents, connection strings, or raw
+exception messages. Controlled operations retain action type and time, not
+private arguments.
+
+Full ETL and stack artifacts may contain paths, command lines, symbols, and
+activity from other processes. They are marked sensitive, kept local by
+default, and excluded from any future sanitized export unless explicitly
+included.
+
+Even `--full` excludes:
+
+- Full managed heaps and object-retention graphs.
+- Screenshots, video, and passive manual-input capture.
+- UIA content values and network content.
+- Unbounded traces.
+- Required application instrumentation.
+
+Application markers remain an optional source-assisted workflow for business
+phase names, hidden asynchronous boundaries, cross-process correlation IDs, or
+application-defined readiness that cannot be observed externally.
+
+## Acceptance targets
+
+These are review targets, not validated product constants:
+
+| Target | Standard | `--full` |
+|---|---:|---:|
+| Default duration | 30 seconds | 30 seconds |
+| 30-second lab bundle | <= 25 MB | <= 250 MB |
+| Material event loss | Zero | Zero |
+| Added median scenario duration | <= 3% | <= 5% |
+| Privilege | Standard user | Elevated |
+
+Longer recordings require explicit duration and proportionally checked free
+space. No mode waits indefinitely for Enter.
+
+## Validation appendix
+
+The table records direct observations, not merely API or profile availability.
+
+| Track | Proven evidence | Remaining proof |
 |---|---|---|
-| App, process, and window ownership | A packaged single-instance app can redirect activation to a pre-existing process; helper processes and PID/HWND reuse can make attribution ambiguous. | Test packaged/unpackaged, new/pre-existing single-instance, multi-process and multi-window WinUI 3 apps; classify redirection as `attached-late` and never terminate ambiguous ownership. |
-| Manual input observation and privacy | Desktop-wide hooks see events before filtering and may be blocked or flagged as keylogging behavior. | Keep manual input off by default; prove that unrelated keys never enter queues, logs, dumps or artifacts and that observer loss, elevation and secure desktop fail closed. |
-| Responsiveness fidelity | Probe cadence and timeout can miss short stalls or overstate exact hung boundaries; blocking UIA calls can worsen a stall. | Test controlled 100 ms, 1 s, 4 s and 6 s UI-thread stalls, report uncertainty, and isolate UIA calls with timeouts. |
-| WPR privilege and ownership | Required WPR profiles need elevation; unnamed stop/cancel can discard evidence or affect another machine-wide session. | Use unique instance names, elevation preflight, soft stop that retains evidence, and crash recovery that cleans only winapp-owned sessions. |
-| Storage and trace loss | ETL, dumps and video can exhaust disk; lost events can make derived conclusions invalid. | Define duration/byte quotas, free-space checks, loss counters, truncation status and conclusion suppression for materially incomplete intervals. |
-| Symbols and sensitive artifacts | ETL, dumps, paths, endpoints, command lines and private symbols can disclose user or proprietary information; mismatched symbols misname stacks. | Keep private symbols local by default, record binary identity/symbol status, label sensitive artifacts and define a sanitized export path. |
-| Version and architecture coverage | WPR profiles, WinUI events, PresentMon availability and payloads vary by Windows, WPT and architecture. | Declare and test the supported Windows/WPT/.NET/PresentMon and x64/ARM64 matrix; discover capabilities and mark unsupported tracks unavailable. |
-| Measurement overhead | Sampling, tracing, debugger attachment and visual capture can alter the behavior being measured. | Measure each collector separately, publish achieved cadence/overhead metadata, and keep debugger/video modes outside default recording. |
-| Application-internal semantics | Without application markers, winapp cannot name or delimit hidden business operations or fully connect async work. | Keep markers optional; source-available apps may use the agent skill, while binary-only recordings report the semantic coverage limit. |
+| Process/window/startup | Real bundles retain PID plus start time, activation, owned HWNDs, visible/responsive milestones, terminal CPU/I/O, and exact exit code; exit-before-window retained code 23 | Short activity between samples is unrecoverable |
+| HWND response | Controlled stalls produced 29/29 and 28/28 overlapping timeouts; typed outcomes distinguish responsive, timeout 1460, invalid handle 1400, access denied, and other failures | Short stalls can fall between samples; timeout probes reduce cadence |
+| Process/thread resources | UI and worker controls each recorded about one core and correctly identified the hot UI or worker TID; idle and contention controls observed Wait and Ready states | Controlled target-overhead comparison remains |
+| Controlled actions | Invoke, Toggle, Select, Expand, value application, and mouse dispatch have exact start/end hooks; failed actions retain failed end | Covers winapp-controlled actions, not passive manual input |
+| Managed runtime | One 32-second, 1.74 MB session retained deep sampled stacks plus 864 `System.Runtime` counter events across 27 metrics. Standard recording now writes one in-process `managed.nettrace` after a generation-safe CoreCLR attach; a real 4-second capture contained 12,036 samples, 108 counter events, 1,949 rundown events, and zero parser-reported loss | Target-overhead and broader attachment coverage remain; the AOT CLI retains but does not parse nettrace events |
+| System CPU/scheduling | Required kernel providers and controlled running/waiting/ready workload truth are proven | Short elevated target-attributed ETL, volume, loss, and stack-resolution proof remain |
+| Loader/file I/O | Provider capability and ImageLoad-versus-rundown interpretation are established | Positive/negative target controls, privacy, volume, and loss remain |
+| XAML | Three isolated elevated traces had zero lost buffers/events. Eager: ROI 1,591.6380 ms, WXM 1,441.2038 ms, interesting Frame 137.1286 ms, UpdateLayout 95.9532 ms. Deferred: ROI 447.5037 ms, WXM 316.0144 ms, Frame 122.1670 ms, UpdateLayout 92.1059 ms. Exit-before-window had only Create graphics device 20.4084 ms. The production resolver accepted Microsoft-signed WPAExporter 11.7.395.48728, perf_xaml 10.0.26100.8249, and xperf 10.0.26100.8249; the production analyzer reproduced all three WPA summaries exactly and production `tracestats` parsing reported zero loss | Combined-profile overhead/volume/loss and a broader supported-WPT matrix remain; Weight was zero because sampled CPU was intentionally omitted |
+| Presentation | PresentMon provenance and input-disabled command shape are proven | Current non-admin run failed access preflight; local/RDP, idle/stress, visibility, multi-window attribution, and clock alignment remain |
+
+## Remaining implementation gates
+
+1. Measure standard recording overhead against the lab workloads.
+2. Validate the embedded bounded `WinAppPerf.Verbose` profile under elevation
+   for attribution, volume, zero loss, XAML parity, and overhead.
+3. Expand XAML compatibility validation beyond the proven WPT 11.7.395.48728 /
+   perf_xaml 10.0.26100.8249 pair.
+4. Validate presentation evidence across permissions, visibility, local/RDP,
+   stress, multi-window, and clock-alignment controls.
+5. Complete privacy and interrupted-collection tests.
+
+Open decisions are limited to:
+
+- Final duration, size, and overhead budgets.
+- Whether presentation is required by `--full` or becomes a separately named
+  capability where its environment contract cannot be guaranteed.
+- Supported Windows, WPT, .NET, architecture, local-console, and RDP versions.
+- Whether a future supported WPT distribution permits verified
+  download-on-first-use; the initial design uses installed WPT.

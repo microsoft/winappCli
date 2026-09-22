@@ -67,6 +67,13 @@ public sealed record ScenarioDefinition(
             "High CPU while the window remains responsive.",
             5_000),
         new(
+            "deep-call-stack",
+            "Deep call stack",
+            "Run a CPU hotspot beneath a stable, named ten-level managed call chain.",
+            "5 seconds",
+            "KnownDeepCpuHotspot.Execute is the dominant leaf in the managed CPU profile.",
+            5_000),
+        new(
             "memory-step",
             "Memory step",
             "Allocate, touch, hold, and release a bounded memory block.",

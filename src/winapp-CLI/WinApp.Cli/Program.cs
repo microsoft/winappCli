@@ -105,6 +105,10 @@ internal static class Program
                 {
                     EmitFindUiJsonError(message);
                 }
+                else if (ResolveEffectiveJson(parseResult) && IsPerfDescendant(parseResult))
+                {
+                    EmitFindUiJsonError(message);
+                }
                 else
                 {
                     Console.Error.WriteLine(message);
@@ -200,6 +204,18 @@ internal static class Program
                         CommandInvokedEvent.Log(parsedArgs.CommandResult);
                     }
                     EmitFindUiJsonError($"Unknown option '{typo}'. Did you mean '{suggested}'?");
+                    if (!isCompleteMode)
+                    {
+                        CommandCompletedEvent.Log(parsedArgs.CommandResult, 1);
+                    }
+                }
+                else if (effectiveJson && IsPerfDescendant(parsedArgs))
+                {
+                    if (!isCompleteMode)
+                    {
+                        CommandInvokedEvent.Log(parsedArgs.CommandResult);
+                    }
+                    EmitFindUiJsonError(typoMessage);
                     if (!isCompleteMode)
                     {
                         CommandCompletedEvent.Log(parsedArgs.CommandResult, 1);
@@ -326,6 +342,17 @@ internal static class Program
                 return 1;
             }
 
+            if (effectiveJson && parsedArgs.Errors.Count > 0 && IsPerfDescendant(parsedArgs))
+            {
+                var errorMsg = string.Join("; ", parsedArgs.Errors.Select(e => e.Message));
+                EmitFindUiJsonError(errorMsg);
+                if (!isCompleteMode)
+                {
+                    logCommandCompleted(parsedArgs.CommandResult, 1);
+                }
+                return 1;
+            }
+
             var returnCode = await invoke();
 
             if (!isCompleteMode)
@@ -404,6 +431,20 @@ internal static class Program
     /// </summary>
     private static bool IsFindUi(System.CommandLine.ParseResult parseResult) =>
         parseResult.CommandResult.Command.Name == "find-ui";
+
+    private static bool IsPerfDescendant(System.CommandLine.ParseResult parseResult)
+    {
+        var command = parseResult.CommandResult.Command;
+        while (command is not null)
+        {
+            if (command.Name == "perf")
+            {
+                return true;
+            }
+            command = command.Parents.OfType<System.CommandLine.Command>().FirstOrDefault();
+        }
+        return false;
+    }
 
     /// <summary>
     /// Writes a flat <c>{"error":"..."}</c> object to stdout — the same schema and sink

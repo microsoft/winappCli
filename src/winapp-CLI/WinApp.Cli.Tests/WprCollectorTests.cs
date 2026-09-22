@@ -70,8 +70,11 @@ public sealed class WprCollectorTests
         await collector.StopAsync();
 
         Assert.HasCount(2, runner.Requests);
+        var profilePath = Path.Join(
+            temporary,
+            WptXamlProfileResources.CaptureProfileResourceName);
         CollectionAssert.AreEqual(
-            new[] { "-start", "FileIO.Verbose", "-filemode", "-recordtempto", temporary },
+            new[] { "-start", $"{profilePath}!{XamlPerformanceAnalyzer.ProfileName}", "-filemode", "-recordtempto", temporary },
             runner.Requests[0].Arguments.Take(5).ToArray());
         Assert.AreEqual("-instancename", runner.Requests[0].Arguments[^2]);
         Assert.AreEqual("-instancename", runner.Requests[1].Arguments[^2]);
@@ -155,6 +158,13 @@ public sealed class WprCollectorTests
                 return Task.FromResult(new ProcessRunResult(0, string.Empty, string.Empty));
             }
 
+            var profileToken = request.Arguments[1];
+            var separator = profileToken.LastIndexOf('!');
+            Assert.IsGreaterThan(0, separator);
+            Assert.AreEqual(
+                XamlPerformanceAnalyzer.ProfileName,
+                profileToken[(separator + 1)..]);
+            Assert.IsTrue(File.Exists(profileToken[..separator]));
             return Task.FromResult(StartResult);
         }
     }

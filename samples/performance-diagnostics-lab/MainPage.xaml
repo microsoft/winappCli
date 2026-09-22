@@ -8,249 +8,168 @@
     xmlns:viewModels="using:PerformanceDiagnosticsLab.ViewModels"
     mc:Ignorable="d">
 
-    <NavigationView
-        x:Name="RootNavigation"
-        AutomationProperties.AutomationId="RootNavigation"
-        IsBackButtonVisible="Collapsed"
-        IsSettingsVisible="False"
-        PaneDisplayMode="LeftCompact"
-        PaneTitle="Performance Lab"
-        SelectionChanged="RootNavigation_SelectionChanged">
-        <NavigationView.MenuItems>
-            <NavigationViewItem
-                AutomationProperties.AutomationId="ScenariosNavigationItem"
-                Content="Scenarios"
-                IsSelected="True"
-                Tag="scenarios">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE9D9;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem
-                AutomationProperties.AutomationId="AutomationNavigationItem"
-                Content="Automation"
-                Tag="automation">
-                <NavigationViewItem.Icon>
-                    <FontIcon Glyph="&#xE943;" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-            <NavigationViewItem
-                AutomationProperties.AutomationId="EnvironmentNavigationItem"
-                Content="Environment"
-                Tag="environment">
-                <NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="Help" />
-                </NavigationViewItem.Icon>
-            </NavigationViewItem>
-        </NavigationView.MenuItems>
+    <Grid>
+        <Grid
+            x:Name="WorkloadsPanel"
+            Padding="32,24,32,32">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-        <Grid Padding="32,24,32,32">
-            <Grid x:Name="ScenariosPanel">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+            <StackPanel Spacing="4">
+                <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Performance test workloads" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Trigger one deterministic workload while winapp collects and diagnoses it externally." />
+            </StackPanel>
 
-                <StackPanel Spacing="4">
-                    <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Performance scenarios" />
-                    <TextBlock
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="Generate bounded, repeatable behavior while winapp observes the app externally." />
-                </StackPanel>
-
-                <Border
-                    Grid.Row="1"
-                    Margin="0,20,0,16"
-                    Padding="16"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8">
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Spacing="2">
-                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Current state" />
-                            <TextBlock
-                                AutomationProperties.AutomationId="ScenarioStatus"
-                                AutomationProperties.LiveSetting="Polite"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" />
-                        </StackPanel>
-                        <Button
-                            Grid.Column="1"
-                            AutomationProperties.AutomationId="CancelScenarioButton"
-                            AutomationProperties.Name="Cancel current scenario"
-                            Command="{x:Bind ViewModel.CancelCommand}"
-                            Content="Cancel"
-                            IsEnabled="{x:Bind ViewModel.IsCancelEnabled, Mode=OneWay}" />
-                    </Grid>
-                </Border>
-
-                <ListView
-                    Grid.Row="2"
-                    AutomationProperties.AutomationId="ScenarioList"
-                    ItemsSource="{x:Bind ViewModel.Scenarios, Mode=OneWay}"
-                    SelectionMode="None">
-                    <ListView.ItemContainerStyle>
-                        <Style TargetType="ListViewItem">
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0,0,0,8" />
-                        </Style>
-                    </ListView.ItemContainerStyle>
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="viewModels:ScenarioCardViewModel">
-                            <Border
-                                Padding="16"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1"
-                                CornerRadius="8">
-                                <Grid ColumnSpacing="16">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="120" />
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Name}" />
-                                        <TextBlock
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="{x:Bind Description}"
-                                            TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Workload" />
-                                        <TextBlock Text="{x:Bind WorkloadLabel}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2" Spacing="2">
-                                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Expected observation" />
-                                        <TextBlock Text="{x:Bind ExpectedObservation}" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <Button
-                                        Grid.Column="3"
-                                        AutomationProperties.AutomationId="{x:Bind RunAutomationId}"
-                                        AutomationProperties.Name="{x:Bind RunAccessibleName}"
-                                        Command="{x:Bind RunCommand}"
-                                        Content="Run"
-                                        IsEnabled="{x:Bind IsEnabled, Mode=OneWay}"
-                                        Style="{StaticResource AccentButtonStyle}" />
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-            </Grid>
-
-            <ScrollViewer x:Name="AutomationPanel" Visibility="Collapsed">
-                <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="20">
-                    <StackPanel Spacing="4">
-                        <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Semantic interactions" />
+            <Border
+                Grid.Row="1"
+                Margin="0,20,0,0"
+                Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2">
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="UI rendering workload" />
                         <TextBlock
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="Use these controls to validate target-scoped UI Automation events." />
+                            Text="Animate 144 XAML elements to test frame and rendering diagnostics."
+                            TextWrapping="Wrap" />
                     </StackPanel>
+                    <Button
+                        Grid.Column="1"
+                        AutomationProperties.AutomationId="OpenRenderingWorkloadButton"
+                        AutomationProperties.Name="Open UI rendering workload"
+                        Click="OpenRenderingWorkloadButton_Click"
+                        Content="Open rendering workload"
+                        Style="{StaticResource AccentButtonStyle}" />
+                </Grid>
+            </Border>
 
-                    <Border
-                        Padding="20"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1"
-                        CornerRadius="8">
-                        <StackPanel Spacing="16">
-                            <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border
+                Grid.Row="2"
+                Margin="0,16"
+                Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2">
+                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Current workload state" />
+                        <TextBlock
+                            AutomationProperties.AutomationId="ScenarioStatus"
+                            AutomationProperties.LiveSetting="Polite"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" />
+                    </StackPanel>
+                    <Button
+                        Grid.Column="1"
+                        AutomationProperties.AutomationId="CancelScenarioButton"
+                        AutomationProperties.Name="Cancel current workload"
+                        Command="{x:Bind ViewModel.CancelCommand}"
+                        Content="Cancel"
+                        IsEnabled="{x:Bind ViewModel.IsCancelEnabled, Mode=OneWay}" />
+                </Grid>
+            </Border>
+
+            <ListView
+                Grid.Row="3"
+                AutomationProperties.AutomationId="ScenarioList"
+                ItemsSource="{x:Bind ViewModel.Scenarios, Mode=OneWay}"
+                SelectionMode="None">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,8" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="viewModels:ScenarioCardViewModel">
+                        <Border
+                            Padding="16"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Name}" />
+                                    <TextBlock
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind Description}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Workload" />
+                                    <TextBlock Text="{x:Bind WorkloadLabel}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Spacing="2">
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="CLI should detect" />
+                                    <TextBlock Text="{x:Bind ExpectedObservation}" TextWrapping="Wrap" />
+                                </StackPanel>
                                 <Button
-                                    AutomationProperties.AutomationId="SemanticInvokeButton"
-                                    AutomationProperties.Name="Semantic invoke button"
-                                    Command="{x:Bind ViewModel.IncrementSemanticCounterCommand}"
-                                    Content="Invoke action" />
-                                <TextBlock
-                                    AutomationProperties.AutomationId="SemanticCounter"
-                                    VerticalAlignment="Center"
-                                    Text="{x:Bind ViewModel.SemanticCounterText, Mode=OneWay}" />
-                            </StackPanel>
-
-                            <ToggleSwitch
-                                AutomationProperties.AutomationId="SemanticToggle"
-                                AutomationProperties.Name="Diagnostics feature toggle"
-                                Header="Feature state"
-                                IsOn="{x:Bind ViewModel.IsSemanticFeatureEnabled, Mode=TwoWay}" />
-
-                            <TextBox
-                                AutomationProperties.AutomationId="SemanticTextInput"
-                                AutomationProperties.Name="Semantic text input"
-                                Header="Input"
-                                PlaceholderText="Enter non-sensitive test text"
-                                Text="{x:Bind ViewModel.SemanticInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-
-                            <ListView
-                                AutomationProperties.AutomationId="SemanticSelectionList"
-                                AutomationProperties.Name="Semantic selection list"
-                                Header="Select an item"
-                                ItemsSource="{x:Bind ViewModel.SemanticItems, Mode=OneWay}"
-                                SelectedItem="{x:Bind ViewModel.SelectedSemanticItem, Mode=TwoWay}"
-                                SelectionMode="Single" />
-
-                            <Button
-                                AutomationProperties.AutomationId="SemanticSubmitButton"
-                                AutomationProperties.Name="Submit semantic interaction"
-                                Command="{x:Bind ViewModel.SubmitSemanticInteractionCommand}"
-                                Content="Submit interaction"
-                                HorizontalAlignment="Left"
-                                Style="{StaticResource AccentButtonStyle}" />
-
-                            <TextBlock
-                                AutomationProperties.AutomationId="SemanticResult"
-                                AutomationProperties.LiveSetting="Polite"
-                                Text="{x:Bind ViewModel.SemanticResult, Mode=OneWay}"
-                                TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </ScrollViewer>
-
-            <ScrollViewer x:Name="EnvironmentPanel" Visibility="Collapsed">
-                <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="20">
-                    <StackPanel Spacing="4">
-                        <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Environment" />
-                        <TextBlock
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="Identity details useful when validating process and window ownership." />
-                    </StackPanel>
-                    <Border
-                        Padding="20"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1"
-                        CornerRadius="8">
-                        <Grid RowSpacing="12" ColumnSpacing="24">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Process ID" />
-                            <TextBlock Grid.Column="1" AutomationProperties.AutomationId="ProcessIdValue" Text="{x:Bind ViewModel.ProcessId, Mode=OneWay}" />
-                            <TextBlock Grid.Row="1" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Architecture" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.ProcessArchitecture, Mode=OneWay}" />
-                            <TextBlock Grid.Row="2" Style="{StaticResource BodyStrongTextBlockStyle}" Text=".NET runtime" />
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind ViewModel.RuntimeVersion, Mode=OneWay}" />
-                            <TextBlock Grid.Row="3" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Package identity" />
-                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{x:Bind ViewModel.PackageIdentity, Mode=OneWay}" TextWrapping="Wrap" />
-                        </Grid>
-                    </Border>
-                </StackPanel>
-            </ScrollViewer>
+                                    Grid.Column="3"
+                                    AutomationProperties.AutomationId="{x:Bind RunAutomationId}"
+                                    AutomationProperties.Name="{x:Bind RunAccessibleName}"
+                                    Command="{x:Bind RunCommand}"
+                                    Content="Run"
+                                    IsEnabled="{x:Bind IsEnabled, Mode=OneWay}"
+                                    Style="{StaticResource AccentButtonStyle}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
         </Grid>
-    </NavigationView>
+
+        <Grid
+            x:Name="RenderingPanel"
+            Padding="32,20,32,32"
+            Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <StackPanel
+                Margin="0,0,0,16"
+                Orientation="Horizontal"
+                Spacing="12">
+                <Button
+                    AutomationProperties.AutomationId="BackToWorkloadsButton"
+                    AutomationProperties.Name="Back to performance workloads"
+                    Click="BackToWorkloadsButton_Click"
+                    Content="Back" />
+                <TextBlock
+                    VerticalAlignment="Center"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    Text="UI rendering workload" />
+            </StackPanel>
+            <ContentControl
+                x:Name="FeatureContentHost"
+                Grid.Row="1"
+                AutomationProperties.AutomationId="FeatureContentHost" />
+        </Grid>
+    </Grid>
 </Page>

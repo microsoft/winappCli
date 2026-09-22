@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using PerformanceDiagnosticsLab.Contracts;
 
 namespace PerformanceDiagnosticsLab.Services;
 
@@ -6,11 +6,17 @@ public sealed record LaunchOptions(
     string? ScenarioId,
     int? DurationMilliseconds,
     int? MemoryMegabytes,
-    int StartupDelayMilliseconds,
-    int StartupCpuMilliseconds,
-    bool ExitAfterScenario)
+    StartupMode StartupMode,
+    bool ExitAfterScenario,
+    int? ExitBeforeWindowCode)
 {
-    public static LaunchOptions Default { get; } = new(null, null, null, 0, 0, false);
+    public static LaunchOptions Default { get; } = new(
+        null,
+        null,
+        null,
+        StartupMode.Eager,
+        false,
+        null);
 
     public static LaunchOptions Parse(IEnumerable<string> arguments)
     {
@@ -18,9 +24,9 @@ public sealed record LaunchOptions(
         string? scenarioId = null;
         int? durationMilliseconds = null;
         int? memoryMegabytes = null;
-        var startupDelayMilliseconds = 0;
-        var startupCpuMilliseconds = 0;
+        var startupMode = StartupMode.Eager;
         var exitAfterScenario = false;
+        int? exitBeforeWindowCode = null;
 
         for (var index = 0; index < values.Length; index++)
         {
@@ -35,14 +41,14 @@ public sealed record LaunchOptions(
                 case "--memory-mb":
                     memoryMegabytes = ReadBoundedInteger(values, ref index, "--memory-mb", 1, 512);
                     break;
-                case "--startup-delay-ms":
-                    startupDelayMilliseconds = ReadBoundedInteger(values, ref index, "--startup-delay-ms", 0, 30_000);
-                    break;
-                case "--startup-cpu-ms":
-                    startupCpuMilliseconds = ReadBoundedInteger(values, ref index, "--startup-cpu-ms", 0, 30_000);
+                case "--startup-mode":
+                    startupMode = ParseStartupMode(ReadValue(values, ref index, "--startup-mode"));
                     break;
                 case "--exit-after":
                     exitAfterScenario = true;
+                    break;
+                case "--exit-before-window":
+                    exitBeforeWindowCode = ReadInteger(values, ref index, "--exit-before-window");
                     break;
             }
         }
@@ -51,22 +57,14 @@ public sealed record LaunchOptions(
             scenarioId,
             durationMilliseconds,
             memoryMegabytes,
-            startupDelayMilliseconds,
-            startupCpuMilliseconds,
-            exitAfterScenario);
+            startupMode,
+            exitAfterScenario,
+            exitBeforeWindowCode);
     }
 
-    public void ApplyPreWindowWorkload()
+    public StartupContext ToStartupContext()
     {
-        if (StartupDelayMilliseconds > 0)
-        {
-            Thread.Sleep(StartupDelayMilliseconds);
-        }
-
-        if (StartupCpuMilliseconds > 0)
-        {
-            BurnCpu(StartupCpuMilliseconds);
-        }
+        return new StartupContext(StartupMode);
     }
 
     private static string ReadValue(IReadOnlyList<string> values, ref int index, string option)
@@ -95,15 +93,28 @@ public sealed record LaunchOptions(
         return parsed;
     }
 
-    private static void BurnCpu(int durationMilliseconds)
+    private static int ReadInteger(
+        IReadOnlyList<string> values,
+        ref int index,
+        string option)
     {
-        var stopwatch = Stopwatch.StartNew();
-        var value = 0.5;
-        while (stopwatch.ElapsedMilliseconds < durationMilliseconds)
+        var value = ReadValue(values, ref index, option);
+        if (!int.TryParse(value, out var parsed))
         {
-            value = Math.Sqrt(value + 1.23456789);
+            throw new ArgumentException($"{option} must be a 32-bit integer.");
         }
 
-        GC.KeepAlive(value);
+        return parsed;
+    }
+
+    private static StartupMode ParseStartupMode(string value)
+    {
+        return value.ToLowerInvariant() switch
+        {
+            "eager" => StartupMode.Eager,
+            "deferred" => StartupMode.Deferred,
+            "lazy" => StartupMode.Lazy,
+            _ => throw new ArgumentException("--startup-mode must be eager, deferred, or lazy.")
+        };
     }
 }

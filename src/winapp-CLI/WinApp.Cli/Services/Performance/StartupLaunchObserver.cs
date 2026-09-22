@@ -20,6 +20,10 @@ internal sealed class StartupLaunchObserver(
 
     public int ActivationProcessId { get; private set; }
 
+    public bool LaunchProcessAdmissionFailed { get; private set; }
+
+    internal IWprCollector? WprCollector { get; set; } = wprCollector;
+
     public async Task BeforeLaunchAsync(
         string? packageFamilyName,
         CancellationToken cancellationToken)
@@ -33,9 +37,9 @@ internal sealed class StartupLaunchObserver(
         var baseline = packageFamilyName is null
             ? []
             : packageProcesses.Capture(packageFamilyName);
-        if (wprCollector is not null)
+        if (WprCollector is not null)
         {
-            await wprCollector.StartAsync(cancellationToken);
+            await WprCollector.StartAsync(cancellationToken);
         }
         Session = new(
             clock,
@@ -57,6 +61,7 @@ internal sealed class StartupLaunchObserver(
         }
 
         ActivationProcessId = (int)processId;
+        Observe();
     }
 
     public StartupObservationUpdate Observe()
@@ -69,7 +74,11 @@ internal sealed class StartupLaunchObserver(
         var candidates = _packageFamilyName is null
             ? []
             : packageProcesses.Capture(_packageFamilyName);
-        return Session.Observe(ActivationProcessId, candidates);
+        var update = Session.Observe(ActivationProcessId, candidates);
+        LaunchProcessAdmissionFailed =
+            !Session.HasObservedProcesses
+            && update.ProcessFailures.ContainsKey(ActivationProcessId);
+        return update;
     }
 
     public void Dispose() => Session?.Dispose();

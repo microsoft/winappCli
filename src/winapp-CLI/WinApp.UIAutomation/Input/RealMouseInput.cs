@@ -6,14 +6,28 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// <summary>
 /// Production implementation — delegates to <see cref="MouseInput"/> static P/Invoke helpers.
 /// </summary>
-internal class RealMouseInput : IMouseInput
+internal class RealMouseInput(IUiActionBoundaryReporter actionReporter) : IMouseInput
 {
+    public RealMouseInput()
+        : this(new UiActionBoundaryReporter())
+    {
+    }
+
     public void Hover(int screenX, int screenY) => MouseInput.Hover(screenX, screenY);
 
     public void MoveCursor(int screenX, int screenY) => MouseInput.MoveCursor(screenX, screenY);
 
     public void Click(int screenX, int screenY, bool doubleClick = false, bool rightClick = false, int settleMs = 50)
-        => MouseInput.Click(screenX, screenY, doubleClick, rightClick, settleMs);
+    {
+        var actionKind = doubleClick
+            ? "MouseDoubleClick"
+            : rightClick
+                ? "MouseRightClick"
+                : "MouseClick";
+        using var action = actionReporter.Begin(actionKind);
+        MouseInput.Click(screenX, screenY, doubleClick, rightClick, settleMs);
+        action.Complete();
+    }
 
     public void Drag(int fromScreenX, int fromScreenY, int toScreenX, int toScreenY, bool rightButton = false, int holdMs = 0, int dwellMs = 0, int settleMs = 50)
         => MouseInput.Drag(fromScreenX, fromScreenY, toScreenX, toScreenY, rightButton, holdMs, dwellMs, settleMs);

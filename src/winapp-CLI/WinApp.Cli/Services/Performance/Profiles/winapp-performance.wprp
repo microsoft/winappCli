@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="Microsoft Corporation" Team="WinApp CLI" Comments="Bounded WinUI 3 performance recording">
+  <Profiles>
+    <SystemCollector Id="WinAppSystemCollector" Name="NT Kernel Logger">
+      <BufferSize Value="1024" />
+      <Buffers Value="256" />
+    </SystemCollector>
+    <EventCollector Id="WinAppEventCollector" Name="WinApp Event Collector">
+      <BufferSize Value="1024" />
+      <Buffers Value="64" />
+    </EventCollector>
+    <SystemProvider Id="WinAppSystemProvider">
+      <Keywords>
+        <Keyword Value="CpuConfig" />
+        <Keyword Value="ProcessThread" />
+        <Keyword Value="Loader" />
+        <Keyword Value="SampledProfile" />
+        <Keyword Value="CSwitch" />
+        <Keyword Value="ReadyThread" />
+        <Keyword Value="HardFaults" />
+        <Keyword Value="FileIO" />
+        <Keyword Value="FileIOInit" />
+      </Keywords>
+      <Stacks>
+        <Stack Value="SampledProfile" />
+        <Stack Value="ReadyThread" />
+      </Stacks>
+    </SystemProvider>
+    <EventProvider Id="WprControl" Name="Microsoft-Windows-Performance-Recorder-Control" NonPagedMemory="true">
+      <Keywords>
+        <Keyword Value="0x10000" />
+      </Keywords>
+    </EventProvider>
+    <EventProvider Id="KernelEventTracing" Name="Microsoft-Windows-Kernel-EventTracing" NonPagedMemory="true" Level="15">
+      <Keywords>
+        <Keyword Value="0x40" />
+      </Keywords>
+    </EventProvider>
+    <EventProvider Id="Xaml" Name="Microsoft-Windows-XAML" NonPagedMemory="true" />
+    <EventProvider Id="BrokerInfrastructure" Name="Microsoft-Windows-BrokerInfrastructure" NonPagedMemory="true">
+      <Keywords>
+        <Keyword Value="0x1" />
+      </Keywords>
+    </EventProvider>
+    <EventProvider Id="ProcessStateManager" Name="Microsoft-Windows-ProcessStateManager" NonPagedMemory="true" />
+    <Profile Id="WinAppPerf.Verbose.File" Name="WinAppPerf" Description="Bounded WinUI 3 performance recording" DetailLevel="Verbose" LoggingMode="File">
+      <ProblemCategories>
+        <ProblemCategory Value="First Level Triage" />
+      </ProblemCategories>
+      <Collectors>
+        <SystemCollectorId Value="WinAppSystemCollector">
+          <SystemProviderId Value="WinAppSystemProvider" />
+        </SystemCollectorId>
+        <EventCollectorId Value="WinAppEventCollector">
+          <EventProviders>
+            <EventProviderId Value="WprControl" />
+            <EventProviderId Value="KernelEventTracing" />
+            <EventProviderId Value="Xaml" />
+            <EventProviderId Value="BrokerInfrastructure" />
+            <EventProviderId Value="ProcessStateManager" />
+          </EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+    <Profile Id="WinAppPerf.Verbose.Memory" Name="WinAppPerf" Base="WinAppPerf.Verbose.File" Description="Bounded WinUI 3 performance recording" DetailLevel="Verbose" LoggingMode="Memory" />
+  </Profiles>
+</WindowsPerformanceRecorder>

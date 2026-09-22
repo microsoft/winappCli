@@ -24,6 +24,7 @@ public static class UiAutomationServiceCollectionExtensions
         // pen input still get the platform diagnostic at their call site.
 #pragma warning disable CA1416
         return services
+            .AddSingleton<IUiActionBoundaryReporter, UiActionBoundaryReporter>()
             .AddSingleton<IMouseInput, RealMouseInput>()
             .AddSingleton<IPointerInput, RealPointerInput>()
 #pragma warning restore CA1416

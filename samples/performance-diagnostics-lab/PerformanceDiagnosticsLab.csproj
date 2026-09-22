@@ -13,6 +13,7 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <DefaultItemExcludes>$(DefaultItemExcludes);PerformanceDiagnosticsLab.*\**\*</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -53,6 +54,14 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.6.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="PerformanceDiagnosticsLab.Contracts\PerformanceDiagnosticsLab.Contracts.csproj" />
+    <ProjectReference Include="PerformanceDiagnosticsLab.Startup.Core\PerformanceDiagnosticsLab.Startup.Core.csproj" />
+    <ProjectReference Include="PerformanceDiagnosticsLab.Startup.Data\PerformanceDiagnosticsLab.Startup.Data.csproj" />
+    <ProjectReference Include="PerformanceDiagnosticsLab.Startup.Search\PerformanceDiagnosticsLab.Startup.Search.csproj" />
+    <ProjectReference Include="PerformanceDiagnosticsLab.Page.StartupPayload\PerformanceDiagnosticsLab.Page.StartupPayload.csproj" />
+    <ProjectReference Include="PerformanceDiagnosticsLab.Page.Rendering\PerformanceDiagnosticsLab.Page.Rendering.csproj" />
   </ItemGroup>
 
   <!--

@@ -43,6 +43,16 @@ internal interface IUiOwnerResolver
 /// <inheritdoc cref="IUiOwnerResolver"/>
 internal sealed class UiOwnerResolver : IUiOwnerResolver
 {
+    private readonly IUiWorkflowContext? _workflowContext;
+
+    public UiOwnerResolver()
+    {
+    }
+
+    public UiOwnerResolver(IUiWorkflowContext workflowContext)
+    {
+        _workflowContext = workflowContext;
+    }
     /// <summary>
     /// Environment variable naming one logical UI workflow — not an agent, not an app, and not a
     /// process. Setting the same value across several <c>winapp.exe</c> invocations is what makes them
@@ -61,7 +71,8 @@ internal sealed class UiOwnerResolver : IUiOwnerResolver
 
     public UiOwnerIdentity Resolve()
     {
-        var raw = Environment.GetEnvironmentVariable(WorkflowIdVariable);
+        var raw = _workflowContext?.CurrentId
+            ?? Environment.GetEnvironmentVariable(WorkflowIdVariable);
 
         // Deliberately no process-ancestry fallback. Deriving an owner from the parent process silently
         // grouped unrelated commands that merely shared a shell, and just as silently split commands of
