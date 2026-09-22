@@ -6,6 +6,7 @@ using WinApp.Cli.Commands;
 using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Services;
 using WinApp.Cli.Tools;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace WinApp.Cli.Tests;
 
@@ -260,6 +261,9 @@ public class ToolCommandTests : BaseCommandTests
         public FileInfo ResolvedTool { get; set; } = new(Path.Combine(Environment.SystemDirectory, "cmd.exe"));
 
         public FileInfo? GetBuildToolPath(string toolName) => ResolvedTool;
+
+        public VerifiedTool OpenVerifiedTool(FileInfo toolPath)
+            => VerifiedTool.Open(toolPath, static (_, _) => true, NullLogger.Instance);
 
         public Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default)
         {

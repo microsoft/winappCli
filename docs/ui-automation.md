@@ -497,6 +497,7 @@ Capture a window or element as PNG.
 ```bash
 winapp ui screenshot -a notepad                     # saves screenshot.png in cwd
 winapp ui screenshot -a notepad --output my.png     # custom filename
+winapp ui screenshot --quiet -a notepad -o my.png   # save without informational output
 winapp ui screenshot -a notepad --json              # returns file path as JSON
 winapp ui screenshot -w 131906                      # target specific HWND (+ its dialogs)
 winapp ui screenshot txt-searchbox-e5f6 -a myapp          # crop to element bounds
@@ -505,6 +506,8 @@ winapp ui screenshot -a myapp --focus               # bring window to foreground
 ```
 
 Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
+
+`--quiet` suppresses informational output for both single-window and composite captures, including the saved path. Warnings and capture-failure diagnostics remain visible. Use `--json` instead when you need the file path and dimensions as structured output.
 
 With `--on sandbox`, `--output` names the host destination. Successful plain output and `--json` report that host path after the image is delivered.
 
@@ -860,10 +863,17 @@ winapp ui scroll img-map-a1b2 --wheel -1 -a myapp
 > `--direction`, `--to`, and `--wheel` are mutually exclusive — pass exactly one. Because `--wheel` injects OS-wide input at screen coordinates, it brings the target to the foreground first and **fails (`foreground_not_target`)** if focus couldn't be transferred, rather than scrolling the wrong window.
 
 ### get-focused
-Show the element that currently has keyboard focus.
 ```bash
 winapp ui get-focused -a myapp
+winapp ui get-focused -w <HWND> --json
 ```
+Show the element that currently has keyboard focus in the selected app, including
+controls whose app ownership is available only through their parent window.
+With `-w`, focus must belong to that window, not another window or an owned popup
+in the same process. With `-a`, other windows in the selected process are included.
+JSON output has `hasFocus:false` when no focused element can be verified as belonging
+to the target. If a focus or window-ownership query fails, the command exits nonzero instead;
+retry `get-focused`, and rediscover the window with `list-windows` if it has closed.
 
 ### list-windows
 List all visible windows for an app, including popups and dialogs.

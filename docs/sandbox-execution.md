@@ -156,6 +156,12 @@ client without activation; a minimized manually opened client must be restored b
 If input is unavailable after reconnecting, the command fails rather than claiming
 it delivered input. Use the reconnect command in the error and retry.
 
+Use `winapp target snapshot sandbox --json` to check desktop readiness without starting
+or reconnecting the Sandbox. Recognized terminal-error windows do not count as remote
+desktops. If winapp cannot verify the selected desktop because it is still connecting
+or cannot be inspected, readiness remains unavailable; wait and retry. Multiple remote desktops can still be
+ambiguous. Snapshot does not close windows or resolve their errors for you.
+
 See [UI automation](ui-automation.md) for selectors, input methods, and assertions.
 
 ### Coordinating UI workflows in the Sandbox

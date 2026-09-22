@@ -329,6 +329,11 @@ winapp ui get-property Document -a myapp --property FontWeight --json
 winapp ui get-focused -a myapp
 ```
 
+For `get-focused`, `-a` includes windows in the selected process; `-w` restricts
+focus to that exact window, excluding its owned popups. A control can belong to
+the target through its parent window even when it omits its own process ID.
+See `references/ui-json-envelope.md` for focus no-match and query-error handling.
+
 To check a blank or cleared field, use `winapp ui wait-for SearchBox -a myapp --value ""`.
 See [empty-value behavior](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#get-value)
 for JSON output and reading the accessibility label separately.
@@ -416,7 +421,7 @@ The `--json` envelope for `ui inspect`, `ui get-focused`, `ui search`, and `ui w
 
 - `ui inspect --json` now nests elements under `windows[].elements[]` (was a flat `elements[]`).
 - Each inspected window and the `ui status --json` target reports `windowDpi`, `scale`, `dpiAwareness`, and `coordinateSpace: "physical-screen-pixels"`. This is the target window's DPI context. The selected target fails fast on an unreadable DPI instead of defaulting to 96; a secondary window that disappears mid-walk carries `dpiError` and omits the four context fields.
-- `ui get-focused --json` always emits an envelope — `{ "hasFocus": false }` or `{ "hasFocus": true, "element": {...} }` (was bare `null`).
+- Successful `ui get-focused --json` queries emit `{ "hasFocus": false }` or `{ "hasFocus": true, "element": {...} }` (was bare `null`); query failures exit nonzero with the standard JSON error on stderr, not a `hasFocus` result.
 - `ui search --json` returns `{ "matchCount", "hasMore", "matches" }`; `ui wait-for --json` returns `{ "found", "waitedMs", "element"?, "timedOut" }`.
 - `ui get-property --json` preserves `elementId` and its string-valued `properties` map, and adds a typed, scrubbed `element`.
 - Typed elements use `type` (not `controlType`) and numeric `x`, `y`, `width`, and `height` in physical screen pixels. `0,0,0,0` is UIA's empty/no-displayed-UI rectangle; `isOffscreen` remains independent.

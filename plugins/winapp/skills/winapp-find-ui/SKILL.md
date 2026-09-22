@@ -133,9 +133,13 @@ winapp find-ui "color picker" --json
   [restricted filesystem access](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#restricted-filesystem-access).
 - **Check the corpus provenance when it matters.** `--json` carries `"corpus"`:
   `"network"` (fetched this run), `"cache"` (this machine's earlier fetch), or
-  `"embedded"` (served from the corpus built into the CLI — either the fetch failed
-  or the local cache predates the bake). Only `"embedded"` may lag upstream —
-  re-run with `--refresh` if a sample looks out of date.
+  `"embedded"` (served from a corpus built into the CLI — a core-only request
+  (`--source core`, or an `--id` set that is all core patterns), or a
+  Gallery/Toolkit/Reactor result whose fetch failed or whose local cache predates
+  the bake). A Gallery/Toolkit/Reactor `"embedded"` result may lag upstream — re-run
+  with `--refresh` if a sample looks out of date; core patterns ship with the CLI and
+  `--refresh` cannot change them. The field is absent only when no corpus could be
+  loaded at all.
 - **Scenario ids** are stable within a cached corpus and **case-insensitive** —
   `GALLERY-TABVIEW-1` resolves the same as `gallery-tabview-1`. Gallery/Toolkit/Reactor ids
   look like `gallery-<control>-<n>` / `toolkit-<control>-<n>` /
