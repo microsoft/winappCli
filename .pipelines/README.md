@@ -159,6 +159,13 @@ Everything else, for real:
   and nothing is published, but it proves the connection exists, this pipeline is authorized to
   use it, **and the workload-identity federation credential still works** — the part that silently
   rotates or gets de-authorized under ES policy changes.
+- **The network path to nuget.org.** A plain HTTPS GET of `https://api.nuget.org/v3/index.json`
+  proves a release could reach the endpoint it pushes to, under the same network isolation policy
+  the release runs. Nothing is published and the API key is not exercised. This is a canary for the
+  break it was added after: 1ES centrally onboarded this pipeline to the `CFSClean` policy, which
+  DNS-blackholes `api.nuget.org`, and because the rehearsal skips `Release_NuGet` it stayed green
+  for weeks while a release could no longer publish. If this step fails, the release push is
+  already dead — the step prints the triage path.
 
 ### Limitations
 
@@ -174,7 +181,8 @@ Everything else, for real:
   `GitHubRelease@1`, whose every action mutates, and `NuGet-WinAppCLI` carries an API key that is
   only validated on push. There is deliberately no check for them — a metadata lookup would prove
   nothing about the credential, and it is better to say so than to fake coverage. They are covered
-  the moment you cut a real release.
+  the moment you cut a real release. The `NuGet-WinAppCLI` **credential** is still unverified this
+  way — only the network path to `api.nuget.org` is checked, which is a different question.
 - **The publish calls themselves never run.** The rehearsal validates their preconditions, not the
   final API call.
 
