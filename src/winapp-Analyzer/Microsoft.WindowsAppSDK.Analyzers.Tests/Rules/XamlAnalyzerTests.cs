@@ -185,6 +185,27 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task Wui2011FlagsCustomPropertyNamedLikeFrameworkEvent()
+    {
+        const string source = @"namespace Sample
+{
+    public class Panel
+    {
+        public bool Opened { get; set; }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:local=""using:Sample"">
+  <local:Panel Opened=""{x:Bind ViewModel.IsOpen}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task Wui2010DoesNotFlagNestedBindingWithExplicitModeAndFallback()
     {
         // FP guard: a nested binding with an explicit mode still needs a fallback to stay clean;

@@ -254,11 +254,17 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         XElement element,
         string attributeName)
     {
+        var resolvedElementType = false;
         foreach (var typeName in GetElementTypeNames(element))
         {
-            for (var type = compilation.GetTypeByMetadataName(typeName);
-                 type != null;
-                 type = type.BaseType)
+            var type = compilation.GetTypeByMetadataName(typeName);
+            if (type == null)
+            {
+                continue;
+            }
+
+            resolvedElementType = true;
+            for (; type != null; type = type.BaseType)
             {
                 if (type.GetMembers(attributeName).Any(member => member.Kind == SymbolKind.Event))
                 {
@@ -267,7 +273,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
             }
         }
 
-        return EventAttributes.Contains(attributeName);
+        return !resolvedElementType && EventAttributes.Contains(attributeName);
     }
 
     private static IEnumerable<string> GetElementTypeNames(XElement element)
@@ -300,9 +306,8 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         var parts = SplitTopLevel(bindExpr);
         var path = string.Empty;
         var args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var part in parts)
+        foreach (var trimmedPart in parts.Select(part => part.Trim()))
         {
-            var trimmedPart = part.Trim();
             var eq = IndexOfTopLevelEquals(trimmedPart);
             if (eq > 0)
             {
