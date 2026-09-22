@@ -1039,8 +1039,9 @@ extends:
           #
           # Only these two are verifiable this way. github-service-connection is consumed solely by
           # GitHubRelease@1, whose every action mutates, and NuGet-WinAppCLI carries an API key that
-          # is only validated on push - so neither can be exercised without actually releasing.
-          # See .pipelines/README.md; do not add a fake check for them.
+          # is only validated on push - so neither CREDENTIAL can be exercised without actually
+          # releasing. See .pipelines/README.md; do not add a fake check for them. The network path
+          # to nuget.org is a separate question, and is a real check - see the last step below.
           #
           # Both bind the same parameters the real signing and symbol tasks bind, not the
           # underlying variables, so a run that overrides either identity verifies the connection
@@ -1085,6 +1086,39 @@ extends:
                 $token = (Get-AzAccessToken -AsSecureString -ResourceUrl api://30471ccf-0966-45b9-a979-065dbedb24c1).Token
                 if (-not $token -or $token.Length -eq 0) { throw "Symbol publishing connection did not yield an access token." }
                 Write-Host "[PASS] Symbol publishing connection issued a token for the symbol service."
+
+          # The push cannot be rehearsed - its API key is only validated on push, and a push is an
+          # immutable publish - but the network path to it can be, and that is the part that
+          # actually broke. 1ES centrally onboarded this pipeline to the CFSClean network isolation
+          # policy, which DNS-blackholes api.nuget.org; releases stopped being able to publish and
+          # the rehearsal did not notice, because it skips Release_NuGet and a run that never
+          # reaches a blocked endpoint looks compliant to everyone.
+          #
+          # So this reaches the exact endpoint the release pushes to, under the exact policy mix the
+          # release runs, and publishes nothing. It is not a credential check and must not grow into
+          # a fake one; it answers only "could a release get a packet there at all".
+          #
+          # Retried because a genuine nuget.org outage would otherwise redden the Monday build for a
+          # reason nobody here can act on.
+          - task: PowerShell@2
+            displayName: Verify nuget.org is reachable (publishes nothing)
+            condition: succeededOrFailed()
+            retryCountOnTaskFailure: 2
+            inputs:
+              pwsh: true
+              targetType: inline
+              script: |
+                $index = 'https://api.nuget.org/v3/index.json'
+                try {
+                  $response = Invoke-WebRequest -Uri $index -UseBasicParsing -TimeoutSec 30
+                  Write-Host "[PASS] Reached $index (HTTP $($response.StatusCode)); a release push has a network path."
+                }
+                catch {
+                  Write-Host "[FAIL] $index is unreachable: $($_.Exception.Message)"
+                  Write-Host "A release from rel/v* would fail at 'NuGet push to nuget.org'."
+                  Write-Host "If that is a socket-permission or DNS failure, this pipeline has most likely been re-onboarded to the CFSClean network isolation policy. Open the 'Start Network Isolation' task, look for a policy reported with Source=[PerPipelineRequiredConfig], and mail netiso@microsoft.com with a link to this run."
+                  throw
+                }
 
     # -------------------------------------------------------------------------------------------
     # Prerelease library-package publish (opt-in, manual only).
