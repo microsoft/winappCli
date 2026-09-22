@@ -177,6 +177,19 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task Wui2011DoesNotFlagPasswordChangedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <PasswordBox PasswordChanged=""{x:Bind OnPasswordChanged}""
+               AutomationProperties.AutomationId=""password"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task Wui2011DoesNotFlagCustomControlEvent()
     {
         const string source = @"namespace Sample
