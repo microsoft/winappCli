@@ -62,6 +62,24 @@ public class DeploymentStateStoreTests
     }
 
     [TestMethod]
+    public void Commit_WithAnOpenReader_PublishesWithoutInvalidatingTheReader()
+    {
+        var original = Seed();
+        var stateFile = Path.Join(_root, Target.StateKey, DeploymentStateStore.DeploymentsFolder, "same-app.json");
+        using var stream = new FileStream(stateFile, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        var originalJson = reader.ReadToEnd();
+        stream.Position = 0;
+        reader.DiscardBufferedData();
+
+        var committed = CreateStore().Commit(Target, original with { Dirty = true }, original.Revision);
+
+        Assert.AreEqual(original.Revision + 1, committed.Revision);
+        Assert.IsTrue(CreateStore().Read(Target, original.DeploymentId)!.Dirty);
+        Assert.AreEqual(originalJson, reader.ReadToEnd(), "The existing reader must retain the previous committed snapshot.");
+    }
+
+    [TestMethod]
     public async Task Commit_DoesNotCheckOrReplaceStateWhileAnotherWriterHoldsItsLease()
     {
         var original = Seed();

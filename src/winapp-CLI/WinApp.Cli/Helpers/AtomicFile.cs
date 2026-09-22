@@ -28,13 +28,27 @@ internal static class AtomicFile
     }
 
     /// <summary>Writes <paramref name="content"/> to <paramref name="destinationPath"/> atomically.</summary>
-    public static void WriteAllText(string destinationPath, string content)
+    /// <param name="destinationPath">The final file path.</param>
+    /// <param name="content">The complete new contents.</param>
+    /// <param name="replaceExistingUnderLease">
+    /// Preserves open, delete-sharing readers of an existing destination. The caller must hold
+    /// a writer lease covering the existence check and replacement: File.Replace does not
+    /// support competing publishers. Other callers retain overwrite-by-move publication.
+    /// </param>
+    public static void WriteAllText(string destinationPath, string content, bool replaceExistingUnderLease = false)
     {
         var tempPath = MakeTempPath(destinationPath);
         try
         {
             File.WriteAllText(tempPath, content);
-            File.Move(tempPath, destinationPath, overwrite: true);
+            if (replaceExistingUnderLease)
+            {
+                File.Replace(tempPath, destinationPath, destinationBackupFileName: null);
+            }
+            else
+            {
+                File.Move(tempPath, destinationPath, overwrite: true);
+            }
         }
         finally
         {

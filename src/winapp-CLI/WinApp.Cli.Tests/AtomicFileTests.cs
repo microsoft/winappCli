@@ -54,6 +54,54 @@ public class AtomicFileTests
     }
 
     [TestMethod]
+    public async Task WriteAllText_WithDeleteSharingReader_PreservesBothSnapshots()
+    {
+        var dest = Path.Combine(_tempDir, "state.json");
+        File.WriteAllText(dest, "old snapshot");
+        using var stream = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        AtomicFile.WriteAllText(dest, "new snapshot", replaceExistingUnderLease: true);
+
+        Assert.AreEqual("new snapshot", File.ReadAllText(dest));
+        Assert.AreEqual("old snapshot", await reader.ReadToEndAsync());
+        Assert.IsEmpty(Directory.GetFiles(_tempDir, "*.tmp"));
+    }
+
+    [TestMethod]
+    public void WriteAllText_ReadOnlyDestination_FailsWithoutChangingContent()
+    {
+        var dest = Path.Combine(_tempDir, "readonly.json");
+        File.WriteAllText(dest, "old");
+        File.SetAttributes(dest, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.ThrowsExactly<UnauthorizedAccessException>(
+                () => AtomicFile.WriteAllText(dest, "new", replaceExistingUnderLease: true));
+            Assert.AreEqual("old", File.ReadAllText(dest));
+            Assert.IsEmpty(Directory.GetFiles(_tempDir, "*.tmp"));
+        }
+        finally
+        {
+            File.SetAttributes(dest, FileAttributes.Normal);
+        }
+    }
+
+    [TestMethod]
+    public void WriteAllText_ReaderDenyingDeletion_IsNotBypassed()
+    {
+        var dest = Path.Combine(_tempDir, "held.json");
+        File.WriteAllText(dest, "old");
+        using var held = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        Assert.ThrowsExactly<IOException>(
+            () => AtomicFile.WriteAllText(dest, "new", replaceExistingUnderLease: true));
+
+        Assert.AreEqual("old", File.ReadAllText(dest));
+        Assert.IsEmpty(Directory.GetFiles(_tempDir, "*.tmp"));
+    }
+
+    [TestMethod]
     public async Task WriteStagedAsync_DoesNotPublishUntilPublishCalled()
     {
         var dest = Path.Combine(_tempDir, "staged.bin");
