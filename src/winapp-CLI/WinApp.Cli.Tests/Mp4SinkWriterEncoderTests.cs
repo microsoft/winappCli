@@ -11,6 +11,8 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class Mp4SinkWriterEncoderTests
 {
+    private const int FramesPerSecond = 30;
+
     private static string CreateScratchDirectory()
     {
         var dir = Path.Join(Path.GetTempPath(), "winapp-mp4-" + Guid.NewGuid().ToString("N"));
@@ -53,22 +55,31 @@ public class Mp4SinkWriterEncoderTests
         var dir = CreateScratchDirectory();
         try
         {
-            var path = Path.Join(dir, "one-frame.mp4");
+            var path = Path.Join(dir, "short-recording.mp4");
             using var encoder = CreateEncoderOrInconclusive(path);
             Assert.AreEqual(64, encoder.Width);
             Assert.AreEqual(64, encoder.Height);
+            const long frameDurationHns = 10_000_000 / FramesPerSecond;
 
             var shortFrame = new byte[63 * 64 * 4];
             var ex = Assert.ThrowsExactly<ArgumentException>(
-                () => encoder.WriteFrame(shortFrame, 0, 10_000_000));
+                () => encoder.WriteFrame(shortFrame, 0, frameDurationHns));
             StringAssert.Contains(ex.Message, "expected 16384");
 
-            encoder.WriteFrame(Enumerable.Repeat((byte)0x22, 64 * 64 * 4).ToArray(), 0, 10_000_000);
+            // H.264 encoders buffer input; one sample need not produce a compressed frame (#834).
+            var frame = Enumerable.Repeat((byte)0x22, 64 * 64 * 4).ToArray();
+            for (var i = 0; i < FramesPerSecond; i++)
+            {
+                encoder.WriteFrame(frame, i * frameDurationHns, frameDurationHns);
+            }
+            Assert.IsFalse(File.Exists(path), "Frames must remain staged until completion.");
             encoder.Complete();
             encoder.Complete();
 
             Assert.IsTrue(File.Exists(path));
             Assert.IsTrue(new FileInfo(path).Length > 0, "completed MP4 must be published to the final path");
+            CollectionAssert.AreEquivalent(new[] { path }, Directory.GetFiles(dir, "*.mp4"),
+                "Successful completion must consume the staged recording.");
         }
         finally
         {
@@ -80,7 +91,7 @@ public class Mp4SinkWriterEncoderTests
     {
         try
         {
-            return new Mp4SinkWriterEncoder(path, 64, 64, 1, 1_000_000);
+            return new Mp4SinkWriterEncoder(path, 64, 64, FramesPerSecond, 1_000_000);
         }
         catch (Mp4EncoderInitializationException ex)
         {
