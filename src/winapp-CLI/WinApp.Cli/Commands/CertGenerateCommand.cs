@@ -45,8 +45,8 @@ internal class CertGenerateCommand : Command, IShortDescription
         OutputOption.AcceptLegalFilePathsOnly();
         PasswordOption = new Option<string>("--password")
         {
-            Description = "Password for the generated PFX file",
-            DefaultValueFactory = (argumentResult) => "password",
+            Description = $"Password for the generated PFX file. Defaults to '{CertificateService.DefaultCertPassword}', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you.",
+            DefaultValueFactory = (argumentResult) => CertificateService.DefaultCertPassword,
         };
         ValidDaysOption = new Option<int>("--valid-days")
         {
@@ -179,13 +179,18 @@ internal class CertGenerateCommand : Command, IShortDescription
 
             if (returnCode == 0 && json && certResult != null)
             {
+                var defaultPasswordIsPublic = CertificateService.UsesDefaultPassword(certResult.Password);
                 var jsonOutput = new CertGenerateJsonOutput
                 {
                     CertificatePath = certResult.CertificatePath.FullName,
                     Password = certResult.Password,
+                    DefaultPasswordIsPublic = defaultPasswordIsPublic,
                     Publisher = certResult.Publisher,
                     SubjectName = certResult.SubjectName,
                     PublicCertificatePath = certResult.PublicCertificatePath?.FullName,
+                    // --json suppresses status messages, so the disclosure the interactive run
+                    // prints has to travel in the payload instead.
+                    Warnings = defaultPasswordIsPublic ? [CertificateService.DefaultPasswordDisclosure] : null,
                 };
                 ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(jsonOutput, WinAppJsonContext.Default.CertGenerateJsonOutput));
             }
