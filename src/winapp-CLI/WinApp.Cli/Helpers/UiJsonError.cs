@@ -21,6 +21,7 @@ internal static class UiJsonError
     public const string CodeInternalError = "internal_error";
     public const string CodeZeroSize = "zero_size_element";
     public const string CodeForegroundNotTarget = "foreground_not_target";
+    public const string CodeFocusNotAcquired = "focus_not_acquired";
     public const string CodeNoInteractiveDesktop = "no_interactive_desktop";
     public const string CodeTargetMoved = "target_moved";
     public const string CodeNoTarget = "no_target";
