@@ -22,9 +22,9 @@ public class VerifiedToolTests
     [TestInitialize]
     public void Setup()
     {
-        _root = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"VerifiedTool_{Guid.NewGuid():N}"));
-        _binDir = Directory.CreateDirectory(Path.Combine(_root.FullName, "bin"));
-        _tool = new FileInfo(Path.Combine(_binDir.FullName, "mt.exe"));
+        _root = Directory.CreateDirectory(Path.Join(Path.GetTempPath(), $"VerifiedTool_{Guid.NewGuid():N}"));
+        _binDir = Directory.CreateDirectory(Path.Join(_root.FullName, "bin"));
+        _tool = new FileInfo(Path.Join(_binDir.FullName, "mt.exe"));
         File.WriteAllText(_tool.FullName, "fake tool");
     }
 
@@ -82,7 +82,7 @@ public class VerifiedToolTests
         using var held = Open(_tool);
 
         Assert.ThrowsExactly<IOException>(
-            () => File.Move(_tool.FullName, Path.Combine(_binDir.FullName, "mt.exe.old")),
+            () => File.Move(_tool.FullName, Path.Join(_binDir.FullName, "mt.exe.old")),
             "Renaming the verified tool aside would let a replacement take its path.");
     }
 
@@ -99,7 +99,7 @@ public class VerifiedToolTests
     {
         // Holding the file has to bind the path, not just the bytes: renaming a directory above the
         // tool would otherwise point the same path at an attacker's tree.
-        var renamedBin = Path.Combine(_root.FullName, "bin-old");
+        var renamedBin = Path.Join(_root.FullName, "bin-old");
 
         using (Open(_tool))
         {
@@ -197,7 +197,7 @@ public class VerifiedToolTests
     [TestMethod]
     public void Open_MissingTool_FailsClosedWithASignatureException()
     {
-        var missing = new FileInfo(Path.Combine(_binDir.FullName, "does-not-exist.exe"));
+        var missing = new FileInfo(Path.Join(_binDir.FullName, "does-not-exist.exe"));
         var verified = false;
 
         var ex = Assert.ThrowsExactly<BuildToolSignatureException>(
@@ -222,8 +222,8 @@ public class VerifiedToolTests
     {
         // The hold is worthless if it also blocks the launch it is protecting, and nothing else in
         // this suite would notice: every other test stands in a text file for a real executable.
-        var real = new FileInfo(Path.Combine(_binDir.FullName, "probe.exe"));
-        File.Copy(Path.Combine(Environment.SystemDirectory, "whoami.exe"), real.FullName);
+        var real = new FileInfo(Path.Join(_binDir.FullName, "probe.exe"));
+        File.Copy(Path.Join(Environment.SystemDirectory, "whoami.exe"), real.FullName);
 
         using var verified = Open(real);
 
@@ -237,19 +237,19 @@ public class VerifiedToolTests
         // Holding the file pins the file, not the path. A junction along the way can be deleted and
         // re-created while the handle stays valid, so the path the tool was found at would go on to
         // launch whatever the junction now points at.
-        var good = Directory.CreateDirectory(Path.Combine(_root.FullName, "good"));
-        var evil = Directory.CreateDirectory(Path.Combine(_root.FullName, "evil"));
-        File.Copy(Path.Combine(Environment.SystemDirectory, "whoami.exe"), Path.Combine(good.FullName, "tool.exe"));
-        File.Copy(Path.Combine(Environment.SystemDirectory, "hostname.exe"), Path.Combine(evil.FullName, "tool.exe"));
+        var good = Directory.CreateDirectory(Path.Join(_root.FullName, "good"));
+        var evil = Directory.CreateDirectory(Path.Join(_root.FullName, "evil"));
+        File.Copy(Path.Join(Environment.SystemDirectory, "whoami.exe"), Path.Join(good.FullName, "tool.exe"));
+        File.Copy(Path.Join(Environment.SystemDirectory, "hostname.exe"), Path.Join(evil.FullName, "tool.exe"));
 
-        var junction = Path.Combine(_root.FullName, "pkg");
+        var junction = Path.Join(_root.FullName, "pkg");
         if (!TryCreateJunction(junction, good.FullName))
         {
             Assert.Inconclusive("Could not create a directory junction on this machine.");
         }
 
-        var expected = RunAndCaptureOutput(Path.Combine(good.FullName, "tool.exe"));
-        using var verified = Open(new FileInfo(Path.Combine(junction, "tool.exe")));
+        var expected = RunAndCaptureOutput(Path.Join(good.FullName, "tool.exe"));
+        using var verified = Open(new FileInfo(Path.Join(junction, "tool.exe")));
 
         Directory.Delete(junction);
         Assert.IsTrue(TryCreateJunction(junction, evil.FullName),
