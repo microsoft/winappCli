@@ -3559,6 +3559,65 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_NoBuild_FindsCustomPlatformOutputWithoutBuilding()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var missingAnyCpu = Path.Combine(_tempDir.FullName, "AnyCPU", "Debug");
+        var existingX64 = Directory.CreateDirectory(
+            Path.Combine(_tempDir.FullName, "x64", "Debug")).FullName;
+        var evaluatedArguments = new List<string>();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                evaluatedArguments.Add(args);
+                var targetDir = args.Contains(
+                    "-p:Platform=x64",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? existingX64
+                    : missingAnyCpu;
+                var json = $$"""
+                    { "Properties": {
+                        "TargetDir": "{{targetDir.Replace("\\", "\\\\")}}",
+                        "RunCommand": "",
+                        "WindowsPackageType": "MSIX",
+                        "OutputType": "WinExe",
+                        "WindowsAppSDKSelfContained": ""
+                    } }
+                    """;
+                return (0, json, string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        var options = new ProjectRunOptions(
+            "Debug",
+            "x64",
+            null,
+            NoBuild: true,
+            NoRestore: false,
+            Properties: [],
+            Json: false);
+
+        var outcome = await service.BuildAndResolveAsync(
+            csproj,
+            options,
+            CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(
+            existingX64,
+            outcome.Resolution!.TargetDir.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar));
+        Assert.IsTrue(
+            evaluatedArguments.Any(args =>
+                args.Contains("-p:Platform=x64", StringComparison.OrdinalIgnoreCase)
+                && !args.Contains("-p:RuntimeIdentifier=", StringComparison.OrdinalIgnoreCase)),
+            "--no-build discovery should evaluate the requested Platform without building or pinning a RID");
+        Assert.AreEqual(0, dotnet.StreamingCalls.Count);
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_BuildFailure_ShortCircuitsBeforePostBuildEvaluate()
     {
         // A failed build pass must propagate its exit code and skip the post-build evaluate. The

@@ -340,18 +340,39 @@ internal sealed partial class ProjectRunService(
             if (!string.IsNullOrEmpty(primaryTargetDir) && !Directory.Exists(primaryTargetDir))
             {
                 // Ordered from "closest to what winapp would have built" to "plain dotnet build".
-                var fallbacks = new List<(bool Rid, bool Platform, bool PublishProfile)>();
+                var fallbacks = new List<(
+                    ProjectRunOptions Options,
+                    bool Rid,
+                    bool Platform,
+                    bool PublishProfile)>();
+                if (string.IsNullOrWhiteSpace(options.Platform)
+                    && !UserSpecifiesProperty(options.Properties, "Platform"))
+                {
+                    // Platform injection may have been withheld because passing it to a real build would
+                    // flow into an AnyCPU ProjectReference. Property evaluation has no such build-side
+                    // effect, and some repos use $(Platform) in a custom OutputPath. Probe the requested
+                    // architecture so --arch x64 --no-build can find an output produced by Visual Studio.
+                    fallbacks.Add((
+                        options with { Platform = options.Architecture },
+                        false,
+                        true,
+                        false));
+                }
                 if (!string.IsNullOrWhiteSpace(options.Platform))
                 {
-                    fallbacks.Add((false, true, true)); // no RID, keep resolved Platform/profile
+                    fallbacks.Add((options, false, true, true)); // no RID, keep resolved Platform/profile
                 }
-                fallbacks.Add((false, false, false)); // plain `dotnet build` / VS layout
-                fallbacks.Add((true, false, false));  // RID-only (including older winapp versions)
+                fallbacks.Add((options, false, false, false)); // plain `dotnet build` / VS layout
+                fallbacks.Add((options, true, false, false));  // RID-only (including older winapp versions)
 
-                foreach (var (includeRid, includePlatform, includePublishProfile) in fallbacks)
+                foreach (var (
+                    evaluationOptions,
+                    includeRid,
+                    includePlatform,
+                    includePublishProfile) in fallbacks)
                 {
                     var args = BuildEvaluateArguments(
-                        csproj, options, csWinRTMetadata,
+                        csproj, evaluationOptions, csWinRTMetadata,
                         includeRuntimeIdentifier: includeRid,
                         includePlatform: includePlatform,
                         includePublishProfile: includePublishProfile);
