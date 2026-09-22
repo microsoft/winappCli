@@ -218,7 +218,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
                         context.ReportDiagnostic(Diagnostic.Create(XBindNoModeRule, location));
                     }
 
-                    if (!bindPath.Contains("("))
+                    if (!isEvent && !bindPath.Contains("("))
                     {
                         var segments = bindPath.Split('.');
                         if (segments.Length >= 3 && !bindArgs.ContainsKey("FallbackValue"))

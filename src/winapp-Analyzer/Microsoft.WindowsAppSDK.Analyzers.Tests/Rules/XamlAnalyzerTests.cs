@@ -210,6 +210,26 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task Wui2010DoesNotFlagNestedCustomEventHandlerPath()
+    {
+        const string source = @"namespace Sample
+{
+    public class Calendar
+    {
+        public event System.EventHandler DayTapped { add { } remove { } }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:local=""using:Sample"">
+  <local:Calendar DayTapped=""{x:Bind ViewModel.Events.OnDayTapped}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task Wui2011FlagsCustomPropertyNamedLikeFrameworkEvent()
     {
         const string source = @"namespace Sample
