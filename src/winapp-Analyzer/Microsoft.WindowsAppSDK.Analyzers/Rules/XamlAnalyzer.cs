@@ -123,7 +123,8 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "SelectionChanged", "TextChanged", "TextChanging", "BeforeTextChanging", "PasswordChanged",
         "QuerySubmitted", "TextSubmitted", "SuggestionChosen",
         "Checked", "Unchecked", "Indeterminate", "Toggled",
-        "ValueChanged", "DateChanged", "TimeChanged", "ItemClick", "ItemInvoked", "Expanding", "Collapsed",
+        "ValueChanged", "ViewChanging", "ViewChanged", "DateChanged", "TimeChanged",
+        "ItemClick", "ItemInvoked", "Expanding", "Collapsed",
         "TabCloseRequested",
         "Navigated", "Navigating", "NavigationFailed", "NavigationStopped",
         "Opened", "Closed", "Opening", "Closing", "Completed"
