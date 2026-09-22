@@ -1359,12 +1359,36 @@ winapp cert generate [options]
 - `--manifest <Package.appxmanifest>` - Extract the certificate publisher from the manifest's `Identity/@Publisher`. Only the publisher is required, so a partially-complete manifest still works. If the manifest has no usable publisher, the command fails instead of substituting a default, so the certificate can never silently mismatch the manifest.
 - `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`. Components must be single-valued and comma-separated; multi-valued RDNs (`CN=Foo+OU=Bar`) and backslashes are not supported because the MSIX manifest publisher cannot represent them. A malformed distinguished name (e.g. `CN=` or `CN=A,,O=B`) is rejected with a non-zero exit and an error naming the problem, rather than producing a certificate that can never match the manifest publisher.
 - `--output <path>` - Output certificate file path (supports absolute and relative paths)
-- `--password <password>` - Certificate password (default: "password")
+- `--password <password>` - Certificate password (default: `password`, which is publicly known — see [JSON output](#cert-generate-json-output) and [Security](security.md#the-default-password))
 - `--valid-days <valid-days>` - Number of days the certificate is valid (default: 365)
 - `--install` - Install the certificate to the local machine store after generation
 - `--if-exists <Error|Overwrite|Skip>` - Set behavior if the certificate file already exists (default: Error)
 - `--export-cer` - Export a `.cer` file (public key only) alongside the `.pfx`. Useful for distributing the public certificate separately for trust installation.
 - `--json` - Format output as JSON for programmatic consumption. Errors are also returned as JSON (`{"error": "..."}`).
+
+<a id="cert-generate-json-output"></a>
+
+**JSON output:**
+
+```json
+{
+  "certificatePath": "C:\\app\\devcert.pfx",
+  "password": "password",
+  "defaultPasswordIsPublic": true,
+  "publisher": "Contoso",
+  "subjectName": "CN=Contoso",
+  "warnings": [
+    "Protected with the default password ('password'), which is public. Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship."
+  ]
+}
+```
+
+`publisher` is the display name and `subjectName` the full distinguished name the certificate was
+issued to. `defaultPasswordIsPublic` is always present. When it is `true`, the `.pfx` is protected by
+a password anyone can guess, so the certificate must only sign builds that stay on your own machines
+— check it before a script hands the certificate to anything else. `warnings` carries the same
+disclosure as text and is omitted when there is nothing to report. `publicCertificatePath` appears
+only with `--export-cer`.
 
 #### cert info
 

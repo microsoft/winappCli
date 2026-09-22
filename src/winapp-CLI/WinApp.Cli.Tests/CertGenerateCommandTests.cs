@@ -4,6 +4,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
 
@@ -439,6 +440,88 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
 
         Assert.IsTrue(root.TryGetProperty("publisher", out _), "JSON should contain 'publisher'");
         Assert.IsTrue(root.TryGetProperty("subjectName", out _), "JSON should contain 'subjectName'");
+
+        Assert.IsTrue(root.TryGetProperty("defaultPasswordIsPublic", out var defaultPwProp),
+            "JSON should always contain 'defaultPasswordIsPublic' so callers can branch on it unconditionally");
+        Assert.IsFalse(defaultPwProp.GetBoolean(), "A caller-supplied password is not the public default");
+    }
+
+    [TestMethod]
+    public async Task JsonOutput_DefaultPassword_IncludesPublicPasswordDisclosure()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "json-default-pw.pfx");
+        var args = new[]
+        {
+            "--publisher", "CN=JsonDefaultPasswordTest",
+            "--output", pfxPath,
+            "--json"
+            // no --password: falls back to the publicly known default
+        };
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+        Assert.AreEqual(0, exitCode, "cert generate --json should succeed with the default password");
+
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+
+        Assert.AreEqual(CertificateService.DefaultCertPassword, root.GetProperty("password").GetString());
+        Assert.IsTrue(root.GetProperty("defaultPasswordIsPublic").GetBoolean(),
+            "The default password is public, so --json must say so");
+
+        Assert.IsTrue(root.TryGetProperty("warnings", out var warningsProp),
+            "JSON should carry the disclosure that --json otherwise suppresses as a status message");
+        var warnings = warningsProp.EnumerateArray().Select(w => w.GetString()).ToList();
+        CollectionAssert.Contains(warnings, CertificateService.DefaultPasswordDisclosure,
+            "The JSON disclosure must be the same text the interactive run prints");
+    }
+
+    [TestMethod]
+    public async Task JsonOutput_ExplicitDefaultPassword_IncludesPublicPasswordDisclosure()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "json-explicit-default-pw.pfx");
+        var args = new[]
+        {
+            "--publisher", "CN=JsonExplicitDefaultPasswordTest",
+            "--output", pfxPath,
+            "--password", CertificateService.DefaultCertPassword,
+            "--json"
+        };
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+        Assert.AreEqual(0, exitCode);
+
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+
+        // The disclosure tracks the password's value, not whether --password was passed:
+        // an explicit --password password is exactly as public as the default.
+        Assert.IsTrue(root.GetProperty("defaultPasswordIsPublic").GetBoolean(),
+            "Explicitly passing the default password is just as public as omitting --password");
+        Assert.IsTrue(root.TryGetProperty("warnings", out _), "JSON should still carry the disclosure");
+    }
+
+    [TestMethod]
+    public async Task JsonOutput_CustomPassword_OmitsWarnings()
+    {
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "json-custom-pw.pfx");
+        var args = new[]
+        {
+            "--publisher", "CN=JsonCustomPasswordTest",
+            "--output", pfxPath,
+            "--password", "NotThePublicDefault",
+            "--json"
+        };
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+        Assert.AreEqual(0, exitCode);
+
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+
+        Assert.IsFalse(root.GetProperty("defaultPasswordIsPublic").GetBoolean(),
+            "A caller-supplied password must not be reported as the public default");
+        Assert.IsFalse(root.TryGetProperty("warnings", out _),
+            "JSON should omit 'warnings' entirely when there is nothing to disclose");
     }
 
     [TestMethod]
