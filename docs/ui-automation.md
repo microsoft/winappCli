@@ -489,7 +489,7 @@ Capture a window or element as PNG.
 ```bash
 winapp ui screenshot -a notepad                     # saves screenshot.png in cwd
 winapp ui screenshot -a notepad --output my.png     # custom filename
-winapp --quiet ui screenshot -a notepad -o my.png   # save without informational output
+winapp ui screenshot --quiet -a notepad -o my.png   # save without informational output
 winapp ui screenshot -a notepad --json              # returns file path as JSON
 winapp ui screenshot -w 131906                      # target specific HWND (+ its dialogs)
 winapp ui screenshot txt-searchbox-e5f6 -a myapp          # crop to element bounds
