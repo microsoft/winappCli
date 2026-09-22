@@ -556,7 +556,7 @@ winapp manifest generate [directory] [options]
 **Options:**
 
 - `--package-name <name>` - Package name (default: folder name)
-- `--publisher-name <name>` - Publisher distinguished name (default: CN=\<current user\>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=\<name\>.
+- `--publisher-name <name>` - Publisher distinguished name (default: CN=\<current user\>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued `+` RDNs and backslashes are not supported); bare names are auto-wrapped as CN=\<name\>.
 - `--version <version>` - Version (default: "1.0.0.0")
 - `--description <text>` - Description (default: "My Application")
 - `--entrypoint <path>` - Entry point executable or script
@@ -1357,14 +1357,38 @@ winapp cert generate [options]
 **Options:**
 
 - `--manifest <Package.appxmanifest>` - Extract the certificate publisher from the manifest's `Identity/@Publisher`. Only the publisher is required, so a partially-complete manifest still works. If the manifest has no usable publisher, the command fails instead of substituting a default, so the certificate can never silently mismatch the manifest.
-- `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`
+- `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`. Components must be single-valued and comma-separated; multi-valued RDNs (`CN=Foo+OU=Bar`) and backslashes are not supported because the MSIX manifest publisher cannot represent them. A malformed distinguished name (e.g. `CN=` or `CN=A,,O=B`) is rejected with a non-zero exit and an error naming the problem, rather than producing a certificate that can never match the manifest publisher.
 - `--output <path>` - Output certificate file path (supports absolute and relative paths)
-- `--password <password>` - Certificate password (default: "password")
+- `--password <password>` - Certificate password (default: `password`, which is publicly known — see [JSON output](#cert-generate-json-output) and [Security](security.md#the-default-password))
 - `--valid-days <valid-days>` - Number of days the certificate is valid (default: 365)
 - `--install` - Install the certificate to the local machine store after generation
 - `--if-exists <Error|Overwrite|Skip>` - Set behavior if the certificate file already exists (default: Error)
 - `--export-cer` - Export a `.cer` file (public key only) alongside the `.pfx`. Useful for distributing the public certificate separately for trust installation.
 - `--json` - Format output as JSON for programmatic consumption. Errors are also returned as JSON (`{"error": "..."}`).
+
+<a id="cert-generate-json-output"></a>
+
+**JSON output:**
+
+```json
+{
+  "certificatePath": "C:\\app\\devcert.pfx",
+  "password": "password",
+  "defaultPasswordIsPublic": true,
+  "publisher": "Contoso",
+  "subjectName": "CN=Contoso",
+  "warnings": [
+    "Protected with the default password ('password'), which is public. Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship."
+  ]
+}
+```
+
+`publisher` is the display name and `subjectName` the full distinguished name the certificate was
+issued to. `defaultPasswordIsPublic` is always present. When it is `true`, the `.pfx` is protected by
+a password anyone can guess, so the certificate must only sign builds that stay on your own machines
+— check it before a script hands the certificate to anything else. `warnings` carries the same
+disclosure as text and is omitted when there is nothing to report. `publicCertificatePath` appears
+only with `--export-cer`.
 
 #### cert info
 
@@ -1749,7 +1773,7 @@ winapp find-ui "<query>" [options]
 
 The Gallery, Toolkit, and Reactor corpora ship **inside the CLI**, so `find-ui` works with no network access — including on a first run in an agent sandbox or behind a corporate proxy that blocks `raw.githubusercontent.com`. When GitHub *is* reachable the CLI refreshes from it and caches the result per-user under `<global .winapp>/cache/find-ui`; the built-in corpus is only a floor, never a ceiling. Cached data is refreshed at most every 24 hours, or on demand with `--refresh`.
 
-The built-in corpus is re-fetched from GitHub every time a stable release is built, and a refresh that fails **stops the release build** rather than quietly shipping older data — the baker fetches through the same code path `--refresh` uses, so a failure there means the live refresh is broken too and is worth investigating before shipping. A release can still be cut against the previously committed corpus, but only as an explicit override. When results are served from the built-in copy, `find-ui` says so on stderr and `--json` output carries `"corpus": "embedded"` (other values: `"network"` for a fresh fetch, `"cache"` for the local cache).
+The built-in corpus is re-fetched from GitHub every time a stable release is built, and a refresh that fails **stops the release build** rather than quietly shipping older data — the baker fetches through the same code path `--refresh` uses, so a failure there means the live refresh is broken too and is worth investigating before shipping. A release can still be cut against the previously committed corpus, but only as an explicit override. When results are served from the built-in copy of the Gallery/Toolkit/Reactor corpora, `find-ui` says so on stderr and `--json` output carries `"corpus": "embedded"` (other values: `"network"` for a fresh fetch, `"cache"` for the local cache). A core-only request — `--source core`, or an `--id` set that is all core patterns — reports `"embedded"` too, because the curated core patterns are compiled into the CLI and never fetched; it prints no staleness notice, since `--refresh` cannot change them. The `corpus` field is reported whenever results were served; it is absent only when no corpus could be loaded at all.
 
 **Options:**
 
@@ -2140,7 +2164,7 @@ winapp ui [command] [options]
 - `search` - Find elements by selector
 - `get-property` - Read element properties
 - `get-text` / `get-value` - Read value/text from element (TextPattern, ValuePattern, or Name)
-- `screenshot` - Capture window/element as PNG (auto-captures dialogs separately)
+- `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
 - `invoke` - Activate element (click, toggle, expand)
 - `click` - Click element via mouse simulation (for controls that don't support invoke)
@@ -2194,7 +2218,7 @@ stop reason, optional `frameArtifacts`, and warnings.
 
 > **Known limitation:** recording a *specific element* inside a popup that renders in its own
 > top-level window (WinUI/XAML flyout, teaching tip, tooltip) may capture the underlying main
-> window instead. Record the whole window, or use `ui screenshot --capture-screen` for popup
-> stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
+> window instead. Record the whole window, or follow the [screenshot overlay workflow](ui-automation.md#screenshot)
+> for popup stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

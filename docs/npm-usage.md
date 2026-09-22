@@ -102,7 +102,7 @@ function certGenerate(options?: CertGenerateOptions): Promise<WinappResult>
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
-| `password` | `string \| undefined` | No | Password for the generated PFX file |
+| `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 
@@ -857,7 +857,7 @@ function uiFocus(options?: UiFocusOptions): Promise<WinappResult>
 
 ### `uiGetFocused()`
 
-Show the element that currently has keyboard focus in the target app.
+Show the element that currently has keyboard focus in the target app. With -w, focus must belong to that exact top-level window; owned popups are excluded.
 
 ```typescript
 function uiGetFocused(options?: UiGetFocusedOptions): Promise<WinappResult>
@@ -1052,7 +1052,7 @@ function uiPen(options?: UiPenOptions): Promise<WinappResult>
 
 ### `uiScreenshot()`
 
-Capture the target window or element as a PNG image. When multiple windows exist (e.g., dialogs), captures each to a separate file. With --json, returns file path and dimensions. Use --capture-screen for popup overlays.
+Capture the target window or element as a PNG image. Without an element selector, combines multiple windows into one labeled composite: --app by process name or PID includes the app's windows and their owned windows; a title match or --window selects one window plus its owned windows. With --json, returns file path and dimensions. Use --capture-screen with --window to capture one screen region, including visible overlays in place.
 
 ```typescript
 function uiScreenshot(options?: UiScreenshotOptions): Promise<WinappResult>
@@ -1739,7 +1739,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
-| `password` | `string \| undefined` | No | Password for the generated PFX file |
+| `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |

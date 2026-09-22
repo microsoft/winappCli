@@ -79,7 +79,7 @@ start writing code:
 winapp find-api check-property InfoBar Severity IsOpen Message Title IsClosable
 
 # One call, several types
-winapp find-api members InfoBar TeachingTip --filter severity
+winapp find-api members InfoBar TeachingTip --filter isopen
 winapp find-api enums InfoBarSeverity Symbol Visibility
 winapp find-api "acrylic brush" "teaching tip" --max 5
 ```

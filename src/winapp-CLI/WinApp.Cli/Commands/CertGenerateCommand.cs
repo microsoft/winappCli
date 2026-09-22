@@ -30,7 +30,7 @@ internal class CertGenerateCommand : Command, IShortDescription
     {
         PublisherOption = new Option<string>("--publisher")
         {
-            Description = "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>."
+            Description = "Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>."
         };
         ManifestOption = new Option<FileInfo>("--manifest")
         {
@@ -45,8 +45,8 @@ internal class CertGenerateCommand : Command, IShortDescription
         OutputOption.AcceptLegalFilePathsOnly();
         PasswordOption = new Option<string>("--password")
         {
-            Description = "Password for the generated PFX file",
-            DefaultValueFactory = (argumentResult) => "password",
+            Description = $"Password for the generated PFX file. Defaults to '{CertificateService.DefaultCertPassword}', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you.",
+            DefaultValueFactory = (argumentResult) => CertificateService.DefaultCertPassword,
         };
         ValidDaysOption = new Option<int>("--valid-days")
         {
@@ -154,6 +154,20 @@ internal class CertGenerateCommand : Command, IShortDescription
                     return 1;
                 }
             }
+            // Otherwise validate an explicit publisher up front so a malformed distinguished name — or
+            // an explicitly empty value — fails with a clear, actionable message instead of silently
+            // generating a certificate that can never match the manifest Identity/@Publisher.
+            // `publisher` is null only when --publisher was omitted (inference then applies); a
+            // supplied-but-empty value must still be rejected rather than fall through to a default.
+            else if (publisher is not null && !PublisherDnHelper.TryNormalize(publisher, out _, out var publisherError))
+            {
+                if (json)
+                {
+                    return JsonErrorOutput.Write(ansiConsole, publisherError);
+                }
+                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, publisherError);
+                return 1;
+            }
 
             CertificateService.CertificateResult? certResult = null;
 
@@ -165,13 +179,18 @@ internal class CertGenerateCommand : Command, IShortDescription
 
             if (returnCode == 0 && json && certResult != null)
             {
+                var defaultPasswordIsPublic = CertificateService.UsesDefaultPassword(certResult.Password);
                 var jsonOutput = new CertGenerateJsonOutput
                 {
                     CertificatePath = certResult.CertificatePath.FullName,
                     Password = certResult.Password,
+                    DefaultPasswordIsPublic = defaultPasswordIsPublic,
                     Publisher = certResult.Publisher,
                     SubjectName = certResult.SubjectName,
                     PublicCertificatePath = certResult.PublicCertificatePath?.FullName,
+                    // --json suppresses status messages, so the disclosure the interactive run
+                    // prints has to travel in the payload instead.
+                    Warnings = defaultPasswordIsPublic ? [CertificateService.DefaultPasswordDisclosure] : null,
                 };
                 ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(jsonOutput, WinAppJsonContext.Default.CertGenerateJsonOutput));
             }
