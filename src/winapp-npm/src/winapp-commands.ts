@@ -1355,7 +1355,7 @@ export interface UiGetFocusedOptions extends CommonOptions {
 }
 
 /**
- * Show the element that currently has keyboard focus in the target app.
+ * Show the element that currently has keyboard focus in the target app. With -w, focus must belong to that exact top-level window; owned popups are excluded.
  */
 export async function uiGetFocused(options: UiGetFocusedOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-focused'];

@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Tests;
@@ -206,6 +207,41 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiGetFocusedCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task GetFocused_QueryFailure_JsonDoesNotEmitFocusNegative(bool comFailure)
+    {
+        var previousError = Console.Error;
+        try
+        {
+            Console.SetError(ConsoleStdErr);
+            _fakeUia.GetFocusedThrow = comFailure ? FakeComException : FakeGenericException;
+            var exitCode = await ParseAndInvokeWithCaptureAsync(
+                GetRequiredService<UiGetFocusedCommand>(), ["-a", "TestApp", "--json"]);
+
+            Assert.AreEqual(1, exitCode);
+            AssertJsonErrorCode(comFailure ? UiJsonError.CodeStaleElement : UiJsonError.CodeInternalError);
+            Assert.DoesNotContain("hasFocus", TestAnsiConsole.Output);
+        }
+        finally
+        {
+            Console.SetError(previousError);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetFocused_Help_ExplainsExactWindowScope()
+    {
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<WinAppRootCommand>(), ["ui", "get-focused", "--help"]);
+
+        Assert.AreEqual(0, exitCode);
+        var help = TestAnsiConsole.Output.ReplaceLineEndings(" ");
+        StringAssert.Contains(help, "exact top-level window");
+        StringAssert.Contains(help, "owned popups are excluded");
     }
 
     // ---------- get-property ----------
