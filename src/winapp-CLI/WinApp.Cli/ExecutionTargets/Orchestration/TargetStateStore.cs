@@ -147,7 +147,9 @@ internal sealed class TargetStateStore(ITargetStateDirectoryProvider directoryPr
         };
 
         var file = GetStateFile(target, create: true);
-        AtomicFile.WriteAllText(file, JsonSerializer.Serialize(committed, TargetStateJsonContext.Default.TargetState));
+        AtomicFile.WriteAllText(
+            file, JsonSerializer.Serialize(committed, TargetStateJsonContext.Default.TargetState),
+            preserveReaders: true);
         return committed;
     }
 

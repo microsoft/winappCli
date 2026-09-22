@@ -252,7 +252,7 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
 
         AtomicFile.WriteAllText(
             file, JsonSerializer.Serialize(committed, DeploymentStateJsonContext.Default.DeploymentState),
-            replaceExistingUnderLease: current is not null);
+            preserveReaders: true);
         return committed;
     }
 
