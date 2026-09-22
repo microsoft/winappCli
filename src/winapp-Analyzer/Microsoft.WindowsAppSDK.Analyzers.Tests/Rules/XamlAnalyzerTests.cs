@@ -249,6 +249,18 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task WuiDiagnosticsDoNotFlagCalendarViewSelectedDatesChangedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <CalendarView SelectedDatesChanged=""{x:Bind ViewModel.Events.OnSelectedDatesChanged}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task WuiDiagnosticsDoNotFlagInheritedFrameworkEvent()
     {
         var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">

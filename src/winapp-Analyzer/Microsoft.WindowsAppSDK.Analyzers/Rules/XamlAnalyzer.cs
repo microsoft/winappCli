@@ -123,7 +123,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "DragItemsStarting", "DragItemsCompleted",
         "ManipulationStarting", "ManipulationStarted", "ManipulationDelta",
         "ManipulationInertiaStarting", "ManipulationCompleted",
-        "SelectionChanged", "TextChanged", "TextChanging", "BeforeTextChanging", "PasswordChanged",
+        "SelectionChanged", "SelectedDatesChanged", "TextChanged", "TextChanging", "BeforeTextChanging", "PasswordChanged",
         "QuerySubmitted", "TextSubmitted", "SuggestionChosen",
         "Checked", "Unchecked", "Indeterminate", "Toggled",
         "ValueChanged", "ViewChanging", "ViewChanged", "DateChanged", "TimeChanged",
