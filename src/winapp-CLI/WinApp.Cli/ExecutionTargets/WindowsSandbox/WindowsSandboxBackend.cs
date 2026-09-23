@@ -37,7 +37,7 @@ internal sealed class WindowsSandboxBackend(
     IWindowsSandboxWindowController windowController,
     IWindowsSandboxSetup? setup = null,
     ITargetStateStore? stateStore = null,
-    ITargetProgress? progress = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget
+    ITargetProgress? progress = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget, IReconnectableTarget
 {
     /// <summary>Guest path prefix the read-only bootstrap folder is mapped under.</summary>
     /// <remarks>
@@ -127,8 +127,11 @@ internal sealed class WindowsSandboxBackend(
     private bool _adopted;
     private SandboxClientWindow? _client;
     private GuestBootstrapMaterial? _activeMaterial;
-    private ExecutionTargetEpoch? _failedAttachmentEpoch;
+    private ExecutionTargetEpoch? _failedReconnectEpoch;
     private readonly ITargetProgress _progress = progress ?? NullTargetProgress.Instance;
+
+    /// <summary>A cached endpoint must answer promptly; it is not an agent still starting up.</summary>
+    internal static readonly TimeSpan WarmReconnectTimeout = TimeSpan.FromSeconds(2);
 
     internal Func<string, GuestBootstrapMaterial, CancellationToken, Task<IGuestTransport>> ReconnectTransport { get; set; } =
         async (address, material, cancellationToken) =>
@@ -216,8 +219,8 @@ internal sealed class WindowsSandboxBackend(
         var lease = await lifecycle.EnsureInstanceAsync(cancellationToken).ConfigureAwait(false);
         _instanceId = lease.InstanceId;
         _adopted = lease.IsAdopted;
-        var reconnectAlreadyFailed = _failedAttachmentEpoch == lease.Epoch;
-        _failedAttachmentEpoch = null;
+        var reconnectAlreadyFailed = _failedReconnectEpoch == lease.Epoch;
+        _failedReconnectEpoch = null;
 
         // Reconnecting to an agent that is already serving is the whole point of a persistent
         // Sandbox: it costs one TCP connect instead of a client reconnect, an agent relaunch, and a
@@ -366,6 +369,57 @@ internal sealed class WindowsSandboxBackend(
     }
 
     /// <inheritdoc/>
+    public async Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = stateStore?.Read(Target);
+        if (state?.InstanceId is not { } instanceId ||
+            string.IsNullOrWhiteSpace(instanceId) ||
+            string.IsNullOrWhiteSpace(state.BootNonce) ||
+            string.IsNullOrWhiteSpace(state.GuestAddress))
+        {
+            return null;
+        }
+
+        var epoch = ExecutionTargetEpoch.Create(instanceId, state.BootNonce);
+        if (!string.Equals(state.BootstrappedEpoch, epoch.Value, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // Ownership and the completed bootstrap only identify a candidate. The authenticated
+        // handshake must prove that the endpoint still serves this target and generation.
+        var lease = new SandboxInstanceLease(instanceId, epoch, SandboxInstanceOrigin.Reused, IsWarm: true);
+        _guestAddress = state.GuestAddress;
+        _activeMaterial = null;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(WarmReconnectTimeout);
+        TargetConnection? connection;
+        try
+        {
+            connection = await TryReconnectAsync(lease, remember: false, timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            connection = null;
+        }
+
+        // A failed candidate falls through to authoritative reconciliation, but must not incur
+        // another full TCP startup timeout for the very same generation before repair.
+        _failedReconnectEpoch = connection is null ? epoch : null;
+        if (connection is not null)
+        {
+            _instanceId = instanceId;
+        }
+        else
+        {
+            _guestAddress = null;
+            _activeMaterial = null;
+        }
+        return connection;
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// Built entirely out of the two operations that already change nothing: the reconciliation that
     /// compares persisted state against <c>wsb list</c>, and the reconnect that attaches to an agent
@@ -407,9 +461,6 @@ internal sealed class WindowsSandboxBackend(
         var connection = await TryReconnectAsync(lease, remember: false, cancellationToken)
             .ConfigureAwait(false);
 
-        // Prepare may immediately fall back to repair after this optional attachment. Do not
-        // spend a second full TCP timeout on the same generation before starting that repair.
-        _failedAttachmentEpoch = connection is null ? lease.Epoch : null;
         return new TargetAttachment(true, reconciliation.Epoch, connection);
     }
 
@@ -450,6 +501,7 @@ internal sealed class WindowsSandboxBackend(
         // "bind anywhere" means — never a port anything is listening on. Treated as no material at
         // all so a stale file makes this repair rather than attempt a meaningless connect.
         if (material is null ||
+            !string.Equals(material.TargetId, Target.StateKey, StringComparison.Ordinal) ||
             !string.Equals(material.TargetEpoch, lease.Epoch.Value, StringComparison.Ordinal) ||
             material.Port is <= 0 or > IPEndPoint.MaxPort)
         {
@@ -468,6 +520,12 @@ internal sealed class WindowsSandboxBackend(
             {
                 return null;
             }
+        }
+
+        if (!IPAddress.TryParse(address, out var parsedAddress) ||
+            parsedAddress.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return null;
         }
 
         try

@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Net;
+using System.Net.Sockets;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.ExecutionTargets.Orchestration;
@@ -36,10 +38,272 @@ public class SandboxAdoptionTests
             throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Connect timed out");
         };
 
-        var attachment = await harness.Backend.TryAttachAsync(TestContext.CancellationToken);
-        Assert.IsNull(attachment.Connection);
+        var connection = await harness.Backend.TryReconnectAsync(TestContext.CancellationToken);
+        Assert.IsNull(connection);
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
         Assert.AreEqual(1, attempts, "Repair must not repeat the same failed warm connection timeout.");
+    }
+
+    [TestMethod]
+    [DataRow("not-an-address")]
+    [DataRow("999.0.0.1")]
+    [DataRow("::1")]
+    [DataRow("::ffff:127.0.0.1")]
+    public async Task WarmReconnect_MalformedCachedAddress_FallsBackToLifecycleRepair(string address)
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.WriteState(harness.ReadState()! with { GuestAddress = address });
+        var before = harness.ReadState()!;
+        var enumerations = harness.Cli.ListCalls;
+        var operations = harness.Cli.Operations.Count;
+
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.AreEqual(enumerations, harness.Cli.ListCalls);
+        Assert.AreEqual(operations, harness.Cli.Operations.Count);
+        Assert.AreEqual(before.Revision, harness.ReadState()!.Revision);
+
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw new AssertFailedException("Do not retry the malformed cached endpoint before repair.");
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        Assert.AreEqual(enumerations + 1, harness.Cli.ListCalls);
+    }
+
+    [TestMethod]
+    public async Task WarmReconnect_AuthenticatesCachedGenerationWithoutEnumeratingOrMutating()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var before = harness.ReadState()!;
+        var enumerations = harness.Cli.ListCalls;
+        var operations = harness.Cli.Operations.Count;
+        var pair = new LoopbackTransportPair();
+        await using var host = pair.Host;
+        await using var guest = pair.Guest;
+        var attempts = 0;
+        harness.Backend.ReconnectTransport = (address, material, _) =>
+        {
+            attempts++;
+            Assert.AreEqual("127.0.0.1", address);
+            Assert.AreEqual(before.BootstrappedEpoch, material.TargetEpoch);
+            Assert.AreEqual(WindowsSandboxTarget.Default.StateKey, material.TargetId);
+            return Task.FromResult<IGuestTransport>(host);
+        };
+
+        var connection = await harness.Backend.TryReconnectAsync(TestContext.CancellationToken);
+
+        Assert.IsNotNull(connection);
+        Assert.AreEqual(before.BootstrappedEpoch, connection.Epoch.Value);
+        Assert.IsTrue(connection.Reused);
+        Assert.AreEqual(1, attempts);
+        Assert.AreEqual(enumerations, harness.Cli.ListCalls, "A warm preparation must not enumerate Sandbox.");
+        Assert.AreEqual(operations, harness.Cli.Operations.Count);
+        Assert.AreEqual(before.Revision, harness.ReadState()!.Revision);
+    }
+
+    [TestMethod]
+    public async Task Inspection_StillEnumeratesAndRejectsVanishedInstance()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Cli.SetRunning();
+        var enumerations = harness.Cli.ListCalls;
+        harness.Backend.ReconnectTransport = (_, _, _) => throw new AssertFailedException("No live instance.");
+
+        var attachment = await harness.Backend.TryAttachAsync(TestContext.CancellationToken);
+
+        Assert.IsFalse(attachment.Running);
+        Assert.IsNull(attachment.Connection);
+        Assert.AreEqual(enumerations + 1, harness.Cli.ListCalls);
+    }
+
+    [TestMethod]
+    [DataRow("bootstrap")]
+    [DataRow("nonce")]
+    [DataRow("instance")]
+    [DataRow("address")]
+    public async Task WarmReconnect_IncompleteOrDifferentOwnership_DoesNotConnect(string changed)
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var state = harness.ReadState()!;
+        harness.WriteState(changed switch
+        {
+            "bootstrap" => state with { BootstrappedEpoch = null },
+            "nonce" => state with { BootNonce = "another-generation" },
+            "instance" => state with { InstanceId = "another-instance" },
+            _ => state with { GuestAddress = null },
+        });
+        harness.Backend.ReconnectTransport = (_, _, _) => throw new AssertFailedException("Not a warm owned endpoint.");
+        var enumerations = harness.Cli.ListCalls;
+
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.AreEqual(enumerations, harness.Cli.ListCalls);
+    }
+
+    [TestMethod]
+    [DataRow("epoch")]
+    [DataRow("target")]
+    [DataRow("port")]
+    public async Task WarmReconnect_MismatchedMaterial_DoesNotConnect(string changed)
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var material = harness.ReadMaterial();
+        harness.WriteMaterial(changed switch
+        {
+            "epoch" => material with { TargetEpoch = "another-generation" },
+            "target" => material with { TargetId = "another-target" },
+            _ => material with { Port = 0 },
+        });
+        harness.Backend.ReconnectTransport = (_, _, _) => throw new AssertFailedException("Invalid material.");
+
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task WarmReconnect_RealHandshake_RejectsWrongKeyOrGeneration(bool wrongGeneration)
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var material = harness.ReadMaterial() with { Port = ((IPEndPoint)listener.LocalEndpoint).Port };
+        harness.WriteMaterial(material);
+        var peerMaterial = wrongGeneration
+            ? material with { TargetEpoch = "another-generation" }
+            : material with { PreSharedKey = Convert.ToBase64String(new byte[GuestProtocol.PreSharedKeySize]) };
+        var serving = Task.Run(async () =>
+        {
+            var client = await listener.AcceptTcpClientAsync(TestContext.CancellationToken);
+            await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+                GuestTcpTransport.EstablishAsync(client, peerMaterial, TestContext.CancellationToken));
+        }, TestContext.CancellationToken);
+
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        await serving;
+        var enumerations = harness.Cli.ListCalls;
+        harness.Backend.ReconnectTransport = (_, _, _) => throw new AssertFailedException("Do not retry a rejected generation.");
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        Assert.AreEqual(enumerations + 1, harness.Cli.ListCalls, "Fallback must reconcile before repairing.");
+    }
+
+    [TestMethod]
+    public async Task WarmReconnect_LivePeerAtCapacity_ReportsBusyWithoutRepair()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        harness.WriteMaterial(harness.ReadMaterial() with { Port = ((IPEndPoint)listener.LocalEndpoint).Port });
+        var operations = harness.Cli.Operations.Count;
+        var dropping = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(TestContext.CancellationToken);
+            client.Client.LingerState = new LingerOption(true, 0);
+        }, TestContext.CancellationToken);
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        await dropping;
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentBusy, error.Error.Code);
+        Assert.AreEqual(operations, harness.Cli.Operations.Count);
+    }
+
+    [TestMethod]
+    public async Task WarmReconnect_StalledEndpoint_IsBoundedAndNotRetriedBeforeRepair()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var attempts = 0;
+        harness.Backend.ReconnectTransport = async (_, _, token) =>
+        {
+            attempts++;
+            Assert.AreNotEqual(TestContext.CancellationToken, token, "The cached probe needs its own cancellation budget.");
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            throw new AssertFailedException("The probe must cancel.");
+        };
+
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        Assert.AreEqual(1, attempts);
+    }
+
+    [TestMethod]
+    public async Task WarmReconnect_CallerCancellation_IsNotTreatedAsAStaleEndpoint()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        using var cancelled = new CancellationTokenSource();
+        harness.Backend.ReconnectTransport = async (_, _, token) =>
+        {
+            cancelled.Cancel();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            throw new AssertFailedException("The caller must cancel.");
+        };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => harness.Backend.TryReconnectAsync(cancelled.Token));
+    }
+
+    [TestMethod]
+    public async Task FailedWarmReconnect_DoesNotSuppressConnectionToANewerGeneration()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var material = harness.ReadMaterial();
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Old endpoint");
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+
+        var state = harness.ReadState()!;
+        var epoch = ExecutionTargetEpoch.Create(ManualInstanceId, "new-boot");
+        harness.WriteState(state with { BootNonce = "new-boot", BootstrappedEpoch = epoch.Value });
+        var bootstrap = Path.Join(harness.TargetRoot,
+            "bootstrap-" + WindowsSandboxBackend.EpochToken(epoch));
+        Directory.CreateDirectory(bootstrap);
+        File.WriteAllText(Path.Join(bootstrap, GuestBootstrapMaterial.FileName),
+            (material with { TargetEpoch = epoch.Value }).ToJson());
+        var pair = new LoopbackTransportPair();
+        await using var host = pair.Host;
+        await using var guest = pair.Guest;
+        var attempts = 0;
+        harness.Backend.ReconnectTransport = (_, candidate, _) =>
+        {
+            attempts++;
+            Assert.AreEqual(epoch.Value, candidate.TargetEpoch);
+            return Task.FromResult<IGuestTransport>(host);
+        };
+        var enumerations = harness.Cli.ListCalls;
+        var operations = harness.Cli.Operations.Count;
+
+        var connection = await harness.Backend.EnsureConnectedAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken);
+
+        Assert.AreEqual(epoch, connection.Epoch);
+        Assert.AreEqual(1, attempts);
+        Assert.AreEqual(enumerations + 1, harness.Cli.ListCalls);
+        Assert.AreEqual(operations, harness.Cli.Operations.Count, "A new healthy generation must not be repaired.");
     }
 
     [TestMethod]
@@ -567,6 +831,15 @@ public class SandboxAdoptionTests
         /// <summary>The ownership record as another winapp process would read it.</summary>
         public TargetState? ReadState() => _stateStore.Read(WindowsSandboxTarget.Default);
 
+        public void WriteState(TargetState state) =>
+            _stateStore.Commit(WindowsSandboxTarget.Default, state, state.Revision);
+
+        private string MaterialPath => Directory.GetFiles(TargetRoot, GuestBootstrapMaterial.FileName, SearchOption.AllDirectories).Single();
+
+        public GuestBootstrapMaterial ReadMaterial() => GuestBootstrapMaterial.TryParse(File.ReadAllText(MaterialPath))!;
+
+        public void WriteMaterial(GuestBootstrapMaterial material) => File.WriteAllText(MaterialPath, material.ToJson());
+
         public void MarkBootstrapped()
         {
             var state = ReadState()!;
@@ -638,8 +911,13 @@ public class SandboxAdoptionTests
             _running.AddRange(ids);
         }
 
-        public Task<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<string>>([.. _running]);
+        public int ListCalls { get; private set; }
+
+        public Task<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken)
+        {
+            ListCalls++;
+            return Task.FromResult<IReadOnlyList<string>>([.. _running]);
+        }
 
         public Task<string> StartAsync(string instanceId, string? configuration, CancellationToken cancellationToken)
         {

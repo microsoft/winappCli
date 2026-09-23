@@ -95,3 +95,12 @@ CREATE_TOOLHELP_SNAPSHOT_FLAGS
 IsProcessInJob
 IUIAutomation2
 CUIAutomation8
+CreateProcessW
+SearchPathW
+InitializeProcThreadAttributeList
+UpdateProcThreadAttribute
+DeleteProcThreadAttributeList
+STARTUPINFOEXW
+PROC_THREAD_ATTRIBUTE_JOB_LIST
+PROC_THREAD_ATTRIBUTE_HANDLE_LIST
+ResumeThread
