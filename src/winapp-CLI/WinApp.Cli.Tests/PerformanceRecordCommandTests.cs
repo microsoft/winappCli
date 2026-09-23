@@ -11,6 +11,87 @@ namespace WinApp.Cli.Tests;
 public sealed class PerformanceRecordCommandTests : BaseCommandTests
 {
     [TestMethod]
+    public void RecordCommand_DefaultsToExistingOutputDiscoveryWithoutImplicitFilters()
+    {
+        var project = WriteTarget("App.csproj");
+        var command = new PerfRecordCommand();
+        var parseResult = command.Parse([project.FullName], WinAppParserConfiguration.Default);
+
+        var arguments = PerfRecordCommand.Handler.BuildRunArguments(parseResult);
+
+        CollectionAssert.Contains(arguments, "--no-build");
+        CollectionAssert.Contains(arguments, "--discover-existing-output");
+        CollectionAssert.DoesNotContain(arguments, "--configuration");
+        CollectionAssert.DoesNotContain(arguments, "--arch");
+    }
+
+    [TestMethod]
+    public void RecordCommand_BuildUsesReleaseUnlessConfigurationIsExplicit()
+    {
+        var project = WriteTarget("App.csproj");
+        var command = new PerfRecordCommand();
+
+        var defaultBuild = PerfRecordCommand.Handler.BuildRunArguments(
+            command.Parse([project.FullName, "--build"], WinAppParserConfiguration.Default));
+        var debugBuild = PerfRecordCommand.Handler.BuildRunArguments(
+            command.Parse([project.FullName, "--build", "--configuration", "Debug"], WinAppParserConfiguration.Default));
+
+        CollectionAssert.Contains(defaultBuild, "Release");
+        CollectionAssert.DoesNotContain(defaultBuild, "--no-build");
+        CollectionAssert.Contains(debugBuild, "Debug");
+        CollectionAssert.DoesNotContain(debugBuild, "--discover-existing-output");
+    }
+
+    [TestMethod]
+    public void RecordCommand_NoBuildSelectionOptionsBecomeDiscoveryFilters()
+    {
+        var project = WriteTarget("App.csproj");
+        var command = new PerfRecordCommand();
+        var parseResult = command.Parse(
+            [project.FullName, "--configuration", "Custom", "--arch", "arm64"],
+            WinAppParserConfiguration.Default);
+
+        var arguments = PerfRecordCommand.Handler.BuildRunArguments(parseResult);
+
+        CollectionAssert.Contains(arguments, "Custom");
+        CollectionAssert.Contains(arguments, "arm64");
+        CollectionAssert.Contains(arguments, "--discover-existing-output");
+    }
+
+    [TestMethod]
+    public void RecordCommand_ExecutableRoutesWithoutBuildOrDiscoveryOptions()
+    {
+        var executable = WriteTarget("App.exe");
+        var command = new PerfRecordCommand();
+        var parseResult = command.Parse(
+            [executable.FullName, "--args", "--hello"],
+            WinAppParserConfiguration.Default);
+
+        Assert.IsNull(PerfRecordCommand.Handler.ValidateRunOptions(parseResult));
+        var arguments = PerfRecordCommand.Handler.BuildRunArguments(parseResult);
+        CollectionAssert.DoesNotContain(arguments, "--no-build");
+        CollectionAssert.DoesNotContain(arguments, "--discover-existing-output");
+        CollectionAssert.DoesNotContain(arguments, "--configuration");
+    }
+
+    [TestMethod]
+    public void RecordCommand_RejectsInvalidBuildAndExecutableCombinations()
+    {
+        var executable = WriteTarget("App.exe");
+        var project = WriteTarget("App.csproj");
+        var command = new PerfRecordCommand();
+
+        var exeError = PerfRecordCommand.Handler.ValidateRunOptions(
+            command.Parse([executable.FullName, "--build", "--arch", "x64"], WinAppParserConfiguration.Default));
+        var restoreError = PerfRecordCommand.Handler.ValidateRunOptions(
+            command.Parse([project.FullName, "--no-restore"], WinAppParserConfiguration.Default));
+
+        StringAssert.Contains(exeError, "--build");
+        StringAssert.Contains(exeError, "--arch");
+        StringAssert.Contains(restoreError, "--no-restore requires --build");
+    }
+
+    [TestMethod]
     public async Task RecordCommand_RejectsRemovedExternalCollectorOptionBeforeLaunching()
     {
         var command = GetRequiredService<PerfRecordCommand>();
@@ -21,6 +102,17 @@ public sealed class PerformanceRecordCommandTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}", "Unrecognized argument: '--with-dotnet-trace'.");
+    }
+
+    [TestMethod]
+    public async Task RecordCommand_RejectsRemovedNoBuildOption()
+    {
+        var command = GetRequiredService<PerfRecordCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [".", "--no-build"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}", "Unrecognized argument: '--no-build'.");
     }
 
     [TestMethod]
@@ -308,6 +400,13 @@ public sealed class PerformanceRecordCommandTests : BaseCommandTests
             WindowThreadId = windowHandle is null ? null : 73,
             ExitCode = exitCode,
         };
+
+    private FileInfo WriteTarget(string name)
+    {
+        var path = Path.Combine(_tempDirectory.FullName, name);
+        File.WriteAllText(path, string.Empty);
+        return new(path);
+    }
 
     private sealed class ExitingRecordingSession(int exitAfterObservations)
         : IPerformanceRecordingSession

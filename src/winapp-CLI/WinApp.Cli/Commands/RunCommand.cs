@@ -20,7 +20,7 @@ namespace WinApp.Cli.Commands;
 
 internal partial class RunCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Run a Windows app: build and launch from a .cs file-based app, a .csproj/.sln, or launch an existing build-output folder.";
+    public string ShortDescription => "Run a Windows app: launch an .exe or build and launch from source or an existing build-output folder.";
 
     public static Argument<FileSystemInfo> InputArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }
@@ -45,6 +45,7 @@ internal partial class RunCommand : Command, IShortDescription
     public static Option<bool> NoRestoreOption { get; }
     public static Option<string[]> PropertyOption { get; }
     public static Option<string?> ProjectOption { get; }
+    internal static Option<bool> DiscoverExistingOutputOption { get; }
 
     /// <summary>
     /// Captures zero or more arguments after the <c>--</c> separator and forwards them to the
@@ -57,7 +58,7 @@ internal partial class RunCommand : Command, IShortDescription
     {
         InputArgument = new Argument<FileSystemInfo>("input")
         {
-            Description = "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
+            Description = "Path to the app to run: an .exe, a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -181,6 +182,11 @@ internal partial class RunCommand : Command, IShortDescription
         {
             Description = "Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project."
         };
+
+        DiscoverExistingOutputOption = new Option<bool>("--discover-existing-output")
+        {
+            Hidden = true,
+        };
     }
 
     public RunCommand() : base("run", "Builds and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
@@ -207,6 +213,7 @@ internal partial class RunCommand : Command, IShortDescription
         Options.Add(NoRestoreOption);
         Options.Add(PropertyOption);
         Options.Add(ProjectOption);
+        Options.Add(DiscoverExistingOutputOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -451,41 +458,89 @@ internal partial class RunCommand : Command, IShortDescription
             try
             {
                 var projectSelector = parseResult.GetValue(ProjectOption);
-                // Classify candidates (multi-.csproj / solution) under the SAME effective build inputs
-                // the subsequent build uses, so a project whose OutputType/test markers are conditional
-                // on Configuration/arch/TFM/user -p is picked the way it will build (e.g.
-                // `winapp run App.sln -c Release` must not select a Debug-only app then build Release).
-                var classificationInputs = BuildClassificationInputs(parseResult);
+                var discoverExistingOutput = parseResult.GetValue(DiscoverExistingOutputOption);
+                if (discoverExistingOutput)
+                {
+                    var properties = parseResult.GetValue(PropertyOption) ?? [];
+                    if (!TryValidateProperties(properties, isJson, out var propertyError))
+                    {
+                        return propertyError;
+                    }
+
+                    var architectureIsExplicit =
+                        parseResult.GetResult(ArchOption)?.Implicit == false
+                        || parseResult.GetResult(RuntimeOption)?.Implicit == false;
+                    if (architectureIsExplicit
+                        && !TryResolveArchitecture(
+                            parseResult.GetValue(ArchOption),
+                            parseResult.GetValue(RuntimeOption),
+                            out _,
+                            out var architectureError))
+                    {
+                        return Fail(architectureError!, isJson);
+                    }
+                }
+
+                var classificationInputs = discoverExistingOutput
+                    ? null
+                    : BuildClassificationInputs(parseResult);
+                var existingOutputQuery = discoverExistingOutput
+                    ? BuildExistingOutputQuery(parseResult, isJson)
+                    : null;
+                var isExactExecutableInput = inputFsi is FileInfo inputFile
+                    && string.Equals(inputFile.Extension, ".exe", StringComparison.OrdinalIgnoreCase);
 
                 // Input resolution runs BEFORE the first `🔎` context line, and for a directory /
-                // solution / multi-project input it spawns silent MSBuild classification evaluates that
-                // can take a couple of seconds (several on a large solution like AI Dev Gallery) — long
-                // enough that the command looks hung with nothing on screen. On a real interactive
+                // solution / multi-project input it can spawn silent MSBuild classification or artifact
+                // probes that take a couple of seconds (several on a large solution like AI Dev Gallery)
+                // — long enough that the command looks hung with nothing on screen. On a real interactive
                 // terminal, animate a spinner around it so liveness shows immediately (~150 ms) instead
                 // of a dead gap. Skipped under --verbose (Debug) so any phase traces render plainly, and
                 // under --json/--quiet/agent/CI/redirected (ShouldUseLiveSpinner == false), where it runs
                 // exactly as before with no status output.
-                if (ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger) && !logger.IsEnabled(LogLevel.Debug))
+                if (!isExactExecutableInput
+                    && ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger)
+                    && !logger.IsEnabled(LogLevel.Debug))
                 {
                     inputResolution = await ansiConsole.Status()
                         .AutoRefresh(true)
                         .Spinner(Spinner.Known.Dots)
                         .SpinnerStyle(Style.Parse("blue"))
                         .StartAsync("Resolving project...", async _ =>
-                            await projectRunService.ResolveInputAsync(inputFsi, cancellationToken, projectSelector, classificationInputs));
+                            existingOutputQuery is null
+                                ? await projectRunService.ResolveInputAsync(
+                                    inputFsi,
+                                    cancellationToken,
+                                    projectSelector,
+                                    classificationInputs)
+                                : await projectRunService.ResolveExistingOutputAsync(
+                                    inputFsi,
+                                    projectSelector,
+                                    existingOutputQuery,
+                                    cancellationToken));
                 }
                 else
                 {
                     // No live spinner here (--verbose/--json/--quiet/agent/CI/redirected). Resolution can
-                    // still spawn many silent MSBuild classification evaluates for a large solution, so
+                    // still spawn many silent MSBuild probes for a large solution, so
                     // announce it up front on the plain path — otherwise a redirected/CI run looks hung
                     // with nothing on screen. Suppressed for --json (pure stdout) and --quiet (Info off).
-                    if (!isJson && logger.IsEnabled(LogLevel.Information))
+                    if (!isExactExecutableInput && !isJson && logger.IsEnabled(LogLevel.Information))
                     {
                         logger.LogInformation("{UISymbol} Resolving project...", UiSymbols.Search);
                     }
 
-                    inputResolution = await projectRunService.ResolveInputAsync(inputFsi, cancellationToken, projectSelector, classificationInputs);
+                    inputResolution = existingOutputQuery is null
+                        ? await projectRunService.ResolveInputAsync(
+                            inputFsi,
+                            cancellationToken,
+                            projectSelector,
+                            classificationInputs)
+                        : await projectRunService.ResolveExistingOutputAsync(
+                            inputFsi,
+                            projectSelector,
+                            existingOutputQuery,
+                            cancellationToken);
                 }
             }
             catch (ProjectRunException ex)
@@ -502,6 +557,9 @@ internal partial class RunCommand : Command, IShortDescription
                         parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption))
                     : inputResolution.Mode switch
                     {
+                        WinAppRunMode.Executable => projectContextDetector.DetectDirectory(
+                            inputResolution.ProjectDirectory,
+                            ProjectTargetKind.BuildOutput),
                         // A file-based app is classified from the input itself rather than by probing its
                         // directory. Several .cs files can share a folder with an unrelated .csproj, so a
                         // directory scan would report that project's classification for this app.
@@ -519,6 +577,28 @@ internal partial class RunCommand : Command, IShortDescription
                         },
                     });
 
+            if (inputResolution.Mode == WinAppRunMode.Executable)
+            {
+                var invalid = CollectExecutableInputIncompatibleOptions(parseResult);
+                if (invalid.Count > 0)
+                {
+                    return Fail(
+                        $"The option(s) {string.Join(", ", invalid)} don't apply to executable input. " +
+                        $"'{inputResolution.Executable!.Name}' is launched exactly as supplied; remove project/build or package-layout options.",
+                        isJson);
+                }
+
+                return await RunExecutableModeAsync(
+                    inputResolution.Executable!,
+                    appArgs,
+                    debugOutput,
+                    detach,
+                    useSymbols,
+                    isJson,
+                    launchObserver,
+                    cancellationToken);
+            }
+
             if (inputResolution.Mode == WinAppRunMode.SingleFile)
             {
                 return await RunSingleFileModeAsync(parseResult, inputResolution.SingleFile!, appArgs, isJson, launchObserver, cancellationToken);
@@ -526,7 +606,16 @@ internal partial class RunCommand : Command, IShortDescription
 
             if (inputResolution.Mode == WinAppRunMode.Project)
             {
-                return await RunProjectModeAsync(parseResult, inputResolution.Csproj!, inputResolution.Solution, inputResolution.SelectionReason, appArgs, isJson, launchObserver, cancellationToken);
+                return await RunProjectModeAsync(
+                    parseResult,
+                    inputResolution.Csproj!,
+                    inputResolution.Solution,
+                    inputResolution.SelectionReason,
+                    inputResolution.ExistingOutput,
+                    appArgs,
+                    isJson,
+                    launchObserver,
+                    cancellationToken);
             }
 
             // Folder mode: the FileSystemInfo converter yields a DirectoryInfo for an existing
@@ -560,6 +649,36 @@ internal partial class RunCommand : Command, IShortDescription
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: null, projectFile: null, framework: null, noRestore: false, selfContained: false,
                 folderAliasDecision, cancellationToken, launchObserver: launchObserver);
+        }
+
+        private static List<string> CollectExecutableInputIncompatibleOptions(ParseResult parseResult)
+        {
+            var invalid = new List<string>();
+            AddIfExplicit(ConfigurationOption, "--configuration");
+            AddIfExplicit(ArchOption, "--arch");
+            AddIfExplicit(RuntimeOption, "--runtime");
+            AddIfExplicit(FrameworkOption, "--framework");
+            AddIfExplicit(NoBuildOption, "--no-build");
+            AddIfExplicit(NoRestoreOption, "--no-restore");
+            AddIfExplicit(PropertyOption, "--property");
+            AddIfExplicit(ProjectOption, "--project");
+            AddIfExplicit(ManifestOption, "--manifest");
+            AddIfExplicit(OutputAppXDirectoryOption, "--output-appx-directory");
+            AddIfExplicit(ExecutableOption, "--executable");
+            AddIfExplicit(NoLaunchOption, "--no-launch");
+            AddIfExplicit(WithAliasOption, "--with-alias");
+            AddIfExplicit(WithoutAliasOption, "--without-alias");
+            AddIfExplicit(UnregisterOnExitOption, "--unregister-on-exit");
+            AddIfExplicit(CleanOption, "--clean");
+            return invalid;
+
+            void AddIfExplicit(Option option, string displayName)
+            {
+                if (parseResult.GetResult(option)?.Implicit == false)
+                {
+                    invalid.Add(displayName);
+                }
+            }
         }
 
         /// <summary>

@@ -249,7 +249,10 @@ internal sealed partial class ProjectRunService(
         CancellationToken cancellationToken)
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
-        WarnOnOverriddenFlags(options);
+        if (!options.SuppressDiagnostics)
+        {
+            WarnOnOverriddenFlags(options);
+        }
 
         // Restore output must remain visible: NuGet can spend minutes retrying an unreachable feed, and
         // buffering those diagnostics makes the command look frozen. Property discovery remains buffered
@@ -293,13 +296,19 @@ internal sealed partial class ProjectRunService(
             if (buildExit != 0)
             {
                 // dotnet's diagnostics were already streamed live; log the summary and propagate the exit code.
-                logger.LogError("{UISymbol} Build failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, buildExit);
+                if (!options.SuppressDiagnostics)
+                {
+                    logger.LogError("{UISymbol} Build failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, buildExit);
+                }
                 return new ProjectBuildOutcome(null, buildExit);
             }
         }
 
         var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata);
-        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(evaluateArgs));
+        if (!options.SuppressDiagnostics)
+        {
+            logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(evaluateArgs));
+        }
 
         var (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(workingDir, evaluateArgs, cancellationToken);
 
@@ -307,19 +316,22 @@ internal sealed partial class ProjectRunService(
         {
             // The build (if any) succeeded but property evaluation failed — surface dotnet's
             // diagnostics and propagate the exit code rather than launch against unknown output.
-            logger.LogError("{UISymbol} Could not evaluate project properties for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, exitCode);
-            var combined = string.Join(Environment.NewLine,
-                new[] { stdout, stderr }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.TrimEnd()));
-            if (!string.IsNullOrWhiteSpace(combined))
+            if (!options.SuppressDiagnostics)
             {
-                // Keep stdout clean for --json consumers; route diagnostics to stderr instead.
-                if (options.Json)
+                logger.LogError("{UISymbol} Could not evaluate project properties for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, exitCode);
+                var combined = string.Join(Environment.NewLine,
+                    new[] { stdout, stderr }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.TrimEnd()));
+                if (!string.IsNullOrWhiteSpace(combined))
                 {
-                    Console.Error.WriteLine(combined);
-                }
-                else
-                {
-                    ansiConsole.WriteLine(combined);
+                    // Keep stdout clean for --json consumers; route diagnostics to stderr instead.
+                    if (options.Json)
+                    {
+                        Console.Error.WriteLine(combined);
+                    }
+                    else
+                    {
+                        ansiConsole.WriteLine(combined);
+                    }
                 }
             }
 
@@ -376,7 +388,10 @@ internal sealed partial class ProjectRunService(
                         includeRuntimeIdentifier: includeRid,
                         includePlatform: includePlatform,
                         includePublishProfile: includePublishProfile);
-                    logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
+                    if (!options.SuppressDiagnostics)
+                    {
+                        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
+                    }
 
                     var (fallbackExit, fallbackStdout, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
                     if (fallbackExit != 0)
@@ -388,9 +403,12 @@ internal sealed partial class ProjectRunService(
                     var fallbackTargetDir = GetProp(fallbackProps, "TargetDir");
                     if (!string.IsNullOrEmpty(fallbackTargetDir) && Directory.Exists(fallbackTargetDir))
                     {
-                        logger.LogDebug(
-                            "{UISymbol} --no-build: '{Primary}' not found; using existing output '{Fallback}' (RID={Rid}, Platform={Platform}, PublishProfile={PublishProfile}).",
-                            UiSymbols.Note, primaryTargetDir, fallbackTargetDir, includeRid, includePlatform, includePublishProfile);
+                        if (!options.SuppressDiagnostics)
+                        {
+                            logger.LogDebug(
+                                "{UISymbol} --no-build: '{Primary}' not found; using existing output '{Fallback}' (RID={Rid}, Platform={Platform}, PublishProfile={PublishProfile}).",
+                                UiSymbols.Note, primaryTargetDir, fallbackTargetDir, includeRid, includePlatform, includePublishProfile);
+                        }
                         props = fallbackProps;
                         break;
                     }
@@ -442,7 +460,7 @@ internal sealed partial class ProjectRunService(
             options.NoRestore,
             string.IsNullOrEmpty(runArguments) ? null : runArguments,
             string.IsNullOrEmpty(outputType) ? null : outputType,
-            ReadAliasPreference(props),
+            ReadAliasPreference(props, options.SuppressDiagnostics),
             GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
             GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null);
 
@@ -932,11 +950,13 @@ internal sealed partial class ProjectRunService(
     /// purpose is to override the launch mechanism, and a typo that quietly does nothing is invisible
     /// until a console app's output goes missing.
     /// </remarks>
-    private bool? ReadAliasPreference(IReadOnlyDictionary<string, string> props)
+    private bool? ReadAliasPreference(
+        IReadOnlyDictionary<string, string> props,
+        bool suppressDiagnostics = false)
     {
         var raw = GetProp(props, Commands.RunCommand.Handler.UseExecutionAliasProperty);
         var preference = MsBuildPropertyReader.ParseOptionalBoolean(raw, out var malformed);
-        if (malformed)
+        if (malformed && !suppressDiagnostics)
         {
             logger.LogWarning(
                 "{UISymbol} Ignoring {Property}='{Value}': expected 'true' or 'false'.",

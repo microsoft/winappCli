@@ -1969,11 +1969,11 @@
           }
         },
         "record": {
-          "description": "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, retain managed EventPipe evidence for newly launched CoreCLR targets, and optionally collect a WPR trace.",
+          "description": "Launch an existing app artifact through winapp run, observe generation-safe startup and resource evidence, retain managed EventPipe evidence for newly launched CoreCLR targets, and optionally collect a WPR trace. Use --build to build project input first.",
           "hidden": false,
           "arguments": {
             "target": {
-              "description": "App to build, launch, and record: a .cs file-based app, project, solution, project directory, or build-output directory.",
+              "description": "App to launch and record: an .exe, .cs file-based app, project, solution, project directory, or build-output directory.",
               "order": 0,
               "hidden": false,
               "valueType": "System.IO.FileSystemInfo",
@@ -2018,15 +2018,27 @@
               "required": false,
               "recursive": false
             },
+            "--build": {
+              "description": "Restore and build project input before recording. Builds Release unless --configuration is explicit.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--configuration": {
-              "description": "Project and single-file mode: build configuration (default: Release).",
+              "description": "Project input: filter existing outputs by configuration; with --build, build this configuration (default: Release).",
               "hidden": false,
               "aliases": [
                 "-c"
               ],
               "valueType": "System.String",
-              "hasDefaultValue": true,
-              "defaultValue": "Release",
+              "hasDefaultValue": false,
               "arity": {
                 "minimum": 1,
                 "maximum": 1
@@ -2064,19 +2076,6 @@
             },
             "--json": {
               "description": "Format output as JSON",
-              "hidden": false,
-              "valueType": "System.Boolean",
-              "hasDefaultValue": true,
-              "defaultValue": false,
-              "arity": {
-                "minimum": 0,
-                "maximum": 1
-              },
-              "required": false,
-              "recursive": false
-            },
-            "--no-build": {
-              "description": "Run existing build output without building.",
               "hidden": false,
               "valueType": "System.Boolean",
               "hasDefaultValue": true,
@@ -2515,7 +2514,7 @@
       "hidden": false,
       "arguments": {
         "input": {
-          "description": "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
+          "description": "Path to the app to run: an .exe, a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
           "order": 0,
           "hidden": false,
           "valueType": "System.IO.FileSystemInfo",

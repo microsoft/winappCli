@@ -7,12 +7,19 @@ description: Record and explain objective Windows app startup, responsiveness, C
 Start with:
 
 ```powershell
-winapp perf record <project-or-build-output>
+winapp perf record <target>
 ```
 
-This prints user-facing startup and responsiveness milestones on a `T+hh:mm:ss.fff` timeline, then
-writes one `.winappperf` directory. `T+` is cumulative time since activation; recovery messages print
-the observed unresponsive duration directly. Use `--verbose` when raw PID, HWND, UI-thread, and
+Recording is artifact-first: it does not build by default. For project/solution input, winapp
+automatically uses the only viable existing output and prints its configuration, architecture, and
+path. If several outputs exist, add `--configuration` and/or `--arch`; if none exists, build first or
+rerun with `--build` (`Release` by default). `--no-restore` is valid only with `--build`. A direct
+`.exe` target is launched exactly as supplied and needs no configuration or architecture. Existing
+build-output folders continue to launch directly.
+
+The command prints user-facing startup and responsiveness milestones on a `T+hh:mm:ss.fff` timeline,
+then writes one `.winappperf` directory. `T+` is cumulative time since activation; recovery messages
+print the observed unresponsive duration directly. Use `--verbose` when raw PID, HWND, UI-thread, and
 response-probe details are needed. Read `report.json` first: it is the canonical post-record report
 for startup stages, resources, collector/XAML coverage, and retained evidence. Use `timeline.ndjson`
 and the referenced raw artifacts when deeper evidence is needed. Stop an unbounded recording with
@@ -31,6 +38,12 @@ winapp perf record <target> --with-wpr --duration-sec 10
 
 # Standard recording automatically retains one managed EventPipe trace when CoreCLR is observed
 winapp perf record <target>
+
+# Restore/build Release before recording
+winapp perf record <project> --build
+
+# Record an exact executable
+winapp perf record .\bin\x64\Release\MyApp.exe
 
 # Repeat a controlled UI workflow and compare compatible sets
 winapp perf scenario <scenario.json> <target> --output <name>.winappperfset

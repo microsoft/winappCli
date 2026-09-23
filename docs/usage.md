@@ -759,7 +759,15 @@ winapp run ./bin/Debug --detach --json
 
 # Wipe application data (LocalState, settings) and start fresh
 winapp run ./bin/Debug --clean
+
+# Launch one exact executable without package registration or project evaluation
+winapp run .\bin\x64\Release\MyApp.exe -- --scenario startup
 ```
+
+When the input is an `.exe`, `winapp run` launches that exact file with the current directory as its
+working directory. App arguments, `--detach`, `--debug-output`, `--symbols`, and `--json` work.
+Project/build selectors and package-layout options are rejected because no project or MSIX layout is
+being resolved.
 
 #### Project mode (.NET SDK projects)
 
@@ -1165,9 +1173,30 @@ Launch an app and record generation-safe startup and resource evidence:
 winapp perf record .\src\MyApp\MyApp.csproj --duration-sec 10
 ```
 
-`perf record` uses the same project, solution, .NET file-based app, and build-output-directory
-resolution as [`winapp run`](#run). It builds in `Release` by default, starts observation immediately
-before activation, prints milestones while recording, and writes a `.winappperf` directory containing:
+`perf record` uses the same executable, project, solution, .NET file-based app, and
+build-output-directory resolution as [`winapp run`](#run). It does **not** build by default. For a
+project, solution, or project directory, it evaluates the project without restoring or building and
+discovers existing runnable outputs:
+
+- If exactly one output is viable, winapp prints its configuration, architecture, and output path,
+  then records it.
+- If none exists, build the app first or rerun with `--build`.
+- If several exist, winapp lists them and asks for `--configuration` and/or `--arch`; it never picks
+  the newest output.
+- `--configuration` and `--arch` are filters in this mode. `--framework`, `--runtime`, `--project`,
+  and `--property` continue to constrain project evaluation.
+
+Use `--build` to restore/build before recording. This preserves the prior performance build behavior:
+the configuration defaults to `Release` unless `--configuration` is explicit, and the existing
+runtime, framework, architecture, project, property, and `--no-restore` build options apply.
+`--no-restore` requires `--build`.
+
+An `.exe` target is launched exactly as supplied and needs no configuration or architecture. Project
+build selectors are rejected for executable input. A build-output directory continues to launch
+directly without building.
+
+After resolving the artifact, `perf record` starts observation immediately before activation, prints
+milestones while recording, and writes a `.winappperf` directory containing:
 
 ```text
 Recording started: 2026-09-22 10:20:14 +08:00
@@ -1207,8 +1236,17 @@ recorded evidence or final result.
 # Record the current project until Ctrl+C or target exit
 winapp perf record .
 
-# Record an existing build without rebuilding it
-winapp perf record .\bin\x64\Release --no-build --duration-sec 15
+# Record an existing build-output directory
+winapp perf record .\bin\x64\Release --duration-sec 15
+
+# Build Release, then record (use -c Debug to choose another configuration)
+winapp perf record .\src\MyApp\MyApp.csproj --build --duration-sec 15
+
+# Select one of several existing project outputs
+winapp perf record .\src\MyApp\MyApp.csproj -c Debug --arch x64
+
+# Record one exact executable
+winapp perf record .\bin\x64\Release\MyApp.exe -- --scenario startup
 
 # Choose the evidence directory; it must not already exist
 winapp perf record . --output .\startup.winappperf --duration-sec 10
@@ -1365,7 +1403,8 @@ observation path as `perf record`. It waits for a newly launched owned visible r
 targets that exact HWND for every setup, measure, and cleanup UI command, records sanitized phase and
 step markers plus forced resource snapshots around measurement, yields the workflow turn, and waits
 for all newly owned processes to exit naturally. Project and single-file targets build in `Release`
-by default; the command accepts the same build selection and app-argument options as `perf record`.
+by default; `perf scenario` retains its existing `--no-build` and build-selection options independently
+of the artifact-first `perf record` workflow.
 The scenario's cleanup phase or app arguments must close the app; otherwise the iteration eventually
 times out while waiting for natural exit. The command never kills or drives an `attached-late`
 pre-existing process. Each iteration bundle is retained in the set. `perf compare` exits 0 only for

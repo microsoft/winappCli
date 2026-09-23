@@ -21,6 +21,19 @@ public class RunCommandProjectModeTests : BaseCommandTests
     private FakeDebugOutputService _fakeDebugOutputService = null!;
     private FakeProjectRunService _fakeProjectRunService = null!;
 
+    private sealed class RecordingLaunchObserver : WinApp.Cli.Services.Performance.IRunLaunchObserver
+    {
+        public List<string> Calls { get; } = [];
+
+        public Task BeforeLaunchAsync(string? packageFamilyName, CancellationToken cancellationToken)
+        {
+            Calls.Add($"before:{packageFamilyName}");
+            return Task.CompletedTask;
+        }
+
+        public void AfterLaunch(uint processId) => Calls.Add($"after:{processId}");
+    }
+
     private const string TestManifestContent = """
         <?xml version="1.0" encoding="utf-8"?>
         <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -119,6 +132,173 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     #region Unpackaged
+
+    [TestMethod]
+    public async Task ExecutableMode_LaunchesExactPathAndUsesObservationBoundary()
+    {
+        var executable = new FileInfo(Path.Combine(_tempDirectory.FullName, "Exact.exe"));
+        File.WriteAllText(executable.FullName, string.Empty);
+        var command = GetRequiredService<RunCommand>();
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var observer = new RecordingLaunchObserver();
+        var parseResult = command.Parse([executable.FullName, "--args", "one two", "--detach"]);
+
+        var exitCode = await handler.InvokeForObservationAsync(
+            parseResult,
+            observer,
+            TestContext.CancellationToken);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeAppLauncherService.LaunchExecutableCalls.Count);
+        Assert.AreEqual(executable.FullName, _fakeAppLauncherService.LaunchExecutableCalls[0].ExePath);
+        Assert.AreEqual("one two", _fakeAppLauncherService.LaunchExecutableCalls[0].Arguments);
+        CollectionAssert.AreEqual(
+            new[] { "before:", $"after:{_fakeAppLauncherService.FakeProcessId}" },
+            observer.Calls);
+    }
+
+    [TestMethod]
+    public async Task ExecutableMode_RejectsProjectBuildOptions()
+    {
+        var executable = new FileInfo(Path.Combine(_tempDirectory.FullName, "Exact.exe"));
+        File.WriteAllText(executable.FullName, string.Empty);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [executable.FullName, "--configuration", "Release", "--arch", "x64", "--no-build"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}", "don't apply to executable input");
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_DiscoveryUsesUniqueExistingOutputAndReportsSelection()
+    {
+        var csproj = CreateCsproj();
+        var output = CreateTargetDir(withManifest: false);
+        var resolution = new ProjectRunResolution(
+            csproj,
+            output.FullName,
+            Path.Combine(output.FullName, "App.exe"),
+            ProjectPackaging.Unpackaged,
+            SelfContained: true,
+            Architecture: "arm64",
+            NoRestore: true);
+        _fakeProjectRunService.ExistingOutputCandidates =
+        [
+            new(resolution, "Custom", "arm64"),
+        ];
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--no-build", "--discover-existing-output", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        Assert.AreEqual(1, _fakeAppLauncherService.LaunchExecutableCalls.Count);
+        StringAssert.Contains(TestAnsiConsole.Output, "Selected existing output: Custom | arm64");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_DirectoryDiscoveryBypassesDefaultBuildClassification()
+    {
+        var csproj = CreateCsproj();
+        var output = CreateTargetDir(withManifest: false);
+        _fakeProjectRunService.ExistingOutputCandidates =
+        [
+            new(
+                new(
+                    csproj,
+                    output.FullName,
+                    Path.Combine(output.FullName, "App.exe"),
+                    ProjectPackaging.Unpackaged,
+                    SelfContained: true,
+                    Architecture: "x64",
+                    NoRestore: true),
+                "Release",
+                "x64"),
+        ];
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [_tempDirectory.FullName, "--no-build", "--discover-existing-output", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.ResolveInputCalls.Count);
+        Assert.AreEqual(1, _fakeProjectRunService.ResolveExistingOutputCalls.Count);
+        Assert.IsInstanceOfType<DirectoryInfo>(_fakeProjectRunService.ResolveExistingOutputCalls[0]);
+        Assert.IsNull(_fakeProjectRunService.ExistingOutputQueries[0].Configuration);
+        Assert.IsNull(_fakeProjectRunService.ExistingOutputQueries[0].Architecture);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_DiscoveryFailsClearlyWhenNoOutputExists()
+    {
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--no-build", "--discover-existing-output", "--detach"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}", "No runnable existing output was found");
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}", "rerun 'winapp perf record' with --build");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_DiscoveryListsAmbiguousOutputsWithoutChoosingNewest()
+    {
+        var csproj = CreateCsproj();
+        var debug = CreateTargetDir(withManifest: false);
+        var release = CreateTargetDir(withManifest: false);
+        _fakeProjectRunService.ExistingOutputCandidates =
+        [
+            new(new(csproj, debug.FullName, Path.Combine(debug.FullName, "App.exe"), ProjectPackaging.Unpackaged, true, "x64", NoRestore: true), "Debug", "x64"),
+            new(new(csproj, release.FullName, Path.Combine(release.FullName, "App.exe"), ProjectPackaging.Unpackaged, true, "arm64", NoRestore: true), "Release", "arm64"),
+        ];
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [csproj.FullName, "--no-build", "--discover-existing-output", "--detach"]);
+
+        Assert.AreEqual(1, exitCode);
+        var output = $"{ConsoleStdOut}{ConsoleStdErr}";
+        StringAssert.Contains(output, "Debug | x64");
+        StringAssert.Contains(output, "Release | arm64");
+        StringAssert.Contains(output, "--configuration and/or --arch");
+        Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_DiscoveryThreadsExplicitFilters()
+    {
+        var csproj = CreateCsproj();
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command,
+            [
+                csproj.FullName,
+                "--no-build",
+                "--discover-existing-output",
+                "--configuration",
+                "Release",
+                "--arch",
+                "arm64",
+                "--detach",
+            ]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(1, _fakeProjectRunService.ExistingOutputQueries.Count);
+        Assert.AreEqual("Release", _fakeProjectRunService.ExistingOutputQueries[0].Configuration);
+        Assert.AreEqual("arm64", _fakeProjectRunService.ExistingOutputQueries[0].Architecture);
+    }
 
     [TestMethod]
     public async Task ProjectMode_Unpackaged_InstallsRuntimeForArchAndLaunchesExecutable()

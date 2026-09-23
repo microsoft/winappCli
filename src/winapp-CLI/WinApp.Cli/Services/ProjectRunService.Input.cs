@@ -19,10 +19,26 @@ internal sealed partial class ProjectRunService
     /// <inheritdoc />
     public async Task<RunInputResolution> ResolveInputAsync(FileSystemInfo input, CancellationToken cancellationToken, string? projectSelector = null, ProjectClassificationInputs? classificationInputs = null)
     {
-        // Explicit file input: a .cs file-based app (single-file mode), a .csproj (project mode),
-        // or a .sln/.slnx (solution mode).
+        // Explicit file input: an exact .exe, a .cs file-based app (single-file mode), a .csproj
+        // (project mode), or a .sln/.slnx (solution mode).
         if (input is FileInfo file)
         {
+            if (string.Equals(file.Extension, ".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(projectSelector))
+                {
+                    throw new ProjectRunException(
+                        $"--project does not apply to executable input '{file.Name}'. Pass the executable without project selection options.");
+                }
+
+                var executableDir = file.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+                return new RunInputResolution(
+                    WinAppRunMode.Executable,
+                    null,
+                    executableDir,
+                    Executable: file);
+            }
+
             if (IsSingleFileApp(file))
             {
                 // Single-file mode is reachable ONLY from an explicitly-typed .cs path — never from
@@ -45,7 +61,7 @@ internal sealed partial class ProjectRunService
             if (!string.Equals(file.Extension, ".csproj", StringComparison.OrdinalIgnoreCase))
             {
                 throw new ProjectRunException(
-                    $"'{file.FullName}' is not a runnable input. Pass a .cs file-based app, a .csproj, a .sln/.slnx solution, a directory containing one, or a build-output folder.");
+                    $"'{file.FullName}' is not a runnable input. Pass an .exe, a .cs file-based app, a .csproj, a .sln/.slnx solution, a directory containing one, or a build-output folder.");
             }
 
             var projectDir = file.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());

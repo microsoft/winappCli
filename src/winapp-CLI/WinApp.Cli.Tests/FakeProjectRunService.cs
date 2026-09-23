@@ -43,6 +43,8 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public List<FileSystemInfo> ResolveInputCalls { get; } = [];
     public List<string?> ResolveInputSelectors { get; } = [];
     public List<ProjectClassificationInputs?> ResolveInputClassificationInputs { get; } = [];
+    public List<FileSystemInfo> ResolveExistingOutputCalls { get; } = [];
+    public List<string?> ResolveExistingOutputSelectors { get; } = [];
     public List<FileInfo> BuildAndResolveCalls { get; } = [];
     public List<ProjectRunOptions> BuildOptions { get; } = [];
     public List<FileInfo> BuildAndResolveSingleFileCalls { get; } = [];
@@ -80,6 +82,15 @@ internal sealed class FakeProjectRunService : IProjectRunService
                 SingleFile: singleFile));
         }
 
+        if (input is FileInfo executable && string.Equals(executable.Extension, ".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult(new RunInputResolution(
+                WinAppRunMode.Executable,
+                null,
+                executable.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory()),
+                Executable: executable));
+        }
+
         var dir = input as DirectoryInfo ?? new DirectoryInfo(input.FullName);
         return Task.FromResult(new RunInputResolution(WinAppRunMode.Folder, null, dir));
     }
@@ -101,6 +112,48 @@ internal sealed class FakeProjectRunService : IProjectRunService
 
         return Task.FromResult(BuildOutcome
             ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured."));
+    }
+
+    public IReadOnlyList<ExistingProjectOutputCandidate> ExistingOutputCandidates { get; set; } = [];
+    public List<ExistingProjectOutputQuery> ExistingOutputQueries { get; } = [];
+
+    public Task<RunInputResolution> ResolveExistingOutputAsync(
+        FileSystemInfo input,
+        string? projectSelector,
+        ExistingProjectOutputQuery query,
+        CancellationToken cancellationToken)
+    {
+        ResolveExistingOutputCalls.Add(input);
+        ResolveExistingOutputSelectors.Add(projectSelector);
+        ExistingOutputQueries.Add(query);
+        if (ResolveInputThrows != null)
+        {
+            throw ResolveInputThrows;
+        }
+        if (ExistingOutputCandidates.Count == 0)
+        {
+            throw new ProjectRunException(
+                $"No runnable existing output was found for '{input.Name}'. Build it first, or rerun 'winapp perf record' with --build.");
+        }
+        if (ExistingOutputCandidates.Count > 1)
+        {
+            var list = string.Join(
+                Environment.NewLine,
+                ExistingOutputCandidates.Select(candidate =>
+                    $"  {candidate.Resolution.Csproj.Name} | {candidate.Configuration} | " +
+                    $"{candidate.Architecture} | {candidate.Resolution.TargetDir}"));
+            throw new ProjectRunException(
+                $"Several runnable outputs were found for '{input.Name}':{Environment.NewLine}{list}{Environment.NewLine}" +
+                "Rerun with --project, --configuration and/or --arch to select one.");
+        }
+
+        var selected = ExistingOutputCandidates[0];
+        var project = selected.Resolution.Csproj;
+        return Task.FromResult(new RunInputResolution(
+            WinAppRunMode.Project,
+            project,
+            project.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory()),
+            ExistingOutput: selected));
     }
 
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)

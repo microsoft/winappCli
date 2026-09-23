@@ -945,6 +945,31 @@ public class ProjectRunServiceTests
     #region ResolveInput
 
     [TestMethod]
+    public async Task ResolveInput_ExeFile_ReturnsExecutableMode()
+    {
+        var executable = WriteFile("App.exe", string.Empty);
+
+        var resolution = await _service.ResolveInputAsync(executable, CancellationToken.None);
+
+        Assert.AreEqual(WinAppRunMode.Executable, resolution.Mode);
+        Assert.AreEqual(executable.FullName, resolution.Executable!.FullName);
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_ExeFile_RejectsProjectSelector()
+    {
+        var executable = WriteFile("App.exe", string.Empty);
+
+        var error = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.ResolveInputAsync(
+                executable,
+                CancellationToken.None,
+                projectSelector: "App"));
+
+        StringAssert.Contains(error.Message, "--project does not apply to executable input");
+    }
+
+    [TestMethod]
     public async Task ResolveInput_CsprojFile_ReturnsProjectMode()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
@@ -3616,6 +3641,382 @@ public class ProjectRunServiceTests
             "--no-build discovery should evaluate the requested Platform without building or pinning a RID");
         Assert.AreEqual(0, dotnet.StreamingCalls.Count);
     }
+
+    [TestMethod]
+    public async Task DiscoverExistingOutputs_DeduplicatesOneRunnableArtifactAcrossFallbackProbes()
+    {
+        var csproj = WriteFile(
+            "App.csproj",
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>WinExe</OutputType>
+                <Configurations>Debug;Release</Configurations>
+              </PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(_tempDir.FullName, "AppxManifest.xml"), "<Package />");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var candidates = await service.DiscoverProjectExistingOutputsAsync(
+            csproj,
+            new(null, null, null, []),
+            CancellationToken.None);
+
+        Assert.AreEqual(1, candidates.Count);
+        Assert.AreEqual("Debug", candidates[0].Configuration);
+        Assert.AreEqual(0, dotnet.StreamingCalls.Count, "Discovery must never build.");
+        Assert.IsFalse(
+            dotnet.StringInvocations.Any(args => args.StartsWith("restore ", StringComparison.OrdinalIgnoreCase)),
+            "Discovery must never restore.");
+    }
+
+    [TestMethod]
+    public async Task DiscoverExistingOutputs_ReturnsNoCandidateWhenEveryEvaluatedOutputIsMissing()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var missing = Path.Combine(_tempDir.FullName, "missing");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PropertiesJson(missing), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var candidates = await service.DiscoverProjectExistingOutputsAsync(
+            csproj,
+            new(null, null, null, []),
+            CancellationToken.None);
+
+        Assert.AreEqual(0, candidates.Count);
+        Assert.AreEqual(0, dotnet.StreamingCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task DiscoverExistingOutputs_ReturnsEveryDistinctConfigurationCandidate()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var debug = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, "Debug")).FullName;
+        var release = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, "Release")).FullName;
+        File.WriteAllText(Path.Combine(debug, "AppxManifest.xml"), "<Package />");
+        File.WriteAllText(Path.Combine(release, "AppxManifest.xml"), "<Package />");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+                (0, PropertiesJson(
+                    args.Contains("-p:Configuration=Release", StringComparison.OrdinalIgnoreCase) ? release : debug),
+                    string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var candidates = await service.DiscoverProjectExistingOutputsAsync(
+            csproj,
+            new(null, "x64", null, []),
+            CancellationToken.None);
+
+        Assert.AreEqual(2, candidates.Count);
+        CollectionAssert.AreEquivalent(
+            new List<string> { "Debug", "Release" },
+            candidates.Select(candidate => candidate.Configuration).ToArray());
+    }
+
+    [TestMethod]
+    public async Task DiscoverExistingOutputs_ExplicitFiltersAreAuthoritative()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var releaseArm64 = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, "Release-arm64")).FullName;
+        File.WriteAllText(Path.Combine(releaseArm64, "AppxManifest.xml"), "<Package />");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PropertiesJson(releaseArm64), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var candidates = await service.DiscoverProjectExistingOutputsAsync(
+            csproj,
+            new("Release", "arm64", null, ["Flavor=Store"]),
+            CancellationToken.None);
+
+        Assert.AreEqual(1, candidates.Count);
+        Assert.AreEqual("Release", candidates[0].Configuration);
+        Assert.AreEqual("arm64", candidates[0].Architecture);
+        var outputEvaluations = dotnet.StringInvocations
+            .Where(args => args.Contains("--getProperty:TargetDir", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        Assert.IsTrue(outputEvaluations.All(args =>
+            args.Contains("-p:Configuration=Release", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(outputEvaluations.All(args =>
+            args.Contains("Flavor=Store", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
+    public async Task DiscoverExistingOutputs_FindsCustomPlatformOutputPath()
+    {
+        var csproj = WriteFile(
+            "App.csproj",
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>WinExe</OutputType>
+                <OutputPath>$(Platform)\$(Configuration)\WinUI3Apps\</OutputPath>
+              </PropertyGroup>
+            </Project>
+            """);
+        var missing = Path.Combine(_tempDir.FullName, "AnyCPU", "Debug", "WinUI3Apps");
+        var existing = Directory.CreateDirectory(
+            Path.Combine(_tempDir.FullName, "x64", "Debug", "WinUI3Apps")).FullName;
+        File.WriteAllText(Path.Combine(existing, "AppxManifest.xml"), "<Package />");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                var target = args.Contains("-p:Platform=x64", StringComparison.OrdinalIgnoreCase)
+                    ? existing
+                    : missing;
+                return (0, PropertiesJson(target), string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var candidates = await service.DiscoverProjectExistingOutputsAsync(
+            csproj,
+            new("Debug", "x64", null, []),
+            CancellationToken.None);
+
+        Assert.AreEqual(1, candidates.Count);
+        Assert.AreEqual(existing, candidates[0].Resolution.TargetDir.TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar));
+        Assert.IsTrue(dotnet.StringInvocations.Any(args =>
+            args.Contains("-p:Platform=x64", StringComparison.OrdinalIgnoreCase)));
+        Assert.AreEqual(0, dotnet.StreamingCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task ResolveExistingOutput_DirectoryFindsReleaseOnlyProjectWithoutImplicitDefaults()
+    {
+        var app = WriteFile(
+            "App.csproj",
+            ConditionalReleaseOnlyProject());
+        WriteFile("Library.csproj", LibraryCsproj);
+        var release = CreatePackagedOutput("Release-x64");
+        var dotnet = CreateReleaseOnlyDiscoveryDotNet(app, release);
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var resolution = await service.ResolveExistingOutputAsync(
+            _tempDir,
+            projectSelector: null,
+            new(null, null, null, []),
+            CancellationToken.None);
+
+        Assert.AreEqual(WinAppRunMode.Project, resolution.Mode);
+        Assert.AreEqual(app.FullName, resolution.Csproj!.FullName);
+        Assert.IsNotNull(resolution.ExistingOutput);
+        Assert.AreEqual("Release", resolution.ExistingOutput.Configuration);
+        Assert.AreEqual("x64", resolution.ExistingOutput.Architecture);
+        Assert.AreEqual(release, resolution.ExistingOutput.Resolution.TargetDir.TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar));
+    }
+
+    [TestMethod]
+    public async Task ResolveExistingOutput_SolutionFindsReleaseOnlyProjectWithoutImplicitDefaults()
+    {
+        var app = WriteFileAt(
+            @"src\App\App.csproj",
+            ConditionalReleaseOnlyProject());
+        WriteFileAt(@"src\Library\Library.csproj", LibraryCsproj);
+        var solution = WriteFile(
+            "Apps.slnx",
+            SlnxListing("src/App/App.csproj", "src/Library/Library.csproj"));
+        var release = CreatePackagedOutput("Release-x64");
+        var dotnet = CreateReleaseOnlyDiscoveryDotNet(app, release);
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var resolution = await service.ResolveExistingOutputAsync(
+            solution,
+            projectSelector: null,
+            new(null, null, null, []),
+            CancellationToken.None);
+
+        Assert.AreEqual(app.FullName, resolution.Csproj!.FullName);
+        Assert.AreEqual(solution.FullName, resolution.Solution!.FullName);
+        Assert.AreEqual("Release", resolution.ExistingOutput!.Configuration);
+        Assert.AreEqual(release, resolution.ExistingOutput.Resolution.TargetDir.TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar));
+    }
+
+    [TestMethod]
+    public async Task ResolveExistingOutput_DoesNotChooseWhenProjectsHaveDistinctArtifacts()
+    {
+        var first = WriteFile("First.csproj", ConditionalReleaseOnlyProject());
+        var second = WriteFile("Second.csproj", ConditionalReleaseOnlyProject());
+        var firstOutput = CreatePackagedOutput("First-Release-x64");
+        var secondOutput = CreatePackagedOutput("Second-Release-x64");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:Configurations", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BuildDimensionsJson();
+                }
+
+                if (!IsReleaseX64Probe(args))
+                {
+                    return (0, PropertiesJson(
+                        Path.Combine(_tempDir.FullName, "missing"),
+                        outputType: "Library"), string.Empty);
+                }
+
+                return args.Contains(first.FullName, StringComparison.OrdinalIgnoreCase)
+                    ? (0, PropertiesJson(firstOutput), string.Empty)
+                    : args.Contains(second.FullName, StringComparison.OrdinalIgnoreCase)
+                        ? (0, PropertiesJson(secondOutput), string.Empty)
+                        : (0, PropertiesJson(
+                            Path.Combine(_tempDir.FullName, "missing"),
+                            outputType: "Library"), string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+
+        var exception = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => service.ResolveExistingOutputAsync(
+                _tempDir,
+                projectSelector: null,
+                new(null, null, null, []),
+                CancellationToken.None));
+
+        StringAssert.Contains(exception.Message, "First.csproj | Release | x64");
+        StringAssert.Contains(exception.Message, "Second.csproj | Release | x64");
+        StringAssert.Contains(exception.Message, "--project, --configuration and/or --arch");
+    }
+
+    [TestMethod]
+    [DataRow("json", LogLevel.Information)]
+    [DataRow("quiet", LogLevel.Warning)]
+    public async Task ResolveExistingOutput_FailedProbeIsSilentForNestedOutputModes(
+        string outerMode,
+        LogLevel logLevel)
+    {
+        // perf does not copy its outer --json/--quiet flag into the nested run arguments. The nested
+        // invocation therefore reaches discovery with Json=false while its shared ANSI console still
+        // points at outer stdout. Suppression must belong to the speculative probe, not to outer flags.
+        var app = WriteFile("App.csproj", ConditionalReleaseOnlyProject());
+        var release = CreatePackagedOutput("Release-x64");
+        var failedProbeSeen = false;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:Configurations", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BuildDimensionsJson();
+                }
+
+                if (args.Contains("-p:Configuration=Debug", StringComparison.OrdinalIgnoreCase)
+                    && args.Contains("win-arm64", StringComparison.OrdinalIgnoreCase))
+                {
+                    failedProbeSeen = true;
+                    return (1, "expected probe stdout", "expected MSBuild probe failure");
+                }
+
+                return IsReleaseX64Probe(args)
+                    ? (0, PropertiesJson(release), string.Empty)
+                    : (0, PropertiesJson(
+                        Path.Combine(_tempDir.FullName, "missing"),
+                        outputType: "Library"), string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, logLevel, out var console);
+
+        var resolution = await service.ResolveExistingOutputAsync(
+            app,
+            projectSelector: null,
+            new(null, null, null, [], Json: false),
+            CancellationToken.None);
+
+        Assert.IsTrue(failedProbeSeen);
+        Assert.IsNotNull(resolution.ExistingOutput);
+        Assert.AreEqual(string.Empty, console.Output, $"{outerMode} discovery leaked probe output");
+    }
+
+    private string CreatePackagedOutput(string name)
+    {
+        var output = Directory.CreateDirectory(Path.Combine(_tempDir.FullName, name)).FullName;
+        File.WriteAllText(Path.Combine(output, "AppxManifest.xml"), "<Package />");
+        return output;
+    }
+
+    private static string ConditionalReleaseOnlyProject() =>
+        """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+            <Configurations>Debug;Release</Configurations>
+            <Platforms>x64</Platforms>
+          </PropertyGroup>
+          <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+            <OutputType>WinExe</OutputType>
+          </PropertyGroup>
+          <PropertyGroup Condition="'$(Configuration)' != 'Release'">
+            <OutputType>Library</OutputType>
+          </PropertyGroup>
+        </Project>
+        """;
+
+    private FakeDotNetService CreateReleaseOnlyDiscoveryDotNet(
+        FileInfo app,
+        string releaseOutput) =>
+        new()
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:Configurations", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BuildDimensionsJson();
+                }
+
+                if (!args.Contains(app.FullName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (0, PropertiesJson(
+                        Path.Combine(_tempDir.FullName, "missing-library"),
+                        outputType: "Library"), string.Empty);
+                }
+
+                return IsReleaseX64Probe(args)
+                    ? (0, PropertiesJson(releaseOutput), string.Empty)
+                    : (0, PropertiesJson(
+                        Path.Combine(_tempDir.FullName, "missing-app"),
+                        outputType: "Library"), string.Empty);
+            },
+        };
+
+    private static bool IsReleaseX64Probe(string arguments) =>
+        arguments.Contains("-p:Configuration=Release", StringComparison.OrdinalIgnoreCase)
+        && arguments.Contains("win-x64", StringComparison.OrdinalIgnoreCase);
+
+    private static (int ExitCode, string Output, string Error) BuildDimensionsJson() =>
+        (0,
+            """{ "Properties": { "Configurations": "Debug;Release", "Platforms": "x64" } }""",
+            string.Empty);
+
+    private static string PropertiesJson(
+        string targetDir,
+        string outputType = "WinExe") =>
+        $$"""
+        { "Properties": {
+            "TargetDir": "{{targetDir.Replace("\\", "\\\\")}}",
+            "RunCommand": "",
+            "WindowsPackageType": "MSIX",
+            "OutputType": "{{outputType}}",
+            "WindowsAppSDKSelfContained": ""
+        } }
+        """;
 
     [TestMethod]
     public async Task BuildAndResolveAsync_BuildFailure_ShortCircuitsBeforePostBuildEvaluate()

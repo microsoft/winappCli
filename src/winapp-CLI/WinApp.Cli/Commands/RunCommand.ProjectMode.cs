@@ -114,6 +114,7 @@ internal partial class RunCommand
             FileInfo csproj,
             FileInfo? solution,
             string? selectionReason,
+            ExistingProjectOutputCandidate? existingOutput,
             string? appArgs,
             bool isJson,
             IRunLaunchObserver? launchObserver,
@@ -125,6 +126,7 @@ internal partial class RunCommand
             var runtimeOption = parseResult.GetValue(RuntimeOption);
             var noBuild = parseResult.GetValue(NoBuildOption);
             var noRestore = parseResult.GetValue(NoRestoreOption);
+            var discoverExistingOutput = parseResult.GetValue(DiscoverExistingOutputOption);
             var properties = parseResult.GetValue(PropertyOption) ?? [];
 
             // Resolve the explicit effective framework ONCE (--framework > bare -p:TargetFramework) so the
@@ -162,7 +164,7 @@ internal partial class RunCommand
             // take several silent seconds. Print WHAT we're about to run — and, when the input was
             // ambiguous, WHY this project was chosen — so the run never looks hung. Suppressed for --json
             // (stdout must stay pure) and --quiet (Information off).
-            if (!isJson && logger.IsEnabled(LogLevel.Information))
+            if (!discoverExistingOutput && !isJson && logger.IsEnabled(LogLevel.Information))
             {
                 var context = new StringBuilder($"{csproj.Name}  ·  {configuration} | {architecture}");
                 if (solution != null)
@@ -184,6 +186,33 @@ internal partial class RunCommand
             if (sdkError != null)
             {
                 return Fail(sdkError, isJson);
+            }
+
+            if (discoverExistingOutput)
+            {
+                if (existingOutput is null)
+                {
+                    return Fail(
+                        $"Artifact discovery did not resolve an existing output for '{csproj.Name}'.",
+                        isJson);
+                }
+
+                var selected = existingOutput;
+                if (!isJson && logger.IsEnabled(LogLevel.Information))
+                {
+                    ansiConsole.MarkupLineInterpolated(
+                        $"{UiSymbols.Search} Selected existing output: {selected.Configuration} | {selected.Architecture} | {selected.Resolution.TargetDir}");
+                }
+
+                return selected.Resolution.Packaging == ProjectPackaging.Packaged
+                    ? await RunPackagedProjectAsync(
+                        selected.Resolution, csproj, manifest, outputAppXDirectory, appArgs,
+                        noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild: true, isJson,
+                        launchObserver, cancellationToken)
+                    : await RunUnpackagedProjectAsync(
+                        selected.Resolution, csproj, appArgs,
+                        noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, manifest, outputAppXDirectory, isJson,
+                        launchObserver, cancellationToken);
             }
 
             // Build (unless --no-build) and resolve the output properties. ProjectRunService owns the build
@@ -394,6 +423,58 @@ internal partial class RunCommand
                 }
             }
 
+            return await LaunchExecutableAsync(
+                exePath,
+                launchArgs,
+                workingDirectory,
+                Path.GetFileNameWithoutExtension(csproj.Name),
+                resolution.Architecture,
+                resolution.TargetDir,
+                debugOutput,
+                detach,
+                useSymbols,
+                isJson,
+                launchObserver,
+                cancellationToken);
+        }
+
+        private Task<int> RunExecutableModeAsync(
+            FileInfo executable,
+            string? appArgs,
+            bool debugOutput,
+            bool detach,
+            bool useSymbols,
+            bool isJson,
+            IRunLaunchObserver? launchObserver,
+            CancellationToken cancellationToken) =>
+            LaunchExecutableAsync(
+                executable.FullName,
+                appArgs,
+                currentDirectoryProvider.GetCurrentDirectory(),
+                Path.GetFileNameWithoutExtension(executable.Name),
+                architecture: null,
+                symbolSearchPath: executable.DirectoryName,
+                debugOutput,
+                detach,
+                useSymbols,
+                isJson,
+                launchObserver,
+                cancellationToken);
+
+        private async Task<int> LaunchExecutableAsync(
+            string exePath,
+            string? launchArgs,
+            string workingDirectory,
+            string displayName,
+            string? architecture,
+            string? symbolSearchPath,
+            bool debugOutput,
+            bool detach,
+            bool useSymbols,
+            bool isJson,
+            IRunLaunchObserver? launchObserver,
+            CancellationToken cancellationToken)
+        {
             ILaunchedProcess launched;
             try
             {
@@ -413,7 +494,7 @@ internal partial class RunCommand
                 // A cross-arch apphost (e.g. an arm64 build on an x64 host) fails here with an opaque
                 // Win32 "not a valid application" error. If the resolved arch can't run on this machine,
                 // enrich the message with actionable guidance instead of surfacing the raw OS error.
-                var detail = resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
+                var detail = architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
                     ? BuildArchMismatchMessage(arch, ex.Message)
                     : ex.Message;
                 logger.LogError("{UISymbol} Failed to launch '{Exe}': {Message}", UiSymbols.Error, exePath, detail);
@@ -459,14 +540,14 @@ internal partial class RunCommand
                     // stuck while winapp waits for it to exit. Mirrors packaged mode's "launched (PID)" line.
                     // Gated on Information so --quiet stays silent.
                     ansiConsole.MarkupLineInterpolated(
-                        $"{UiSymbols.Check} Launched {Path.GetFileNameWithoutExtension(csproj.Name)} (PID: {processId})");
+                        $"{UiSymbols.Check} Launched {displayName} (PID: {processId})");
                 }
 
                 // --debug-output: attach the debug event loop instead of a plain wait.
                 if (debugOutput)
                 {
                     var debugExit = await debugOutputService.RunDebugLoopAsync(processId, cancellationToken, useSymbols,
-                        symbolSearchPaths: [resolution.TargetDir]);
+                        symbolSearchPaths: string.IsNullOrWhiteSpace(symbolSearchPath) ? [] : [symbolSearchPath]);
                     if (cancellationToken.IsCancellationRequested)
                     {
                         launched.Kill();
@@ -563,6 +644,36 @@ internal partial class RunCommand
             // -p:TargetFramework) so classification and build never evaluate a different TFM.
             var framework = ProjectRunService.ResolveExplicitFramework(parseResult.GetValue(FrameworkOption), properties);
             return new ProjectClassificationInputs(configuration, architecture, framework, properties);
+        }
+
+        internal static ExistingProjectOutputQuery BuildExistingOutputQuery(
+            ParseResult parseResult,
+            bool isJson)
+        {
+            var configuration = parseResult.GetResult(ConfigurationOption)?.Implicit == false
+                ? parseResult.GetValue(ConfigurationOption)
+                : null;
+            var architectureIsExplicit =
+                parseResult.GetResult(ArchOption)?.Implicit == false
+                || parseResult.GetResult(RuntimeOption)?.Implicit == false;
+            var architecture = architectureIsExplicit
+                && TryResolveArchitecture(
+                    parseResult.GetValue(ArchOption),
+                    parseResult.GetValue(RuntimeOption),
+                    out var resolvedArchitecture,
+                    out _)
+                    ? resolvedArchitecture
+                    : null;
+            var properties = parseResult.GetValue(PropertyOption) ?? [];
+            var framework = ProjectRunService.ResolveExplicitFramework(
+                parseResult.GetValue(FrameworkOption),
+                properties);
+            return new(
+                configuration,
+                architecture,
+                framework,
+                properties,
+                isJson);
         }
 
         /// <summary>

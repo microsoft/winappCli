@@ -7,13 +7,16 @@ namespace WinApp.Cli.Models;
 
 /// <summary>
 /// Whether <c>winapp run</c> operates on a pre-built output folder (folder mode, unchanged),
-/// builds a <c>.csproj</c> from source (project mode), or builds a .NET file-based app — a single
-/// <c>.cs</c> file configured by <c>#:</c> directives (single-file mode).
+/// launches an exact executable, builds a <c>.csproj</c> from source (project mode), or builds a
+/// .NET file-based app — a single <c>.cs</c> file configured by <c>#:</c> directives (single-file mode).
 /// </summary>
 internal enum WinAppRunMode
 {
     /// <summary>Input is a build-output folder — the existing, unchanged behavior.</summary>
     Folder,
+
+    /// <summary>Input is an explicitly specified executable, launched exactly as supplied.</summary>
+    Executable,
 
     /// <summary>Input is a <c>.csproj</c> (or a directory containing exactly one buildable one).</summary>
     Project,
@@ -40,8 +43,8 @@ internal enum ProjectPackaging
 
 /// <summary>
 /// The outcome of resolving a <c>.csproj</c> input to a concrete run mode.
-/// Either <see cref="Mode"/> is <see cref="WinAppRunMode.Folder"/> (fall back to the existing
-/// folder-mode path) or it is <see cref="WinAppRunMode.Project"/> and <see cref="Csproj"/> is set.
+/// The mode identifies which associated path is populated: folder, exact executable, project, or
+/// .NET file-based app.
 /// </summary>
 /// <param name="Mode">The resolved run mode.</param>
 /// <param name="Csproj">The resolved project file, when <see cref="Mode"/> is Project.</param>
@@ -49,13 +52,35 @@ internal enum ProjectPackaging
 /// <param name="Solution">The solution the project was resolved from (defines <c>$(SolutionDir)</c> and siblings for the build/evaluate passes); null for a bare <c>.csproj</c>/directory input.</param>
 /// <param name="SelectionReason">Why this project was chosen for an ambiguous input (shown in the context line); null if unambiguous.</param>
 /// <param name="SingleFile">The resolved <c>.cs</c> file-based app, when <see cref="Mode"/> is <see cref="WinAppRunMode.SingleFile"/>.</param>
+/// <param name="Executable">The exact executable, when <see cref="Mode"/> is <see cref="WinAppRunMode.Executable"/>.</param>
+/// <param name="ExistingOutput">The already-built output selected by artifact discovery; null for normal build/run resolution.</param>
 internal sealed record RunInputResolution(
     WinAppRunMode Mode,
     FileInfo? Csproj,
     DirectoryInfo ProjectDirectory,
     FileInfo? Solution = null,
     string? SelectionReason = null,
-    FileInfo? SingleFile = null);
+    FileInfo? SingleFile = null,
+    FileInfo? Executable = null,
+    ExistingProjectOutputCandidate? ExistingOutput = null);
+
+/// <summary>
+/// Optional filters used to discover already-built runnable project outputs without restoring or building.
+/// Null configuration/architecture values mean "consider every discovered/fallback value".
+/// </summary>
+internal sealed record ExistingProjectOutputQuery(
+    string? Configuration,
+    string? Architecture,
+    string? Framework,
+    IReadOnlyList<string> Properties,
+    bool Json = false,
+    FileInfo? Solution = null);
+
+/// <summary>An existing runnable project output and the build dimensions that selected it.</summary>
+internal sealed record ExistingProjectOutputCandidate(
+    ProjectRunResolution Resolution,
+    string Configuration,
+    string Architecture);
 
 /// <summary>
 /// The package graph a build resolved: the <c>project.assets.json</c> restore wrote, and the RID that
@@ -113,6 +138,7 @@ internal sealed record ProjectRunResolution(
 /// <param name="Platform">The MSBuild <c>Platform</c> winapp injects (<c>-p:Platform=…</c>) into project-targeted passes when the target — and its whole <c>ProjectReference</c> closure — declares a <c>&lt;Platforms&gt;</c> that includes the target arch. Solution-scoped restore omits it because configuration-free <c>.slnx</c> files reject an explicit solution Platform. A RESOLVED input (see <c>ResolvePlatformInjection</c>), never user-supplied; null means arch is conveyed by the RID alone (the safe default). Older WindowsAppSDK targets hard-reject the default <c>Platform=AnyCPU</c> for self-contained / packaged builds, so the explicit Platform is what makes those projects build.</param>
 /// <param name="OmitRuntimeIdentifier">Suppresses the injected <c>-r win-&lt;arch&gt;</c> because an effective <c>Platform</c> already conveys the architecture AND the <c>ProjectReference</c> closure splits on <c>RuntimeIdentifier</c> — a combination that otherwise builds the same project twice and fails a packaged build with APPX1101. A RESOLVED input (see <c>ResolvePlatformInjection</c>).</param>
 /// <param name="PublishProfile">The architecture-matching publish profile used when MSIX tooling requires a trimmed build to be self-contained, the profile preserves the project's trimming, target framework, and architecture, and forcing a global <c>Platform</c> would break an AnyCPU project reference. Inferred profiles are scoped to the selected app through the .NET SDK's <c>ProjectToOverrideProjectExtensionsPath</c> property. A RESOLVED input (see <c>ResolveRequiredPublishProfileAsync</c>), never user-supplied.</param>
+/// <param name="SuppressDiagnostics">Suppresses expected diagnostics for speculative artifact-discovery probes. Normal build/run calls leave this false.</param>
 internal sealed record ProjectRunOptions(
     string Configuration,
     string Architecture,
@@ -124,7 +150,8 @@ internal sealed record ProjectRunOptions(
     FileInfo? Solution = null,
     string? Platform = null,
     bool OmitRuntimeIdentifier = false,
-    string? PublishProfile = null);
+    string? PublishProfile = null,
+    bool SuppressDiagnostics = false);
 
 /// <summary>
 /// The effective build inputs used to classify runnable candidates (multi-<c>.csproj</c> directory or

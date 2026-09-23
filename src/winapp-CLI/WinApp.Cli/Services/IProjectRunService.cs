@@ -13,9 +13,9 @@ namespace WinApp.Cli.Services;
 internal interface IProjectRunService
 {
     /// <summary>
-    /// Classifies the run input into folder mode (existing behavior), project mode, or single-file mode.
+    /// Classifies the run input into folder mode, exact-executable mode, project mode, or single-file mode.
     /// </summary>
-    /// <param name="input">The positional argument: a <c>.cs</c> file-based app, a <c>.csproj</c>/<c>.sln</c>/<c>.slnx</c> file, or a directory.</param>
+    /// <param name="input">The positional argument: an <c>.exe</c>, a <c>.cs</c> file-based app, a <c>.csproj</c>/<c>.sln</c>/<c>.slnx</c> file, or a directory.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="projectSelector">
     /// Optional <c>--project</c> selector used to pick the runnable project when the input is a
@@ -32,7 +32,8 @@ internal interface IProjectRunService
     /// </param>
     /// <returns>The resolved mode + project file (when project mode).</returns>
     /// <remarks>
-    /// An explicitly-specified <c>.cs</c> resolves to single-file mode. That is the ONLY way to reach it —
+    /// An explicitly-specified <c>.exe</c> resolves to exact-executable mode. An explicitly-specified
+    /// <c>.cs</c> resolves to single-file mode. That is the ONLY way to reach it —
     /// a directory is never scanned for loose <c>.cs</c> files, so folder-mode classification is unchanged.
     /// A <c>.sln</c>/<c>.slnx</c> file (or a directory containing exactly one) resolves to project
     /// mode against its single runnable app project, and the resolution records the solution so the
@@ -48,6 +49,17 @@ internal interface IProjectRunService
     /// runnable candidates and the intended one is ambiguous (and no matching selector was given).
     /// </exception>
     Task<RunInputResolution> ResolveInputAsync(FileSystemInfo input, CancellationToken cancellationToken, string? projectSelector = null, ProjectClassificationInputs? classificationInputs = null);
+
+    /// <summary>
+    /// Resolves directory/solution/project input by its already-built runnable artifacts rather than
+    /// pre-classifying projects under implicit build defaults. Explicit project/configuration/architecture
+    /// filters remain authoritative, and ambiguity is reported instead of guessed.
+    /// </summary>
+    Task<RunInputResolution> ResolveExistingOutputAsync(
+        FileSystemInfo input,
+        string? projectSelector,
+        ExistingProjectOutputQuery query,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Verifies that a capable .NET SDK (≥ 8.0.100, which supports <c>--getProperty</c>) is available.

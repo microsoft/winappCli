@@ -18,7 +18,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
 {
     internal static readonly Argument<FileSystemInfo> TargetArgument = new("target")
     {
-        Description = "App to build, launch, and record: a .cs file-based app, project, solution, project directory, or build-output directory.",
+        Description = "App to launch and record: an .exe, .cs file-based app, project, solution, project directory, or build-output directory.",
         Arity = ArgumentArity.ZeroOrOne,
     };
 
@@ -39,10 +39,9 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         DefaultValueFactory = _ => 0,
     };
 
-    internal static readonly Option<string> ConfigurationOption = new("--configuration", "-c")
+    internal static readonly Option<string?> ConfigurationOption = new("--configuration", "-c")
     {
-        Description = "Project and single-file mode: build configuration (default: Release).",
-        DefaultValueFactory = _ => "Release",
+        Description = "Project input: filter existing outputs by configuration; with --build, build this configuration (default: Release).",
     };
 
     internal static readonly Option<string?> ArchOption = new("--arch")
@@ -65,9 +64,9 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         Description = "Select a project when the target is a solution or ambiguous directory.",
     };
 
-    internal static readonly Option<bool> NoBuildOption = new("--no-build")
+    internal static readonly Option<bool> BuildOption = new("--build")
     {
-        Description = "Run existing build output without building.",
+        Description = "Restore and build project input before recording. Builds Release unless --configuration is explicit.",
     };
 
     internal static readonly Option<bool> NoRestoreOption = new("--no-restore")
@@ -95,7 +94,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
     public string ShortDescription => "Record app startup, resources, managed EventPipe, and optional system traces";
 
     public PerfRecordCommand()
-        : base("record", "Build and launch an app through winapp run, observe generation-safe startup and resource evidence, retain managed EventPipe evidence for newly launched CoreCLR targets, and optionally collect a WPR trace.")
+        : base("record", "Launch an existing app artifact through winapp run, observe generation-safe startup and resource evidence, retain managed EventPipe evidence for newly launched CoreCLR targets, and optionally collect a WPR trace. Use --build to build project input first.")
     {
         Arguments.Add(TargetArgument);
         Arguments.Add(PassthroughArgument);
@@ -106,7 +105,7 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
         Options.Add(RuntimeOption);
         Options.Add(FrameworkOption);
         Options.Add(ProjectOption);
-        Options.Add(NoBuildOption);
+        Options.Add(BuildOption);
         Options.Add(NoRestoreOption);
         Options.Add(PropertyOption);
         Options.Add(ArgsOption);
@@ -152,6 +151,10 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
             if (durationSec < 0 || durationSec > 86_400)
             {
                 return Fail(parseResult, json, "--duration-sec must be between 0 and 86400.");
+            }
+            if (ValidateRunOptions(parseResult) is { } optionError)
+            {
+                return Fail(parseResult, json, optionError);
             }
 
             var output = parseResult.GetValue(OutputOption);
@@ -665,23 +668,36 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
             }
         }
 
-        private static string[] BuildRunArguments(ParseResult parseResult)
+        internal static string[] BuildRunArguments(ParseResult parseResult)
         {
             var arguments = new List<string>();
-            if (parseResult.GetValue(TargetArgument) is { } target)
+            var target = parseResult.GetValue(TargetArgument);
+            if (target is not null)
             {
                 arguments.Add(target.FullName);
             }
 
-            AddOption(arguments, "--configuration", parseResult.GetValue(ConfigurationOption));
+            var build = parseResult.GetValue(BuildOption);
+            var executableInput = target is FileInfo file
+                && string.Equals(file.Extension, ".exe", StringComparison.OrdinalIgnoreCase);
+            var configuration = parseResult.GetValue(ConfigurationOption);
+            if (build)
+            {
+                AddOption(arguments, "--configuration", configuration ?? "Release");
+            }
+            else
+            {
+                AddOption(arguments, "--configuration", configuration);
+            }
             AddOption(arguments, "--arch", parseResult.GetValue(ArchOption));
             AddOption(arguments, "--runtime", parseResult.GetValue(RuntimeOption));
             AddOption(arguments, "--framework", parseResult.GetValue(FrameworkOption));
             AddOption(arguments, "--project", parseResult.GetValue(ProjectOption));
             AddOption(arguments, "--args", parseResult.GetValue(ArgsOption));
-            if (parseResult.GetValue(NoBuildOption))
+            if (!build && !executableInput)
             {
                 arguments.Add("--no-build");
+                arguments.Add("--discover-existing-output");
             }
             if (parseResult.GetValue(NoRestoreOption))
             {
@@ -700,6 +716,46 @@ internal sealed class PerfRecordCommand : Command, IShortDescription
                 arguments.AddRange(passthrough);
             }
             return [.. arguments];
+        }
+
+        internal static string? ValidateRunOptions(ParseResult parseResult)
+        {
+            var build = parseResult.GetValue(BuildOption);
+            if (parseResult.GetValue(NoRestoreOption) && !build)
+            {
+                return "--no-restore requires --build because artifact discovery never restores.";
+            }
+
+            if (parseResult.GetValue(TargetArgument) is not FileInfo file
+                || !string.Equals(file.Extension, ".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var invalid = new List<string>();
+            if (build)
+            {
+                invalid.Add("--build");
+            }
+            AddIfExplicit(ConfigurationOption, "--configuration");
+            AddIfExplicit(ArchOption, "--arch");
+            AddIfExplicit(RuntimeOption, "--runtime");
+            AddIfExplicit(FrameworkOption, "--framework");
+            AddIfExplicit(ProjectOption, "--project");
+            AddIfExplicit(NoRestoreOption, "--no-restore");
+            AddIfExplicit(PropertyOption, "--property");
+            return invalid.Count == 0
+                ? null
+                : $"The option(s) {string.Join(", ", invalid)} don't apply to executable input. " +
+                  $"'{file.Name}' is launched exactly as supplied.";
+
+            void AddIfExplicit(Option option, string displayName)
+            {
+                if (parseResult.GetResult(option)?.Implicit == false)
+                {
+                    invalid.Add(displayName);
+                }
+            }
         }
 
         private static void AddOption(List<string> arguments, string option, string? value)
