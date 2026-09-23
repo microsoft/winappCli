@@ -250,7 +250,9 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
             UpdatedUtc = DateTimeOffset.UtcNow,
         };
 
-        AtomicFile.WriteAllText(file, JsonSerializer.Serialize(committed, DeploymentStateJsonContext.Default.DeploymentState));
+        AtomicFile.WriteAllText(
+            file, JsonSerializer.Serialize(committed, DeploymentStateJsonContext.Default.DeploymentState),
+            preserveReaders: true);
         return committed;
     }
 

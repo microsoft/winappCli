@@ -133,15 +133,43 @@ internal static class XamlTriageBinaries
     /// it is loaded into the debugger process, and a copy that was replaced on disk, or that drifted
     /// from the engine build (which crashes the triage child with STATUS_BREAKPOINT), must be rejected
     /// so the cache self-heals instead of silently breaking triage.
+    /// When <paramref name="requireTrustedCache"/> is set, the repository-local cache additionally
+    /// requires authentication of the engine and its co-located loadable dependencies.
     /// </para>
     /// </summary>
-    public static ResolvedTriageBinaries? ResolveExisting(DirectoryInfo cacheBinDir, ILogger logger) =>
+    public static ResolvedTriageBinaries? ResolveExisting(DirectoryInfo cacheBinDir, ILogger logger, bool requireTrustedCache = false) =>
         ResolveExisting(cacheBinDir, logger, b =>
             AuthenticodeVerifier.IsTrustedMicrosoftSigned(b.JsProviderPath, logger)
-            && IsProviderCompatibleWithEngine(b.BinDir, b.JsProviderPath, logger));
+            && IsProviderCompatibleWithEngine(b.BinDir, b.JsProviderPath, logger)
+            && (!requireTrustedCache
+                || !Path.GetFullPath(b.BinDir).Equals(cacheBinDir.FullName, StringComparison.OrdinalIgnoreCase)
+                || IsTrustedCacheLayout(b.BinDir, logger, AuthenticodeVerifier.IsTrustedMicrosoftSigned)));
 
     /// <summary>
-    /// Testable core of <see cref="ResolveExisting(DirectoryInfo, ILogger)"/> with an injectable
+    /// A repository-local cache is executable input, not just cached data. Product versions
+    /// establish compatibility, never authenticity. Require the engine payload and authenticate
+    /// every co-located DLL before a triage child can load any of them.
+    /// </summary>
+    internal static bool IsTrustedCacheLayout(string binDir, ILogger logger, Func<string, ILogger, bool> signatureVerifier)
+    {
+        if (NuGetComponents[0].Files.Any(file => !File.Exists(Path.Combine(binDir, file))))
+        {
+            return false;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(binDir, "*.dll", SearchOption.AllDirectories))
+        {
+            if (!signatureVerifier(path, logger))
+            {
+                logger.LogDebug("Rejecting local WinUI triage cache: {Path} is not validly signed by Microsoft.", path);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Testable core of <see cref="ResolveExisting(DirectoryInfo, ILogger, bool)"/> with an injectable
     /// <paramref name="validator"/> so unit tests can exercise resolution without requiring a real
     /// Authenticode-signed, version-matched <c>JsProvider.dll</c>.
     /// </summary>
@@ -298,7 +326,8 @@ internal static class XamlTriageBinaries
     /// Returns <c>true</c> when <paramref name="path"/> exists and looks like an intact PE image (starts
     /// with the <c>MZ</c> signature and is not implausibly small). Used to detect a truncated/corrupt
     /// cached engine DLL so it is re-acquired instead of poisoning the cache across runs — unlike
-    /// <c>JsProvider.dll</c>, the engine DLLs are not otherwise re-verified on a cache hit.
+    /// <c>JsProvider.dll</c>, engine DLLs outside the repository-local fallback cache are not otherwise
+    /// re-verified on a cache hit.
     /// </summary>
     private static bool IsUsablePeFile(string path)
     {
@@ -399,7 +428,7 @@ internal static class XamlTriageBinaries
                     acquired++;
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException and not CacheWriteException)
             {
                 logger.LogDebug(ex, "Failed to acquire debugging component {Package} from NuGet.", package);
             }
@@ -442,7 +471,11 @@ internal static class XamlTriageBinaries
 
             foreach (var file in files)
             {
-                AtomicFile.Copy(Path.Combine(archDir, file), Path.Combine(cacheBinDir.FullName, file));
+                try { AtomicFile.Copy(Path.Combine(archDir, file), Path.Combine(cacheBinDir.FullName, file)); }
+                catch (Exception ex) when (CacheStorage.IsStorageFailure(ex))
+                {
+                    throw new CacheWriteException(cacheBinDir.FullName, ex);
+                }
             }
 
             if (!versionDir.Name.Equals(pinnedVersion, StringComparison.OrdinalIgnoreCase))
@@ -492,10 +525,10 @@ internal static class XamlTriageBinaries
             return false;
         }
 
-        var tempPkgDir = Path.Combine(Path.GetTempPath(), $"winapp-dbgtools-{id}-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempPkgDir);
+        var tempPkgDir = Path.Combine(cacheBinDir.FullName, $".staging-{id}-{Guid.NewGuid():N}");
         try
         {
+            Directory.CreateDirectory(tempPkgDir);
             using (var nupkgStream = new MemoryStream(nupkgBytes, writable: false))
             using (var archive = new ZipArchive(nupkgStream, ZipArchiveMode.Read))
             {
@@ -519,6 +552,10 @@ internal static class XamlTriageBinaries
             }
 
             return copied == files.Length;
+        }
+        catch (Exception ex) when (CacheStorage.IsStorageFailure(ex))
+        {
+            throw new CacheWriteException(cacheBinDir.FullName, ex);
         }
         finally
         {

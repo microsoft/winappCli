@@ -88,45 +88,52 @@ internal static class WinDbgJsProviderAcquirer
                 return false;
             }
 
-            Directory.CreateDirectory(destDir.FullName);
-            var targetPath = Path.Combine(destDir.FullName, TargetFileName);
-
-            // Stage to a temp file, verify it, then atomically publish. Writing the DLL directly to its
-            // final path would let a concurrent run (or this run's later ResolveExisting) observe and
-            // .load a partially-written or not-yet-verified DLL.
-            var stagedPath = await AtomicFile.WriteStagedAsync(targetPath, bytes, cancellationToken);
-
-            // Defense-in-depth: this DLL is loaded into the debugger process, so verify it carries a
-            // valid Authenticode signature from Microsoft before trusting it (the download is HTTPS
-            // from an official host, but this guards against tampering / a compromised mirror).
-            if (!SignatureVerifier(stagedPath, logger))
+            try
             {
-                logger.LogDebug("Discarding {File}: it is not validly signed by Microsoft.", TargetFileName);
-                AtomicFile.DiscardStaged(stagedPath);
-                return false;
-            }
+                Directory.CreateDirectory(destDir.FullName);
+                var targetPath = Path.Combine(destDir.FullName, TargetFileName);
 
-            // The staged JsProvider must match the already-present engine build; loading a mismatched
-            // provider crashes the triage child with STATUS_BREAKPOINT. Reject a mismatch here (fail
-            // closed) rather than publishing a provider that would silently break triage — this guards
-            // against a future engine bump that outpaces the pinned bundle.
-            if (!EngineCompatibilityVerifier(destDir.FullName, stagedPath, logger))
+                // Stage to a temp file, verify it, then atomically publish. Writing the DLL directly to its
+                // final path would let a concurrent run (or this run's later ResolveExisting) observe and
+                // .load a partially-written or not-yet-verified DLL.
+                var stagedPath = await AtomicFile.WriteStagedAsync(targetPath, bytes, cancellationToken);
+
+                // Defense-in-depth: this DLL is loaded into the debugger process, so verify it carries a
+                // valid Authenticode signature from Microsoft before trusting it (the download is HTTPS
+                // from an official host, but this guards against tampering / a compromised mirror).
+                if (!SignatureVerifier(stagedPath, logger))
+                {
+                    logger.LogDebug("Discarding {File}: it is not validly signed by Microsoft.", TargetFileName);
+                    AtomicFile.DiscardStaged(stagedPath);
+                    return false;
+                }
+
+                // The staged JsProvider must match the already-present engine build; loading a mismatched
+                // provider crashes the triage child with STATUS_BREAKPOINT. Reject a mismatch here (fail
+                // closed) rather than publishing a provider that would silently break triage — this guards
+                // against a future engine bump that outpaces the pinned bundle.
+                if (!EngineCompatibilityVerifier(destDir.FullName, stagedPath, logger))
+                {
+                    logger.LogDebug("Discarding {File}: its build does not match the debugging engine.", TargetFileName);
+                    AtomicFile.DiscardStaged(stagedPath);
+                    return false;
+                }
+
+                AtomicFile.Publish(stagedPath, targetPath);
+
+                logger.LogDebug("Acquired {File} ({Size} bytes) from WinDbg bundle into {Dir}.", TargetFileName, bytes.Length, destDir.FullName);
+                return true;
+            }
+            catch (Exception ex) when (CacheStorage.IsStorageFailure(ex))
             {
-                logger.LogDebug("Discarding {File}: its build does not match the debugging engine.", TargetFileName);
-                AtomicFile.DiscardStaged(stagedPath);
-                return false;
+                throw new CacheWriteException(destDir.FullName, ex);
             }
-
-            AtomicFile.Publish(stagedPath, targetPath);
-
-            logger.LogDebug("Acquired {File} ({Size} bytes) from WinDbg bundle into {Dir}.", TargetFileName, bytes.Length, destDir.FullName);
-            return true;
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not CacheWriteException)
         {
             logger.LogDebug(ex, "Failed to acquire {File} from the WinDbg bundle.", TargetFileName);
             return false;

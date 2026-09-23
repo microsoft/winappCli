@@ -567,6 +567,31 @@ public class InteractiveDesktopStoreTests
     // ------------------------------------------------------------------------- lock directory setup
 
     [TestMethod]
+    public void Paths_DefaultDirectory_IsSharedUserStateRegardlessOfCacheOverride()
+    {
+        var previousCache = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
+        Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, null);
+        try
+        {
+            var expected = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp", "state", "ui");
+
+            foreach (var cache in new[] { Path.Join(_lockDirectory, "cache-one"), Path.Join(_lockDirectory, "cache-two") })
+            {
+                Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", cache);
+                var paths = new InteractiveDesktopPaths(_inspector);
+
+                Assert.AreEqual(expected, paths.LockDirectory);
+                Assert.AreEqual(Path.Join(expected, "participants"), paths.ParticipantsDirectory);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", previousCache);
+        }
+    }
+
+    [TestMethod]
     public void EnsureDirectories_RepairsAnExistingDirectoryWithInheritedPermissions()
     {
         // A WINAPP_UI_LOCK_DIRECTORY pointed at a shared location can already exist with inherited
@@ -600,8 +625,10 @@ public class InteractiveDesktopStoreTests
 
         // A relative path resolves against the caller's working directory, so two winapp processes
         // started in different folders would silently coordinate against different files.
-        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => new InteractiveDesktopPaths(_inspector));
-        Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, ex.Code);
+        var paths = new InteractiveDesktopPaths(_inspector);
+        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => _ = paths.LockDirectory);
+        Assert.AreEqual(UiCoordinationErrorCodes.InvalidLockDirectory, ex.Code);
+        Assert.IsFalse(ex.IsStorageUnavailable, "invalid explicit configuration must not trigger observation fallback");
     }
 
     [TestMethod]
@@ -611,8 +638,10 @@ public class InteractiveDesktopStoreTests
             InteractiveDesktopPaths.LockDirectoryOverrideVariable, @"\\server\share\locks");
 
         // SMB byte-range locking is advisory, so exclusive-share semantics would silently not exclude.
-        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => new InteractiveDesktopPaths(_inspector));
-        Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, ex.Code);
+        var paths = new InteractiveDesktopPaths(_inspector);
+        var ex = Assert.ThrowsExactly<UiCoordinationException>(() => _ = paths.LockDirectory);
+        Assert.AreEqual(UiCoordinationErrorCodes.InvalidLockDirectory, ex.Code);
+        Assert.IsFalse(ex.IsStorageUnavailable);
     }
 
     [TestMethod]

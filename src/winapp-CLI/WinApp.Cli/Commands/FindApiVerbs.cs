@@ -44,7 +44,8 @@ internal sealed class FindApiMembersCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -115,7 +116,8 @@ internal sealed class FindApiCheckPropertyCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -182,7 +184,8 @@ internal sealed class FindApiTypesCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -230,7 +233,8 @@ internal sealed class FindApiEnumsCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -291,7 +295,8 @@ internal sealed class FindApiNamespacesCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -321,7 +326,8 @@ internal sealed class FindApiPackagesCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -350,7 +356,8 @@ internal sealed class FindApiStatsCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -382,7 +389,8 @@ internal sealed class FindApiProjectsCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {
@@ -416,7 +424,8 @@ internal sealed class FindApiRefreshCommand : Command, IShortDescription
 
     public sealed class Handler(IApiMetadataService service, IAnsiConsole console) : AsynchronousCommandLineAction
     {
-        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) => Task.FromResult(Execute(parseResult));
+        public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FindApiShared.Invoke(console, parseResult, () => Execute(parseResult)));
 
         private int Execute(ParseResult parseResult)
         {

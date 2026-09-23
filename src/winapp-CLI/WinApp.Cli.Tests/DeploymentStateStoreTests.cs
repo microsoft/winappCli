@@ -13,6 +13,8 @@ public class DeploymentStateStoreTests
     private readonly string _root = TestPaths.TempRoot("DeploymentState");
     private static readonly ExecutionTargetRef Target = WindowsSandboxTarget.Default;
 
+    public TestContext TestContext { get; set; } = null!;
+
     [TestCleanup]
     public void Cleanup()
     {
@@ -59,6 +61,98 @@ public class DeploymentStateStoreTests
         var current = CreateStore().Read(Target, original.DeploymentId)!;
         Assert.AreEqual(original.Revision + 1, current.Revision);
         Assert.AreEqual(successful[0], current.TrackedOperationProcessId);
+    }
+
+    [TestMethod]
+    public void Commit_WithAnOpenReader_PublishesWithoutInvalidatingTheReader()
+    {
+        var original = Seed();
+        var stateFile = Path.Join(_root, Target.StateKey, DeploymentStateStore.DeploymentsFolder, "same-app.json");
+        using var stream = new FileStream(stateFile, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        var originalJson = reader.ReadToEnd();
+        stream.Position = 0;
+        reader.DiscardBufferedData();
+
+        var committed = CreateStore().Commit(Target, original with { Dirty = true }, original.Revision);
+
+        Assert.AreEqual(original.Revision + 1, committed.Revision);
+        Assert.IsTrue(CreateStore().Read(Target, original.DeploymentId)!.Dirty);
+        Assert.AreEqual(originalJson, reader.ReadToEnd(), "The existing reader must retain the previous committed snapshot.");
+    }
+
+    [TestMethod]
+    public async Task Read_PersistentSharingFailure_RemainsAnError()
+    {
+        var original = Seed();
+        var stateFile = Path.Join(_root, Target.StateKey, DeploymentStateStore.DeploymentsFolder, "same-app.json");
+        using var publisher = new FileStream(stateFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            Task.Run(() => CreateStore().Read(Target, original.DeploymentId), TestContext.CancellationToken)
+                .WaitAsync(TimeSpan.FromSeconds(10), TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.DeploymentDirty, error.Error.Code);
+        Assert.IsInstanceOfType<IOException>(error.InnerException);
+        Assert.AreEqual(32, error.InnerException.HResult & 0xffff);
+    }
+
+    [TestMethod]
+    public void Read_CorruptState_IsNotRetried()
+    {
+        var original = Seed();
+        var stateFile = Path.Join(_root, Target.StateKey, DeploymentStateStore.DeploymentsFolder, "same-app.json");
+        File.WriteAllText(stateFile, "{");
+        var lookups = 0;
+        var store = new DeploymentStateStore(new ObservingDirectoryProvider(_root, () => lookups++));
+
+        var error = Assert.ThrowsExactly<ExecutionTargetException>(() => store.Read(Target, original.DeploymentId));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.DeploymentDirty, error.Error.Code);
+        Assert.IsInstanceOfType<System.Text.Json.JsonException>(error.InnerException);
+        Assert.AreEqual(1, lookups);
+    }
+
+    [TestMethod]
+    public async Task Read_ConcurrentPublications_ReturnsCompleteCommittedRecords()
+    {
+        var original = Seed();
+        using var start = new ManualResetEventSlim();
+        var writer = Task.Run(() =>
+        {
+            start.Wait(TestContext.CancellationToken);
+            var current = original;
+            for (var i = 0; i < 100; i++)
+            {
+                current = CreateStore().Commit(Target, current with { TrackedOperationProcessId = i }, current.Revision);
+            }
+        }, TestContext.CancellationToken);
+        var reader = Task.Run(() =>
+        {
+            start.Wait(TestContext.CancellationToken);
+            for (var i = 0; i < 100; i++)
+            {
+                var current = CreateStore().Read(Target, original.DeploymentId);
+                Assert.IsNotNull(current, "Publishing a new revision must not look like a missing deployment.");
+                Assert.AreEqual(original.DeploymentId, current.DeploymentId);
+                Assert.AreEqual(original.TargetEpoch, current.TargetEpoch);
+            }
+        }, TestContext.CancellationToken);
+
+        start.Set();
+        await Task.WhenAll(writer, reader).WaitAsync(TimeSpan.FromSeconds(30), TestContext.CancellationToken);
+        Assert.AreEqual(original.Revision + 100, CreateStore().Read(Target, original.DeploymentId)!.Revision);
+    }
+
+    private sealed class ObservingDirectoryProvider(string root, Action onLookup) : ITargetStateDirectoryProvider
+    {
+        private readonly TargetStateDirectoryProvider _inner = new(root);
+
+        public DirectoryInfo GetTargetRoot(ExecutionTargetRef target, bool create = true)
+        {
+            onLookup();
+            return _inner.GetTargetRoot(target, create);
+        }
     }
 
     [TestMethod]

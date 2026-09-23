@@ -52,6 +52,13 @@ Developer Mode, and an inbound firewall rule. winapp does not stop an adopted in
 or remove unrelated apps. There is **no silent host fallback**: a command requesting
 Sandbox runs there or fails.
 
+Host-side ownership and deployment records use [shared runtime state](usage.md#shared-runtime-state),
+independently of the configured cache directory. That state must remain accessible;
+an inaccessible ownership record is not treated as permission to start managing an
+unrelated Sandbox. Disposable runtime caches can use
+[current-directory fallback storage](usage.md#restricted-filesystem-access), but
+that does not replace the shared ownership and lifecycle locks.
+
 ## Running and rebuilding
 
 ```powershell
@@ -358,6 +365,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested, then close/retry only with consent |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
+| `sandbox_state_unavailable` | Fix the reported state path: use writable local storage without junctions or symbolic links, owned and accessible only by you (SYSTEM and Administrators are trusted). Parent directories must prevent other users from replacing it. Existing exposed state is not repaired or deleted; safely stop the affected Sandbox before replacing that state and its connection keys in a secure directory. |
 | `sandbox_deployment_dirty`, `sandbox_transfer_interrupted` | Retry the deployment or transfer |
 | `sandbox_runtime_provision_failed` | Resolve the named dependency or unsupported runtime configuration; see [Shared runtimes](#shared-runtimes) |
 | `sandbox_package_conflict`, `sandbox_provisioned_package_conflict` | Follow the package-specific action; do not remove unrelated or inbox packages |

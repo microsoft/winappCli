@@ -331,6 +331,8 @@ internal sealed class FakeSignToolNugetService(DirectoryInfo cacheDir) : INugetS
 
 internal sealed class FakeSignToolWinappDirectoryService(DirectoryInfo globalDir) : IWinappDirectoryService
 {
+    public bool IsGlobalCacheOverridden => true;
+    public DirectoryInfo GetLocalCacheDirectory() => new(Path.Combine(globalDir.FullName, "local-cache"));
     public DirectoryInfo GetGlobalWinappDirectory() => globalDir;
 
     public DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null)

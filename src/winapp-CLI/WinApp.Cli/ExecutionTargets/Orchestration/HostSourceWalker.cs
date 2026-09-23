@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -74,6 +75,7 @@ internal static class HostSourceWalker
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
 
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+        RejectLockArtifact(root);
 
         // The root is checked before anything is walked, and independently of the policy. Descending
         // into a linked root would make the entire tree beneath it appear to be inside the folder
@@ -110,6 +112,11 @@ internal static class HostSourceWalker
         foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (LayoutLease.IsArtifactPath(entry.FullName))
+            {
+                continue;
+            }
 
             // Checked for every entry, directory and file alike, and before any decision to descend.
             // This single test is what the whole class exists for.
@@ -176,6 +183,7 @@ internal static class HostSourceWalker
         ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
 
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+        RejectLockArtifact(Path.GetFullPath(fullPath));
 
         if (!TargetPathSafety.IsInsideRoot(root, fullPath))
         {
@@ -244,6 +252,17 @@ internal static class HostSourceWalker
         ArgumentNullException.ThrowIfNull(entry);
 
         return entry.Exists && entry.Attributes.HasFlag(FileAttributes.ReparsePoint);
+    }
+
+    private static void RejectLockArtifact(string path)
+    {
+        if (LayoutLease.IsArtifactPath(path))
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.DeploymentDirty,
+                $"'{path}' is reserved layout coordination state, not application payload.",
+                userAction: "Choose a source outside the .winapp-layout-locks directory.");
+        }
     }
 
     private static ExecutionTargetException LinkRejected(FileSystemInfo entry) =>

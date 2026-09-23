@@ -45,6 +45,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IPackageInstallationService, PackageInstallationService>()
             .AddSingleton<IPackageLayoutService, PackageLayoutService>()
             .AddSingleton<IWinappDirectoryService, WinappDirectoryService>()
+            .AddSingleton<IStorageDiagnostics>(_ => new StorageDiagnostics(Console.Error))
             .AddSingleton<IApiMetadataService, ApiMetadataService>()
             .AddSingleton<ISdkPackageSource, SdkPackageSource>()
             .AddSingleton<IWinmdService, WinmdService>()

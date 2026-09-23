@@ -399,16 +399,23 @@ public class InteractiveDesktopRealAppTests : IDisposable
         // by A again).
         await OpenMenuAsOwnerAsync(OwnerA);
 
-        // Now that A owns the turn again its Observe pins rather than detaches, so the UI it just
-        // restored is still standing afterwards. Running the same inspect while A was a non-owner
-        // would have been detached — no ticket, no lease, nothing holding the desktop — which is why
-        // the menu could not be expected to survive it before this point.
+        // Process startup and UIA work need not fit inside the renewed grace. Exercise a late
+        // observation deliberately: it must not reclaim the expired turn or disturb the restored
+        // menu. Ownership immediately after the replay was asserted above; observation pinning
+        // before expiry is covered by the burst test and deterministic scheduler boundary tests.
+        var replayDeadline = ReadState().IdleExpiresTick64;
+        while (Environment.TickCount64 < replayDeadline)
+        {
+            await Task.Delay(50);
+        }
+
         var (replayExit, replayOutput) = await RunAgentAsync(OwnerA, WithTarget("ui", "inspect"));
-        Assert.AreEqual(0, replayExit, $"agent A must be able to replay after the handover. Output: {replayOutput}");
+        Assert.AreEqual(0, replayExit, $"agent A must be able to inspect after its replay grace expires. Output: {replayOutput}");
         Assert.IsTrue(_fixture.IsFileMenuOpen, "agent A's restored transient UI must survive its own observation");
-        Assert.AreEqual(
-            KeyOf(OwnerA), ReadState().Owner?.Key,
-            "agent A must still hold the turn it reacquired");
+        var observedState = ReadState();
+        Assert.IsNull(observedState.Owner, "a late observation must not reclaim agent A's expired turn");
+        Assert.IsEmpty(observedState.OwnerCommands, "a detached observation must not register a command");
+        Assert.IsEmpty(observedState.Waiters, "a detached observation must not queue");
     }
 
     // ------------------------------------------------------------------------------ §18.3 (c)

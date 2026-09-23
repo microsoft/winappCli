@@ -1,60 +1,191 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 
 namespace WinApp.Cli.Tests;
 
 [TestClass]
+[DoNotParallelize] // The root and cache environment overrides are process-wide.
 public class TargetStateDirectoryProviderTests
 {
-    [TestMethod]
-    public void PackagedProcess_UsesPhysicalLocalAppDataPath()
+    private string? _previousRoot;
+    private string _testRoot = null!;
+
+    [TestInitialize]
+    public void Setup()
     {
-        var localCache = Path.Join(Path.GetTempPath(), "Packages", "winapp", "LocalCache");
+        _testRoot = Path.Combine(Path.GetTempPath(), $"target-state-provider-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_testRoot);
+        _previousRoot = Environment.GetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable);
+        Environment.SetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable, null);
+    }
+
+    [TestCleanup]
+    public void Cleanup()
+    {
+        Environment.SetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable, _previousRoot);
+        Directory.Delete(_testRoot, recursive: true);
+    }
+
+    [TestMethod]
+    public void DefaultDirectory_IsSharedUserStateRegardlessOfCacheOverride()
+    {
+        var previousCache = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
+        try
+        {
+            var profile = Path.Join(_testRoot, "profile");
+            var expected = Path.Join(
+                profile, ".winapp", "state", "targets", WindowsSandboxTarget.Default.StateKey);
+            foreach (var cache in new[] { Path.Join(_testRoot, "cache-one"), Path.Join(_testRoot, "cache-two") })
+            {
+                Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", cache);
+                var provider = new TargetStateDirectoryProvider { UserProfileProvider = () => profile };
+
+                Assert.AreEqual(expected, provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false).FullName);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", previousCache);
+        }
+    }
+
+    [TestMethod]
+    public void DefaultDirectory_UsesProfileRootWithoutCreatingIt()
+    {
+        var profile = Path.Join(_testRoot, "profile");
         var provider = new TargetStateDirectoryProvider
         {
-            PackagedLocalAppDataProvider = () => Path.Join(localCache, "Local"),
-            LocalAppDataProvider = () => throw new AssertFailedException("The unpackaged path must not be used."),
+            UserProfileProvider = () => profile,
         };
 
         var root = provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false);
 
         Assert.AreEqual(
-            Path.Join(localCache, "Local", "Microsoft", "WinApp", "Targets", WindowsSandboxTarget.Default.StateKey),
+            Path.Join(profile, ".winapp", "state", "targets", WindowsSandboxTarget.Default.StateKey),
             root.FullName);
+        Assert.IsFalse(Directory.Exists(profile));
     }
 
     [TestMethod]
-    public void UnpackagedProcess_UsesOrdinaryLocalAppDataPath()
+    public void DefaultDirectory_CreatesTargetUnderUserState()
     {
-        var localAppData = Path.Join(Path.GetTempPath(), "Local");
+        var profile = Path.Join(_testRoot, "profile");
         var provider = new TargetStateDirectoryProvider
         {
-            PackagedLocalAppDataProvider = () => null,
-            LocalAppDataProvider = () => localAppData,
+            UserProfileProvider = () => profile,
         };
 
-        var root = provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false);
+        try
+        {
+            var root = provider.GetTargetRoot(WindowsSandboxTarget.Default);
 
-        Assert.AreEqual(
-            Path.Join(localAppData, "Microsoft", "WinApp", "Targets", WindowsSandboxTarget.Default.StateKey),
-            root.FullName);
+            Assert.AreEqual(
+                Path.Join(profile, ".winapp", "state", "targets", WindowsSandboxTarget.Default.StateKey),
+                root.FullName);
+            Assert.IsTrue(root.Exists);
+        }
+        finally
+        {
+            if (Directory.Exists(profile))
+            {
+                Directory.Delete(profile, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
-    public void ExplicitOverride_WinsOverPackagedPath()
+    public void ExplicitOverride_WinsOverEnvironmentAndProfile()
     {
-        var rootOverride = Path.Join(Path.GetTempPath(), "override");
+        var rootOverride = Path.Join(_testRoot, "override");
+        Environment.SetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable, @"\\server\unused");
         var provider = new TargetStateDirectoryProvider(rootOverride)
         {
-            PackagedLocalAppDataProvider = () => throw new AssertFailedException("The packaged path must not be consulted."),
-            LocalAppDataProvider = () => throw new AssertFailedException("The unpackaged path must not be consulted."),
+            UserProfileProvider = () => throw new AssertFailedException("The profile must not be consulted."),
         };
 
         var root = provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false);
 
         Assert.AreEqual(Path.Join(rootOverride, WindowsSandboxTarget.Default.StateKey), root.FullName);
+    }
+
+    [TestMethod]
+    public void EnvironmentOverride_WinsOverProfile()
+    {
+        var rootOverride = Path.Join(_testRoot, "override");
+        Environment.SetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable, rootOverride);
+        var provider = new TargetStateDirectoryProvider
+        {
+            UserProfileProvider = () => throw new AssertFailedException("The profile must not be consulted."),
+        };
+
+        var root = provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false);
+
+        Assert.AreEqual(Path.Join(rootOverride, WindowsSandboxTarget.Default.StateKey), root.FullName);
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("relative\\profile")]
+    [DataRow(@"\\server\share\profile")]
+    public void InvalidProfile_FailsWithoutFallingBack(string profile)
+    {
+        var provider = new TargetStateDirectoryProvider { UserProfileProvider = () => profile };
+
+        var ex = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
+        StringAssert.Contains(ex.Error.UserAction, "%USERPROFILE%\\.winapp\\state");
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow("relative\\targets")]
+    [DataRow(@"\\server\share\targets")]
+    [DataRow(@"\\?\UNC\server\share\targets")]
+    public void InvalidOverride_FailsWithoutFallingBack(string rootOverride)
+    {
+        var provider = new TargetStateDirectoryProvider(rootOverride)
+        {
+            UserProfileProvider = () => throw new AssertFailedException("An invalid override must not fall back."),
+        };
+
+        var ex = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
+    }
+
+    [TestMethod]
+    public void InvalidEnvironmentOverride_FailsWithoutFallingBack()
+    {
+        Environment.SetEnvironmentVariable(TargetStateDirectoryProvider.RootOverrideVariable, " ");
+        var provider = new TargetStateDirectoryProvider
+        {
+            UserProfileProvider = () => throw new AssertFailedException("An invalid override must not fall back."),
+        };
+
+        var ex = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
+    }
+
+    [TestMethod]
+    public void FileBlockingDirectory_ReportsStateUnavailable()
+    {
+        var blocked = Path.Join(_testRoot, "targets");
+        File.WriteAllText(blocked, "keep");
+
+        var ex = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => new TargetStateDirectoryProvider(blocked).GetTargetRoot(WindowsSandboxTarget.Default));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
+        Assert.AreEqual("keep", File.ReadAllText(blocked));
     }
 }

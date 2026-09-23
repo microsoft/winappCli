@@ -16,14 +16,14 @@ public class FirstRunServiceTests
     private DirectoryInfo _tempDir = null!;
     private DirectoryInfo _globalDir = null!;
 
-    private FirstRunService CreateService(CapturingLogger<FirstRunService> logger)
+    private FirstRunService CreateService(CapturingLogger<FirstRunService> logger, TextWriter? error = null)
     {
         // WinappDirectoryService.SetCacheDirectoryForTesting overrides the value
         // returned by GetGlobalWinappDirectory, letting us point the marker file
         // at a throwaway directory instead of the real ~/.winapp.
         var dirService = new WinappDirectoryService(new CurrentDirectoryProvider(_tempDir.FullName));
         dirService.SetCacheDirectoryForTesting(_globalDir);
-        return new FirstRunService(dirService, logger);
+        return new FirstRunService(dirService, logger, new StorageDiagnostics(error ?? TextWriter.Null));
     }
 
     [TestInitialize]
@@ -86,7 +86,23 @@ public class FirstRunServiceTests
     }
 
     [TestMethod]
-    public void CheckAndDisplayFirstRunNotice_MarkerPathBlockedByDirectory_LogsWarningButReportsFirstRun()
+    public void InvalidCacheConfiguration_DoesNotThrowBeforeTheCommandRuns()
+    {
+        var directories = new WinappDirectoryService(new CurrentDirectoryProvider(_tempDir.FullName))
+        {
+            CacheOverrideProvider = () => "relative-cache",
+        };
+        using var error = new StringWriter();
+        var logger = new CapturingLogger<FirstRunService>();
+        var service = new FirstRunService(directories, logger, new StorageDiagnostics(error));
+
+        Assert.IsFalse(service.CheckAndDisplayFirstRunNotice());
+        StringAssert.Contains(error.ToString(), "First-run bookkeeping is unavailable");
+        Assert.IsFalse(logger.Has(LogLevel.Information, "anonymous usage data"));
+    }
+
+    [TestMethod]
+    public void CheckAndDisplayFirstRunNotice_MarkerPathBlockedByDirectory_WarnsOnErrorStream()
     {
         // Create a *directory* where the marker *file* is expected. FileInfo.Exists is
         // false for a directory, so the first-run branch runs, but File.Create then
@@ -94,13 +110,14 @@ public class FirstRunServiceTests
         Directory.CreateDirectory(Path.Combine(_globalDir.FullName, ".first-run-complete"));
 
         var logger = new CapturingLogger<FirstRunService>();
-        var service = CreateService(logger);
+        using var error = new StringWriter();
+        var service = CreateService(logger, error);
 
         var result = service.CheckAndDisplayFirstRunNotice();
 
         Assert.IsTrue(result, "Notice is still considered shown even if the marker can't be persisted.");
-        Assert.IsTrue(
-            logger.Has(LogLevel.Warning, "Failed to create first run marker"),
-            "Marker-write failure must be logged as a warning.");
+        StringAssert.Contains(error.ToString(), "Cannot save the first-run marker");
+        Assert.IsFalse(logger.Has(LogLevel.Warning, "marker"),
+            "Storage diagnostics must not use the logger's stdout warning channel.");
     }
 }

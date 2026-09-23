@@ -172,7 +172,7 @@ internal static class PathSafety
                 }
 
                 string? root = Path.GetPathRoot(full);
-                if (string.IsNullOrEmpty(root))
+                if (string.IsNullOrEmpty(root) || PInvoke.GetDriveType(root) == PInvoke.DRIVE_REMOTE)
                 {
                     return true;
                 }

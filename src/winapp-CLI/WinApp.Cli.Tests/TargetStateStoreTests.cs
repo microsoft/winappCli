@@ -142,6 +142,20 @@ public class TargetStateStoreTests
     }
 
     [TestMethod]
+    public void Commit_PreservesAnOpenReaderAndPublishesTheNewSnapshot()
+    {
+        var original = _store.Commit(_target, NewState(), expectedRevision: 0);
+        using var stream = new FileStream(StateFilePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        var updated = _store.Commit(_target, original with { InstanceId = "instance-2" }, original.Revision);
+
+        Assert.AreEqual(original.Revision + 1, updated.Revision);
+        Assert.AreEqual("instance-2", _store.Read(_target)!.InstanceId);
+        StringAssert.Contains(reader.ReadToEnd(), "\"instance-1\"");
+    }
+
+    [TestMethod]
     public void Commit_StaleRevision_FailsClosedWithoutOverwriting()
     {
         var first = _store.Commit(_target, NewState(), expectedRevision: 0);

@@ -22,6 +22,12 @@ internal static class IncrementalCopyHelper
 
         foreach (var (sourceFile, relativePath) in files)
         {
+            LayoutLease.ThrowIfArtifactPath(sourceFile.FullName);
+            LayoutLease.ThrowIfArtifactPath(Path.GetFullPath(Path.Combine(targetDir.FullName, relativePath)));
+        }
+
+        foreach (var (sourceFile, relativePath) in files)
+        {
             var targetFile = new FileInfo(Path.Combine(targetDir.FullName, relativePath));
 
             if (targetFile.Exists && targetFile.Length == sourceFile.Length && targetFile.LastWriteTimeUtc == sourceFile.LastWriteTimeUtc)

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using Microsoft.Extensions.Logging;
 using WinApp.Cli.Commands;
 
 namespace WinApp.Cli.Tests;
@@ -69,6 +70,44 @@ public partial class UiCommandTests
         Assert.IsTrue(_fakeUia.Queries.All(q => q.Root?.Query == "MailRow" && q.ControlType == "Edit"));
         Assert.AreEqual(1, _fakePollDelay.CallCount);
         StringAssert.Contains(TestAnsiConsole.Output, "txt-new-b234");
+    }
+
+    [TestMethod]
+    public async Task QueryOptions_Wait_UnavailableLookupRetriesFullQueryBeforeReportingGone()
+    {
+        _fakeUia.FindSingleResult = null;
+        var service = PropertyProxy<IUiAutomation>((method, args) => method.Name switch
+        {
+            nameof(IUiAutomation.FindSingleElementAsync) => FindAsync(
+                (UiTarget)args![0]!, (UiSelector)args[1]!, (CancellationToken)args[2]!),
+            _ => throw new NotSupportedException(method.Name),
+        });
+        Task<UiElement?> FindAsync(UiTarget target, UiSelector selector, CancellationToken ct)
+        {
+            _fakeUia.FindSingleThrow = _fakeUia.Queries.Count == 0
+                ? new System.Runtime.InteropServices.COMException("Replaced.", unchecked((int)0x80040201))
+                : null;
+            return _fakeUia.FindSingleElementAsync(target, selector, ct);
+        }
+
+        var command = QueryCommand("wait-for");
+        var handler = new UiWaitForCommand.Handler(
+            _fakeTargetResolver, service, new UiSelectorParser(), _fakePollDelay,
+            TestAnsiConsole, _fakeDesktopLock, GetRequiredService<ILogger<UiWaitForCommand>>());
+        command.SetAction((result, ct) => handler.InvokeAsync(result, ct));
+
+        var exit = await ParseAndInvokeWithCaptureAsync(command,
+            ["Welcome", "-a", "TestApp", "--root", "MailRow", "--type", "Edit",
+             "--class-name", "Literal.*", "--gone", "--timeout", "2000", "--json"]);
+
+        Assert.AreEqual(0, exit, $"{TestAnsiConsole.Output} {ConsoleStdErr}");
+        Assert.HasCount(2, _fakeUia.Queries);
+        Assert.IsTrue(_fakeUia.Queries.All(q =>
+            q.Query == "Welcome" && q.Root?.Query == "MailRow"
+            && q.ControlType == "Edit" && q.ClassName == "Literal.*"));
+        Assert.AreEqual(1, _fakePollDelay.CallCount);
+        StringAssert.Contains(TestAnsiConsole.Output, "\"found\": false");
+        Assert.DoesNotContain("\"timedOut\": true", TestAnsiConsole.Output);
     }
 
     [TestMethod]

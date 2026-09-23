@@ -1771,7 +1771,7 @@ Search **WinUI** controls and samples for a working code example. WinUI-only: th
 winapp find-ui "<query>" [options]
 ```
 
-The Gallery, Toolkit, and Reactor corpora ship **inside the CLI**, so `find-ui` works with no network access — including on a first run in an agent sandbox or behind a corporate proxy that blocks `raw.githubusercontent.com`. When GitHub *is* reachable the CLI refreshes from it and caches the result per-user under `<global .winapp>/cache/find-ui`; the built-in corpus is only a floor, never a ceiling. Cached data is refreshed at most every 24 hours, or on demand with `--refresh`.
+The Gallery, Toolkit, and Reactor corpora ship **inside the CLI**, so `find-ui` works with no network access — including on a first run in an agent sandbox or behind a corporate proxy that blocks `raw.githubusercontent.com`. When GitHub *is* reachable the CLI refreshes from it and normally caches the result per-user under `<global .winapp>/cache/find-ui`; the built-in corpus is only a floor, never a ceiling. For fallback cache locations, see [Restricted Filesystem Access](#restricted-filesystem-access). Cached data is refreshed at most every 24 hours, or on demand with `--refresh`.
 
 The built-in corpus is re-fetched from GitHub every time a stable release is built, and a refresh that fails **stops the release build** rather than quietly shipping older data — the baker fetches through the same code path `--refresh` uses, so a failure there means the live refresh is broken too and is worth investigating before shipping. A release can still be cut against the previously committed corpus, but only as an explicit override. When results are served from the built-in copy of the Gallery/Toolkit/Reactor corpora, `find-ui` says so on stderr and `--json` output carries `"corpus": "embedded"` (other values: `"network"` for a fresh fetch, `"cache"` for the local cache). A core-only request — `--source core`, or an `--id` set that is all core patterns — reports `"embedded"` too, because the curated core patterns are compiled into the CLI and never fetched; it prints no staleness notice, since `--refresh` cannot change them. The `corpus` field is reported whenever results were served; it is absent only when no corpus could be loaded at all.
 
@@ -1824,7 +1824,7 @@ winapp find-api "<query>" [options]
 winapp find-api [command] [options]
 ```
 
-The index is built from the project's restored NuGet/SDK packages (via `project.assets.json`) on first use and refreshed automatically when the project is restored. It lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects. Restore the project first (`winapp restore` or `dotnet restore`).
+The index is built from the project's restored NuGet/SDK packages (via `project.assets.json`) on first use and refreshed automatically when the project is restored. By default, it lives under the global `.winapp` cache (`cache/find-api/`) and is shared across projects. For fallback cache locations, see [Restricted Filesystem Access](#restricted-filesystem-access). Restore the project first (`winapp restore` or `dotnet restore`).
 
 Each match is listed under its namespace with the package that ships it and a one-line summary of what it does, so a result is usable without a second `members` call:
 
@@ -2104,7 +2104,120 @@ In **PowerShell** and **pwsh**:
 $env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
-Winapp will create this directory automatically when you run commands like `init` or `restore`.
+Winapp creates cache directories when a command needs to save data. SDK packages
+use NuGet's package cache; project headers, libraries and bindings use the project's
+`.winapp` directory.
+
+### Restricted Filesystem Access
+
+```powershell
+winapp find-ui Button
+winapp ui list-windows --json
+```
+
+These commands can still be useful in an environment that permits access only to
+the current directory. When the default global cache is inaccessible, cache-backed
+features use `.winapp\cache` directly beneath the current directory and report the
+fallback. They do not search parent directories or follow filesystem links outside
+that directory. An existing readable cache can be used without requiring writes.
+
+| Operation | When global storage is unavailable |
+|---|---|
+| `find-ui` | Uses local caching, uncached fetched results, or embedded data |
+| `find-api` | Builds a local index from accessible project/package metadata; fails if it cannot supply a valid index |
+| Tool acquisition and Sandbox runtime payloads | Uses permitted cache storage; required tools and payloads must still pass verification |
+| Additional WinUI crash analysis | Can be skipped with a warning without discarding the available dump or ordinary analysis |
+| Automatic CLI/template update notices | Skipped when their bookkeeping cannot be saved |
+| Read-only UI observation | Can continue without workflow ordering when shared state is inaccessible |
+| UI mutations, captures and Sandbox management | Require accessible shared coordination; they never silently run without it |
+
+UI coordination requires a direct local path without junctions or symbolic links,
+and existing parent directories must not let other users replace that path.
+An untrusted coordination path is rejected even for read-only commands; it is not
+treated as an inaccessible cache or a reason to bypass coordination. Correct the
+path or its parent permissions before retrying. Ancestor permissions are never
+changed automatically.
+
+Store CLI and debugger executables/DLLs reused from the automatic local fallback
+must have valid Microsoft signatures. If a local Store tool is rejected, remove
+that tool cache and retry to download a verified copy. Unverifiable debugger
+layouts are skipped without discarding the available crash diagnostics.
+
+An explicit `WINAPP_CLI_CACHE_DIRECTORY` is authoritative: if that location is
+invalid or cannot support the requested operation, fix it or remove the override
+rather than expecting an automatic redirect. To select an allowed directory:
+
+```powershell
+$env:WINAPP_CLI_CACHE_DIRECTORY = Join-Path (Get-Location) '.winapp\cache'
+```
+
+`get-winapp-path --global` still refers to the configured global directory, not to
+a command's local fallback.
+
+Storage warnings go to **stderr**, leaving paths and other results on stdout
+unchanged. With `--json`, a successful degraded operation writes warning objects
+as JSON lines on stderr, for example:
+
+```json
+{"warning":{"code":"cache-fallback","message":"Using an accessible local cache."}}
+```
+
+A failed command retains its normal error output and nonzero exit code instead of
+publishing successful-fallback warnings. `--quiet` suppresses optional storage
+warnings. Help, version output and path lookup do not run first-run bookkeeping.
+
+NuGet package storage and configuration are separate dependencies. A default
+package-cache fallback does not change package feeds, source mappings, credentials
+or signature requirements. Explicit package-cache settings remain authoritative.
+If required configuration or package files are inaccessible, supply an allowed
+configuration/cache or allow access; winapp does not silently substitute public feeds.
+Child `dotnet` commands keep using a readable package cache even when it is read-only.
+If a child later needs to write there and fails, choose a permitted `NUGET_PACKAGES`
+directory before retrying. winapp does not automatically replay builds or applications
+that may already have performed work.
+
+NuGet also requires writable scratch storage for configuration and installation
+locks. If that storage is blocked, winapp stops promptly with `NUGET_SCRATCH`
+guidance rather than entering NuGet's long lock retry. Use one fully qualified,
+permitted scratch directory consistently for every process sharing a package cache.
+winapp does not automatically choose a different lock directory for one process.
+
+Filesystem fallback does not grant access to SDKs, certificate stores, Windows package
+registration, authentication or the desktop. Commands that require those facilities
+still need the corresponding permissions.
+
+### Shared Runtime State
+
+`winapp ui` and commands using `--on sandbox` keep shared state under
+`%USERPROFILE%\.winapp\state`:
+
+| Directory | Contents |
+|---|---|
+| `ui` | Desktop coordination state and locks, separated by Windows sign-in session |
+| `targets\<target-key>` | Sandbox ownership, connection and deployment records, bootstrap files, and lifecycle locks |
+
+This location is fixed independently of `WINAPP_CLI_CACHE_DIRECTORY`. Changing the
+cache location does not give a process a separate desktop or Sandbox. Packaged and
+unpackaged winapp installations use the same state location.
+
+Keep this directory on a writable local drive; network paths are rejected. If winapp
+cannot access it, check the directory's permissions and any filesystem links that
+redirect it. Do not delete shared state while UI workflows or a managed Sandbox are
+running. Save guest work and [end the Sandbox](sandbox-execution.md#removing-an-app-and-ending-the-sandbox)
+before removing its state.
+
+Read-only UI commands may continue when this storage is inaccessible, with a warning
+that workflow ordering is unavailable. Invalid explicit coordination paths remain
+errors. Mutations, screenshots and recordings still require coordination.
+
+AppX layout locks are separate from desktop and Sandbox state. They live beside the
+layout they protect, in a reserved `.winapp-layout-locks` directory, so local runs do
+not require a global cache merely to lock a build output. Processes targeting the
+same layout use the same lock regardless of their cache settings or working directory.
+These lock artifacts are excluded from package and deployment payloads. An inaccessible
+lock is reported as a storage error, not as another process using the layout.
+The lock files can remain after a run; their presence does not mean a process holds
+the layout. Exclude `.winapp-layout-locks/` from version control.
 
 ### Update Checks
 

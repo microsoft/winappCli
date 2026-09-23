@@ -54,6 +54,83 @@ public class AtomicFileTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task WriteAllText_WithDeleteSharingReader_PreservesBothSnapshots(bool longPath)
+    {
+        var directory = longPath
+            ? Path.Combine(_tempDir, new string('p', 180), new string('q', 120))
+            : _tempDir;
+        Directory.CreateDirectory(directory);
+        var dest = Path.Combine(directory, "state.json");
+        if (longPath)
+        {
+            Assert.IsGreaterThan(260, dest.Length);
+        }
+        File.WriteAllText(dest, "old snapshot");
+        using var stream = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        AtomicFile.WriteAllText(dest, "new snapshot", preserveReaders: true);
+
+        Assert.AreEqual("new snapshot", File.ReadAllText(dest));
+        Assert.AreEqual("old snapshot", await reader.ReadToEndAsync());
+        Assert.IsEmpty(Directory.GetFiles(directory, "*.tmp"));
+    }
+
+    [TestMethod]
+    public async Task WriteAllText_PreservingReaders_SupportsConcurrentPublishers()
+    {
+        var dest = Path.Combine(_tempDir, "shared.json");
+        var contents = Enumerable.Range(0, 16).Select(value => new string((char)('a' + value), 4096)).ToArray();
+        using var start = new ManualResetEventSlim();
+        var writers = contents.Select(content => Task.Run(() =>
+        {
+            start.Wait();
+            AtomicFile.WriteAllText(dest, content, preserveReaders: true);
+        })).ToArray();
+
+        start.Set();
+        await Task.WhenAll(writers);
+
+        CollectionAssert.Contains(contents, File.ReadAllText(dest));
+        Assert.IsEmpty(Directory.GetFiles(_tempDir, "*.tmp"));
+    }
+
+    [TestMethod]
+    public void WriteAllText_ReadOnlyDestination_FailsWithoutChangingContent()
+    {
+        var dest = Path.Combine(_tempDir, "readonly.json");
+        File.WriteAllText(dest, "old");
+        File.SetAttributes(dest, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.ThrowsExactly<UnauthorizedAccessException>(
+                () => AtomicFile.WriteAllText(dest, "new", preserveReaders: true));
+            Assert.AreEqual("old", File.ReadAllText(dest));
+            Assert.IsEmpty(Directory.GetFiles(_tempDir, "*.tmp"));
+        }
+        finally
+        {
+            File.SetAttributes(dest, FileAttributes.Normal);
+        }
+    }
+
+    [TestMethod]
+    public void WriteAllText_ReaderDenyingDeletion_IsNotBypassed()
+    {
+        var dest = Path.Combine(_tempDir, "held.json");
+        File.WriteAllText(dest, "old");
+        using var held = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        Assert.ThrowsExactly<IOException>(
+            () => AtomicFile.WriteAllText(dest, "new", preserveReaders: true));
+
+        Assert.AreEqual("old", File.ReadAllText(dest));
+        Assert.IsEmpty(Directory.GetFiles(_tempDir, "*.tmp"));
+    }
+
+    [TestMethod]
     public async Task WriteStagedAsync_DoesNotPublishUntilPublishCalled()
     {
         var dest = Path.Combine(_tempDir, "staged.bin");

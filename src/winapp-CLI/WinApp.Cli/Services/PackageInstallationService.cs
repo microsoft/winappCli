@@ -84,7 +84,13 @@ internal sealed class PackageInstallationService(
         bool ignoreConfig = false,
         CancellationToken cancellationToken = default)
     {
-        var allInstalledVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var requestedPackages = packages.ToArray();
+        if (requestedPackages.Length == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var requestedVersions = new List<(string Package, string Version)>(requestedPackages.Length);
 
         // Load pinned config if available
         WinappConfig? pinnedConfig = null;
@@ -93,8 +99,10 @@ internal sealed class PackageInstallationService(
             pinnedConfig = configService.Load();
         }
 
-        foreach (var packageName in packages)
+        foreach (var packageName in requestedPackages)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Resolve version: check pinned config first, then get latest
             string version;
             if (pinnedConfig != null && !ignoreConfig)
@@ -119,36 +127,55 @@ internal sealed class PackageInstallationService(
             // concatenating this value, so a shorthand pin would otherwise point them at a folder the
             // NuGet writer never created.
             version = NugetService.NormalizeVersion(version);
+            requestedVersions.Add((packageName, version));
+        }
 
-            // Install the package (and its transitive graph). InstallPackageAsync already short-circuits a
-            // fully-cached package via the completion marker and, on that marker hit, reads its dependency
-            // LIST from the package's extracted local .nuspec rather than from the configured feeds. Each
-            // dependency's declared range is still resolved to a concrete version against the feeds, falling
-            // back to a completed cache entry when they cannot answer, so an already-extracted graph restores
-            // offline. Resolving cache hits here through the feed-based GetPackageDependenciesAsync instead
-            // would break documented cache reuse under a private nuget.config (a cached id/version absent or
-            // unmapped on the current feed would fail the restore) and could install a graph that diverges
-            // from what is actually on disk.
-            taskContext.AddStatusMessage($"{UiSymbols.Bullet} {packageName} {version}");
+        for (var attempt = 0; ; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var packagesRoot = nugetService.GetNuGetGlobalPackagesDir().FullName;
+            var allInstalledVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var rootChanged = false;
 
-            var installedVersions = await nugetService.InstallPackageAsync(packageName, version, taskContext, cancellationToken);
-            foreach (var (pkg, ver) in installedVersions)
+            foreach (var (packageName, version) in requestedVersions)
             {
-                if (allInstalledVersions.TryGetValue(pkg, out var existingVersion))
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Cached roots must still go through installation so their entire dependency graph is
+                // verified from the extracted nuspec, including required packages that are missing.
+                taskContext.AddStatusMessage($"{UiSymbols.Bullet} {packageName} {version}");
+                var installedVersions = await nugetService.InstallPackageAsync(packageName, version, taskContext, cancellationToken);
+                var selectedRoot = nugetService.GetNuGetGlobalPackagesDir().FullName;
+                if (!string.Equals(packagesRoot, selectedRoot, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (NugetService.CompareVersions(ver, existingVersion) > 0)
+                    if (attempt != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"The NuGet packages folder changed again while retrying package installation ('{packagesRoot}' to '{selectedRoot}'). "
+                            + "Restore stable access to the packages folder and retry.");
+                    }
+
+                    // Earlier roots may exist only in the old read-only cache. Replay every requested root
+                    // at its already-resolved version, discarding the old cache's partial aggregate graph.
+                    rootChanged = true;
+                    break;
+                }
+
+                foreach (var (pkg, ver) in installedVersions)
+                {
+                    if (!allInstalledVersions.TryGetValue(pkg, out var existingVersion)
+                        || NugetService.CompareVersions(ver, existingVersion) > 0)
                     {
                         allInstalledVersions[pkg] = ver;
                     }
                 }
-                else
-                {
-                    allInstalledVersions[pkg] = ver;
-                }
+            }
+
+            if (!rootChanged)
+            {
+                return allInstalledVersions;
             }
         }
-
-        return allInstalledVersions;
     }
 
     /// <summary>
@@ -170,8 +197,6 @@ internal sealed class PackageInstallationService(
     {
         try
         {
-            InitializeWorkspace(rootDirectory);
-
             await InstallPackageAsync(
                 rootDirectory,
                 packageName,

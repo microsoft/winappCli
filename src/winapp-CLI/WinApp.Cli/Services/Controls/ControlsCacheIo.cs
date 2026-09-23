@@ -18,7 +18,6 @@ internal static class ControlsCacheIo
     {
         try
         {
-            if (!File.Exists(path)) return null;
             var text = File.ReadAllText(path).Trim();
             if (DateTime.TryParse(
                 text,
@@ -30,6 +29,8 @@ internal static class ControlsCacheIo
             }
             return null;
         }
-        catch { return null; }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        catch (Exception ex) when (!CacheStorage.IsStorageFailure(ex)) { return null; }
     }
 }

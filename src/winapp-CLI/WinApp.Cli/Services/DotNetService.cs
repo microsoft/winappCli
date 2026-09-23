@@ -14,7 +14,7 @@ namespace WinApp.Cli.Services;
 /// <summary>
 /// Service for detecting and working with .NET projects, using the dotnet CLI
 /// </summary>
-internal partial class DotNetService : IDotNetService
+internal partial class DotNetService(NugetSourceProvider sourceProvider) : IDotNetService
 {
     /// <summary>
     /// Minimum Windows SDK version that supports WinAppSDK
@@ -420,7 +420,7 @@ internal partial class DotNetService : IDotNetService
     /// child inherits winapp's console handles (no redirection, no read pumps) so dotnet sees a real TTY
     /// and its native terminal logger renders live; the callbacks are ignored in that mode.
     /// </summary>
-    private static async Task<int> RunDotnetCoreAsync(
+    private async Task<int> RunDotnetCoreAsync(
         DirectoryInfo workingDirectory,
         string arguments,
         Action<string>? onOutputLine,
@@ -441,6 +441,7 @@ internal partial class DotNetService : IDotNetService
             UseShellExecute = false,
             CreateNoWindow = !inheritStdio
         };
+        ConfigurePackageEnvironment(processStartInfo, arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
         // Merge any environment overrides (e.g. the Native AOT publish PATH that prepends the VS Installer
         // directory so vswhere.exe resolves) over the inherited environment before launch.
@@ -453,6 +454,7 @@ internal partial class DotNetService : IDotNetService
         }
 
         using var process = new Process { StartInfo = processStartInfo };
+        var storageFailure = 0;
 
         if (!inheritStdio)
         {
@@ -460,6 +462,10 @@ internal partial class DotNetService : IDotNetService
             {
                 if (e.Data != null)
                 {
+                    if (IsStorageAccessFailure(e.Data))
+                    {
+                        Interlocked.Exchange(ref storageFailure, 1);
+                    }
                     onOutputLine?.Invoke(e.Data);
                 }
             };
@@ -468,6 +474,10 @@ internal partial class DotNetService : IDotNetService
             {
                 if (e.Data != null)
                 {
+                    if (IsStorageAccessFailure(e.Data))
+                    {
+                        Interlocked.Exchange(ref storageFailure, 1);
+                    }
                     onErrorLine?.Invoke(e.Data);
                 }
             };
@@ -510,11 +520,16 @@ internal partial class DotNetService : IDotNetService
             throw;
         }
 
+        if (process.ExitCode != 0 && storageFailure != 0
+            && NugetSourceProvider.GetChildPackageStorageGuidance(processStartInfo) is { } guidance)
+        {
+            onErrorLine?.Invoke(guidance);
+        }
         return process.ExitCode;
     }
 
     /// <inheritdoc />
-    public Task<(int ExitCode, string Output, string Error)> RunDotnetCommandAsync(
+    public async Task<(int ExitCode, string Output, string Error)> RunDotnetCommandAsync(
         DirectoryInfo workingDirectory,
         IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string>? environmentOverrides = null,
@@ -548,9 +563,77 @@ internal partial class DotNetService : IDotNetService
                 processStartInfo.Environment[key] = value;
             }
         }
+        // A caller's explicit child-only packages setting takes precedence just like NUGET_PACKAGES
+        // inherited from the invocation. Let dotnet validate it rather than replacing it with a fallback.
+        if (environmentOverrides?.Keys.Any(key => key.Equals("NUGET_PACKAGES", StringComparison.OrdinalIgnoreCase)) != true)
+        {
+            ConfigurePackageEnvironment(processStartInfo, arguments);
+        }
 
-        return RunDotnetProcessAsync(processStartInfo, cancellationToken, onOutputLine: onOutputLine, onErrorLine: onErrorLine);
+        var result = await RunDotnetProcessAsync(processStartInfo, cancellationToken, onOutputLine: onOutputLine, onErrorLine: onErrorLine);
+        if (result.ExitCode != 0 && (IsStorageAccessFailure(result.Output) || IsStorageAccessFailure(result.Error))
+            && NugetSourceProvider.GetChildPackageStorageGuidance(processStartInfo) is { } guidance)
+        {
+            onErrorLine?.Invoke(guidance);
+            return (result.ExitCode, result.Output, result.Error + Environment.NewLine + guidance);
+        }
+        return result;
     }
+
+    internal void ConfigurePackageEnvironment(ProcessStartInfo startInfo, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0)
+        {
+            return;
+        }
+
+        var verb = arguments[0].ToLowerInvariant();
+        var projectOperation = verb is "restore" or "build" or "publish" or "run" or "add" or "msbuild"
+            || (verb is "package" or "list" && arguments.Any(arg => arg.Equals("package", StringComparison.OrdinalIgnoreCase)
+                || arg.Equals("list", StringComparison.OrdinalIgnoreCase)));
+        if (verb == "new")
+        {
+            projectOperation = arguments.Count > 1
+                && arguments[1] is not ("list" or "search" or "details" or "install" or "uninstall" or "update")
+                && !arguments[1].StartsWith('-');
+        }
+
+        if (!projectOperation || arguments.Any(arg => arg is "--help" or "-h" or "-?"))
+        {
+            return;
+        }
+
+        var commandArguments = arguments.TakeWhile(arg => arg != "--").ToArray();
+        var options = commandArguments
+            .Where(arg => arg.StartsWith('-') || arg.StartsWith('/'))
+            .Select(arg => arg.TrimStart('-', '/'))
+            .ToArray();
+        static bool IsOption(string option, string name) =>
+            option.Equals(name, StringComparison.OrdinalIgnoreCase)
+            || option.StartsWith(name + ":", StringComparison.OrdinalIgnoreCase);
+
+        var hasTargetsOrRestore = options.Any(option =>
+            IsOption(option, "target") || IsOption(option, "t")
+            || IsOption(option, "restore") || verb == "msbuild" && IsOption(option, "r")
+            || IsOption(option, "getTargetResult"));
+        var evaluationOnly = verb is "msbuild" or "build"
+            && options.Any(option => IsOption(option, "getProperty") || IsOption(option, "getItem"))
+            && !hasTargetsOrRestore;
+        var restoreDisabled = verb is "build" or "publish" or "run" or "add" or "list" or "package"
+            && (commandArguments.Contains("--no-restore")
+                || verb is "run" or "publish" && commandArguments.Contains("--no-build"))
+            && !hasTargetsOrRestore;
+        // Queries without targets and restore-disabled operations must not acquire a new NuGet
+        // prerequisite. Still propagate storage already selected for this exact project scope.
+        var reuseOnly = (evaluationOnly || restoreDisabled) && !commandArguments.Any(arg => arg.StartsWith('@'));
+        sourceProvider.ConfigureChildProcessPackages(startInfo, selectPackages: !reuseOnly);
+    }
+
+    private static bool IsStorageAccessFailure(string message) =>
+        message.Contains("UnauthorizedAccessException", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("permission denied", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("read-only file system", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("access", StringComparison.OrdinalIgnoreCase) && message.Contains("denied", StringComparison.OrdinalIgnoreCase);
 
     internal static async Task<(int ExitCode, string Output, string Error)> RunDotnetProcessAsync(
         ProcessStartInfo processStartInfo,

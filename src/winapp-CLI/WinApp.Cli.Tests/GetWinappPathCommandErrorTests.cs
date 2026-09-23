@@ -53,6 +53,8 @@ public class GetWinappPathCommandErrorTests : BaseCommandTests
 
     private sealed class ThrowingWinappDirectoryService : IWinappDirectoryService
     {
+        public bool IsGlobalCacheOverridden => true;
+        public DirectoryInfo GetLocalCacheDirectory() => throw new InvalidOperationException("simulated cache failure");
         public DirectoryInfo GetGlobalWinappDirectory()
             => throw new InvalidOperationException("simulated failure resolving the global directory");
 

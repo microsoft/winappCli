@@ -43,6 +43,9 @@ internal sealed class NugetPackageDownloader(NugetSourceProvider sourceProvider)
         var package = identity.Id;
         var version = identity.Version.ToNormalizedString();
         var clientPolicyContext = ClientPolicyContext.GetClientPolicy(_sourceProvider.Settings, Logger);
+        _sourceProvider.EnsureScratchStorage();
+        _sourceProvider.ValidatePackagePath(globalPackagesFolder,
+            new VersionFolderPathResolver(globalPackagesFolder).GetInstallPath(identity.Id, identity.Version));
 
         var repos = _sourceProvider.GetRepositoriesForPackage(package);
         Exception? lastError = null;
@@ -52,11 +55,10 @@ internal sealed class NugetPackageDownloader(NugetSourceProvider sourceProvider)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Buffer to a temp file rather than memory: SDK packages (e.g. Windows App SDK) are large.
-            // Use a random temp path instead of Path.GetTempFileName(): the latter eagerly creates an
-            // empty file (which File.Create below immediately overwrites) and throws once ~65,535 temp
-            // files already exist in the directory.
-            var tempFile = Path.Join(Path.GetTempPath(), Path.GetRandomFileName());
+            // Stage alongside the selected packages, not in an unrelated (possibly denied) TEMP folder.
+            // A random name and CreateNew prevent replacing another invocation's in-flight download.
+            Directory.CreateDirectory(globalPackagesFolder);
+            var tempFile = Path.Join(globalPackagesFolder, $".winapp-download-{Guid.NewGuid():N}");
             try
             {
                 bool copied;
@@ -66,7 +68,7 @@ internal sealed class NugetPackageDownloader(NugetSourceProvider sourceProvider)
                 // false instead of throwing; with NullLogger that detail would be lost and the failure
                 // misreported as "not found".
                 var downloadLogger = new CollectingLogger();
-                await using (var fileStream = File.Create(tempFile))
+                await using (var fileStream = new FileStream(tempFile, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
                     try
                     {

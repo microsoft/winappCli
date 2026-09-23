@@ -18,7 +18,8 @@ public partial class UiCommandTests
     [DataRow("UIA_AutomationIdPropertyId", unchecked((int)0x80004005))]
     [DataRow("UIA_ClassNamePropertyId", unchecked((int)0x80040201))]
     [DataRow("UIA_ClassNamePropertyId", unchecked((int)0x80004005))]
-    public async Task QueryOptions_RealGetterFailureIsNeverGone(string property, int hresult)
+    [DataRow("UIA_NamePropertyId", unchecked((int)0x80040201), 1100)]
+    public async Task QueryOptions_RealGetterFailureIsNeverGone(string property, int hresult, int firstReadDelayMs = 0)
     {
         if (!Environment.UserInteractive) { Assert.Inconclusive("Requires an interactive desktop."); }
         using var fx = new UiaTestFixture();
@@ -30,7 +31,11 @@ public partial class UiCommandTests
         {
             UiAutomationService.s_getCurrentBstr = (element, requested) =>
             {
-                if (requested.ToString() == property) { reads++; throw new COMException("Getter failed.", hresult); }
+                if (requested.ToString() == property)
+                {
+                    if (++reads == 1 && firstReadDelayMs > 0) { Thread.Sleep(firstReadDelayMs); }
+                    throw new COMException("Getter failed.", hresult);
+                }
                 return nativeGetter(element, requested);
             };
             UiAutomationService.s_findAllDescendants = (_, _) => null;
@@ -46,12 +51,16 @@ public partial class UiCommandTests
             if (hresult == unchecked((int)0x80040201))
             {
                 StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
-                Assert.IsTrue(reads > 1, "Unavailable getters must retry the complete query.");
+                Assert.IsTrue(reads > 0, "The query must exercise the failing getter.");
+                // A native read can exhaust the timeout before another poll is possible.
+                Assert.AreEqual(reads, _fakePollDelay.CallCount,
+                    "Every unavailable getter must enter the retry path rather than report absence.");
             }
             else
             {
                 AssertJsonErrorCode("stale_element");
                 Assert.AreEqual(1, reads, "Arbitrary provider faults must fail immediately.");
+                Assert.AreEqual(0, _fakePollDelay.CallCount);
             }
         }
         finally { UiAutomationService.ResetNativeSeams(); }

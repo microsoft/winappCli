@@ -190,6 +190,58 @@ public class XamlTriageBinariesTests
     }
 
     [TestMethod]
+    [DataRow("dbgeng.dll")]
+    [DataRow("dbghelp.dll")]
+    [DataRow("dbgcore.dll")]
+    [DataRow("dbgmodel.dll")]
+    [DataRow("msdia140.dll")]
+    [DataRow("symsrv.dll")]
+    [DataRow("winext/JsProvider.dll")]
+    [DataRow("extra.dll")]
+    public void LocalCacheLayout_RejectsAnyUntrustedLoadable(string untrusted)
+    {
+        var files = new[] { "dbgeng.dll", "dbghelp.dll", "dbgcore.dll", "dbgmodel.dll",
+            "msdia140.dll", "symsrv.dll", "winext/JsProvider.dll", "extra.dll" };
+        Directory.CreateDirectory(Path.Combine(_tempDir, "winext"));
+        foreach (var file in files)
+        {
+            File.WriteAllText(Path.Combine(_tempDir, file), "fixture");
+        }
+        var untrustedPath = Path.GetFullPath(Path.Combine(_tempDir, untrusted));
+        var verified = new List<string>();
+
+        var trusted = XamlTriageBinaries.IsTrustedCacheLayout(_tempDir, NullLogger.Instance,
+            (path, _) => { verified.Add(path); return path != untrustedPath; });
+
+        Assert.IsFalse(trusted, "A valid provider or matching editable version must not authorize another DLL.");
+        CollectionAssert.Contains(verified, untrustedPath);
+    }
+
+    [TestMethod]
+    public void LocalCacheLayout_AcceptsAuthenticatedCompleteLayout()
+    {
+        var files = new[] { "dbgeng.dll", "dbghelp.dll", "dbgcore.dll", "dbgmodel.dll", "msdia140.dll", "JsProvider.dll" };
+        foreach (var file in files)
+        {
+            File.WriteAllText(Path.Combine(_tempDir, file), "fixture");
+        }
+        var verified = new List<string>();
+
+        Assert.IsTrue(XamlTriageBinaries.IsTrustedCacheLayout(_tempDir, NullLogger.Instance,
+            (path, _) => { verified.Add(Path.GetFileName(path)); return true; }));
+        CollectionAssert.AreEquivalent(files, verified);
+    }
+
+    [TestMethod]
+    public void LocalCacheLayout_MissingRequiredEngineDependency_IsRejected()
+    {
+        File.WriteAllText(Path.Combine(_tempDir, "dbgeng.dll"), "fixture");
+        File.WriteAllText(Path.Combine(_tempDir, "JsProvider.dll"), "fixture");
+
+        Assert.IsFalse(XamlTriageBinaries.IsTrustedCacheLayout(_tempDir, NullLogger.Instance, (_, _) => true));
+    }
+
+    [TestMethod]
     public void ResolveExisting_JsProviderInRoot_PrefersRootPath()
     {
         var dir = Path.Combine(_tempDir, "root-layout");

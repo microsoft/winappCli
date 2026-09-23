@@ -140,6 +140,46 @@ public class ProgramMainTests
     }
 
     [TestMethod]
+    [DataRow("--help")]
+    [DataRow("--version")]
+    public async Task Main_InformationalCommand_DoesNotAccessBlockedBookkeeping(string option)
+    {
+        var blocker = Path.Join(_tempCacheDir, "blocker");
+        File.WriteAllText(blocker, "not a directory");
+        Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", Path.Join(blocker, "cache"));
+
+        var (stdout, stderr, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync([option]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsFalse(stdout.Contains("Welcome to", StringComparison.Ordinal));
+        Assert.IsFalse(stderr.Contains("marker", StringComparison.Ordinal));
+        Assert.AreEqual("not a directory", File.ReadAllText(blocker));
+    }
+
+    [TestMethod]
+    public async Task Main_GetGlobalPath_DoesNotPrependFirstRunNotice()
+    {
+        File.Delete(Path.Join(_tempCacheDir, ".first-run-complete"));
+        Directory.CreateDirectory(Path.Join(_tempCacheDir, ".first-run-complete"));
+        var previousConsole = Spectre.Console.AnsiConsole.Console;
+        var console = new Spectre.Console.Testing.TestConsole();
+        console.Profile.Width = 20;
+        try
+        {
+            Spectre.Console.AnsiConsole.Console = console;
+            var (_, stderr, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync(["get-winapp-path", "--global"]);
+
+            Assert.AreEqual(0, exitCode);
+            Assert.AreEqual(_tempCacheDir, console.Output.Trim());
+            Assert.AreEqual(string.Empty, stderr);
+        }
+        finally
+        {
+            Spectre.Console.AnsiConsole.Console = previousConsole;
+        }
+    }
+
+    [TestMethod]
     public async Task Main_NoArguments_ShowsBannerAndHelp_ReturnsZero()
     {
         var (stdout, _, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync([]);

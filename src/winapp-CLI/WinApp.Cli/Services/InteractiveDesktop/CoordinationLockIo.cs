@@ -30,8 +30,7 @@ internal static class CoordinationLockIo
 
     /// <summary>The failure reported when a lock cannot be opened for a non-contention reason.</summary>
     internal static UiCoordinationException CannotOpen(string path, IOException exception)
-        => new(
-            UiCoordinationErrorCodes.Unavailable,
+        => UiCoordinationException.StorageUnavailable(
             $"The UI coordination lock '{path}' could not be opened: {exception.Message}",
             "Check that the coordination directory is on a healthy, reachable volume, then retry.");
 }

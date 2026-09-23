@@ -516,6 +516,7 @@ internal partial class MsixService
     /// </remarks>
     private static List<RecipeEntry> ReadAndValidateRecipe(FileInfo recipeFile, DirectoryInfo outputDir, string recipeContent)
     {
+        LayoutLease.ThrowIfArtifactPath(recipeFile.FullName);
         System.Xml.Linq.XDocument recipeDoc;
         try
         {
@@ -568,6 +569,7 @@ internal partial class MsixService
             // The destination must land inside the layout even after the path is resolved, so a
             // traversal segment cannot make a copy (or a later prune) reach outside it.
             var destinationPath = Path.GetFullPath(Path.Combine(outputDir.FullName, packagePath));
+            LayoutLease.ThrowIfArtifactPath(destinationPath);
             if (!IsPathInsideDirectory(destinationPath, outputDir.FullName))
             {
                 throw new InvalidOperationException(
@@ -581,6 +583,8 @@ internal partial class MsixService
                     $"The build recipe '{recipeFile.FullName}' has an entry for '{rawPackagePath}' with no source " +
                     "file. Rebuild the project and try again.");
             }
+
+            LayoutLease.ThrowIfArtifactPath(Path.GetFullPath(sourcePath));
 
             if (byPackagePath.TryGetValue(packagePath, out var previousSource))
             {
@@ -668,6 +672,8 @@ internal partial class MsixService
         LayoutReconciliation reconciliation,
         CancellationToken cancellationToken)
     {
+        LayoutLease.EnsureNoArtifactsInLayout(outputDir);
+
         // A linked ancestor makes destructive reconciliation unsafe, but it does not make additive
         // publication unsafe: the caller intentionally named that resolved path, and no existing
         // content is removed. Fall back rather than rejecting common junction-backed source trees.
@@ -927,6 +933,7 @@ internal partial class MsixService
         HashSet<string> desired,
         TaskContext taskContext)
     {
+        LayoutLease.EnsureNoArtifactsInLayout(outputDir);
         var removed = 0;
         var unremovable = new List<string>();
         var emptiedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1041,6 +1048,7 @@ internal partial class MsixService
 
             foreach (var subdirectory in directory.EnumerateDirectories())
             {
+                LayoutLease.ThrowIfArtifactPath(subdirectory.FullName);
                 if (subdirectory.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
                     linkedDirectories.Add(subdirectory);
@@ -1052,6 +1060,7 @@ internal partial class MsixService
 
             foreach (var file in directory.EnumerateFiles())
             {
+                LayoutLease.ThrowIfArtifactPath(file.FullName);
                 yield return file;
             }
         }
@@ -1120,6 +1129,9 @@ internal partial class MsixService
     /// </remarks>
     private static void SyncFilesToOutputDirectory(DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, FileInfo appxManifestPath, TaskContext taskContext, LayoutReconciliation reconciliation)
     {
+        LayoutLease.EnsureNoArtifactsInLayout(outputAppXDirectory);
+        LayoutLease.ThrowIfArtifactPath(appxManifestPath.FullName);
+
         // A `None` layout is a staging directory winapp just created, commonly under the system temp
         // directory, which on some machines is reached through a junction. Nothing there is pruned,
         // so the link checks that make deletion safe would only reject a legitimate path.
@@ -1347,6 +1359,7 @@ internal partial class MsixService
     private static List<RecipeEntry> EnumerateInputFilesForLayout(
         DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory)
     {
+        LayoutLease.ThrowIfArtifactPath(inputDirectory.FullName);
         var entries = new List<RecipeEntry>();
         var pending = new Stack<DirectoryInfo>();
         pending.Push(inputDirectory);
@@ -1357,7 +1370,8 @@ internal partial class MsixService
 
             foreach (var subdirectory in directory.EnumerateDirectories())
             {
-                if (IsPathInsideDirectory(subdirectory.FullName, outputAppXDirectory.FullName))
+                if (LayoutLease.IsArtifactPath(subdirectory.FullName) ||
+                    IsPathInsideDirectory(subdirectory.FullName, outputAppXDirectory.FullName))
                 {
                     continue;
                 }
@@ -1372,6 +1386,11 @@ internal partial class MsixService
 
             foreach (var file in directory.EnumerateFiles())
             {
+                if (LayoutLease.IsArtifactPath(file.FullName))
+                {
+                    continue;
+                }
+
                 // A linked file is refused for the same reason a linked directory is: its content
                 // comes from outside the folder being packaged, so the layout would not be built
                 // from the app it claims to describe.

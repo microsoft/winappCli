@@ -10,9 +10,8 @@ namespace WinApp.Cli.Tests;
 /// Integration tests verifying that the Program-level gating logic correctly
 /// suppresses update notifications for --json, --quiet, and --cli-schema modes,
 /// and that --caller plumbs through to the notification hint text.
-/// Tests that exercise suppression invoke Program.Main directly.
-/// Tests that verify notification content use the service layer with env vars
-/// matching what Program.Main would set.
+/// All cases invoke Program.Main; normal-mode cases use an offline discovery command
+/// rather than an informational command that intentionally suppresses bookkeeping.
 /// </summary>
 [TestClass]
 [DoNotParallelize] // Modifies static Console streams and environment variables
@@ -72,8 +71,9 @@ public class UpdateNotificationGatingTests
     [TestMethod]
     public async Task JsonMode_SuppressesUpdateNotice_StdoutHasNoNotice()
     {
-        var (stdout, stderr, _) = await ProgramMainTestHarness.InvokeProgramAsync(["get-winapp-path", "--global", "--json"]);
+        var (stdout, stderr, exit) = await ProgramMainTestHarness.InvokeProgramAsync(["find-ui", "jumplist", "--source", "core", "--json"]);
 
+        Assert.AreEqual(0, exit);
         Assert.IsFalse(stdout.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase),
             $"--json stdout must not contain update notice. Got stdout: {stdout}");
         Assert.IsFalse(stderr.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase),
@@ -83,8 +83,9 @@ public class UpdateNotificationGatingTests
     [TestMethod]
     public async Task QuietMode_SuppressesUpdateNotice()
     {
-        var (stdout, stderr, _) = await ProgramMainTestHarness.InvokeProgramAsync(["get-winapp-path", "--global", "--quiet"]);
+        var (stdout, stderr, exit) = await ProgramMainTestHarness.InvokeProgramAsync(["find-ui", "jumplist", "--source", "core", "--quiet"]);
 
+        Assert.AreEqual(0, exit);
         Assert.IsFalse(stdout.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase),
             $"--quiet stdout must not contain update notice. Got stdout: {stdout}");
         Assert.IsFalse(stderr.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase),
@@ -107,8 +108,9 @@ public class UpdateNotificationGatingTests
     {
         // Invoke through the real entrypoint — the notification should appear on stderr,
         // never stdout. We capture stderr via Console.SetError.
-        var (stdout, stderr, _) = await ProgramMainTestHarness.InvokeProgramAsync(["get-winapp-path", "--global"]);
+        var (stdout, stderr, exit) = await ProgramMainTestHarness.InvokeProgramAsync(["find-ui", "jumplist", "--source", "core"]);
 
+        Assert.AreEqual(0, exit);
         Assert.IsFalse(stdout.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase),
             $"Update notice must not appear on stdout. Got stdout: {stdout}");
         Assert.IsTrue(stderr.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase),
@@ -120,10 +122,25 @@ public class UpdateNotificationGatingTests
     {
         // --caller npm should set WINAPP_CLI_CALLER=npm which makes the update notice
         // include the npm update hint.
-        var (_, stderr, _) = await ProgramMainTestHarness.InvokeProgramAsync(["get-winapp-path", "--global", "--caller", "npm"]);
+        var (_, stderr, exit) = await ProgramMainTestHarness.InvokeProgramAsync(["find-ui", "jumplist", "--source", "core", "--caller", "npm"]);
 
+        Assert.AreEqual(0, exit);
         Assert.IsTrue(stderr.Contains("npm update", StringComparison.OrdinalIgnoreCase),
             $"With --caller npm, notice should contain npm update hint. Got stderr: {stderr}");
+    }
+
+    [TestMethod]
+    [DataRow("get-winapp-path --global")]
+    [DataRow("--help")]
+    [DataRow("--version")]
+    [DataRow("ui --help")]
+    public async Task InformationalCommands_SuppressEvenACachedUpdateNotice(string commandLine)
+    {
+        var (stdout, stderr, exit) = await ProgramMainTestHarness.InvokeProgramAsync(commandLine.Split(' '));
+
+        Assert.AreEqual(0, exit);
+        Assert.IsFalse(stdout.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(stderr.Contains(UpdateNoticeMarker, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

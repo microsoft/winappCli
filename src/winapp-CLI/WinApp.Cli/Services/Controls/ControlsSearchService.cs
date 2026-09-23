@@ -99,10 +99,11 @@ internal sealed class ControlsSearchService : IControlsSearchService, IDisposabl
     /// <summary>Production constructor: providers are rooted at the managed
     /// global <c>.winapp</c> cache directory so environment/test path overrides
     /// (<c>WINAPP_CLI_CACHE_DIRECTORY</c>) and repo-wide path policy apply.</summary>
-    public ControlsSearchService(IWinappDirectoryService directoryService)
-        : this(ProviderRegistry.CreateProviders(
-            Path.Combine(directoryService.GetGlobalWinappDirectory().FullName, "cache", "find-ui")))
+    public ControlsSearchService(IWinappDirectoryService directoryService, IStorageDiagnostics? diagnostics = null)
+        : this(ProviderRegistry.CreateProviders(string.Empty))
     {
+        var storage = new CacheStorage(directoryService, Path.Combine("cache", "find-ui"), "find-ui", diagnostics);
+        foreach (var provider in _providers.OfType<CachedProviderBase>()) provider.Storage = storage;
     }
 
     /// <summary>Test seam: inject providers directly (e.g. fakes with a temp cache).</summary>

@@ -9,20 +9,35 @@ namespace WinApp.Cli.Services;
 internal class FirstRunService : IFirstRunService
 {
     private const string FirstRunMarkerFileName = ".first-run-complete";
-    private readonly FileInfo _firstRunMarkerFile;
+    private readonly IWinappDirectoryService _directoryService;
     private readonly ILogger<FirstRunService> _logger;
+    private readonly IStorageDiagnostics _diagnostics;
 
-    public FirstRunService(IWinappDirectoryService directoryService, ILogger<FirstRunService> logger)
+    public FirstRunService(
+        IWinappDirectoryService directoryService,
+        ILogger<FirstRunService> logger,
+        IStorageDiagnostics? diagnostics = null)
     {
-        var globalWinappDirectory = directoryService.GetGlobalWinappDirectory();
-        _firstRunMarkerFile = new FileInfo(Path.Combine(globalWinappDirectory.FullName, FirstRunMarkerFileName));
+        _directoryService = directoryService;
         _logger = logger;
+        _diagnostics = diagnostics ?? new StorageDiagnostics(Console.Error);
     }
 
     public bool CheckAndDisplayFirstRunNotice()
     {
-        _firstRunMarkerFile.Refresh();
-        if (!_firstRunMarkerFile.Exists)
+        FileInfo marker;
+        try
+        {
+            marker = new FileInfo(Path.Combine(_directoryService.GetGlobalWinappDirectory().FullName, FirstRunMarkerFileName));
+            marker.Refresh();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or InvalidOperationException)
+        {
+            _diagnostics.Warning("optional_storage_unavailable", $"First-run bookkeeping is unavailable: {ex.Message}");
+            return false;
+        }
+
+        if (!marker.Exists)
         {
             BannerHelper.DisplayBanner();
 
@@ -32,13 +47,14 @@ internal class FirstRunService : IFirstRunService
 
             try
             {
-                _firstRunMarkerFile.Directory?.Create();
-                using var fs = _firstRunMarkerFile.Create();
-                _firstRunMarkerFile.Attributes |= FileAttributes.Hidden;
+                marker.Directory?.Create();
+                using var fs = marker.Create();
+                marker.Attributes |= FileAttributes.Hidden;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogWarning("Failed to create first run marker file: {ErrorMessage}", ex.Message);
+                _diagnostics.Warning("optional_storage_unavailable",
+                    $"Cannot save the first-run marker at '{marker.FullName}'. Continuing without saving it: {ex.Message}");
             }
 
             return true;

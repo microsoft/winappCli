@@ -20,6 +20,10 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class PackageInstallationServiceTests
 {
+    private static readonly string[] ReplayedRoots = ["Pkg.A", "Pkg.B"];
+    private static readonly (string Package, string Version)[] ReplayedInstalls =
+        [("Pkg.A", "1.6.0"), ("Pkg.B", "1.6.0"), ("Pkg.A", "1.6.0"), ("Pkg.B", "1.6.0")];
+
     private DirectoryInfo _tempDir = null!;
     private DirectoryInfo _cacheDir = null!;
     private DirectoryInfo _rootDir = null!;
@@ -84,7 +88,7 @@ public class PackageInstallationServiceTests
     #region EnsurePackageAsync
 
     [TestMethod]
-    public async Task EnsurePackageAsync_Success_ReturnsTrue_AndCreatesWorkspace()
+    public async Task EnsurePackageAsync_Success_DoesNotCreateUnrelatedGlobalWorkspace()
     {
         _nuget.DefaultVersion = "1.6.0";
 
@@ -92,8 +96,21 @@ public class PackageInstallationServiceTests
 
         Assert.IsTrue(ok);
         _rootDir.Refresh();
-        Assert.IsTrue(_rootDir.Exists);
+        Assert.IsFalse(_rootDir.Exists);
         CollectionAssert.Contains(_nuget.InstalledPackages, ("Pkg.X", "1.6.0"));
+    }
+
+    [TestMethod]
+    public async Task EnsurePackageAsync_BlockedGlobalWorkspace_UsesNugetCache()
+    {
+        File.WriteAllText(_rootDir.FullName, "not a directory");
+
+        var ok = await _service.EnsurePackageAsync(
+            _rootDir, "Pkg.X", _taskContext, version: "2.0.0");
+
+        Assert.IsTrue(ok);
+        CollectionAssert.Contains(_nuget.InstalledPackages, ("Pkg.X", "2.0.0"));
+        Assert.AreEqual("not a directory", File.ReadAllText(_rootDir.FullName));
     }
 
     [TestMethod]
@@ -218,6 +235,80 @@ public class PackageInstallationServiceTests
     }
 
     #endregion
+
+    [TestMethod]
+    public async Task InstallPackagesAsync_CacheChangesOnSecondRoot_ReplaysResolvedVersionsAndReturnsOnlyFinalGraph()
+    {
+        var fallback = _tempDir.CreateSubdirectory("fallback-cache");
+        _nuget.InstallReturns["Pkg.A"] = new() { ["Pkg.A"] = "1.6.0", ["Old.Dependency"] = "9.0.0" };
+        var switched = false;
+        _nuget.BeforeInstall = (package, _) =>
+        {
+            if (package == "Pkg.B" && !switched)
+            {
+                switched = true;
+                _nuget.CacheDirectory = fallback;
+                _nuget.DefaultVersion = "2.0.0";
+                _nuget.InstallReturns["Pkg.A"] = new() { ["Pkg.A"] = "1.6.0", ["Final.Dependency"] = "1.0.0" };
+            }
+        };
+
+        var enumerations = 0;
+        IEnumerable<string> RequestedPackages()
+        {
+            Assert.AreEqual(1, ++enumerations, "The requested roots must be materialized once, not enumerated again for replay.");
+            yield return "Pkg.A";
+            yield return "Pkg.B";
+        }
+
+        var result = await _service.InstallPackagesAsync(_rootDir, RequestedPackages(), _taskContext);
+
+        CollectionAssert.AreEqual(ReplayedRoots, _nuget.QueriedPackages,
+            "Replay must use the resolved versions even if the latest version changes.");
+        CollectionAssert.AreEqual(ReplayedInstalls, _nuget.InstalledPackages);
+        Assert.IsFalse(result.ContainsKey("Old.Dependency"), "The abandoned cache's aggregate graph must be discarded.");
+        Assert.AreEqual("1.0.0", result["Final.Dependency"]);
+        Assert.HasCount(3, result);
+        Assert.AreEqual(Path.Combine(fallback.FullName, "packages"), _nuget.GetNuGetGlobalPackagesDir().FullName);
+        foreach (var (package, version) in result)
+        {
+            Assert.IsTrue(_nuget.IsPackageInstalled(package, version), $"{package} {version} must exist in the final root.");
+        }
+        Assert.IsFalse(Directory.Exists(_rootDir.FullName), "Batch replay must not initialize the unrelated global workspace.");
+    }
+
+    [TestMethod]
+    public async Task InstallPackagesAsync_CacheChangesAgainDuringReplay_FailsAfterOneRetry()
+    {
+        var switches = 0;
+        _nuget.BeforeInstall = (package, _) =>
+        {
+            if (package == "Pkg.B")
+            {
+                _nuget.CacheDirectory = _tempDir.CreateSubdirectory($"changed-cache-{++switches}");
+            }
+        };
+
+        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => _service.InstallPackagesAsync(_rootDir, ["Pkg.A", "Pkg.B"], _taskContext));
+
+        StringAssert.Contains(error.Message, "NuGet packages folder changed again");
+        Assert.AreEqual(2, switches);
+        Assert.HasCount(4, _nuget.InstalledPackages, "Root instability must not trigger an unbounded retry loop.");
+        Assert.HasCount(2, _nuget.QueriedPackages, "A retry must not resolve different requested versions.");
+    }
+
+    [TestMethod]
+    public async Task InstallPackagesAsync_EmptyBatch_DoesNotAccessPackageStorage()
+    {
+        _nuget.CacheDirectory = null;
+
+        var result = await _service.InstallPackagesAsync(_rootDir, [], _taskContext);
+
+        Assert.IsEmpty(result);
+        Assert.IsEmpty(_nuget.QueriedPackages);
+        Assert.IsEmpty(_nuget.InstalledPackages);
+    }
 
     private sealed class FakeConfigService : IConfigService
     {

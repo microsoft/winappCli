@@ -48,8 +48,11 @@ internal interface IVcLibsPayloadAcquirer
 /// closed rather than putting an unknown package into a guest.
 /// </para>
 /// </remarks>
-internal sealed class VcLibsPayloadAcquirer(IWinappDirectoryService winappDirectoryService) : IVcLibsPayloadAcquirer
+internal sealed class VcLibsPayloadAcquirer(
+    IWinappDirectoryService winappDirectoryService,
+    IStorageDiagnostics? diagnostics = null) : IVcLibsPayloadAcquirer
 {
+    private readonly CacheStorage _cache = new(winappDirectoryService, Path.Combine("cache", CacheFolderName), CacheFolderName, diagnostics);
     /// <summary>
     /// Package identities this acquirer will fetch, and the official address each comes from.
     /// </summary>
@@ -105,12 +108,10 @@ internal sealed class VcLibsPayloadAcquirer(IWinappDirectoryService winappDirect
         ArgumentNullException.ThrowIfNull(projectRoot);
         ArgumentNullException.ThrowIfNull(taskContext);
 
-        var hostCache = HostCacheDirectory();
-
         // Host caches first, including winapp's own: a payload fetched by a previous run is the same
         // official bytes, and re-downloading tens of megabytes on every run would make an offline
         // Sandbox session fail for no reason.
-        if (FindInCaches(requirement, projectRoot, hostCache) is { } cached)
+        if (_cache.Run(root => FindInCaches(requirement, projectRoot, new DirectoryInfo(root))) is { } cached)
         {
             return cached;
         }
@@ -147,7 +148,8 @@ internal sealed class VcLibsPayloadAcquirer(IWinappDirectoryService winappDirect
             return null;
         }
 
-        return await PublishAsync(requirement, payload, hostCache, taskContext, cancellationToken).ConfigureAwait(false);
+        return await _cache.RunAsync(root =>
+            PublishAsync(requirement, payload, new DirectoryInfo(root), taskContext, cancellationToken)).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -288,8 +290,6 @@ internal sealed class VcLibsPayloadAcquirer(IWinappDirectoryService winappDirect
     private static string StagedName(RuntimePackageRequirement requirement) =>
         TargetPathSafety.EnsureSafeSegment($"{requirement.Name}_{requirement.Architecture}.appx");
 
-    private DirectoryInfo HostCacheDirectory() =>
-        new(Path.Join(winappDirectoryService.GetGlobalWinappDirectory().FullName, "cache", CacheFolderName));
 
     /// <summary>
     /// The Windows SDK's own copies of the VC framework packages.

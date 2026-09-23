@@ -97,8 +97,7 @@ internal sealed class InteractiveDesktopStateStore(
             }
             catch (UnauthorizedAccessException ex)
             {
-                throw new UiCoordinationException(
-                    UiCoordinationErrorCodes.Unavailable,
+                throw UiCoordinationException.StorageUnavailable(
                     $"The UI coordination state lock '{paths.StateLockPath}' could not be opened: {ex.Message}",
                     "Check that the current user can write to the coordination directory.");
             }
@@ -118,15 +117,19 @@ internal sealed class InteractiveDesktopStateStore(
     public StateReadResult Read()
     {
         string? raw;
-        var fileExists = File.Exists(paths.StatePath);
+        var fileExists = true;
         try
         {
-            raw = fileExists ? File.ReadAllText(paths.StatePath) : null;
+            raw = File.ReadAllText(paths.StatePath);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
-            throw new UiCoordinationException(
-                UiCoordinationErrorCodes.Unavailable,
+            fileExists = false;
+            raw = null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw UiCoordinationException.StorageUnavailable(
                 $"The UI coordination state could not be read: {ex.Message}",
                 "Retry the command. If it keeps failing, close other winapp ui processes and retry.");
         }
@@ -428,8 +431,7 @@ internal sealed class InteractiveDesktopStateStore(
         }
 
         TryDeleteTemp(tempPath);
-        throw new UiCoordinationException(
-            UiCoordinationErrorCodes.Unavailable,
+        throw UiCoordinationException.StorageUnavailable(
             $"UI coordination state could not be published: {lastFailure?.Message ?? "unknown error"}",
             "Retry the command. If it keeps failing, check that the coordination directory is on a local writable drive and not being scanned by another tool.");
     }
