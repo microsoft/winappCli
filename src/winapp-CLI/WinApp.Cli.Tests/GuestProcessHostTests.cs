@@ -526,6 +526,7 @@ public partial class GuestProcessHostTests
         Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, failure.Error.Code);
         Assert.IsNotNull(failure.Error.UserAction);
         Assert.AreEqual("2", failure.Error.Context!["win32Error"]);
+        StringAssert.Contains(failure.Error.Message, new System.ComponentModel.Win32Exception(2).Message);
     }
 
     [TestMethod]
@@ -540,6 +541,32 @@ public partial class GuestProcessHostTests
             }, (_, _) => Task.CompletedTask));
         Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, failure.Error.Code);
         Assert.AreEqual("267", failure.Error.Context!["win32Error"]);
+        StringAssert.Contains(failure.Error.Message, new System.ComponentModel.Win32Exception(267).Message);
+    }
+
+    [TestMethod]
+    public void Start_InvalidExecutable_ReportsWindowsReason()
+    {
+        var executable = TestPaths.TempFile("not-a-program", ".txt");
+        File.WriteAllText(executable, "This is not a Windows executable.");
+        try
+        {
+            var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
+                GuestProcessHost.Start(new GuestExecRequest
+                {
+                    Executable = executable,
+                    Arguments = [],
+                }, (_, _) => Task.CompletedTask));
+
+            Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, failure.Error.Code);
+            Assert.AreEqual("193", failure.Error.Context!["win32Error"]);
+            StringAssert.Contains(failure.Error.Message, executable);
+            StringAssert.Contains(failure.Error.Message, new System.ComponentModel.Win32Exception(193).Message);
+        }
+        finally
+        {
+            File.Delete(executable);
+        }
     }
 
     [TestMethod]

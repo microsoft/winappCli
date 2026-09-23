@@ -357,15 +357,16 @@ internal sealed class GuestProcessHost : IGuestProcessHost
     private static ExecutionTargetException NativeFailure(string operation)
     {
         var error = Marshal.GetLastWin32Error();
+        var exception = new System.ComponentModel.Win32Exception(error);
         return ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.TransportFailed,
-            $"The guest could not {operation}.",
+            $"The guest could not {operation}: {exception.Message}",
             userAction: "Check the executable and working directory, then retry.",
             context: new Dictionary<string, string>
             {
                 ["win32Error"] = error.ToString(System.Globalization.CultureInfo.InvariantCulture),
             },
-            innerException: new System.ComponentModel.Win32Exception(error));
+            innerException: exception);
     }
 
     /// <summary>Forwards a chunk of standard input to the child.</summary>
