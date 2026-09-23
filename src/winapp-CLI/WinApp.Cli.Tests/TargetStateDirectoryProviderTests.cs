@@ -121,4 +121,37 @@ public class TargetStateDirectoryProviderTests
         Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
         StringAssert.Contains(ex.Error.UserAction, "%USERPROFILE%\\.winapp\\state");
     }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UnusableStateDirectory_ReportsStorageError(bool useOverride)
+    {
+        var profile = Path.Join(Path.GetTempPath(), $"winapp-profile-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(profile);
+        var occupied = Path.Join(profile, useOverride ? "targets" : ".winapp");
+        File.WriteAllText(occupied, "not a directory");
+
+        try
+        {
+            var provider = new TargetStateDirectoryProvider(useOverride ? occupied : null)
+            {
+                UserProfileProvider = () => profile,
+            };
+
+            Assert.IsFalse(provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false).Exists);
+
+            var ex = Assert.ThrowsExactly<ExecutionTargetException>(
+                () => provider.GetTargetRoot(WindowsSandboxTarget.Default));
+
+            Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
+            Assert.IsInstanceOfType<IOException>(ex.InnerException);
+            StringAssert.Contains(ex.Error.UserAction, "writable");
+        }
+        finally
+        {
+            File.Delete(occupied);
+            Directory.Delete(profile);
+        }
+    }
 }

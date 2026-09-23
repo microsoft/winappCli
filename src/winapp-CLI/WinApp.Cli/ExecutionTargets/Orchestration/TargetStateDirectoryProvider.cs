@@ -46,15 +46,26 @@ internal sealed class TargetStateDirectoryProvider(string? rootOverride = null) 
     {
         ArgumentNullException.ThrowIfNull(target);
 
-        var root = TargetPathSafety.CombineInsideRoot(GetTargetsRoot(), target.StateKey);
-        var directory = new DirectoryInfo(root);
-        if (create && !directory.Exists)
+        try
         {
-            directory.Create();
-            directory.Refresh();
-        }
+            var root = TargetPathSafety.CombineInsideRoot(GetTargetsRoot(), target.StateKey);
+            var directory = new DirectoryInfo(root);
+            if (create && !directory.Exists)
+            {
+                directory.Create();
+                directory.Refresh();
+            }
 
-        return directory;
+            return directory;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.StateUnavailable,
+                $"The execution-target state directory could not be accessed: {ex.Message}",
+                userAction: "Ensure %USERPROFILE%\\.winapp\\state is on a writable local drive, or set WINAPP_TARGET_STATE_ROOT to a writable directory.",
+                innerException: ex);
+        }
     }
 
     private string GetTargetsRoot()
@@ -70,17 +81,6 @@ internal sealed class TargetStateDirectoryProvider(string? rootOverride = null) 
             return environmentRoot;
         }
 
-        try
-        {
-            return Path.Combine(WinappDirectoryService.GetUserStateDirectory(UserProfileProvider()), "targets");
-        }
-        catch (IOException ex)
-        {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.StateUnavailable,
-                $"The execution-target state directory could not be resolved: {ex.Message}",
-                userAction: "Ensure %USERPROFILE%\\.winapp\\state is on a writable local drive, or set WINAPP_TARGET_STATE_ROOT to a writable directory.",
-                innerException: ex);
-        }
+        return Path.Combine(WinappDirectoryService.GetUserStateDirectory(UserProfileProvider()), "targets");
     }
 }
