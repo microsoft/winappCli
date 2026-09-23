@@ -118,6 +118,7 @@ public class TargetStateDirectoryProviderTests
         var ex = Assert.ThrowsExactly<ExecutionTargetException>(
             () => provider.GetTargetRoot(WindowsSandboxTarget.Default, create: false));
 
-        Assert.AreEqual(ExecutionTargetErrorCodes.TargetStale, ex.Error.Code);
+        Assert.AreEqual(ExecutionTargetErrorCodes.StateUnavailable, ex.Error.Code);
+        StringAssert.Contains(ex.Error.UserAction, "%USERPROFILE%\\.winapp\\state");
     }
 }

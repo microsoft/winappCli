@@ -78,6 +78,9 @@ internal static class ExecutionTargetErrorCodes
     /// <summary>Persisted target state refers to an instance that no longer exists.</summary>
     public const string TargetStale = "sandbox_target_stale";
 
+    /// <summary>The selected target's host state directory could not be resolved.</summary>
+    public const string StateUnavailable = "sandbox_state_unavailable";
+
     /// <summary>A process ID or window handle from a previous epoch was supplied.</summary>
     public const string StaleHandle = "sandbox_stale_handle";
 
@@ -139,6 +142,7 @@ internal static class ExecutionTargetErrorCodes
         ProvisionedPackageConflict,
         TargetAmbiguous,
         TargetStale,
+        StateUnavailable,
         StaleHandle,
         ArtifactFailed,
         SetupRequired,

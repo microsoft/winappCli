@@ -358,6 +358,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested, then close/retry only with consent |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
+| `sandbox_state_unavailable` | Ensure `%USERPROFILE%\.winapp\state` is writable, or correct `WINAPP_TARGET_STATE_ROOT` if set |
 | `sandbox_deployment_dirty`, `sandbox_transfer_interrupted` | Retry the deployment or transfer |
 | `sandbox_runtime_provision_failed` | Resolve the named dependency or unsupported runtime configuration; see [Shared runtimes](#shared-runtimes) |
 | `sandbox_package_conflict`, `sandbox_provisioned_package_conflict` | Follow the package-specific action; do not remove unrelated or inbox packages |

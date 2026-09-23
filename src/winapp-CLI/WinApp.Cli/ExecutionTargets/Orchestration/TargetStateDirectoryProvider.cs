@@ -77,7 +77,7 @@ internal sealed class TargetStateDirectoryProvider(string? rootOverride = null) 
         catch (IOException ex)
         {
             throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.TargetStale,
+                ExecutionTargetErrorCodes.StateUnavailable,
                 $"The execution-target state directory could not be resolved: {ex.Message}",
                 userAction: "Ensure %USERPROFILE%\\.winapp\\state is on a writable local drive, or set WINAPP_TARGET_STATE_ROOT to a writable directory.",
                 innerException: ex);
