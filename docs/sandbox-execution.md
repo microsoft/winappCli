@@ -52,6 +52,9 @@ Developer Mode, and an inbound firewall rule. winapp does not stop an adopted in
 or remove unrelated apps. There is **no silent host fallback**: a command requesting
 Sandbox runs there or fails.
 
+Host-side target state uses [shared runtime state](usage.md#shared-runtime-state),
+independent of the configured cache directory.
+
 ## Running and rebuilding
 
 ```powershell

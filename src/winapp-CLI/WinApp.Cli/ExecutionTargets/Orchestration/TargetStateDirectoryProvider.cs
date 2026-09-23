@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -16,13 +17,11 @@ internal interface ITargetStateDirectoryProvider
 }
 
 /// <summary>
-/// Default provider rooted at the physical equivalent of
-/// <c>%LOCALAPPDATA%\Microsoft\WinApp\Targets</c> (spec §"Host coordination and state").
+/// Default provider rooted at <c>%USERPROFILE%\.winapp\state\targets</c>.
 /// </summary>
 /// <remarks>
-/// This deliberately differs from the repository's usual <c>%USERPROFILE%\.winapp</c> cache root:
-/// the spec pins this location, and giving each target its own state root is what allows future
-/// targets to mutate concurrently without sharing a lock or a state file.
+/// State is independent of the cache override and package identity. Each target has its own
+/// directory so separate targets do not share a lock or state file.
 /// <para>
 /// The root can be redirected two ways. Tests pass <paramref name="rootOverride"/> directly, which
 /// keeps them isolated under the assembly's method-level parallelism; CI and end-to-end runs set
@@ -31,29 +30,16 @@ internal interface ITargetStateDirectoryProvider
 /// </para>
 /// </remarks>
 /// <param name="rootOverride">
-/// Explicit targets root. When null the environment variable, then <c>%LOCALAPPDATA%</c>, is used.
+/// Explicit targets root. When null the environment variable, then the user state root, is used.
 /// </param>
 internal sealed class TargetStateDirectoryProvider(string? rootOverride = null) : ITargetStateDirectoryProvider
 {
     /// <summary>Environment override for the state root.</summary>
     internal const string RootOverrideVariable = "WINAPP_TARGET_STATE_ROOT";
 
-    /// <summary>
-    /// Resolves the physical packaged-app equivalent of <c>%LOCALAPPDATA%</c>, or null when the
-    /// process has no package identity.
-    /// </summary>
-    /// <remarks>
-    /// A full-trust packaged process sees the ordinary LocalAppData path, but writes beneath it are
-    /// redirected to <c>LocalCache\Local</c>. Passing the logical path to an out-of-package broker
-    /// such as <c>wsb.exe</c> therefore points it at a directory that does not exist. Using the
-    /// physical path keeps state shared with earlier packaged builds while making mapped folders
-    /// visible across the process boundary.
-    /// </remarks>
-    internal Func<string?> PackagedLocalAppDataProvider { get; set; } = ResolvePackagedLocalAppData;
-
-    /// <summary>Unpackaged LocalAppData lookup, exposed as a test seam.</summary>
-    internal Func<string> LocalAppDataProvider { get; set; } =
-        () => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    /// <summary>Profile lookup shared by packaged and unpackaged processes; test seam.</summary>
+    internal Func<string> UserProfileProvider { get; set; } =
+        () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <inheritdoc/>
     public DirectoryInfo GetTargetRoot(ExecutionTargetRef target, bool create = true)
@@ -84,27 +70,17 @@ internal sealed class TargetStateDirectoryProvider(string? rootOverride = null) 
             return environmentRoot;
         }
 
-        var localAppData = PackagedLocalAppDataProvider() ?? LocalAppDataProvider();
-        return TargetPathSafety.CombineInsideRoot(localAppData, "Microsoft", "WinApp", "Targets");
-    }
-
-    private static string? ResolvePackagedLocalAppData()
-    {
         try
         {
-            var localCache = Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path;
-            return string.IsNullOrWhiteSpace(localCache)
-                ? null
-                : TargetPathSafety.CombineInsideRoot(localCache, "Local");
+            return Path.Combine(WinappDirectoryService.GetUserStateDirectory(UserProfileProvider()), "targets");
         }
-        catch (InvalidOperationException)
+        catch (IOException ex)
         {
-            return null;
-        }
-        catch (System.Runtime.InteropServices.COMException ex)
-            when (ex.HResult == unchecked((int)0x80073D54)) // APPMODEL_ERROR_NO_PACKAGE
-        {
-            return null;
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.TargetStale,
+                $"The execution-target state directory could not be resolved: {ex.Message}",
+                userAction: "Ensure %USERPROFILE%\\.winapp\\state is on a writable local drive, or set WINAPP_TARGET_STATE_ROOT to a writable directory.",
+                innerException: ex);
         }
     }
 }
