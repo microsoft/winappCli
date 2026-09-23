@@ -209,8 +209,9 @@ record a workflow driving an app. Two caveats:
 
 Errors you may see: `invalid_ui_workflow_id` (the variable is set but empty or over 256 characters),
 `invalid_ui_lock_directory` (an explicit coordination path is invalid; correct or remove the override),
-`desktop_coordination_unavailable` (coordination state is unreadable and cannot be safely rebuilt, or
-was written by a newer `winapp`), `queue_capacity_exceeded` (64 commands from **other** workflows are
+`desktop_coordination_unavailable` (coordination state is unreadable and cannot be safely rebuilt,
+was written by a newer `winapp`, or its [storage path is untrusted](usage.md#restricted-filesystem-access)),
+`queue_capacity_exceeded` (64 commands from **other** workflows are
 already waiting — the limit counts live foreign waiters, not processes you have started, so entries
 belonging to commands that have exited or been killed do not occupy a slot, and your own workflow's
 commands queue behind each other rather than against this limit), `ui_turn_busy` (`yield` while your

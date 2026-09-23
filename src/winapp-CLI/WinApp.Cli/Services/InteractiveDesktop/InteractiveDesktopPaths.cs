@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services.InteractiveDesktop;
 
@@ -125,16 +126,40 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
 
     public void EnsureDirectories()
     {
-        // Verified once per process: the check is a DACL read per directory, and every state-lock
-        // acquisition and lease open calls this.
+        // Verified once per process; trusted ancestors prevent another user replacing the secured leaf.
         if (_directoriesVerified)
         {
             return;
         }
 
-        EnsureRestrictedDirectory(LockDirectory);
-        EnsureRestrictedDirectory(ParticipantsDirectory);
-        EnsureTrustedStateFiles();
+        try
+        {
+            StatePathSecurity.VerifyAncestors(LockDirectory);
+            StatePathSecurity.RejectReparsePoint(ParticipantsDirectory);
+            foreach (var path in new[] { StatePath, StateLockPath, ActiveLockPath })
+            {
+                StatePathSecurity.RejectReparsePoint(path);
+            }
+
+            EnsureRestrictedDirectory(LockDirectory);
+            // Creating the leaf can also create intermediate directories. Check their inherited
+            // permissions before placing or trusting coordination artifacts beneath them.
+            StatePathSecurity.VerifyAncestors(LockDirectory);
+            EnsureRestrictedDirectory(ParticipantsDirectory);
+            EnsureTrustedStateFiles();
+        }
+        catch (UntrustedStatePathException ex)
+        {
+            throw new UiCoordinationException(
+                UiCoordinationErrorCodes.Unavailable,
+                $"The UI coordination namespace is untrusted: {ex.Message}",
+                "Use a direct local state path whose ancestors cannot be replaced by other users. " +
+                "If WINAPP_UI_LOCK_DIRECTORY is set, use the same trusted directory for every winapp process on this desktop.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw Unavailable(LockDirectory, ex);
+        }
         _directoriesVerified = true;
     }
 

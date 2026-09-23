@@ -3,16 +3,13 @@
 
 using System.Security.AccessControl;
 using System.Security.Principal;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
 /// <summary>Verifies the namespace and secrets before target state can be used.</summary>
 internal static class TargetStateDirectorySecurity
 {
-    // The default Windows volume root belongs to TrustedInstaller, a privileged system service.
-    private static readonly SecurityIdentifier TrustedInstaller = new(
-        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464");
-
     internal static DirectoryInfo EnsureTrusted(string targetsRoot, string targetRoot, bool create)
     {
         targetsRoot = Path.TrimEndingDirectorySeparator(targetsRoot);
@@ -112,61 +109,11 @@ internal static class TargetStateDirectorySecurity
         FileSystemSecurity security = item is DirectoryInfo directory
             ? directory.GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access)
             : ((FileInfo)item).GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access);
-        if (!IsTrusted(security, user, allowAncestorAccess))
+        if (!StatePathSecurity.IsTrusted(security, user, allowAncestorAccess))
         {
             throw new IOException($"'{item.FullName}' is owned by or grants unsafe access to another user.");
         }
     }
-
-    internal static bool IsTrusted(FileSystemSecurity security, SecurityIdentifier user, bool allowAncestorAccess = false)
-    {
-        if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner
-            || !(IsSelfOrPrivileged(owner, user) || (allowAncestorAccess && owner == TrustedInstaller)))
-        {
-            return false;
-        }
-
-        // An absent (NULL) DACL grants everybody access; an empty rule enumeration is not proof
-        // of privacy. Inherited trusted rules, however, need no repair when all ancestors are safe.
-        if (new RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0).DiscretionaryAcl is null)
-        {
-            return false;
-        }
-
-        foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
-        {
-            if (rule.AccessControlType != AccessControlType.Allow
-                || rule.IdentityReference is SecurityIdentifier sid
-                    && (IsSelfOrPrivileged(sid, user) || (allowAncestorAccess && sid == TrustedInstaller)))
-            {
-                continue;
-            }
-
-            if (!allowAncestorAccess)
-            {
-                return false;
-            }
-
-            // Public traversal/read access to C:\ and Users is normal. Creating sibling directories
-            // alone cannot replace a verified child; CreateDirectory installs its DACL atomically,
-            // and the checks above also verify an existing directory when another creator wins.
-            // Inherit-only rules do not grant access to this ancestor itself.
-            const FileSystemRights harmlessAncestorRights = FileSystemRights.ReadAndExecute
-                | FileSystemRights.Synchronize | FileSystemRights.CreateDirectories;
-            if (!rule.PropagationFlags.HasFlag(PropagationFlags.InheritOnly)
-                && (rule.FileSystemRights & ~harmlessAncestorRights) != 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static bool IsSelfOrPrivileged(SecurityIdentifier sid, SecurityIdentifier user) =>
-        sid == user
-        || sid.IsWellKnown(WellKnownSidType.LocalSystemSid)
-        || sid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid);
 
     private static void RejectReparsePoint(string path, FileAttributes attributes)
     {

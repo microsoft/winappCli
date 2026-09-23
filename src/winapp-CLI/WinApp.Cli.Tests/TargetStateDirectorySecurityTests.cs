@@ -7,6 +7,7 @@ using System.Security.Principal;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Tests;
 
@@ -40,7 +41,7 @@ public class TargetStateDirectorySecurityTests
             var security = new DirectoryInfo(path).GetAccessControl();
             Assert.IsTrue(security.AreAccessRulesProtected);
             Assert.AreEqual(_user, security.GetOwner(typeof(SecurityIdentifier)));
-            Assert.IsTrue(TargetStateDirectorySecurity.IsTrusted(security, _user));
+            Assert.IsTrue(StatePathSecurity.IsTrusted(security, _user));
             var allowed = security.GetAccessRules(true, true, typeof(SecurityIdentifier))
                 .Cast<FileSystemAccessRule>()
                 .Where(rule => rule.AccessControlType == AccessControlType.Allow)
@@ -224,7 +225,7 @@ public class TargetStateDirectorySecurityTests
         Parallel.For(0, 12, _ =>
             Assert.IsTrue(Provider(targets).GetTargetRoot(WindowsSandboxTarget.Default).Exists));
 
-        Assert.IsTrue(TargetStateDirectorySecurity.IsTrusted(new DirectoryInfo(targets).GetAccessControl(), _user));
+        Assert.IsTrue(StatePathSecurity.IsTrusted(new DirectoryInfo(targets).GetAccessControl(), _user));
     }
 
     [TestMethod]
@@ -251,8 +252,8 @@ public class TargetStateDirectorySecurityTests
         var security = PrivateSecurity();
         security.SetOwner(ForeignUser);
 
-        Assert.IsFalse(TargetStateDirectorySecurity.IsTrusted(security, _user));
-        Assert.IsFalse(TargetStateDirectorySecurity.IsTrusted(security, _user, allowAncestorAccess: true));
+        Assert.IsFalse(StatePathSecurity.IsTrusted(security, _user));
+        Assert.IsFalse(StatePathSecurity.IsTrusted(security, _user, allowAncestorAccess: true));
     }
 
     [TestMethod]
@@ -292,7 +293,7 @@ public class TargetStateDirectorySecurityTests
         var security = PrivateSecurity();
         security.SetOwner(new SecurityIdentifier(owner, null));
 
-        Assert.IsTrue(TargetStateDirectorySecurity.IsTrusted(security, _user));
+        Assert.IsTrue(StatePathSecurity.IsTrusted(security, _user));
     }
 
     [TestMethod]
@@ -301,7 +302,7 @@ public class TargetStateDirectorySecurityTests
         var security = new DirectorySecurity();
         security.SetSecurityDescriptorSddlForm($"O:{_user.Value}D:NO_ACCESS_CONTROL");
 
-        Assert.IsFalse(TargetStateDirectorySecurity.IsTrusted(security, _user));
+        Assert.IsFalse(StatePathSecurity.IsTrusted(security, _user));
     }
 
     private static TargetStateDirectoryProvider Provider(string targets) => new(targets)

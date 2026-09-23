@@ -14,6 +14,41 @@ namespace WinApp.Cli.Tests;
 public partial class InteractiveDesktopLockTests
 {
     [TestMethod]
+    [DataRow((int)UiTurnMode.Observe)]
+    [DataRow((int)UiTurnMode.TurnShared)]
+    [DataRow((int)UiTurnMode.DesktopExclusive)]
+    public async Task UntrustedLocalJunction_DoesNotRunTheCommand(int mode)
+    {
+        Directory.CreateDirectory(_lockDirectory);
+        var outside = Directory.CreateDirectory(Path.Join(_lockDirectory, "outside"));
+        var link = Path.Join(_lockDirectory, "state");
+        TestJunction.Create(link, outside.FullName);
+        Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, Path.Join(link, "ui"));
+        using var error = new StringWriter();
+        var calls = 0;
+        var action = new ReadOnlyProbeAction(_coordinator, (UiTurnMode)mode, (_, _) =>
+        {
+            calls++;
+            return Task.FromResult(0);
+        });
+        try
+        {
+            var exit = await action.InvokeAsync(ParseObservation(error, TextWriter.Null, "--json"));
+
+            Assert.AreEqual(1, exit);
+            Assert.AreEqual(0, calls, "Even observations must reject an untrusted coordination namespace.");
+            using var document = JsonDocument.Parse(error.ToString());
+            Assert.AreEqual(UiCoordinationErrorCodes.Unavailable,
+                document.RootElement.GetProperty("error").GetProperty("code").GetString());
+            Assert.IsEmpty(outside.GetFileSystemInfos());
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
     public async Task Observe_BlockedParentAndMissingDirectory_RunsOnceWithoutCreatingState()
     {
         Directory.CreateDirectory(_lockDirectory);

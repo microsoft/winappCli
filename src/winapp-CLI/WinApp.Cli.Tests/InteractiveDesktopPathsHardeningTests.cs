@@ -83,6 +83,144 @@ public class InteractiveDesktopPathsHardeningTests
     }
 
     [TestMethod]
+    [DataRow("ancestor")]
+    [DataRow("lock-directory")]
+    [DataRow("participants")]
+    public void LocalJunction_IsRejectedBeforeChangingItsDestination(string location)
+    {
+        Directory.CreateDirectory(_root);
+        var destination = Directory.CreateDirectory(Path.Join(_root, "outside"));
+        var marker = Path.Join(destination.FullName, "keep.txt");
+        File.WriteAllText(marker, "untouched");
+        var acl = destination.GetAccessControl();
+        acl.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            FileSystemRights.FullControl, AccessControlType.Allow));
+        destination.SetAccessControl(acl);
+        var before = destination.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Owner | AccessControlSections.Access);
+        var locks = Path.Join(_root, "ui");
+        var link = location switch
+        {
+            "ancestor" => Path.Join(_root, "state"),
+            "lock-directory" => locks,
+            _ => Path.Join(locks, "participants"),
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+        TestJunction.Create(link, destination.FullName);
+        Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable,
+            location == "ancestor" ? Path.Join(link, "ui") : locks);
+        try
+        {
+            var error = Assert.ThrowsExactly<UiCoordinationException>(
+                () => new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories());
+
+            Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, error.Code);
+            Assert.IsFalse(error.IsStorageUnavailable, "An untrusted namespace must not permit detached observation.");
+            StringAssert.Contains(error.Message, "reparse point");
+            Assert.AreEqual(before, destination.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Owner | AccessControlSections.Access));
+            Assert.AreEqual("untouched", File.ReadAllText(marker));
+            CollectionAssert.AreEquivalent(new[] { marker }, Directory.GetFileSystemEntries(destination.FullName));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ReplaceableAncestor_IsRejectedWithoutRepair(bool existingLockDirectory)
+    {
+        var shared = Directory.CreateDirectory(Path.Join(_root, "shared"));
+        var locks = Path.Join(shared.FullName, "ui");
+        if (existingLockDirectory)
+        {
+            Directory.CreateDirectory(locks);
+        }
+        var security = shared.GetAccessControl();
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinGuestsSid, null),
+            FileSystemRights.DeleteSubdirectoriesAndFiles, AccessControlType.Allow));
+        shared.SetAccessControl(security);
+        var before = shared.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Owner | AccessControlSections.Access);
+        Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, locks);
+
+        var error = Assert.ThrowsExactly<UiCoordinationException>(
+            () => new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories());
+
+        Assert.AreEqual(UiCoordinationErrorCodes.Unavailable, error.Code);
+        Assert.IsFalse(error.IsStorageUnavailable);
+        Assert.AreEqual(before, shared.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Owner | AccessControlSections.Access));
+        Assert.AreEqual(existingLockDirectory, Directory.Exists(locks));
+        Assert.IsFalse(Directory.Exists(Path.Join(locks, "participants")));
+    }
+
+    [TestMethod]
+    public void ReadOnlyAncestorGrant_PermitsPrivateCoordinationWithoutChangingTheAncestor()
+    {
+        var parent = Directory.CreateDirectory(Path.Join(_root, "parent"));
+        var security = parent.GetAccessControl();
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinGuestsSid, null),
+            FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+        parent.SetAccessControl(security);
+        var before = parent.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Owner | AccessControlSections.Access);
+        Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, Path.Join(parent.FullName, "ui"));
+        var paths = new InteractiveDesktopPaths(new ProcessInspector());
+
+        paths.EnsureDirectories();
+        paths.EnsureDirectories();
+
+        Assert.IsTrue(Directory.Exists(paths.ParticipantsDirectory));
+        Assert.IsTrue(InteractiveDesktopPaths.IsCurrentUserOnly(
+            new DirectoryInfo(paths.LockDirectory).GetAccessControl(), WindowsIdentity.GetCurrent().User!));
+        Assert.AreEqual(before, parent.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Owner | AccessControlSections.Access));
+    }
+
+    [TestMethod]
+    [DataRow("state")]
+    [DataRow("state-lock")]
+    [DataRow("active-lock")]
+    public void LinkedCoordinationFile_IsRejectedWithoutReadingOrChangingTheTarget(string kind)
+    {
+        var paths = new InteractiveDesktopPaths(new ProcessInspector());
+        paths.EnsureDirectories();
+        var target = Path.Join(_root, "outside.txt");
+        File.WriteAllText(target, "unchanged");
+        var link = kind switch
+        {
+            "state" => paths.StatePath,
+            "state-lock" => paths.StateLockPath,
+            _ => paths.ActiveLockPath,
+        };
+        try
+        {
+            File.CreateSymbolicLink(link, target);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive($"File symbolic links are unavailable: {ex.Message}");
+        }
+        try
+        {
+            using (File.Open(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var error = Assert.ThrowsExactly<UiCoordinationException>(
+                    () => new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories());
+                Assert.IsFalse(error.IsStorageUnavailable);
+                StringAssert.Contains(error.Message, "reparse point");
+            }
+            Assert.AreEqual("unchanged", File.ReadAllText(target));
+            Assert.IsTrue(File.Exists(link));
+        }
+        finally
+        {
+            File.Delete(link);
+        }
+    }
+
+    [TestMethod]
     public void SecuringUiState_DoesNotChangeCacheOrSiblingTargetPermissions()
     {
         var cache = Directory.CreateDirectory(Path.Join(_root, ".winapp"));

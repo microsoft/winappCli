@@ -2131,6 +2131,13 @@ that directory. An existing readable cache can be used without requiring writes.
 | Read-only UI observation | Can continue without workflow ordering when shared state is inaccessible |
 | UI mutations, captures and Sandbox management | Require accessible shared coordination; they never silently run without it |
 
+UI coordination requires a direct local path without junctions or symbolic links,
+and existing parent directories must not let other users replace that path.
+An untrusted coordination path is rejected even for read-only commands; it is not
+treated as an inaccessible cache or a reason to bypass coordination. Correct the
+path or its parent permissions before retrying. Ancestor permissions are never
+changed automatically.
+
 Store CLI and debugger executables/DLLs reused from the automatic local fallback
 must have valid Microsoft signatures. If a local Store tool is rejected, remove
 that tool cache and retry to download a verified copy. Unverifiable debugger
