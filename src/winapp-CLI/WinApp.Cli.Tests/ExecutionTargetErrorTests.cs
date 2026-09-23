@@ -35,6 +35,7 @@ public class ExecutionTargetErrorTests
         "sandbox_provisioned_package_conflict",
         "sandbox_target_ambiguous",
         "sandbox_target_stale",
+        "sandbox_state_unavailable",
         "sandbox_stale_handle",
         "sandbox_artifact_failed",
         "sandbox_setup_required",
