@@ -4645,7 +4645,7 @@
           }
         },
         "invoke": {
-          "description": "Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element.",
+          "description": "Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element; --root, --type and --class-name require --action.",
           "hidden": false,
           "arguments": {
             "selector": {
@@ -4688,6 +4688,18 @@
               "required": false,
               "recursive": false
             },
+            "--class-name": {
+              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--json": {
               "description": "Format output as JSON",
               "hidden": false,
@@ -4712,6 +4724,30 @@
               "defaultValue": false,
               "arity": {
                 "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
                 "maximum": 1
               },
               "required": false,

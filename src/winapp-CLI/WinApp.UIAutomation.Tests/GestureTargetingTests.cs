@@ -124,6 +124,7 @@ public class GestureTargetingTests
 
         public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
             => throw new NotImplementedException();
+        public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct) => throw new NotImplementedException();
 
         public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
         {

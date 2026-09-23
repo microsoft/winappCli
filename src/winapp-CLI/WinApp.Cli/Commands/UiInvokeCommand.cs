@@ -38,7 +38,7 @@ internal class UiInvokeCommand : Command, IShortDescription
     public UiInvokeCommand()
         : base("invoke", "Activate an element by slug or text search. " +
                "Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. " +
-               "Use --action for an exact operation on only the selected element.")
+               "Use --action for an exact operation on only the selected element; --root, --type and --class-name require --action.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -46,12 +46,20 @@ internal class UiInvokeCommand : Command, IShortDescription
         Options.Add(ActionOption);
 
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
         Validators.Add(result =>
         {
             if (result.GetResult(ActionOption) is { Tokens.Count: 1 } action &&
                 ParseAction(action.Tokens[0].Value) is null)
             {
                 result.AddError("--action must be invoke, select, toggle, toggle-on, toggle-off, expand, or collapse.");
+            }
+            if (result.GetResult(ActionOption) is null &&
+                (result.GetResult(UiQueryOptions.Root) is not null ||
+                 result.GetResult(UiQueryOptions.Type) is not null ||
+                 result.GetResult(UiQueryOptions.ClassName) is not null))
+            {
+                result.AddError("--root, --type, and --class-name require --action on ui invoke.");
             }
         });
     }
@@ -89,7 +97,7 @@ internal class UiInvokeCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -105,35 +113,53 @@ internal class UiInvokeCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, requireUnique: action is not null, cancellationToken);
+                var selector = action is null
+                    ? selectorParser.Parse(selectorStr)
+                    : UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var filteredAction = action is not null && selector.HasConstraints;
+                var element = await uiAutomation.FindSingleElementAsync(
+                    uiTarget, selector, requireUnique: action is not null, cancellationToken);
 
                 if (element is null)
                 {
-                    UiErrors.ElementNotFound(logger, selectorStr, json);
+                    UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
                     return 1;
                 }
 
                 string pattern;
                 string performedAction;
-                UiElement invokedElement = element;
+                UiElement invokedElement;
 
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
+                    if (filteredAction)
+                    {
+                        // Keep the identity selected before the wait, while proving the same
+                        // filtered query still has exactly that one match under the turn.
+                        var current = await uiAutomation.FindSingleElementAsync(
+                            uiTarget, selector, requireUnique: true, cancellationToken);
+                        if (current is null || current.WindowHandle != element.WindowHandle ||
+                            !uiAutomation.IsSameElement(element, current, cancellationToken))
+                        {
+                            UiErrors.StaleElement(logger, json, parseResult.InvocationConfiguration.Error);
+                            return 1;
+                        }
+                    }
                     // Explicit mode commits to the initial identity. Its service overload resolves
                     // that identity inside the turn, rather than rerunning a possibly broad text query.
-                    if (action is null)
+                    else if (action is null)
                     {
                         element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
                         if (element is null)
                         {
-                            UiErrors.ElementNotFound(logger, selectorStr, json);
+                            UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
                             return 1;
                         }
                     }
 
+                    // All branches above have resolved an element or returned.
                     if (!DesktopTargetValidation.TryConfirmTargetWindow(
-                            systemQuery, element.WindowHandle ?? uiTarget.WindowHandle, uiTarget.ProcessId,
+                            systemQuery, element!.WindowHandle ?? uiTarget.WindowHandle, uiTarget.ProcessId,
                             logger, json, "invoke", parseResult.InvocationConfiguration.Error))
                     {
                         return 1;
