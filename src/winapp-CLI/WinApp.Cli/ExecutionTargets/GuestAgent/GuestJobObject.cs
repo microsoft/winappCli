@@ -18,18 +18,9 @@ namespace WinApp.Cli.ExecutionTargets.GuestAgent;
 /// <c>KILL_ON_JOB_CLOSE</c> makes the whole tree die together, including if the agent itself
 /// crashes — the kernel closes the handle and the job goes with it.
 /// <para>
-/// Containment is layered because <see cref="Process.Start(ProcessStartInfo)"/> offers no way to
-/// create a process already inside a job. Assigning immediately after start leaves a window,
-/// however brief, in which the child could spawn a descendant that is not yet a job member and can
-/// therefore outlive a per-operation kill.
-/// </para>
-/// <para>
-/// <see cref="EnsureAgentContainment"/> closes the consequential half of that: the agent puts
-/// <em>itself</em> in a job at startup, and Windows places every descendant of a job member into
-/// that job at creation time, with no window at all. So no guest process can escape the agent under
-/// any timing. The per-operation job then provides the finer-grained kill, and the residual race
-/// affects only whether a descendant spawned in those first microseconds is caught by a
-/// per-operation cancel rather than by agent teardown.
+/// The process host supplies this job in PROC_THREAD_ATTRIBUTE_JOB_LIST, so Windows assigns it
+/// atomically during creation, before any child code can run. Agent-level membership is inherited
+/// in addition to this per-operation job.
 /// </para>
 /// </remarks>
 internal sealed class GuestJobObject : IDisposable
@@ -40,6 +31,9 @@ internal sealed class GuestJobObject : IDisposable
     private bool _disposed;
 
     private GuestJobObject(SafeHandle handle) => _handle = handle;
+
+    /// <summary>Borrowed for atomic process creation; the caller must hold a safe-handle reference.</summary>
+    internal SafeHandle Handle => _handle;
 
     /// <summary>
     /// Places the agent process itself in a job, so every descendant it ever creates is contained
@@ -84,27 +78,6 @@ internal sealed class GuestJobObject : IDisposable
         _agentJob = new GuestJobObject(handle);
     }
 
-    /// <summary>Whether this process is a member of any job object.</summary>
-    /// <remarks>
-    /// A minimum-containment check, not proof of a specific assignment. Because the agent places
-    /// itself in a job, its children inherit that membership at creation, so a true result does not
-    /// distinguish "assigned to this operation's job" from "inherited the agent's". It is used as a
-    /// backstop by the containment barrier for the case where agent-level containment failed.
-    /// </remarks>
-    public static bool IsCurrentProcessInJob()
-    {
-        using var current = Process.GetCurrentProcess();
-
-        if (!PInvoke.IsProcessInJob(current.SafeHandle, null, out var inJob))
-        {
-            // Unknown means unproven, and this is the check that gates starting user code, so the
-            // safe answer is no.
-            return false;
-        }
-
-        return inJob;
-    }
-
     /// <summary>Creates a job that terminates its members when the handle closes.</summary>
     /// <exception cref="ExecutionTargetException">The job could not be created or configured.</exception>
     public static GuestJobObject Create()
@@ -127,31 +100,6 @@ internal sealed class GuestJobObject : IDisposable
             job.Dispose();
             throw;
         }
-    }
-
-    /// <summary>Places <paramref name="process"/> and its descendants under this job.</summary>
-    /// <remarks>
-    /// A very short-lived child can exit between <c>Process.Start</c> and this call, and Windows
-    /// refuses to assign an already-terminated process to a job. That is not a failure worth
-    /// surfacing: a process that has exited has no tree left to contain. Assignment failures are
-    /// therefore only reported when the process is still alive and genuinely could not be tracked.
-    /// </remarks>
-    public void Assign(Process process)
-    {
-        ArgumentNullException.ThrowIfNull(process);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        if (PInvoke.AssignProcessToJobObject(_handle, process.SafeHandle))
-        {
-            return;
-        }
-
-        if (process.HasExited)
-        {
-            return;
-        }
-
-        throw Failure("Could not attach the guest process to its job object.");
     }
 
     /// <summary>Terminates every process in the job.</summary>

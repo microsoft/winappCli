@@ -332,12 +332,12 @@ internal sealed class ExecutionTargetOrchestrator(
             using (AcquireConnection(cancellationToken))
             {
                 var connectionStarted = Stopwatch.GetTimestamp();
-                TargetAttachment? attachment = null;
-                if (backend is IInspectableTarget inspectable)
+                TargetConnection? reconnected = null;
+                if (backend is IReconnectableTarget reconnectable)
                 {
                     try
                     {
-                        attachment = await inspectable.TryAttachAsync(cancellationToken).ConfigureAwait(false);
+                        reconnected = await reconnectable.TryReconnectAsync(cancellationToken).ConfigureAwait(false);
                     }
                     catch (ExecutionTargetException ex) when (ex.Error.Code is ExecutionTargetErrorCodes.Unsupported
                         or ExecutionTargetErrorCodes.StartFailed or ExecutionTargetErrorCodes.TransportFailed)
@@ -348,7 +348,7 @@ internal sealed class ExecutionTargetOrchestrator(
                             backend.Target.Selector, ex.Error.Code);
                     }
                 }
-                if (attachment?.Connection is { } existing)
+                if (reconnected is { } existing)
                 {
                     // An authenticated connection to the current running generation is stronger
                     // evidence than rechecking whether its host prerequisites are installed.
