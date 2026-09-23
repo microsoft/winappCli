@@ -47,6 +47,8 @@ public class SandboxAdoptionTests
     [TestMethod]
     [DataRow("not-an-address")]
     [DataRow("999.0.0.1")]
+    [DataRow("::1")]
+    [DataRow("::ffff:127.0.0.1")]
     public async Task WarmReconnect_MalformedCachedAddress_FallsBackToLifecycleRepair(string address)
     {
         using var harness = new AdoptionHarness();

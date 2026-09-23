@@ -522,7 +522,8 @@ internal sealed class WindowsSandboxBackend(
             }
         }
 
-        if (!IPAddress.TryParse(address, out _))
+        if (!IPAddress.TryParse(address, out var parsedAddress) ||
+            parsedAddress.AddressFamily != AddressFamily.InterNetwork)
         {
             return null;
         }
