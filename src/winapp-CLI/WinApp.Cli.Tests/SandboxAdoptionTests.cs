@@ -45,6 +45,31 @@ public class SandboxAdoptionTests
     }
 
     [TestMethod]
+    [DataRow("not-an-address")]
+    [DataRow("999.0.0.1")]
+    public async Task WarmReconnect_MalformedCachedAddress_FallsBackToLifecycleRepair(string address)
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.WriteState(harness.ReadState()! with { GuestAddress = address });
+        var before = harness.ReadState()!;
+        var enumerations = harness.Cli.ListCalls;
+        var operations = harness.Cli.Operations.Count;
+
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.AreEqual(enumerations, harness.Cli.ListCalls);
+        Assert.AreEqual(operations, harness.Cli.Operations.Count);
+        Assert.AreEqual(before.Revision, harness.ReadState()!.Revision);
+
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw new AssertFailedException("Do not retry the malformed cached endpoint before repair.");
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        Assert.AreEqual(enumerations + 1, harness.Cli.ListCalls);
+    }
+
+    [TestMethod]
     public async Task WarmReconnect_AuthenticatesCachedGenerationWithoutEnumeratingOrMutating()
     {
         using var harness = new AdoptionHarness();

@@ -522,6 +522,11 @@ internal sealed class WindowsSandboxBackend(
             }
         }
 
+        if (!IPAddress.TryParse(address, out _))
+        {
+            return null;
+        }
+
         try
         {
             var transport = await ReconnectTransport(address, material, cancellationToken)
