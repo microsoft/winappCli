@@ -27,11 +27,11 @@ internal static class UiErrors
         UiJsonError.Emit(json, UiJsonError.CodeMissingSelector, msg);
     }
 
-    public static void ElementNotFound(ILogger logger, string selector, bool json = false)
+    public static void ElementNotFound(ILogger logger, string selector, bool json = false, TextWriter? errorOut = null)
     {
         var msg = $"No element found matching '{selector}'. The UI may have changed — re-run '{UiCommandAdvice.Command("inspect")}' or '{UiCommandAdvice.Command("search")}' to find current elements. Prefer targeting by AutomationId (set via AutomationProperties.AutomationId in XAML) — these survive layout changes.";
         logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
-        UiJsonError.Emit(json, UiJsonError.CodeElementNotFound, $"No element found matching '{selector}'", selector);
+        UiJsonError.Emit(json, UiJsonError.CodeElementNotFound, $"No element found matching '{selector}'", selector, errorOut: errorOut);
     }
 
     public static void StaleElement(ILogger logger, bool json = false, TextWriter? errorOut = null)

@@ -1546,14 +1546,20 @@ export interface UiInvokeOptions extends CommonOptions {
   action?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
   app?: string;
+  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  className?: string;
   /** Format output as JSON */
   json?: boolean;
+  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  root?: string;
+  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  type?: string;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
   window?: number;
 }
 
 /**
- * Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element.
+ * Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element; --root, --type and --class-name require --action.
  */
 export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'invoke'];
@@ -1562,7 +1568,10 @@ export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappRes
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.action !== undefined) args.push('--action', options.action);
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
