@@ -137,8 +137,8 @@ internal sealed partial class GalleryProvider : CachedProviderBase
     /// that resolve only against Gallery's own assembly and package. The sample still teaches
     /// exactly what upstream wrote it to teach.</para>
     ///
-    /// <para><see cref="ToolkitFetcher"/> runs the same normalization over its own source;
-    /// this is Gallery's half of it.</para>
+    /// <para><see cref="ToolkitProvider.NormalizeForPaste"/> runs the same normalization over
+    /// its own source; this is Gallery's half of it.</para>
     ///
     /// <para>Internal for direct testing: the corpus guards in <c>EmbeddedSnapshotTests</c>
     /// only prove the baked data is clean, which passes vacuously if upstream stops shipping

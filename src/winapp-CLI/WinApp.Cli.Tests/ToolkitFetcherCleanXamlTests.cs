@@ -143,10 +143,10 @@ public class ToolkitFetcherCleanXamlTests
     }
 
     [TestMethod]
-    public void StripDanglingEventHandlers_RemovesBareMethodHandlers()
+    public void NormalizeForPaste_RemovesBareMethodHandlers_WhenScenarioHasNoCodeBehind()
     {
         var xaml = "<controls:SettingsCard Header=\"A\" Click=\"OnCardClicked\" IsClickEnabled=\"True\" />";
-        var stripped = ToolkitFetcher.StripDanglingEventHandlers(xaml);
+        var stripped = NormalizeXamlWithoutCodeBehind(xaml);
 
         Assert.IsFalse(stripped.Contains("Click=\"OnCardClicked\"", StringComparison.Ordinal),
             "a bare-method Click handler with no code-behind must be stripped");
@@ -155,31 +155,42 @@ public class ToolkitFetcherCleanXamlTests
     }
 
     [TestMethod]
-    public void StripDanglingEventHandlers_KeepsCommandBindings()
+    public void NormalizeForPaste_KeepsCommandBindings()
     {
         var xaml = "<Button Click=\"{x:Bind SaveCommand}\" Content=\"Save\" />";
-        var stripped = ToolkitFetcher.StripDanglingEventHandlers(xaml);
+        var stripped = NormalizeXamlWithoutCodeBehind(xaml);
 
         StringAssert.Contains(stripped, "Click=\"{x:Bind SaveCommand}\"",
             "a command binding is not a dangling handler and must be kept");
     }
 
     [TestMethod]
-    public void StripDanglingEventHandlers_DoesNotTouchLookalikeAttributes()
+    public void NormalizeForPaste_DoesNotTouchLookalikeAttributes()
     {
         // Attributes that aren't events must survive even with identifier-like values.
         var xaml = "<AppBarButton Icon=\"Add\" Label=\"Add\" Symbol=\"Edit\" />";
-        var stripped = ToolkitFetcher.StripDanglingEventHandlers(xaml);
+        var stripped = NormalizeXamlWithoutCodeBehind(xaml);
 
         Assert.AreEqual(xaml, stripped, "non-event attributes with identifier values must be untouched");
+    }
+
+    /// <summary>Run provider normalization over a scenario split out of a multi-instance
+    /// sample — the case that carries XAML and no code-behind at all, so every bare-method
+    /// handler in it is unbacked by construction.</summary>
+    private static string NormalizeXamlWithoutCodeBehind(string xaml)
+    {
+        var scenario = new Scenario { Xaml = xaml, CSharp = null, Source = "toolkit" };
+        ToolkitProvider.NormalizeForPaste(scenario);
+        return scenario.Xaml!;
     }
 
     // --- Sample-option bindings: XAML must not reference docs-generated members ------
 
     // Real ColorPicker sample shape (CommunityToolkit/Windows): class-level
     // [ToolkitSample*Option("Name", …)] attributes back generated members the sample
-    // XAML x:Binds to. CleanCSharp strips those attributes, so the members never exist
-    // in emitted C# — the bindings must be removed or the snippet won't compile.
+    // XAML x:Binds to. ToolkitProvider.NormalizeForPaste strips those attributes, so the
+    // members never exist in emitted C# — the bindings must be removed or the snippet
+    // won't compile.
     private const string ColorPickerCs = """
         namespace ColorPickerExperiment.Samples;
         [ToolkitSampleBoolOption("AccentColors", true, Title = "ShowAccentColors")]

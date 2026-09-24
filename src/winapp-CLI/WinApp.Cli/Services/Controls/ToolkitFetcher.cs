@@ -296,10 +296,11 @@ internal static partial class ToolkitFetcher
 
             // Toolkit "options pane" members (e.g. AlphaEnabled, SpectrumShape) are
             // materialized only by the docs source generator from class-level
-            // [ToolkitSample*Option] attributes — which CleanCSharp strips as noise, so
-            // they never exist in the emitted C#. Any XAML that x:Bind's to them would
-            // therefore reference a missing member and fail to compile, so drop those
-            // bindings up front (before splitting) using the names declared in the raw C#.
+            // [ToolkitSample*Option] attributes — which ToolkitProvider.NormalizeForPaste
+            // strips as build-time metadata, so they never exist in the emitted C#. Any
+            // XAML that x:Bind's to them would therefore reference a missing member and
+            // fail to compile, so drop those bindings up front (before splitting, which
+            // loses the code-behind) using the names declared in the raw C#.
             var optionNames = ExtractSampleOptionNames(csText);
             cleanedXaml = StripSampleOptionBindings(cleanedXaml, optionNames);
 
@@ -337,10 +338,10 @@ internal static partial class ToolkitFetcher
                         ControlId = controlId,
                         ControlName = controlName,
                         HeaderText = label,
-                        // Splits carry no code-behind, so drop any bare-method event
-                        // handlers (e.g. Click="OnCardClicked") that would otherwise
-                        // reference a handler this scenario never returns.
-                        Xaml = StripDanglingEventHandlers(xml),
+                        // Splits carry no code-behind, so any bare-method event handler
+                        // (e.g. Click="OnCardClicked") references a handler this scenario
+                        // never returns. ToolkitProvider.NormalizeForPaste drops them.
+                        Xaml = xml,
                         CSharp = null,
                         Source = "toolkit",
                         NuGetPackage = nuget,
@@ -356,12 +357,15 @@ internal static partial class ToolkitFetcher
                 var friendly = DeriveFriendlyName(sampleName, controlName);
                 if (string.IsNullOrEmpty(friendly)) friendly = "Basic usage";
                 var sid = MakeScenarioId(controlId, friendly);
-                var cs = IsEmptyCodeBehind(csText) ? "" : CleanCSharp(csText, sampleName);
+
+                // Code-behind is carried verbatim; ToolkitProvider.NormalizeForPaste is what
+                // makes it pasteable. An empty shell (namespace, constructor,
+                // InitializeComponent) teaches nothing, so it is dropped here instead —
+                // that is a judgement about whether a sample has code at all, not about
+                // how the code it does have should read.
+                var csOut = IsEmptyCodeBehind(csText) ? null : csText;
 
                 var xamlOut = ControlSnippetText.CloseUnbalancedTags(cleanedXaml);
-
-                var csOut = string.IsNullOrEmpty(cs) ? null : cs;
-                xamlOut = ControlSnippetText.StripUnbackedEventHandlers(xamlOut, csOut);
 
                 scenarios.Add(new Scenario
                 {
@@ -511,14 +515,6 @@ internal static partial class ToolkitFetcher
         var m = PageRegex().Match(xaml);
         return m.Success ? m.Groups[1].Value.Trim() : xaml;
     }
-
-    /// <summary>
-    /// Remove event-handler attributes not backed by code-behind. Delegates to the
-    /// shared <see cref="ControlSnippetText.StripUnbackedEventHandlers"/>; this overload
-    /// (no C#) strips every bare-method handler.
-    /// </summary>
-    internal static string StripDanglingEventHandlers(string xaml) =>
-        ControlSnippetText.StripUnbackedEventHandlers(xaml, null);
 
     internal static string CleanXaml(string xaml)
     {
@@ -763,40 +759,6 @@ internal static partial class ToolkitFetcher
         return s.Length < 20;
     }
 
-    private static string CleanCSharp(string cs, string sampleName)
-    {
-        // License header
-        cs = Regex.Replace(cs, @"^//\s*Licensed to.*?(?=\n[^/])", "", RegexOptions.Singleline);
-        cs = Regex.Replace(cs, @"^//\s*The \.NET Foundation.*?\n", "", RegexOptions.Multiline);
-        cs = Regex.Replace(cs, @"^//\s*See the LICENSE.*?\n", "", RegexOptions.Multiline);
-        // Fold platform #if/#else/#endif: agents target WinAppSDK, so keep only the
-        // WINAPPSDK branch and discard UWP/Uno fallbacks. Done before the rest of the
-        // cleanup so we don't waste work on text that's about to be stripped.
-        cs = FoldPreprocessorDirectives(cs);
-        // [ToolkitSample(...)] and related docs-build attributes (single-line + multi-line, balanced brackets)
-        cs = Regex.Replace(cs, @"\[Toolkit(?:Sample|SampleOptionsPane|SampleMultiChoiceOption|SampleNumericOption|SampleBoolOption|SampleTextOption)\b[^\]]*\][\r\n]*", "", RegexOptions.Singleline);
-        cs = Regex.Replace(cs, @"\[SuppressMessage[^\]]*\][\r\n]*", "", RegexOptions.Singleline);
-        // Original namespace declaration → replace with placeholder so the class wrapper compiles
-        cs = Regex.Replace(cs, @"namespace\s+[\w.]+\s*(?:;|\{)\s*", "namespace YourApp;\n\n");
-        // Rename the sample class to a clearer placeholder name so agents know to rename
-        if (!string.IsNullOrEmpty(sampleName))
-        {
-            cs = Regex.Replace(cs,
-                $@"\b{Regex.Escape(sampleName)}\b",
-                "YourPage");
-        }
-        // Drop docs-only converter helpers (back the [ToolkitSample*Option] attributes we just stripped).
-        // Pattern: `public static T ConvertStringTo<X>(string ...) => ... switch { ... };` — single statement
-        // followed by a switch expression body. These only exist to wire up the docs option pane.
-        cs = Regex.Replace(cs,
-            @"public\s+static\s+[\w?<>]+\s+ConvertString\w+\s*\([^)]*\)\s*=>\s*\w+\s+switch\s*\{[^}]*\}\s*;",
-            "",
-            RegexOptions.Singleline);
-        // Drop trailing blank lines
-        cs = Regex.Replace(cs, @"\n\s*\n\s*\n+", "\n\n");
-        return cs.Trim();
-    }
-
     /// <summary>Captures the generated member name (first string argument) of a class-level
     /// Toolkit sample <em>option</em> attribute. The Toolkit source generator materializes a
     /// partial member with that name for the docs options pane, and the sample XAML binds to
@@ -815,7 +777,7 @@ internal static partial class ToolkitFetcher
     /// <summary>Names of the docs-only sample-option members declared by
     /// <c>[ToolkitSample*Option("Name", …)]</c> attributes in <paramref name="csText"/>. These
     /// are the members the docs generator would create but the emitted C# never will (the
-    /// attributes are stripped by <see cref="CleanCSharp"/>).</summary>
+    /// attributes are stripped by <see cref="ToolkitProvider.NormalizeForPaste"/>).</summary>
     internal static IReadOnlyCollection<string> ExtractSampleOptionNames(string csText)
     {
         if (string.IsNullOrEmpty(csText)) return Array.Empty<string>();
@@ -848,95 +810,6 @@ internal static partial class ToolkitFetcher
             }
             return m.Value;
         });
-    }
-
-    /// <summary>
-    /// Compile-time preprocessor folding for toolkit samples. Agents target WinAppSDK,
-    /// so we evaluate <c>#if WINAPPSDK</c> as true (and <c>HAS_UNO</c> / <c>WINUI2</c> /
-    /// <c>UWP</c> / <c>NETFX_CORE</c> as false), keep the live branch's lines, and drop
-    /// the directives + dead branches. Unknown symbols are treated as true (conservative:
-    /// keep code rather than silently delete it). Supports <c>#if</c>, <c>#elif</c>,
-    /// <c>#else</c>, <c>#endif</c>, single <c>!</c> negation, and nested blocks.
-    /// </summary>
-    private static string FoldPreprocessorDirectives(string cs)
-    {
-        if (cs.IndexOf("#if", StringComparison.Ordinal) < 0) return cs;
-
-        // Treat WinAppSDK-targeting symbols as true; UWP/Uno/legacy as false.
-        // Anything else: true (preserve code we don't recognize).
-        static bool Eval(string expr)
-        {
-            expr = expr.Trim();
-            bool negate = false;
-            if (expr.StartsWith('!'))
-            {
-                negate = true;
-                expr = expr[1..].Trim();
-            }
-            bool value = expr switch
-            {
-                "WINAPPSDK" or "WINUI3" or "NET" => true,
-                "HAS_UNO" or "WINUI2" or "UWP" or "NETFX_CORE" => false,
-                _ => true,
-            };
-            return negate ? !value : value;
-        }
-
-        var lines = cs.Replace("\r\n", "\n").Split('\n');
-        var output = new List<string>(lines.Length);
-        // Stack frame: (anyBranchTakenYet, currentlyEmittingThisBranch).
-        // Parent's emitting state is tracked separately via parentEmit.
-        var stack = new Stack<(bool taken, bool emit)>();
-
-        bool ParentEmitting()
-        {
-            foreach (var f in stack)
-                if (!f.emit) return false;
-            return true;
-        }
-
-        foreach (var rawLine in lines)
-        {
-            var line = rawLine;
-            var trimmed = line.TrimStart();
-
-            if (trimmed.StartsWith("#if ", StringComparison.Ordinal) || trimmed == "#if")
-            {
-                var expr = trimmed.Length > 3 ? trimmed[3..].Trim() : "";
-                bool parentEmit = ParentEmitting();
-                bool take = parentEmit && Eval(expr);
-                stack.Push((take, take));
-                continue;
-            }
-            if (trimmed.StartsWith("#elif ", StringComparison.Ordinal))
-            {
-                if (stack.Count == 0) continue; // malformed, drop
-                var (taken, _) = stack.Pop();
-                var expr = trimmed[5..].Trim();
-                bool parentEmit = ParentEmitting();
-                bool take = parentEmit && !taken && Eval(expr);
-                stack.Push((taken || take, take));
-                continue;
-            }
-            if (trimmed.StartsWith("#else", StringComparison.Ordinal))
-            {
-                if (stack.Count == 0) continue;
-                var (taken, _) = stack.Pop();
-                bool parentEmit = ParentEmitting();
-                bool take = parentEmit && !taken;
-                stack.Push((true, take));
-                continue;
-            }
-            if (trimmed.StartsWith("#endif", StringComparison.Ordinal))
-            {
-                if (stack.Count > 0) stack.Pop();
-                continue;
-            }
-
-            if (ParentEmitting()) output.Add(line);
-        }
-
-        return string.Join('\n', output);
     }
 
     private static string MakeScenarioId(string controlId, string header)

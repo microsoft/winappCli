@@ -109,6 +109,17 @@ namespace WinApp.Cli.Services.Controls;
 ///          instruction to declare a prefix that cannot resolve) and Gallery's own package
 ///          assets under Assets/SampleMedia and Assets/Tiles, which rendered as a silently
 ///          blank Image or an AppWindow.SetIcon that quietly did nothing.
+///   "25" — Toolkit samples are now normalized for pasting by ToolkitProvider rather
+///          than by ToolkitFetcher, so the normalization survives deleting the scraper
+///          the way Gallery's did in "24". The move is output-preserving except for the
+///          sample class rename, which now reads the name from the C# class declaration
+///          instead of guessing it from the .xaml file-name stem. The Toolkit declares
+///          RichSuggestBoxPlainTextSample inside RichSuggestBoxPlainText.xaml.cs, so the
+///          guess missed and toolkit-richsuggestbox-2 shipped a Toolkit-internal class
+///          name instead of YourPage. Rule 3 — same input, different output. Without the
+///          bump an existing cache still matches on "24" and keeps serving that name,
+///          and the offline fallback ignores the TTL, so a filtered or offline machine
+///          would never pick up the fix.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -116,5 +127,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "24";
+    public const string Current = "25";
 }
