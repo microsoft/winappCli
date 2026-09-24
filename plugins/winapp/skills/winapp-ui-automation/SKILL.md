@@ -10,6 +10,10 @@ description: Inspect and interact with running Windows app UIs from the command 
 - Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
 
 ## Prerequisites
+
+To measure WinUI work while driving a scenario, use the
+[performance skill](../winapp-performance/SKILL.md) to bracket UI actions with capture markers.
+
 - For UIA mode (any app): No setup needed — works with any running Windows app
 - For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.

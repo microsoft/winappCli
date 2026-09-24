@@ -2556,6 +2556,620 @@
         }
       }
     },
+    "perf": {
+      "description": "Record PID-scoped WinUI 3 ETW without elevation, then query compact offline performance evidence. Raw ETL can contain app data; elapsed timings are not CPU/GPU measurements.",
+      "hidden": false,
+      "options": {
+        "--json": {
+          "description": "Format output as JSON",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        }
+      },
+      "subcommands": {
+        "analyze": {
+          "description": "Query a finalized winapp capture directory. ETL stays authoritative; derived NDJSON is cached locally. Partial evidence is returned with nonzero exit status.",
+          "hidden": false,
+          "arguments": {
+            "directory": {
+              "description": "Capture directory containing capture.json and its ETL files.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--depth": {
+              "description": "Expansion depth, 0-4. Defaults: call 2, element 0. Call trees show instrumented operations, not CPU stacks.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Int32>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--element": {
+              "description": "Trace-local element ID for the events view.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--event": {
+              "description": "Exact event name or evidence ID for the events view.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--family": {
+              "description": "Exact operation family for --view calls, for example layout, frames, input, or initialization.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--from-marker": {
+              "description": "Range start at a recorded marker.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--from-ms": {
+              "description": "Range start relative to capture readiness.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Double>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--id": {
+              "description": "Trace-local ID for --view element or --view call; optional interval ID for --view gc.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--limit": {
+              "description": "Rows per page, 1-100.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 10,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-bytes": {
+              "description": "Whole JSON response byte budget, 4096-1048576.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 16384,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--min-frame-ms": {
+              "description": "Minimum complete Frame duration for --view hotspots. Default: 16.67 ms.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Double>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--offset": {
+              "description": "Zero-based row offset.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 0,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--provider": {
+              "description": "Provider GUID for the events view.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--sort": {
+              "description": "Ranking: self, inclusive, or count for summary/elements; duration for gc.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": true,
+              "defaultValue": "self",
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--thread": {
+              "description": "Restrict to an ETW thread ID.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.UInt32>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--to-marker": {
+              "description": "Range end at a recorded marker.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--to-ms": {
+              "description": "Range end relative to capture readiness.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Double>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Observed type substring for elements/element views.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--view": {
+              "description": "summary, elements, element, frames, hotspots, events, calls, call, or gc.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": true,
+              "defaultValue": "summary",
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "mark": {
+          "description": "Record a uniquely named marker using the worker's QPC clock.",
+          "hidden": false,
+          "arguments": {
+            "capture-id": {
+              "description": "ID returned by perf start.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--name": {
+              "description": "Unique marker name (1-128 characters).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": true,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "start": {
+          "description": "Start a bounded private ETW worker and return after provider/control readiness.",
+          "hidden": false,
+          "options": {
+            "--app": {
+              "description": "Target WinUI 3 app (process name, window title, or PID).",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": true,
+              "recursive": false
+            },
+            "--duration-sec": {
+              "description": "Capture duration: 1-300 seconds.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 30,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-size-mib": {
+              "description": "Maximum raw ETL size: 1-1024 MiB.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 128,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "Empty capture directory to create.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": true,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "status": {
+          "description": "Read current or final capture status. Readiness is not proof of decoded coverage.",
+          "hidden": false,
+          "arguments": {
+            "capture-id": {
+              "description": "ID returned by perf start.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "stop": {
+          "description": "Finalize an owned capture without closing the app; repeated stops are safe.",
+          "hidden": false,
+          "arguments": {
+            "capture-id": {
+              "description": "ID returned by perf start.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        }
+      }
+    },
     "restore": {
       "description": "Use after cloning a repo or when .winapp/ folder is missing. Reinstalls SDK packages without changing versions, reading them from winapp.yaml or, for a .NET project initialized by 'init', from the .csproj via 'dotnet restore'. Requires a project already initialized by 'init'. To check for newer SDK versions, use 'update' instead.",
       "hidden": false,
@@ -2837,6 +3451,44 @@
           "hidden": false,
           "valueType": "System.IO.DirectoryInfo",
           "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--profile": {
+          "description": "Record WinUI 3 performance ETW to an empty directory. Attaches after the real PID is available; early startup events may be missed.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--profile-duration-sec": {
+          "description": "With --profile: trace for 1-300 seconds; stopping the trace does not stop the app.",
+          "hidden": false,
+          "valueType": "System.Int32",
+          "hasDefaultValue": true,
+          "defaultValue": 30,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--profile-max-size-mib": {
+          "description": "With --profile: maximum raw ETL size, 1-1024 MiB.",
+          "hidden": false,
+          "valueType": "System.Int32",
+          "hasDefaultValue": true,
+          "defaultValue": 128,
           "arity": {
             "minimum": 1,
             "maximum": 1

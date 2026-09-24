@@ -88,7 +88,8 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
         TargetCommand targetCommand,
-        FindApiCommand findApiCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
+        FindApiCommand findApiCommand,
+        PerfCommand? perfCommand = null) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(newCommand);
@@ -110,6 +111,10 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(findUiCommand);
         Subcommands.Add(uiCommand);
         Subcommands.Add(findApiCommand);
+        if (perfCommand is not null)
+        {
+            Subcommands.Add(perfCommand);
+        }
         Subcommands.Add(completeCommand);
         Subcommands.Add(guestAgentCommand);
         Subcommands.Add(guestDesktopCaptureCommand);
@@ -132,7 +137,8 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
             ("Packaging & Signing", [typeof(PackageCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(CertCommand), typeof(ManifestCommand), typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand)]),
             ("Development Tools", [typeof(CreateDebugIdentityCommand), typeof(MSStoreCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(RunCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
             ("Discovery", [typeof(FindApiCommand), typeof(FindUiCommand)]),
-            ("UI Automation", [typeof(UiCommand)])
+            ("UI Automation", [typeof(UiCommand)]),
+            ("Performance", [typeof(PerfCommand)])
         );
     }
 }
