@@ -111,13 +111,21 @@ internal sealed partial class ProjectRunService
             writeLine = CreateSynchronizedRedactedLineWriter();
         }
 
-        return await dotNetService.RunDotnetCommandAsync(
+        // MSBuild prints the --getProperty result to stdout after publish. Keep stdout buffered until
+        // the final envelope is known; stderr diagnostics remain live while Native AOT is running.
+        var publish = await dotNetService.RunDotnetCommandAsync(
             workingDirectory,
             arguments,
             BuildAotPublishEnvironment(),
-            writeLine,
-            writeLine,
-            cancellationToken);
+            onOutputLine: null,
+            onErrorLine: writeLine,
+            cancellationToken: cancellationToken);
+        var visibleOutput = MsBuildPropertyReader.WithoutLastPropertiesObject(publish.Output);
+        foreach (var line in SplitDiagnosticLines(visibleOutput))
+        {
+            writeLine(line);
+        }
+        return publish;
     }
 
     internal static IReadOnlyDictionary<string, string>? BuildAotPublishEnvironment(
