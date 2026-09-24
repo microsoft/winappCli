@@ -81,6 +81,31 @@ public class MsBuildPropertyReaderTests
     }
 
     [TestMethod]
+    public void WithoutLastPropertiesObject_KeepsDiagnosticsAndEarlierTargetOutput()
+    {
+        var earlier = """{"Properties":{"PublishAot":"false"}}""";
+        var final = "{\r\n  \"Properties\": { \"PublishAot\": \"true\" }\r\n}";
+        var stdout = $"note \u00e9 {{placeholder}}\n{earlier}\nwarning\n{final}\ntrailing diagnostic";
+
+        var visible = MsBuildPropertyReader.WithoutLastPropertiesObject(stdout);
+
+        StringAssert.Contains(visible, "note \u00e9 {placeholder}");
+        StringAssert.Contains(visible, earlier);
+        StringAssert.Contains(visible, "warning");
+        StringAssert.Contains(visible, "trailing diagnostic");
+        Assert.IsFalse(visible.Contains(final, StringComparison.Ordinal));
+        Assert.AreEqual("true", MsBuildPropertyReader.Parse(stdout, ["PublishAot"])["PublishAot"]);
+    }
+
+    [TestMethod]
+    public void WithoutLastPropertiesObject_NonPropertyOutputIsUnchanged()
+    {
+        var stdout = "{starting publish}\nerror CS1001: expected identifier\n{\nerror CS1002: expected semicolon";
+
+        Assert.AreEqual(stdout, MsBuildPropertyReader.WithoutLastPropertiesObject(stdout));
+    }
+
+    [TestMethod]
     public void Parse_PreambleContainingBrace_StillParses()
     {
         // Spec M4: a '{' in a diagnostic preamble that is NOT the JSON object must be skipped, and the

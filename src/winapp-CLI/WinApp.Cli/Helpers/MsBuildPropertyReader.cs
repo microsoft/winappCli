@@ -91,6 +91,23 @@ internal static class MsBuildPropertyReader
     }
 
     /// <summary>
+    /// Removes only the last MSBuild property-result envelope from captured stdout, leaving diagnostics
+    /// and any earlier output from project targets intact.
+    /// </summary>
+    public static string WithoutLastPropertiesObject(string stdout)
+    {
+        if (string.IsNullOrEmpty(stdout))
+        {
+            return stdout;
+        }
+
+        var (_, start, length) = FindLastPropertiesObject(stdout);
+        return start < 0
+            ? stdout
+            : stdout.Remove(start, length).TrimEnd('\r', '\n');
+    }
+
+    /// <summary>
     /// Parses the stdout of <c>dotnet build/msbuild --getItem:...</c> into a map of item name to its
     /// <c>Include</c> identities. The SDK emits <c>{ "Items": { "ItemName": [ { "Identity": "…" }, … ] } }</c>.
     /// Tolerant of a diagnostic preamble/trailer like <see cref="Parse"/>; pure and side-effect free.
@@ -150,8 +167,25 @@ internal static class MsBuildPropertyReader
     /// </summary>
     private static bool TryReadLastPropertiesObject(string text, Dictionary<string, string> result)
     {
+        var (last, _, _) = FindLastPropertiesObject(text);
+        if (last is null)
+        {
+            return false;
+        }
+
+        foreach (var (name, value) in last)
+        {
+            result[name] = value;
+        }
+        return true;
+    }
+
+    private static (Dictionary<string, string>? Properties, int Start, int Length) FindLastPropertiesObject(string text)
+    {
         Dictionary<string, string>? last = null;
-        ScanJsonObjects(text, root =>
+        var lastStart = -1;
+        var lastLength = 0;
+        ScanJsonObjects(text, (root, start, length) =>
         {
             if (!root.TryGetProperty("Properties", out var props) || props.ValueKind != JsonValueKind.Object)
             {
@@ -166,20 +200,13 @@ internal static class MsBuildPropertyReader
                     : prop.Value.ToString();
             }
             last = candidate;
+            lastStart = start;
+            lastLength = length;
         });
-        if (last is null)
-        {
-            return false;
-        }
-
-        foreach (var (name, value) in last)
-        {
-            result[name] = value;
-        }
-        return true;
+        return (last, lastStart, lastLength);
     }
 
-    private static void ScanJsonObjects(string text, Action<JsonElement> handle)
+    private static void ScanJsonObjects(string text, Action<JsonElement, int, int> handle)
     {
         var searchStart = 0;
         while (searchStart < text.Length)
@@ -200,7 +227,9 @@ internal static class MsBuildPropertyReader
                     {
                         if (doc.RootElement.ValueKind == JsonValueKind.Object)
                         {
-                            handle(doc.RootElement);
+                            var length = System.Text.Encoding.UTF8.GetCharCount(
+                                bytes.AsSpan(0, checked((int)reader.BytesConsumed)));
+                            handle(doc.RootElement, braceIndex, length);
                         }
                     }
                 }
