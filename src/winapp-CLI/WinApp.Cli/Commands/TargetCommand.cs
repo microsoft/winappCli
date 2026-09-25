@@ -16,15 +16,9 @@ namespace WinApp.Cli.Commands;
 /// The <c>winapp target</c> namespace: generic escape hatches for agents and scripts.
 /// </summary>
 /// <remarks>
-/// Deliberately limited to <c>exec</c>, <c>push</c>, and <c>pull</c>. Lifecycle, images, snapshots,
-/// ports, providers, shells, and package-manager verbs are not here — a target's lifecycle stays
-/// with that target's own tooling, and every additional verb would be a second way to do something
-/// winapp already does through its ordinary commands.
-/// <para>
 /// Each verb takes the target as its first argument rather than as <c>--on</c>. These verbs exist
 /// only to act on a target, so there is no default worth having and nothing to select against on
 /// this machine: <c>winapp target exec sandbox -- dotnet --info</c> reads as one thought.
-/// </para>
 /// </remarks>
 internal class TargetCommand : Command, IShortDescription
 {
@@ -38,7 +32,8 @@ internal class TargetCommand : Command, IShortDescription
         TargetPullCommand pullCommand,
         TargetSnapshotCommand snapshotCommand,
         TargetScreenshotCommand screenshotCommand,
-        TargetRecordCommand recordCommand)
+        TargetRecordCommand recordCommand,
+        TargetDeleteCommand? deleteCommand = null)
         : base(
             "target",
             "Run commands and copy files on an execution target such as the Windows Sandbox winapp manages. " +
@@ -50,6 +45,10 @@ internal class TargetCommand : Command, IShortDescription
         Subcommands.Add(snapshotCommand);
         Subcommands.Add(screenshotCommand);
         Subcommands.Add(recordCommand);
+        if (deleteCommand is not null)
+        {
+            Subcommands.Add(deleteCommand);
+        }
     }
 }
 
@@ -66,7 +65,7 @@ internal static class TargetVerb
     /// </remarks>
     public static Argument<string> NewSelectorArgument() => new("target")
     {
-        Description = "Execution target to act on. Currently: 'sandbox'.",
+        Description = "Execution target to act on: 'sandbox' or 'mxc[:name]'.",
         Arity = ArgumentArity.ExactlyOne,
     };
 
@@ -77,7 +76,7 @@ internal static class TargetVerb
     /// The selector is malformed, names an unimplemented kind, or names the local machine, which
     /// these verbs do not act on.
     /// </exception>
-    public static ExecutionTargetRef Resolve(ExecutionTargetOrchestrator orchestrator, string? selector)
+    public static ExecutionTargetOrchestrator Resolve(ExecutionTargetOrchestrator orchestrator, string? selector)
     {
         ArgumentNullException.ThrowIfNull(orchestrator);
 
@@ -95,16 +94,7 @@ internal static class TargetVerb
                 context: new Dictionary<string, string> { ["selector"] = selector ?? string.Empty });
         }
 
-        if (!orchestrator.Target.Matches(target.Kind, target.Id))
-        {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.TargetInvalid,
-                $"No provider in this build serves the '{target.Selector}' target.",
-                userAction: $"Use '{orchestrator.Target.Selector}'.",
-                context: new Dictionary<string, string> { ["selector"] = target.Selector });
-        }
-
-        return orchestrator.Target;
+        return orchestrator.ForTarget(target);
     }
 }
 
@@ -169,12 +159,14 @@ internal class TargetExecCommand : Command, IShortDescription
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
 
             ExecutionTargetRef reference;
+            ExecutionTargetOrchestrator selectedOrchestrator;
 
             try
             {
                 // Resolved before anything else is interpreted: an unrecognised selector must never
                 // reach the point where the remaining tokens are treated as an executable.
-                reference = TargetVerb.Resolve(orchestrator, parseResult.GetValue(SelectorArgument));
+                selectedOrchestrator = TargetVerb.Resolve(orchestrator, parseResult.GetValue(SelectorArgument));
+                reference = selectedOrchestrator.Target;
 
                 if (command.Length == 0)
                 {
@@ -194,7 +186,7 @@ internal class TargetExecCommand : Command, IShortDescription
             {
                 // Read-only from the target's point of view: running a command does not change
                 // deployment or package state, so it must not block a deployment or wait for one.
-                await using var target = await orchestrator
+                await using var target = await selectedOrchestrator
                     .PrepareAsync(PrepareTargetOptions.ReadOnly, cancellationToken)
                     .ConfigureAwait(false);
 
@@ -382,11 +374,13 @@ internal static class TargetTransfer
         var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
 
         ExecutionTargetRef reference;
+        ExecutionTargetOrchestrator selectedOrchestrator;
         TargetTransferRequest request;
 
         try
         {
-            reference = TargetVerb.Resolve(orchestrator, parseResult.GetValue(selectorArgument));
+            selectedOrchestrator = TargetVerb.Resolve(orchestrator, parseResult.GetValue(selectorArgument));
+            reference = selectedOrchestrator.Target;
             request = TargetTransferRequest.Create(direction, hostPath, targetPath);
         }
         catch (ExecutionTargetException ex)
@@ -398,7 +392,7 @@ internal static class TargetTransfer
         {
             // Copying changes target storage, so it takes the mutation lock -- otherwise a copy
             // could interleave with a deployment writing the same managed roots.
-            await using var target = await orchestrator
+            await using var target = await selectedOrchestrator
                 .PrepareAsync(
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = false },
                     cancellationToken)
@@ -485,6 +479,7 @@ internal sealed class TargetErrorOutput
 [JsonSerializable(typeof(TargetTransferOutput))]
 [JsonSerializable(typeof(TargetSnapshotOutput))]
 [JsonSerializable(typeof(TargetErrorOutput))]
+[JsonSerializable(typeof(TargetDeleteOutput))]
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     NewLine = "\n",

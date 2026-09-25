@@ -44,6 +44,7 @@ internal partial class RunCommand
             bool selfContained,
             PackageGraphSource? packageGraph,
             FileInfo? appxRecipe,
+            ExecutionTargetRef executionTarget,
             CancellationToken cancellationToken)
         {
             FileInfo resolvedManifest;
@@ -116,6 +117,7 @@ internal partial class RunCommand
 
                 // Registration and exit cleanup own mutation leases; this launch-only request does not.
                 return await RunInGuestAsync(
+                    executionTarget,
                     layout,
                     DeploymentIdFor(inputFolder, identity),
                     clean,
@@ -133,7 +135,7 @@ internal partial class RunCommand
                             identity.ApplicationId,
                             deployment.LayoutPath,
                             deployment.PayloadPath,
-                            executionTargetOrchestrator.Target.Selector,
+                            executionTarget.Selector,
                             options),
 
                         // The payload folder, so a guest app that resolves files relative to its working
@@ -172,6 +174,7 @@ internal partial class RunCommand
             bool debugOutput,
             bool detach,
             bool isJson,
+            ExecutionTargetRef executionTarget,
             CancellationToken cancellationToken)
         {
             var targetDir = new DirectoryInfo(resolution.TargetDir);
@@ -194,6 +197,7 @@ internal partial class RunCommand
                 CombineLaunchArguments(resolution.RunArguments, appArgs) ?? string.Empty);
 
             return await RunInGuestAsync(
+                executionTarget,
                 targetDir,
                 DeploymentPlanner.CreateDeploymentId(Path.GetFullPath(targetDir.FullName), originalPackageIdentity: null),
                 clean: false,
@@ -245,6 +249,7 @@ internal partial class RunCommand
         /// <c>--with-alias</c>, which promises an inherited-stdio console run.
         /// </param>
         private async Task<int> RunInGuestAsync(
+            ExecutionTargetRef executionTarget,
             DirectoryInfo sourceRoot,
             string deploymentId,
             bool clean,
@@ -264,7 +269,7 @@ internal partial class RunCommand
         {
             try
             {
-                await using var target = await executionTargetOrchestrator.PrepareAsync(
+                await using var target = await executionTargetOrchestrator.ForTarget(executionTarget).PrepareAsync(
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = requiresRealInput },
                     cancellationToken);
 
@@ -284,7 +289,10 @@ internal partial class RunCommand
                 var provisioning = await ProvisionRuntimesAsync(
                     target, sourceRoot, applicationArchitecture, packageGraph, framework, cancellationToken);
 
-                WriteProgress(isJson, "Deploying the application into the Windows Sandbox...");
+                var targetDescription = target.Reference.Kind == ExecutionTargetRef.SandboxKind
+                    ? "the Windows Sandbox"
+                    : target.Reference.Selector;
+                WriteProgress(isJson, $"Deploying the application into {targetDescription}...");
 
                 var deployment = await guestApplicationRunner.DeployAsync(
                     target, deploymentId, sourceRoot, clean, cancellationToken);
@@ -305,7 +313,7 @@ internal partial class RunCommand
                     });
 
                     // Even --no-launch registers under the mutation lease.
-                    WriteProgress(isJson, "Registering the application in the Windows Sandbox...");
+                    WriteProgress(isJson, $"Registering the application in {targetDescription}...");
 
                     var registration = await RegisterPackageAsync(target, deployment, clean, isJson, cancellationToken);
 
@@ -382,7 +390,7 @@ internal partial class RunCommand
                 using var capturedOutput = isJson && guestProducesRunResult ? new MemoryStream() : null;
                 var request = buildRequest(deployment, ownerEnvironment);
 
-                WriteProgress(isJson, "Starting the application in the Windows Sandbox...");
+                WriteProgress(isJson, $"Starting the application in {targetDescription}...");
 
                 GuestRunOutcome run;
                 try
@@ -536,7 +544,7 @@ internal partial class RunCommand
             {
                 using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 var cleanupToken = cleanupTimeout.Token;
-                using var mutationLease = executionTargetOrchestrator.AcquireMutationLease(cleanupToken);
+                using var mutationLease = executionTargetOrchestrator.ForTarget(target.Reference).AcquireMutationLease(cleanupToken);
                 var cleanupTarget = target with { MutationLease = mutationLease };
 
                 var familyName = appLauncherService.ComputePackageFamilyName(
@@ -841,7 +849,7 @@ internal partial class RunCommand
             // name.
             return new RunCommandResult
             {
-                Sandbox = true,
+                Sandbox = reference.Kind == ExecutionTargetRef.SandboxKind ? true : null,
                 ProcessScope = reference.Selector,
                 ExecutionTarget = new ExecutionTargetInfo
                 {
@@ -891,7 +899,7 @@ internal partial class RunCommand
                 return null;
             }
 
-            result.Sandbox = true;
+            result.Sandbox = executionTarget.Kind == ExecutionTargetRef.SandboxKind ? true : null;
             result.ExecutionTarget = executionTarget;
 
             var selector = string.Equals(executionTarget.Id, ExecutionTargetRef.DefaultId, StringComparison.Ordinal)

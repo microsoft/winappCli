@@ -279,7 +279,8 @@ internal static class Program
                     args,
                     TargetUiRequirements.For(parsedArgs),
                     effectiveJson,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    ExecutionTargetSelection.Resolve(parsedArgs));
             }
 
             return parsedArgs.InvokeAsync();

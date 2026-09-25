@@ -354,6 +354,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 }
 
                 return await UnregisterOnTargetAsync(
+                    target,
                     targetIdentity ?? throw new InvalidOperationException(
                         "Target unregister requires a manifest-derived package identity."),
                     isJson,

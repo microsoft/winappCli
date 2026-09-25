@@ -506,7 +506,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 try
                 {
-                    await executionTargetOrchestrator.EnsureSupportedAsync(cancellationToken);
+                    await executionTargetOrchestrator.ForTarget(executionTarget).EnsureSupportedAsync(cancellationToken);
                 }
                 catch (ExecutionTargetException ex)
                 {
@@ -737,7 +737,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 return await ExecutePackagedTargetRunAsync(
                     inputFolder, manifest, layoutOutput, appArgs,
                     noLaunch, aliasDecision, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
-                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe, cancellationToken);
+                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe,
+                    executionTarget, cancellationToken);
             }
 
             uint processId = 0;

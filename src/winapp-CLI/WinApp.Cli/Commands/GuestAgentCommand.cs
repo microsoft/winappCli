@@ -58,6 +58,9 @@ internal class GuestAgentCommand : Command, IShortDescription
         DefaultValueFactory = _ => 0,
     };
 
+    public static Option<string?> ManagedRootOption { get; } = new("--managed-root");
+    public static Option<bool> LoopbackOption { get; } = new("--loopback");
+
     /// <summary>Creates the hidden agent verb.</summary>
     public GuestAgentCommand()
         : base(
@@ -74,6 +77,8 @@ internal class GuestAgentCommand : Command, IShortDescription
         Options.Add(BootstrapDirectoryOption);
         Options.Add(ResultDirectoryOption);
         Options.Add(PortOption);
+        Options.Add(ManagedRootOption);
+        Options.Add(LoopbackOption);
     }
 
     /// <summary>Runs the agent, or its self-test.</summary>
@@ -117,8 +122,9 @@ internal class GuestAgentCommand : Command, IShortDescription
             return await new GuestAgentRunner(sessionProbe, processes, appLauncher, packageRegistration).RunAsync(
                 bootstrapDirectory,
                 resultDirectory,
-                GuestAgentRunner.DefaultManagedRoot,
-                cancellationToken).ConfigureAwait(false);
+                parseResult.GetValue(ManagedRootOption) ?? GuestAgentRunner.DefaultManagedRoot,
+                cancellationToken,
+                loopbackOnly: parseResult.GetValue(LoopbackOption)).ConfigureAwait(false);
         }
 
         /// <summary>

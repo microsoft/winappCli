@@ -36,6 +36,7 @@ internal sealed class ProcessRunner : IProcessRunner
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = request.CloseStandardInput,
             CreateNoWindow = request.CreateNoWindow,
         };
 
@@ -59,6 +60,10 @@ internal sealed class ProcessRunner : IProcessRunner
         // own redirected pipes are created inheritable by .NET and are unaffected.
         using var process = StartProcess(psi, request.OutlivesCaller)
             ?? throw new InvalidOperationException($"Failed to start process '{request.FileName}'.");
+        if (request.CloseStandardInput)
+        {
+            process.StandardInput.Close();
+        }
 
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();

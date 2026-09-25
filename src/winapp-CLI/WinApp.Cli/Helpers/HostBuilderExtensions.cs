@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.CommandLine;
 using System.CommandLine.Invocation;
@@ -9,6 +10,7 @@ using System.Diagnostics.CodeAnalysis;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
+using WinApp.Cli.ExecutionTargets.Mxc;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Services;
@@ -88,7 +90,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IDesktopForegroundService, DesktopForegroundService>()
             .AddSingleton<IWindowDpiContextProvider, WindowDpiContextProvider>()
             .AddSingleton<IControlsSearchService, ControlsSearchService>()
-            // Execution targets (Windows Sandbox and any future target)
+            // Execution targets
             .AddSingleton<ITargetStateDirectoryProvider>(_ => new TargetStateDirectoryProvider())
             .AddSingleton<ITargetProgress, LoggerTargetProgress>()
             .AddSingleton<ITargetStateStore, TargetStateStore>()
@@ -110,7 +112,21 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<TargetDeploymentService>()
             .AddSingleton<GuestApplicationRunner>()
             .AddSingleton<ExecutionTargetUiRouter>()
-            .AddSingleton<IExecutionTargetBackend, WindowsSandboxBackend>()
+            .AddSingleton<WindowsSandboxBackend>()
+            .AddSingleton<IExecutionTargetBackend>(provider => provider.GetRequiredService<WindowsSandboxBackend>())
+            .AddSingleton<Func<ExecutionTargetRef, IExecutionTargetBackend>>(provider => target => target.Kind switch
+            {
+                ExecutionTargetRef.SandboxKind => provider.GetRequiredService<WindowsSandboxBackend>(),
+                ExecutionTargetRef.MxcKind => new MxcBackend(
+                    target,
+                    provider.GetRequiredService<ITargetStateDirectoryProvider>(),
+                    provider.GetRequiredService<IHostWinappBinaryProvider>(),
+                    provider.GetRequiredService<IProcessRunner>(),
+                    provider.GetRequiredService<ILogger<MxcBackend>>()),
+                _ => throw ExecutionTargetException.Create(
+                    ExecutionTargetErrorCodes.TargetInvalid,
+                    $"No provider in this build serves the '{target.Selector}' target."),
+            })
             .AddSingleton<ExecutionTargetOrchestrator>();
     }
 
@@ -202,6 +218,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<TargetExecCommand, TargetExecCommand.Handler>()
                 .UseCommandHandler<TargetPushCommand, TargetPushCommand.Handler>()
                 .UseCommandHandler<TargetPullCommand, TargetPullCommand.Handler>()
+                .UseCommandHandler<TargetDeleteCommand, TargetDeleteCommand.Handler>()
                 // Execution-target diagnostics and guest-native capture
                 .UseCommandHandler<TargetSnapshotCommand, TargetSnapshotCommand.Handler>()
                 .UseCommandHandler<TargetScreenshotCommand, TargetScreenshotCommand.Handler>()

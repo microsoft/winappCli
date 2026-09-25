@@ -52,8 +52,10 @@ internal sealed class ExecutionTargetUiRouter(
         IReadOnlyList<string> arguments,
         TargetUiRequirements requirements,
         bool isJson,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ExecutionTargetRef? selectedTarget = null)
     {
+        var selectedOrchestrator = orchestrator;
         using var interrupt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         ConsoleCancelEventHandler onCancel = (_, eventArgs) =>
         {
@@ -63,16 +65,27 @@ internal sealed class ExecutionTargetUiRouter(
         Console.CancelKeyPress += onCancel;
         try
         {
-            return await RouteCoreAsync(arguments, requirements, isJson,
+            if (selectedTarget is not null)
+            {
+                selectedOrchestrator = orchestrator.ForTarget(selectedTarget);
+            }
+
+            return await RouteCoreAsync(selectedOrchestrator, arguments, requirements, isJson,
                 TargetArtifactService.ScopeFor(Guid.NewGuid()), interrupt.Token).ConfigureAwait(false);
+        }
+        catch (ExecutionTargetException ex)
+        {
+            return TargetOutput.Fail(console, isJson, ex.Error);
         }
         catch (OperationCanceledException) when (!interrupt.IsCancellationRequested)
         {
             return TargetOutput.Fail(console, isJson, ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.TransportFailed,
-                $"The {orchestrator.Target.Selector} target timed out while preparing this command.",
-                userAction: "Check that the Sandbox window is connected, then retry.",
-                context: orchestrator.DescribeForDiagnostics().ToDictionary(
+                $"The {selectedOrchestrator.Target.Selector} target timed out while preparing this command.",
+                userAction: selectedOrchestrator.HasHostRenderedDesktop
+                    ? "Check that the Sandbox window is connected, then retry."
+                    : "Check that the target and its guest agent are running, then retry.",
+                context: selectedOrchestrator.DescribeForDiagnostics().ToDictionary(
                     pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)).Error);
         }
         finally
@@ -82,6 +95,7 @@ internal sealed class ExecutionTargetUiRouter(
     }
 
     private async Task<int> RouteCoreAsync(
+        ExecutionTargetOrchestrator selectedOrchestrator,
         IReadOnlyList<string> arguments,
         TargetUiRequirements requirements,
         bool isJson,
@@ -98,8 +112,16 @@ internal sealed class ExecutionTargetUiRouter(
                 TargetArtifactService.ValidateDestination(destination);
             }
 
-            await using var target = await orchestrator.PrepareAsync(
-                requirements.RequiresInteractiveDesktop ? PrepareTargetOptions.Interactive : PrepareTargetOptions.ReadOnly,
+            var options = requirements.RequiresInteractiveDesktop
+                ? PrepareTargetOptions.Interactive
+                : PrepareTargetOptions.ReadOnly;
+            if (selectedOrchestrator.Target.Kind == ExecutionTargetRef.MxcKind)
+            {
+                options = options with { CreateIfMissing = false };
+            }
+
+            await using var target = await selectedOrchestrator.PrepareAsync(
+                options,
                 cancellationToken).ConfigureAwait(false);
 
             var routed = UiArgvRouter.Rewrite(
@@ -125,9 +147,10 @@ internal sealed class ExecutionTargetUiRouter(
             var errors = routed.Artifact is { } capture
                 ? new ArtifactErrorRelay(Console.Error, capture)
                 : null;
-            if (requirements.RequiresRealInput && !requirements.GuestDesktopCapture)
+            if (requirements.RequiresRealInput && !requirements.GuestDesktopCapture &&
+                selectedOrchestrator.HasHostRenderedDesktop)
             {
-                _ = orchestrator.ResolveDesktopSurface(
+                _ = selectedOrchestrator.ResolveDesktopSurface(
                     routed.Artifact is null ? TargetDesktopUse.RealInput : TargetDesktopUse.PixelCapture);
             }
 

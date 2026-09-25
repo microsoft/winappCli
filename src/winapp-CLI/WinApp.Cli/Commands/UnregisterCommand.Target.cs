@@ -23,13 +23,14 @@ internal partial class UnregisterCommand
         /// name, and the host clears evidence only after a second Windows query proves it is gone.
         /// </remarks>
         private async Task<int> UnregisterOnTargetAsync(
+            ExecutionTargetRef executionTarget,
             MsixIdentityResult identity,
             bool isJson,
             CancellationToken cancellationToken)
         {
             try
             {
-                await using var target = await orchestrator.PrepareAsync(
+                await using var target = await orchestrator.ForTarget(executionTarget).PrepareAsync(
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = false },
                     cancellationToken);
 

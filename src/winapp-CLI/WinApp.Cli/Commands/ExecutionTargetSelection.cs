@@ -42,7 +42,7 @@ internal static class ExecutionTargetSelection
     {
         Description =
             "Run this command on the named execution target instead of this machine. " +
-            "Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). " +
+            "Supported: 'sandbox' (Windows Sandbox), 'mxc[:name]' (default name: 'default'), and 'local' (the default). " +
             "There is no fallback: if the target cannot be prepared, the command fails rather than " +
             "running here.",
         Recursive = true,
