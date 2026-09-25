@@ -74,10 +74,12 @@ internal class TargetSnapshotCommand : Command, IShortDescription
 
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             ExecutionTargetRef reference;
+            ExecutionTargetOrchestrator selectedOrchestrator;
 
             try
             {
-                reference = TargetVerb.Resolve(orchestrator, parseResult.GetValue(SelectorArgument));
+                selectedOrchestrator = TargetVerb.Resolve(orchestrator, parseResult.GetValue(SelectorArgument));
+                reference = selectedOrchestrator.Target;
             }
             catch (ExecutionTargetException ex)
             {
@@ -89,7 +91,7 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                 // Inspect-only: never creates, starts, reconnects, or repairs. A command whose whole
                 // job is to report state must not be the reason that state exists — an agent asking
                 // "is a Sandbox up?" would otherwise start one by asking, and then be told yes.
-                var inspection = await orchestrator.InspectAsync(cancellationToken).ConfigureAwait(false);
+                var inspection = await selectedOrchestrator.InspectAsync(cancellationToken).ConfigureAwait(false);
                 await using var target = inspection.Target;
 
                 var output = new TargetSnapshotOutput
@@ -102,18 +104,18 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                         !string.IsNullOrWhiteSpace(capabilities.ManagedRoot)
                             ? GuestPaths.Resolve(capabilities, TargetFileTransferService.WorkScope)
                             : null,
-                    Desktop = DescribeDesktop(inspection.Running),
+                    Desktop = DescribeDesktop(selectedOrchestrator, inspection.Running),
                     Deployments = [],
                 };
 
                 output.Desktop.EffectiveInputReady =
                     target?.Capabilities.SupportsRealInput == true &&
-                    output.Desktop.Rendered &&
-                    !output.Desktop.Minimized;
+                    (!selectedOrchestrator.HasHostRenderedDesktop ||
+                        (output.Desktop.Rendered && !output.Desktop.Minimized));
                 output.Desktop.EffectiveCaptureReady =
                     target?.Capabilities.SupportsScreenCapture == true &&
-                    output.Desktop.Rendered &&
-                    !output.Desktop.Minimized;
+                    (!selectedOrchestrator.HasHostRenderedDesktop ||
+                        (output.Desktop.Rendered && !output.Desktop.Minimized));
 
                 if (inspection.Running)
                 {
@@ -159,7 +161,7 @@ internal class TargetSnapshotCommand : Command, IShortDescription
         /// identified, is reported as such rather than failing the snapshot: the rest of the report
         /// is exactly what a caller needs to work out why.
         /// </remarks>
-        private TargetSnapshotDesktop DescribeDesktop(bool running)
+        private static TargetSnapshotDesktop DescribeDesktop(ExecutionTargetOrchestrator selectedOrchestrator, bool running)
         {
             if (!running)
             {
@@ -173,9 +175,18 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                 };
             }
 
+            if (!selectedOrchestrator.HasHostRenderedDesktop)
+            {
+                return new TargetSnapshotDesktop
+                {
+                    Rendered = false,
+                    Unavailable = ExecutionTargetErrorCodes.Unsupported,
+                };
+            }
+
             try
             {
-                var surface = orchestrator.InspectDesktopSurface();
+                var surface = selectedOrchestrator.InspectDesktopSurface();
 
                 return new TargetSnapshotDesktop
                 {

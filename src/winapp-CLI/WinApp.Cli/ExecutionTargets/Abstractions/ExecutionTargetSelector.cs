@@ -34,12 +34,14 @@ internal static class ExecutionTargetSelector
     [
         ExecutionTargetRef.LocalKind,
         ExecutionTargetRef.SandboxKind,
+        ExecutionTargetRef.MxcKind,
     ];
 
     /// <summary>Kinds other than <c>local</c>, for help text and error suggestions.</summary>
     public static ImmutableArray<string> SelectableRemoteKinds { get; } =
     [
         ExecutionTargetRef.SandboxKind,
+        ExecutionTargetRef.MxcKind,
     ];
 
     /// <summary>Parses <paramref name="selector"/> into a validated reference.</summary>
@@ -89,7 +91,20 @@ internal static class ExecutionTargetSelector
                 $"Write '{matched}' on its own to use its default target.");
         }
 
-        // Both providers this build ships are single-instance, so any ID other than the default
+        if (matched == ExecutionTargetRef.MxcKind)
+        {
+            if (id.Length > 64 || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'))
+            {
+                throw Invalid(
+                    trimmed,
+                    $"'{id}' is not a valid MXC target name.",
+                    "Use 1–64 ASCII letters, digits, or hyphens. Names are normalized to lowercase.");
+            }
+
+            return new ExecutionTargetRef(matched, id.ToLowerInvariant());
+        }
+
+        // Local and Sandbox are single-instance, so any ID other than the default
         // names something that does not exist. Refusing it here, rather than letting it become a
         // second state root and a second lock, is what keeps a typo from quietly creating an
         // unreachable target.

@@ -380,7 +380,7 @@ internal partial class RunCommand
             if (!executionTarget.IsLocal)
             {
                 return await ExecuteUnpackagedSandboxRunAsync(
-                    resolution, csproj, appArgs, debugOutput, detach, isJson, cancellationToken);
+                    resolution, csproj, appArgs, debugOutput, detach, isJson, executionTarget, cancellationToken);
             }
 
             var exePath = resolution.RunCommand!; // guaranteed non-null for unpackaged by BuildAndResolveAsync

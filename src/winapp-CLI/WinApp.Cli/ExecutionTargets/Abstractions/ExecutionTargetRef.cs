@@ -31,6 +31,9 @@ internal sealed record ExecutionTargetRef
     /// <summary>The managed Windows Sandbox provider.</summary>
     public const string SandboxKind = "sandbox";
 
+    /// <summary>The named MXC container provider.</summary>
+    public const string MxcKind = "mxc";
+
     /// <summary>ID every single-instance provider uses for its one target.</summary>
     public const string DefaultId = "default";
 
@@ -69,7 +72,7 @@ internal sealed record ExecutionTargetRef
     /// A provider whose only target is its default is written as the bare kind, which is what the
     /// user typed and what error messages and copy-paste hints should echo back.
     /// </remarks>
-    public string Selector => Id == DefaultId ? Kind : $"{Kind}:{Id}";
+    public string Selector => Id == DefaultId && Kind != MxcKind ? Kind : $"{Kind}:{Id}";
 
     /// <summary>
     /// Filesystem- and kernel-object-safe key for this target's state root and named locks.
@@ -253,7 +256,8 @@ internal sealed class ExecutionTargetScope
     /// </remarks>
     public string SelectorHint => string.Equals(Kind, ExecutionTargetRef.LocalKind, StringComparison.Ordinal)
         ? string.Empty
-        : string.Equals(Id, ExecutionTargetRef.DefaultId, StringComparison.Ordinal)
+        : Kind != ExecutionTargetRef.MxcKind &&
+          string.Equals(Id, ExecutionTargetRef.DefaultId, StringComparison.Ordinal)
             ? Kind
             : string.Create(CultureInfo.InvariantCulture, $"{Kind}:{Id}");
 }

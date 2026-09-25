@@ -84,7 +84,7 @@ internal static class TargetDesktopCapture
         }
         try
         {
-            _ = TargetVerb.Resolve(orchestrator, selector);
+            orchestrator = TargetVerb.Resolve(orchestrator, selector);
         }
         catch (ExecutionTargetException ex)
         {

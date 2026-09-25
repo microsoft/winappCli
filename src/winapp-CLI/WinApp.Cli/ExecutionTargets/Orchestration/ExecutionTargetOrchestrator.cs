@@ -115,6 +115,9 @@ internal sealed record PreparedTarget(
 /// </param>
 internal sealed record PrepareTargetOptions(bool RequireInteractiveDesktop, bool RequiresMutation)
 {
+    /// <summary>False to attach to an existing agent without creating or repairing a target.</summary>
+    public bool CreateIfMissing { get; init; } = true;
+
     /// <summary>Deployment, registration, and runtime installation.</summary>
     public static PrepareTargetOptions Mutating { get; } = new(true, true);
 
@@ -158,9 +161,47 @@ internal sealed class ExecutionTargetOrchestrator(
     IExecutionTargetBackend backend,
     ITargetMutationLock mutationLock,
     ITargetConnectionLock connectionLock,
-    ILogger<ExecutionTargetOrchestrator>? logger = null)
+    ILogger<ExecutionTargetOrchestrator>? logger = null,
+    Func<ExecutionTargetRef, IExecutionTargetBackend>? backendFactory = null)
 {
     private bool _supportConfirmed;
+
+    public bool HasHostRenderedDesktop => backend is IHostRenderedTarget;
+
+    public ExecutionTargetOrchestrator ForTarget(ExecutionTargetRef target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (Target == target)
+        {
+            return this;
+        }
+
+        var selected = backendFactory?.Invoke(target);
+        if (selected is null || selected.Target != target)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.TargetInvalid,
+                $"No provider in this build serves the '{target.Selector}' target.",
+                userAction: $"Use '{Target.Selector}'.");
+        }
+
+        return new ExecutionTargetOrchestrator(selected, mutationLock, connectionLock, logger, backendFactory);
+    }
+
+    public async Task DeleteAsync(CancellationToken cancellationToken)
+    {
+        if (backend is not IDeletableTarget deletable)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.Unsupported,
+                $"The '{Target.Selector}' target does not support deletion through winapp.",
+                userAction: "Use the target provider's own tooling to stop or delete it.");
+        }
+
+        using var connectionLease = AcquireConnection(cancellationToken);
+        using var mutationLease = AcquireLock(cancellationToken);
+        await deletable.DeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>How long to wait for another winapp process to finish mutating this target.</summary>
     internal static readonly TimeSpan LockTimeout = TimeSpan.FromMinutes(10);
@@ -333,7 +374,24 @@ internal sealed class ExecutionTargetOrchestrator(
             {
                 var connectionStarted = Stopwatch.GetTimestamp();
                 TargetConnection? reconnected = null;
-                if (backend is IReconnectableTarget reconnectable)
+                if (!options.CreateIfMissing)
+                {
+                    if (backend is not IInspectableTarget inspectable)
+                    {
+                        throw ExecutionTargetException.Create(
+                            ExecutionTargetErrorCodes.Unsupported,
+                            $"The '{Target.Selector}' target cannot attach without preparation.");
+                    }
+
+                    var attachment = await inspectable.TryAttachAsync(cancellationToken).ConfigureAwait(false);
+                    reconnected = attachment.Connection ?? throw ExecutionTargetException.Create(
+                        ExecutionTargetErrorCodes.TargetStale,
+                        $"The '{Target.Selector}' target has no running, reachable agent. Nothing was created.",
+                        userAction: $"Run 'winapp run . --on {Target.Selector}' to prepare a new target. " +
+                            "If its saved state is stale, explicitly delete it first with " +
+                            $"'winapp target delete {Target.Selector}'.");
+                }
+                else if (backend is IReconnectableTarget reconnectable)
                 {
                     try
                     {
@@ -422,7 +480,7 @@ internal sealed class ExecutionTargetOrchestrator(
     public IReadOnlyDictionary<string, string> DescribeForDiagnostics() => backend.DescribeForDiagnostics();
 
     /// <summary>
-    /// The one non-local target this build's registered provider serves.
+    /// The non-local target this orchestrator serves.
     /// </summary>
     /// <remarks>
     /// Exposed so a command can prove the selector it was given names a target that actually exists
@@ -458,7 +516,9 @@ internal sealed class ExecutionTargetOrchestrator(
 
         return lease ?? throw ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.TargetAmbiguous,
-            "Another winapp command is still changing this Windows Sandbox.",
+            Target.Kind == ExecutionTargetRef.SandboxKind
+                ? "Another winapp command is still changing this Windows Sandbox."
+                : $"Another winapp command is still changing '{Target.Selector}'.",
             userAction: "Wait for the other command to finish, then retry.",
             context: new Dictionary<string, string> { ["targetId"] = backend.Target.Id });
     }
@@ -468,7 +528,9 @@ internal sealed class ExecutionTargetOrchestrator(
         return connectionLock.TryAcquire(backend.Target, LockTimeout, cancellationToken)
             ?? throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.TargetAmbiguous,
-                "Another winapp command is still starting or repairing this Windows Sandbox.",
+                Target.Kind == ExecutionTargetRef.SandboxKind
+                    ? "Another winapp command is still starting or repairing this Windows Sandbox."
+                    : $"Another winapp command is still starting or repairing '{Target.Selector}'.",
                 userAction: "Wait for the other command to finish, then retry.",
                 context: new Dictionary<string, string> { ["targetId"] = backend.Target.Id });
     }
@@ -492,7 +554,7 @@ internal sealed class ExecutionTargetOrchestrator(
     /// immediately beforehand, because the user can disconnect between this check and the keystroke.
     /// </para>
     /// </remarks>
-    private static void EnsureCapable(PrepareTargetOptions options, ExecutionTargetCapabilities capabilities)
+    private void EnsureCapable(PrepareTargetOptions options, ExecutionTargetCapabilities capabilities)
     {
         if (!options.RequireInteractiveDesktop)
         {
@@ -502,6 +564,16 @@ internal sealed class ExecutionTargetOrchestrator(
         if (capabilities.SupportsRealInput)
         {
             return;
+        }
+
+        if (Target.Kind != ExecutionTargetRef.SandboxKind)
+        {
+            throw ExecutionTargetException.Create(
+                capabilities.SupportsInteractiveDesktop
+                    ? ExecutionTargetErrorCodes.InputNotReady
+                    : ExecutionTargetErrorCodes.NoInteractiveSession,
+                $"The '{Target.Selector}' target has no ready interactive desktop for this command.",
+                userAction: "Check the target's interactive session and guest agent, then retry.");
         }
 
         throw ExecutionTargetException.Create(

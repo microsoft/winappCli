@@ -46,7 +46,8 @@ internal sealed class GuestAgentRunner(
         string bootstrapDirectory,
         string resultDirectory,
         string managedRoot,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool loopbackOnly = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bootstrapDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(resultDirectory);
@@ -76,7 +77,9 @@ internal sealed class GuestAgentRunner(
 
         try
         {
-            (listener, port) = GuestTcpTransport.Listen(material.Port);
+            (listener, port) = loopbackOnly
+                ? GuestTcpTransport.Listen(material.Port, System.Net.IPAddress.Loopback)
+                : GuestTcpTransport.Listen(material.Port);
         }
         catch (SocketException ex)
         {

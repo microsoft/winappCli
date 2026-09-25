@@ -24,6 +24,8 @@ internal sealed record ProcessRunRequest(
     /// is not sufficient on its own.
     /// </remarks>
     public bool OutlivesCaller { get; init; }
+
+    public bool CloseStandardInput { get; init; }
 }
 
 /// <summary>Captured result of a completed child process.</summary>
