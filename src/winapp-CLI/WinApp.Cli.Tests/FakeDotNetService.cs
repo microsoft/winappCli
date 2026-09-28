@@ -107,12 +107,32 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the working directory passed alongside each argument-list invocation.</summary>
     public List<DirectoryInfo> ArgumentListWorkingDirectories { get; } = [];
 
+    /// <summary>
+    /// Optional content for a requested <c>--getResultOutputFile</c>. When null, the scripted stdout is
+    /// written to the file instead.
+    /// </summary>
+    public Func<IReadOnlyList<string>, string>? ResultOutputFileHandler { get; set; }
+
+    /// <summary>Records every <c>--getResultOutputFile</c> path the fake wrote.</summary>
+    public List<string> ResultOutputFiles { get; } = [];
+
     public Task<(int ExitCode, string Output, string Error)> RunDotnetCommandAsync(DirectoryInfo workingDirectory, IReadOnlyList<string> arguments, IReadOnlyDictionary<string, string>? environmentOverrides = null, Action<string>? onOutputLine = null, Action<string>? onErrorLine = null, CancellationToken cancellationToken = default)
     {
         ArgumentListInvocations.Add(arguments.ToArray());
         ArgumentListEnvironmentInvocations.Add(environmentOverrides);
         ArgumentListWorkingDirectories.Add(workingDirectory);
         var result = RunDotnetArgumentListHandler?.Invoke(arguments) ?? (0, string.Empty, string.Empty);
+
+        // Mirror MSBuild's --getResultOutputFile: write the property result to the requested file. By
+        // default the scripted stdout doubles as the result so property-only scenarios need no setup.
+        const string resultFileSwitch = "--getResultOutputFile:";
+        if (arguments.FirstOrDefault(a => a.StartsWith(resultFileSwitch, StringComparison.Ordinal)) is { } resultFileArgument)
+        {
+            ResultOutputFiles.Add(resultFileArgument[resultFileSwitch.Length..]);
+            File.WriteAllText(
+                ResultOutputFiles[^1],
+                ResultOutputFileHandler is null ? result.Item2 : ResultOutputFileHandler(arguments));
+        }
 
         // Mirror the real service: when a caller supplies line callbacks (e.g. the verbose scaffold
         // streaming its post-creation output), replay the scripted stdout/stderr through them so tests
