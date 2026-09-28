@@ -132,6 +132,31 @@ internal sealed class SearchEngine
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The control's one-line concept summary, used as a BM25 field.
+    ///
+    /// This is the only control field carrying task vocabulary — what a control
+    /// is *for*, as opposed to what it is *called*. Every other field is naming
+    /// (name, id, camel-split) or authored search metadata (keywords, tags,
+    /// headers), so without it an intent query like "labels separated by a
+    /// bullet" cannot reach MetadataControl even though that phrasing is almost
+    /// verbatim in its description.
+    ///
+    /// Mirrors the resolution order <see cref="SearchGrouped"/> already uses for
+    /// display: prefer the explicit ControlDescription from toolkit frontmatter,
+    /// then fall back to the per-control Description that Gallery repeats on
+    /// every scenario row.
+    /// </summary>
+    private static string ControlConceptText(List<Scenario> scenarios)
+    {
+        var desc = scenarios
+            .Select(s => s.ControlDescription)
+            .FirstOrDefault(d => !string.IsNullOrEmpty(d));
+        if (string.IsNullOrEmpty(desc))
+            desc = scenarios.FirstOrDefault()?.Description;
+        return desc ?? string.Empty;
+    }
+
     /// <summary>Two-layer search: find controls first, then pick best scenario.</summary>
     public List<SearchResult> Search(string query, int maxResults = 5)
     {
@@ -181,7 +206,8 @@ internal sealed class SearchEngine
                 (nameSplit, 2.5),
                 (string.Join(" ", keywords), 5.0),
                 (string.Join(" ", enrichTags), 3.0),
-                (scenarios[0].HeaderText, 1.5)
+                (scenarios[0].HeaderText, 1.5),
+                (ControlConceptText(scenarios), 1.5)
             );
         }).ToArray();
 
@@ -341,7 +367,8 @@ internal sealed class SearchEngine
                 (nameSplit,                    2.5),
                 (string.Join(" ", keywords),   5.0),
                 (string.Join(" ", enrichTags), 3.0),
-                (allHeaders,                   0.8)
+                (allHeaders,                   0.8),
+                (ControlConceptText(scenarios), 1.5)
             );
         }).ToArray();
 
