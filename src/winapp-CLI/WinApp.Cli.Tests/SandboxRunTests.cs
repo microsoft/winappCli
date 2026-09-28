@@ -472,6 +472,7 @@ public class SandboxRunTests
 
     [TestMethod]
     [DataRow("version")]
+    [DataRow("architecture")]
     [DataRow("mode")]
     [DataRow("clean")]
     public async Task ReconcileBeforeRegistration_RemovesExactPriorPackageBeforeDeploying(string change)
@@ -487,6 +488,7 @@ public class SandboxRunTests
             Identity = prior.Identity! with
             {
                 Version = change == "version" ? "2.0.0.0" : prior.Identity!.Version,
+                Architecture = change == "architecture" ? "x64" : prior.Identity!.Architecture,
                 Mode = change == "mode" ? "Unique" : prior.Identity!.Mode,
             },
         };
@@ -506,8 +508,34 @@ public class SandboxRunTests
             harness.Target, "dep-1", new DirectoryInfo(_hostSource), clean: change == "clean",
             TestContext.CancellationToken);
 
-        Assert.AreEqual((fullName, false), harness.PackageRegistration.UnregisterByFullNameCalls.Single());
+        Assert.AreEqual((fullName, change != "clean"), harness.PackageRegistration.UnregisterByFullNameCalls.Single());
         Assert.AreEqual("v2", await File.ReadAllTextAsync(payload, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task ReconcileBeforeRegistration_OldGuestCannotDiscardDataDuringReplacement()
+    {
+        await WriteHostFileAsync("app.exe", "v1");
+        await using var harness = new Harness(_guestManaged, _stateRoot);
+        var deployment = await CreateOwnedDeploymentAsync(harness, "dep-1");
+        harness.AppLauncher.FakeRegisteredLocation = deployment.LayoutPath;
+        var previous = harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!;
+        var desired = previous.Package! with
+        {
+            Identity = previous.Package!.Identity! with { Version = "2.0.0.0" },
+        };
+        var oldTarget = harness.Target with { Capabilities = Capabilities(identityVersion: 0) };
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Runner.ReconcilePackageBeforeRegistrationAsync(
+                oldTarget, "dep-1", desired, clean: false, TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentIncompatible, error.Error.Code);
+        Assert.IsEmpty(harness.PackageRegistration.UnregisterByFullNameCalls);
+        Assert.AreEqual(harness.AppLauncher.FakePackageFullName,
+            harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!.Package!.PackageFullName);
+        Assert.AreEqual("v1", await File.ReadAllTextAsync(
+            TestPaths.Under(_guestManaged, "deployments", "dep-1", "app.exe"), TestContext.CancellationToken));
     }
 
     [TestMethod]
@@ -531,9 +559,11 @@ public class SandboxRunTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task ReconcileBeforeRegistration_ModeSwitchRemovesPreviousEffectiveFamily(bool uniqueFirst)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task ReconcileBeforeRegistration_ModeSwitchRemovesPreviousEffectiveFamily(bool uniqueFirst, bool clean)
     {
         await WriteHostFileAsync("app.exe", "v1");
         var inventory = new FamilyInventoryAppLauncher();
@@ -568,9 +598,9 @@ public class SandboxRunTests
         };
 
         await harness.Runner.ReconcilePackageBeforeRegistrationAsync(
-            harness.Target, "dep-1", desired, clean: false, TestContext.CancellationToken);
+            harness.Target, "dep-1", desired, clean, TestContext.CancellationToken);
 
-        Assert.AreEqual((observedFullName, false), harness.PackageRegistration.UnregisterByFullNameCalls.Single());
+        Assert.AreEqual((observedFullName, true), harness.PackageRegistration.UnregisterByFullNameCalls.Single());
         Assert.IsNull(harness.States.Read(WindowsSandboxTarget.Default, "dep-1")!.Package);
         Assert.HasCount(0, inventory.Packages);
     }

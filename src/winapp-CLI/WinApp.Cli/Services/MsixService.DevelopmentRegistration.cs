@@ -124,6 +124,7 @@ internal partial class MsixService
                 {
                     PackageFullName = expectedFullName,
                     Revision = checked(Math.Max(prior?.Identity.Revision ?? 0, pending?.Candidate.Identity.Revision ?? 0) + 1),
+                    RegistrationId = Guid.NewGuid(),
                 },
                 ManifestHash = DevelopmentRegistrationStore.HashManifest(staging),
             };

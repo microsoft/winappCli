@@ -269,6 +269,7 @@ internal static class DevelopmentRegistrationStore
         string.Equals(DevelopmentIdentityHelper.CanonicalizePath(left), DevelopmentIdentityHelper.CanonicalizePath(right), StringComparison.OrdinalIgnoreCase);
 
     internal static bool SameReceipt(DevelopmentRegistration left, DevelopmentRegistration right) =>
+        left.Identity.RegistrationId == right.Identity.RegistrationId &&
         left.Identity.Revision == right.Identity.Revision &&
         string.Equals(left.Identity.PackageFullName, right.Identity.PackageFullName, StringComparison.OrdinalIgnoreCase) &&
         SamePath(left.Identity.OwnerPath, right.Identity.OwnerPath) &&
@@ -285,7 +286,7 @@ internal static class DevelopmentRegistrationStore
             identity.Mode is not ("Original" or "Unique") ||
             string.IsNullOrWhiteSpace(identity.OriginalPackageName) || string.IsNullOrWhiteSpace(identity.ApplicationId) ||
             identity.ResourceId is null || identity.Aliases is null ||
-            identity.Revision < 1 || string.IsNullOrWhiteSpace(identity.PackageFullName) ||
+            identity.Revision < 1 || identity.RegistrationId == Guid.Empty || string.IsNullOrWhiteSpace(identity.PackageFullName) ||
             string.IsNullOrWhiteSpace(identity.EffectivePackageName) || string.IsNullOrWhiteSpace(identity.Publisher) ||
             !string.Equals(DevelopmentIdentityHelper.ComputeFamilyName(identity.EffectivePackageName, identity.Publisher),
                 identity.PackageFamilyName, StringComparison.OrdinalIgnoreCase) ||

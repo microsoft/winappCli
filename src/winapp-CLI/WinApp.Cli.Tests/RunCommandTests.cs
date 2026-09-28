@@ -1862,6 +1862,45 @@ public class RunCommandTests : BaseCommandTests
     #region --unregister-on-exit tests
 
     [TestMethod]
+    public async Task UnregisterOnExit_RecreatedRegistrationWithSameRevision_IsLeftIntact()
+    {
+        await CreateTestManifestAsync();
+        var layout = _tempDirectory.CreateSubdirectory("AppX");
+        var document = AppxManifestDocument.Parse(TestManifestContent);
+        document.IdentityProcessorArchitecture = "x64";
+        document.Save(Path.Join(layout.FullName, "appxmanifest.xml"));
+        var oldIdentity = DevelopmentIdentityHelper.Create(document, _tempDirectory.FullName, layout.FullName, false) with
+        {
+            PackageFullName = DevelopmentIdentityHelper.ComputeFullName(document),
+            Revision = 1,
+            RegistrationId = Guid.NewGuid(),
+        };
+        var replacement = new DevelopmentRegistration
+        {
+            Identity = oldIdentity with { RegistrationId = Guid.NewGuid() },
+            ManifestHash = DevelopmentRegistrationStore.HashManifest(layout),
+        };
+        DevelopmentRegistrationStore.Commit(
+            GetRequiredService<IWinappDirectoryService>().GetGlobalWinappDirectory(), layout, replacement);
+        _fakeMsixService.FakeDevelopmentIdentity = oldIdentity;
+        _fakeAppLauncherService.FakePackageFullName = oldIdentity.PackageFullName;
+        _fakeAppLauncherService.FakeProcessId = uint.MaxValue;
+        _fakePackageRegistrationService.FakeDevPackages =
+        [
+            new DevPackageInfo(oldIdentity.PackageFullName!, oldIdentity.EffectivePackageName, oldIdentity.Version,
+                layout.FullName, true, oldIdentity.Publisher, oldIdentity.PackageFamilyName),
+        ];
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [_tempDirectory.FullName, "--unregister-on-exit", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ParseJsonOutput().GetProperty("Error").GetString()!, "newer run");
+        Assert.IsEmpty(_fakePackageRegistrationService.UnregisterByFullNameCalls);
+        Assert.AreEqual(replacement.Identity.RegistrationId, DevelopmentRegistrationStore.Read(layout)!.Identity.RegistrationId);
+    }
+
+    [TestMethod]
     public async Task UnregisterOnExit_LiveLocationChanged_ReturnsOneJsonErrorAndRemovesNothing()
     {
         await CreateTestManifestAsync();

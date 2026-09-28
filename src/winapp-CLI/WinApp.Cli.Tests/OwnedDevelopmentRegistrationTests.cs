@@ -203,6 +203,28 @@ public class OwnedDevelopmentRegistrationTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task RecreatedRegistration_RejectsReceiptFromPreviousLifetime()
+    {
+        await Run();
+        var previous = DevelopmentRegistrationStore.Read(_layout)!;
+        Assert.IsTrue(await DevelopmentRegistrationStore.RemoveOwnedAsync(
+            _registration, StateRoot, previous, false, TestContext.CancellationToken));
+        await Run();
+        var current = DevelopmentRegistrationStore.Read(_layout)!;
+        Assert.AreEqual(previous.Revision, current.Revision);
+        Assert.AreEqual(previous.Identity.PackageFullName, current.Identity.PackageFullName);
+        _registration.UnregisterByFullNameCalls.Clear();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            DevelopmentRegistrationStore.RemoveOwnedAsync(
+                _registration, StateRoot, previous, false, TestContext.CancellationToken));
+
+        Assert.IsEmpty(_registration.UnregisterByFullNameCalls);
+        Assert.HasCount(1, _registration.FakeDevPackages);
+        Assert.IsTrue(DevelopmentRegistrationStore.SameReceipt(current, DevelopmentRegistrationStore.Read(_layout)!));
+    }
+
+    [TestMethod]
     public async Task Clean_RemovesOnlyExactOwnedPackageWithoutPreservingData()
     {
         var first = await Run();

@@ -1215,7 +1215,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     var ownedLayout = new DirectoryInfo(DevelopmentIdentityHelper.ResolvePathForIo(receipt.LayoutPath));
                     var registration = DevelopmentRegistrationStore.Read(ownedLayout)
                         ?? throw new InvalidOperationException($"Ownership metadata for '{packageFullName}' is missing. Nothing was removed.");
-                    if (registration.Identity.Revision != receipt.Revision ||
+                    if (registration.Identity.RegistrationId != receipt.RegistrationId ||
+                        registration.Identity.Revision != receipt.Revision ||
                         !string.Equals(registration.Identity.PackageFullName, packageFullName, StringComparison.Ordinal))
                     {
                         throw new InvalidOperationException($"A newer run replaced '{packageFullName}'. Its registration was left intact.");

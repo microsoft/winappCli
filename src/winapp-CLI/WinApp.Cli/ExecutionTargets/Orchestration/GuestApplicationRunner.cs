@@ -283,9 +283,11 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
 
         if (clean || RegistrationIdentityChanged(previous, desired))
         {
+            var preserveAppData = !clean || !string.Equals(
+                previous.PackageFamilyName, desired.PackageFamilyName, StringComparison.OrdinalIgnoreCase);
             await UnregisterOwnedPackageAsync(target,
                 previous.PackageName, previous.Publisher, previous.PackageFamilyName,
-                existing.DeploymentId, existing.Revision, cancellationToken).ConfigureAwait(false);
+                existing.DeploymentId, existing.Revision, cancellationToken, preserveAppData).ConfigureAwait(false);
         }
     }
 
@@ -334,10 +336,20 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
         string packageFamilyName,
         string? requiredDeploymentId,
         long? requiredRevision,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool preserveAppData = false)
     {
         ArgumentNullException.ThrowIfNull(target);
         target.RequireMutationLease();
+
+        if (preserveAppData &&
+            target.Capabilities.DevelopmentIdentityVersion != ExecutionTargetCapabilities.CurrentDevelopmentIdentityVersion)
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.AgentIncompatible,
+                "The running Windows Sandbox agent cannot preserve application data during replacement. No package was removed.",
+                userAction: "Save any guest work and close Windows Sandbox, then retry with this winapp version to start a compatible agent.");
+        }
 
         if (requiredDeploymentId is not null)
         {
@@ -390,6 +402,7 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
                 packageFamilyName,
                 actual.FullName,
                 actual.RegisteredLocation!,
+                preserveAppData,
                 cancellationToken)
             .ConfigureAwait(false);
 

@@ -611,6 +611,7 @@ public class UnregisterCommandManagedTests : BaseCommandTests
             OwnerPath = canonicalOwner,
             LayoutPath = DevelopmentIdentityHelper.CanonicalizePath(layout.FullName),
             Revision = 1,
+            RegistrationId = Guid.NewGuid(),
         };
         var registration = new DevelopmentRegistration
         {

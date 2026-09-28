@@ -215,7 +215,7 @@ Describe 'winui-app sample' {
             $appProcess = $null
 
             try {
-                $output = Invoke-WinappCommand -Arguments "run . --aot --arch $($script:platform) --detach --json --output-appx-directory AotLayout"
+                $output = Invoke-SampleWinapp -Arguments @('run', '.', '--aot', '--arch', $script:platform, '--detach', '--json', '--output-appx-directory', 'AotLayout')
                 $result = ($output -join "`n") | ConvertFrom-Json -ErrorAction Stop
                 $result.ProcessId | Should -BeGreaterThan 0
                 $candidate = Get-Process -Id $result.ProcessId -ErrorAction Stop
@@ -338,7 +338,7 @@ Describe 'winui-app sample' {
         }
 
         It 'Packages the .csproj into an MSIX in one step' -Skip:$script:skip {
-            $output = Invoke-WinappCommand -Arguments "package winui-app.csproj --arch $($script:packArch)"
+            $output = Invoke-SampleWinapp -Arguments @('package', 'winui-app.csproj', '--arch', $script:packArch)
             "$output" | Should -Match 'MSIX package creation completed'
         }
 

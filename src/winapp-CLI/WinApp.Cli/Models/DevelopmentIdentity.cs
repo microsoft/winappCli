@@ -20,5 +20,6 @@ internal sealed record DevelopmentIdentity
     public required string LayoutPath { get; init; }
     public string? PackageFullName { get; init; }
     public long Revision { get; init; }
+    public Guid RegistrationId { get; init; }
     public IReadOnlyDictionary<string, string> Aliases { get; init; } = new Dictionary<string, string>();
 }

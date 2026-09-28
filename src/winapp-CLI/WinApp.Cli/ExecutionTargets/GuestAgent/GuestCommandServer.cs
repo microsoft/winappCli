@@ -297,6 +297,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
                     unregisterFamilyName,
                     packageFullName,
                     unregisterLocation,
+                    message.PreserveAppData,
                     cancellationToken).ConfigureAwait(false);
                 break;
 
@@ -742,6 +743,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         string packageFamilyName,
         string packageFullName,
         string expectedRegisteredLocation,
+        bool preserveAppData,
         CancellationToken cancellationToken)
     {
         try
@@ -767,7 +769,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
             }
 
             await RequirePackageRegistration()
-                .UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cancellationToken)
+                .UnregisterByFullNameAsync(packageFullName, preserveAppData, cancellationToken)
                 .ConfigureAwait(false);
             await SendFileCompletedAsync(operationId, cancellationToken).ConfigureAwait(false);
         }

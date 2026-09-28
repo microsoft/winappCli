@@ -18,6 +18,7 @@ public class DevelopmentRegistrationMetadataTests
     [DataRow("owner")]
     [DataRow("relative-owner")]
     [DataRow("missing-schema")]
+    [DataRow("missing-registration-id")]
     public void UnknownOrInconsistentMetadataIsRejected(string mismatch)
     {
         var root = Directory.CreateTempSubdirectory("winapp-receipt-");
@@ -35,7 +36,7 @@ public class DevelopmentRegistrationMetadataTests
             document.Save(Path.Combine(layout.FullName, "appxmanifest.xml"));
             var receipt = new DevelopmentRegistration
             {
-                Identity = identity with { PackageFullName = DevelopmentIdentityHelper.ComputeFullName(document), Revision = 1 },
+                Identity = identity with { PackageFullName = DevelopmentIdentityHelper.ComputeFullName(document), Revision = 1, RegistrationId = Guid.NewGuid() },
                 ManifestHash = DevelopmentRegistrationStore.HashManifest(layout),
             };
             DevelopmentRegistrationStore.Commit(root, layout, receipt);
@@ -49,6 +50,7 @@ public class DevelopmentRegistrationMetadataTests
                 "algorithm" => observed with { AlgorithmVersion = "winapp-unique-future" },
                 "owner" => observed with { Identity = observed.Identity with { OwnerPath = DevelopmentIdentityHelper.CanonicalizePath(other) } },
                 "relative-owner" => observed with { Identity = observed.Identity with { OwnerPath = "owner.csproj" } },
+                "missing-registration-id" => observed with { Identity = observed.Identity with { RegistrationId = Guid.Empty } },
                 _ => observed,
             };
             var json = JsonSerializer.Serialize(changed, DevelopmentRegistrationJsonContext.Default.DevelopmentRegistration);

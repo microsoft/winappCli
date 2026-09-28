@@ -87,6 +87,10 @@ Application data is preserved unless you request `--clean`. An incomplete deploy
 does not launch; retrying rebuilds its guest copy. If build files change while winapp is
 preparing them, finish the build and retry.
 
+If an older guest agent cannot preserve application data during a package replacement,
+winapp refuses the replacement. Save your guest work and close Sandbox, then retry with
+the updated winapp to start a compatible agent.
+
 Warm UI commands report only their result, without repeating a Sandbox preparation
 message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
 connection timings and diagnostic details; `--quiet` and `--json` suppress progress.
