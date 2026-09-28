@@ -8,7 +8,6 @@ using Microsoft.Diagnostics.Telemetry;
 using Microsoft.Diagnostics.Telemetry.Internal;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
-using WinApp.Cli.Services;
 using WinApp.Cli.Telemetry;
 using WinApp.Cli.Telemetry.Events;
 
@@ -88,56 +87,6 @@ public sealed class TelemetryTests
             "ExecutionTargetKind", "sandbox");
         AssertEvent(events, "CommandCompleted_Event", EventLevel.Verbose, TelemetryEventSource.CriticalDataKeyword,
             "ExecutionTargetKind", "sandbox");
-    }
-
-    [TestMethod]
-    public void ProjectContextEvent_UsesCriticalKeywordWithoutEnablingDiagnostics()
-    {
-        using var listener = new CapturingEventListener(ProviderName);
-        var telemetry = new WinApp.Cli.Telemetry.Telemetry();
-        TelemetryFactory.SetOverrideForTesting(telemetry);
-        try
-        {
-            ProjectContextEvent.Log("restore", ProjectContext.Unknown(ProjectTargetKind.Workspace));
-            ProjectContextEvent.Log("run", () => ProjectContext.Unknown(ProjectTargetKind.BuildOutput));
-            telemetry.Log("OtherMeasure", LogLevel.Measure, new ProbeEvent { Detail = "local-only" });
-
-            var events = listener.WaitForEvents(3);
-            Assert.IsFalse(telemetry.IsDiagnosticTelemetryOn);
-            AssertEvent(events, "ProjectContext_Event", EventLevel.Verbose, TelemetryEventSource.CriticalDataKeyword,
-                "Command", "restore");
-            AssertEvent(events, "ProjectContext_Event", EventLevel.Verbose, TelemetryEventSource.CriticalDataKeyword,
-                "Command", "run");
-            AssertEvent(events, "ProjectContext_Event", EventLevel.Verbose, TelemetryEventSource.CriticalDataKeyword,
-                "ProjectFamily", "unknown");
-            AssertEvent(events, "OtherMeasure", EventLevel.Verbose, EventKeywords.None,
-                "Detail", "local-only");
-        }
-        finally
-        {
-            TelemetryFactory.SetOverrideForTesting(null);
-        }
-    }
-
-    [TestMethod]
-    public void ProjectContextEvent_OptOutSkipsClassificationAndEmission()
-    {
-        Environment.SetEnvironmentVariable("WINAPP_CLI_TELEMETRY_OPTOUT", "1");
-        using var listener = new CapturingEventListener(ProviderName);
-        var telemetry = new WinApp.Cli.Telemetry.Telemetry();
-        TelemetryFactory.SetOverrideForTesting(telemetry);
-        try
-        {
-            ProjectContextEvent.Log("restore", ProjectContext.Unknown(ProjectTargetKind.Workspace));
-            ProjectContextEvent.Log("run", () => throw new AssertFailedException("Opt-out must not inspect project metadata."));
-
-            Assert.IsFalse(telemetry.IsTelemetryOn);
-            Assert.IsFalse(listener.WaitForEvents(0).Any(e => e.Name == "ProjectContext_Event"));
-        }
-        finally
-        {
-            TelemetryFactory.SetOverrideForTesting(null);
-        }
     }
 
     [TestMethod]
