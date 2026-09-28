@@ -129,7 +129,7 @@ To force AUMID for a console app anyway, set the following inside any `<Property
 <WinAppRunUseExecutionAlias>false</WinAppRunUseExecutionAlias>
 ```
 
-If you'd rather choose the command name yourself, run `winapp manifest add-alias` to declare one in `Package.appxmanifest`; an alias you author is used as-is in normal identity mode.
+If you'd rather choose the command name yourself, run `winapp manifest add-alias` to declare one in `Package.appxmanifest`; an alias you author is used as-is (unless you pass `--unique-identity`, which renames it).
 
 ## 5. Debug with Identity
 
@@ -218,10 +218,8 @@ winapp run .\dotnet-app.csproj --unique-identity
 winapp unregister .\dotnet-app.csproj
 ```
 
-See [unique identity for parallel checkouts](../usage.md#unique-identity-for-parallel-checkouts)
-for stable owner selection, effective aliases, supported packages, and cleanup.
-Do not pass `--unique-identity` to `dotnet run`: as explained above, that would send
-it to your application rather than configure winapp.
+See [unique identity for parallel checkouts](../usage.md#unique-identity-for-parallel-checkouts).
+Don't pass `--unique-identity` to `dotnet run`; it would go to your app, not to winapp.
 
 > **No Windows SDK installed?** C#/WinRT authoring projects normally need a registered Windows SDK to build. When project mode detects none (clean CI, containers, SDK-less dev boxes), it points cswinrt at the winmds from the auto-restored `Microsoft.Windows.SDK.NET.Ref` package so the build still succeeds — no action needed. It does nothing when an SDK is installed or when you set `-p CsWinRTWindowsMetadata=…` yourself.
 

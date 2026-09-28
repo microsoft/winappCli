@@ -60,11 +60,9 @@ winapp run .\publish --on sandbox --detach
 winapp run . --on sandbox --clean --detach
 ```
 
-For parallel copies of a packaged app in the same Sandbox, opt into
-`winapp run . --unique-identity --on sandbox --detach`. See
-[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts)
-for owner selection, effective aliases, JSON identity fields, supported packages,
-and what remains shared.
+To run copies of a packaged app from different worktrees in the same Sandbox, add
+`--unique-identity`: `winapp run . --unique-identity --on sandbox --detach`. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts).
 
 Build options such as `--configuration`, `--arch`, `--framework`, `--property`,
 `--no-build`, and `--no-restore` apply on the host. Registration, launch, and debugging
@@ -87,9 +85,9 @@ Application data is preserved unless you request `--clean`. An incomplete deploy
 does not launch; retrying rebuilds its guest copy. If build files change while winapp is
 preparing them, finish the build and retry.
 
-If an older guest agent cannot preserve application data during a package replacement,
-winapp refuses the replacement. Save your guest work and close Sandbox, then retry with
-the updated winapp to start a compatible agent.
+If Sandbox is running an older agent that can't keep app data while re-registering the
+app, winapp stops instead of deleting the data. Save your work in Sandbox, close it, and
+retry so winapp starts an updated agent.
 
 Warm UI commands report only their result, without repeating a Sandbox preparation
 message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
@@ -329,13 +327,12 @@ winapp unregister . --on sandbox
 winapp unregister .\counter.cs --on sandbox
 ```
 
-Select the source used by `run`; normal and unique mode are discovered automatically.
-This removes only the matching development package registered by winapp in the current Sandbox.
+Pass the same input you passed to `run`, with or without `--unique-identity`. This removes
+only the matching development package registered by winapp in the current Sandbox.
 An externally installed package is left alone, even if its identity matches.
 `--force` is not supported with `--on`; it cannot bypass ownership checks.
-See [unregister](usage.md#unregister) for project, solution, folder, and explicit-layout
-selectors, including cleanup after deleting the source. Unpackaged apps have no
-package registration to remove.
+See [unregister](usage.md#unregister) for all inputs, including cleanup after the source
+is deleted. Unpackaged apps have no package registration to remove.
 
 The Sandbox remains running. Manage its lifetime with Windows Sandbox's own CLI:
 

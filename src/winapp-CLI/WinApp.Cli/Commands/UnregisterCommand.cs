@@ -36,7 +36,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
     {
         InputArgument = new Argument<FileInfo>("input")
         {
-            Description = "App directory, .csproj, .sln, .slnx, or .cs file whose development package should be unregistered. Resolves the same app as 'winapp run' without building it. Recorded normal and unique identities are discovered automatically. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest.",
+            Description = "App folder, .csproj, .sln, .slnx, or .cs file to unregister: the same input you passed to 'winapp run'. Nothing is built. Works whether or not the run used --unique-identity. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest.",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -47,17 +47,17 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
         ForceOption = new Option<bool>("--force")
         {
-            Description = "Skip the install-location directory check for legacy registrations without managed ownership metadata. Never bypasses managed ownership or live-registration checks. Legacy candidates are matched by Identity/@Name alone, so a same-named legacy package from another publisher can also be removed with its app data. With --prune, skips the confirmation prompt."
+            Description = "Skip the install-location check for registrations winapp has no record of (from create-debug-identity or an older winapp version). Has no effect on registrations recorded by 'winapp run'. Unrecorded registrations are matched by package name only, so a same-named package from another publisher can also be removed, with its app data. With --prune, skips the confirmation prompt."
         };
 
         PruneOption = new Option<bool>("--prune")
         {
-            Description = "Remove legacy development-mode registrations whose files are gone. Lists what it found and asks before removing; pass --force to skip the prompt. Managed deployments require an app input or --output-appx-directory instead, so ownership can be verified. Cannot be combined with an input or --manifest."
+            Description = "Remove development registrations whose files are gone and that winapp has no record of. Lists them and asks before removing; pass --force to skip the prompt. To remove a registration recorded by 'winapp run', pass its app input or --output-appx-directory instead. Cannot be combined with an input or --manifest."
         };
 
         PropertyOption = new Option<string[]>("--property", "-p")
         {
-            Description = "MSBuild property (Name=Value) used to classify project/solution inputs or resolve a legacy .cs app's identity. Repeatable. For legacy .cs registrations, pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...). Managed registrations are selected by recorded app ownership.",
+            Description = "MSBuild property (Name=Value) used when evaluating the app input to find the app. Repeatable. Pass the same properties the run used (e.g. -p WinAppPackageName=...).",
             // ZeroOrMore, not OneOrMore: OneOrMore lets System.CommandLine reject a valueless -p with
             // plain-text help before the handler runs, which breaks the --json contract scripts rely on.
             // The handler detects the missing value itself and reports it in the requested format.
@@ -67,22 +67,22 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
         OutputAppXDirectoryOption = new Option<DirectoryInfo>("--output-appx-directory")
         {
-            Description = "Select the AppX layout to unregister, including when several deployments belong to the same app. A recorded layout can be selected without the original source or manifest. For --on, pass the host layout used by the run."
+            Description = "AppX layout folder the run registered. Use it when the app has several registered layouts or its source was deleted. With --on, pass the folder on this machine, not the Sandbox path."
         };
 
         ConfigurationOption = new Option<string>("--configuration", "-c")
         {
-            Description = "Configuration used to classify project/solution inputs or resolve a legacy .cs app's identity (default: Debug). Pass the same configuration the run used."
+            Description = "Configuration used when evaluating the app input to find the app (default: Debug). Pass the same configuration the run used."
         };
 
         ArchOption = new Option<string>("--arch")
         {
-            Description = "Target architecture (x64, arm64, x86) used to classify project/solution inputs or resolve a legacy .cs app's identity (default: the current process architecture). Pass the same architecture the run used."
+            Description = "Target architecture (x64, arm64, x86) used when evaluating the app input to find the app (default: the current process architecture). Pass the same architecture the run used."
         };
 
         RuntimeOption = new Option<string>("--runtime", "-r")
         {
-            Description = "Target .NET runtime identifier (e.g. win-x64) used to classify project/solution inputs or resolve a legacy .cs app's identity. Only its architecture is used, and it overrides --arch."
+            Description = "Target .NET runtime identifier (e.g. win-x64) used when evaluating the app input to find the app. Only its architecture is used, and it overrides --arch."
         };
 
     }
@@ -401,7 +401,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                             return ReportNoRegistration(isJson);
                         }
                         return FailWith(
-                            "No manifest found and no managed registration was recorded for this app. Pass an app input, --manifest, or --output-appx-directory.",
+                            "No manifest found and winapp has no recorded registration for this app. Pass an app input, --manifest, or --output-appx-directory.",
                             isJson);
                     }
                 }
@@ -467,7 +467,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 }
                 if (scoped.Count > 0)
                 {
-                    return FailWith("The recorded deployment at this app's path does not match --manifest. Select its app input or --output-appx-directory instead.", isJson);
+                    return FailWith("The registration winapp recorded for this app does not match --manifest. Pass the app input or --output-appx-directory instead.", isJson);
                 }
             }
 
@@ -495,7 +495,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                         removalFailed = true;
                         if (!isJson)
                         {
-                            logger.LogError("{UISymbol} {FullName}: this is a managed deployment. Select its app input or --output-appx-directory; --force cannot override ownership.", UiSymbols.Error, pkg.FullName);
+                            logger.LogError("{UISymbol} {FullName}: registered by 'winapp run' from another app or layout. Unregister it with that app's input or --output-appx-directory; --force does not apply.", UiSymbols.Error, pkg.FullName);
                         }
                         continue;
                     }
@@ -575,7 +575,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             if (isJson)
             {
                 PrintJson(unregistered, skipped, errorMessage: removalFailed
-                    ? "One or more registrations could not be removed. For managed deployments, select the app input or --output-appx-directory; --force cannot override ownership."
+                    ? "One or more registrations could not be removed. For a registration made by 'winapp run', pass that app's input or --output-appx-directory; --force does not apply."
                     : null);
             }
             else if (unregistered.Count == 0 && skipped.Count == 0)
@@ -611,7 +611,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
         }
 
         private static string AmbiguousLayouts(IEnumerable<string> layouts) =>
-            "More than one managed deployment matches this app. Pass --output-appx-directory to select one layout: "
+            "This app has more than one registered layout. Pass --output-appx-directory to pick one: "
             + string.Join(", ", layouts.Order(StringComparer.OrdinalIgnoreCase).Select(path => $"'{path}'")) + ".";
 
         private static async Task<MsixIdentityResult> ReadManifestIdentityAsync(FileInfo manifest, CancellationToken cancellationToken) =>
@@ -657,7 +657,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             }
             else
             {
-                logger.LogInformation("{UISymbol} No managed package registration was found for this app.", UiSymbols.Note);
+                logger.LogInformation("{UISymbol} No registration recorded by 'winapp run' was found for this app.", UiSymbols.Note);
             }
             return 0;
         }
@@ -753,7 +753,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                         skipped.Add(orphan.FullName);
                         if (!isJson)
                         {
-                            logger.LogError("{UISymbol} {FullName}: this is a managed deployment. Select its app input or --output-appx-directory to verify ownership before removal.", UiSymbols.Error, orphan.FullName);
+                            logger.LogError("{UISymbol} {FullName}: registered by 'winapp run'. Unregister it with its app input or --output-appx-directory.", UiSymbols.Error, orphan.FullName);
                         }
                         continue;
                     }
@@ -797,7 +797,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             if (isJson)
             {
                 PrintJson(unregistered, skipped, errorMessage: skipped.Count > 0
-                    ? "Some registrations could not be removed. Managed deployments require explicit app input or --output-appx-directory selection and live ownership verification."
+                    ? "Some registrations could not be removed. Remove registrations recorded by 'winapp run' by passing their app input or --output-appx-directory."
                     : null);
             }
 

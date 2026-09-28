@@ -19,17 +19,13 @@ winapp run . --unique-identity --no-launch --json
 winapp unregister .
 ```
 
-Use this only when the user wants isolated development package identities. Keep using
-the same source selector for repeat runs and cleanup, and consume the returned
-`Identity` and effective aliases rather than guessing their names. Do not resolve an
-ownership conflict by force-removing another checkout's package.
+Use this only when the user wants copies of an app to stay registered side by side.
+Pass the same input for every run and for cleanup, and read names from the returned
+`Identity` and aliases instead of guessing them. Never resolve a registration conflict
+by removing another checkout's package.
 
-Read the canonical [unique identity reference](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts)
-before choosing this workflow: it covers supported package shapes, resource fidelity,
-owner paths, custom layouts, and the limits of isolation. See
-[unregister](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unregister)
-for automatic mode discovery and layout selection when the source is gone.
-For guest execution, also use `winapp-sandbox`.
+Check the [unique identity reference](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts) for
+supported packages and limits. For guest execution, also use `winapp-sandbox`.
 
 ## Prerequisites
 
@@ -146,7 +142,7 @@ winapp create-debug-identity .\bin\Debug\myapp.exe
 | **Capture debug output** | `winapp run .\build\Debug --debug-output` | Captures `OutputDebugString`; on crash, writes minidump and analyzes managed exceptions automatically. **Blocks other debuggers** (one debugger per process) |
 | **Run and auto-clean** | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | **Launch and detach (CI)** | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| **Clean up this app's registration** | `winapp unregister .` | Discovers the effective normal or unique registration; use the same source selector as `run` |
+| **Clean up this app's registration** | `winapp unregister .` | Pass the same input as `run`; works with or without `--unique-identity` |
 
 > **Using Visual Studio with a packaging project?** VS already handles identity, AUMID activation, and debugger attachment from F5. These workflows are most useful for VS Code, terminal-based development, and frameworks VS doesn't natively package (Rust, Flutter, Tauri, Electron, C++).
 

@@ -23,7 +23,7 @@ Many Windows APIs (push notifications, background tasks, share target, startup t
 
 ### Default: `winapp run`
 
-Use `winapp run` for most development workflows. In normal identity mode, it simulates a real MSIX install — your app gets the same identity, capabilities, and file associations it would have in production.
+Use `winapp run` for most development workflows. It simulates a real MSIX install — your app gets the same identity, capabilities, and file associations it would have in production.
 
 ```powershell
 # Build your app, then:
@@ -36,10 +36,9 @@ For parallel worktrees of a packaged app:
 winapp run . --unique-identity --no-launch --json
 ```
 
-Use the returned effective identity and aliases when configuring the debugger.
-See [unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts)
-for supported packages, resource limitations, and cleanup. This is an opt-in
-`run` workflow, not a replacement for sparse `create-debug-identity`.
+Each worktree gets its own package name and alias names; configure your debugger with
+the AUMID or alias the command returns. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts).
 
 ### Use `create-debug-identity` when:
 
@@ -99,7 +98,7 @@ winapp run .\build\Debug --no-launch
 
 **Step 2:** Configure your IDE to launch via the AUMID or the **execution alias** (not the exe directly). 
 * Launching with AUMID: Use the command `start shell:AppsFolder\<AUMID>`. `winapp run` outputs the AUMID when the app is registered.
-* Launching with the alias: Use an alias reported by `run` (`Identity.Aliases` in JSON), not an original alias that unique mode has renamed.
+* Launching with the alias: Use the alias name `run` prints (`Identity.Aliases` in JSON). With `--unique-identity`, it differs from the one in your manifest.
 
 > **Important:** Simply launching the exe in the build folder will **not** give it identity. The app must be started via AUMID activation or its execution alias. This is how loose layout packages work - identity is tied to the activation path, not the exe file.
 

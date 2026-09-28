@@ -140,7 +140,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         UniqueIdentityOption = new Option<bool>("--unique-identity")
         {
-            Description = "Use a stable, path-derived package identity and execution aliases so packaged apps in separate worktrees can coexist. Changes only the staged layout. Not supported for unpackaged apps, sparse packages, bundles, multiple applications, or unsupported public activation contracts."
+            Description = "Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions."
         };
 
         SymbolsOption = new Option<bool>("--symbols")

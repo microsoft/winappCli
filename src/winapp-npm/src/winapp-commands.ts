@@ -935,7 +935,7 @@ export interface RunOptions extends CommonOptions {
   runtime?: string;
   /** Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. */
   symbols?: boolean;
-  /** Use a stable, path-derived package identity and execution aliases so packaged apps in separate worktrees can coexist. Changes only the staged layout. Not supported for unpackaged apps, sparse packages, bundles, multiple applications, or unsupported public activation contracts. */
+  /** Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions. */
   uniqueIdentity?: boolean;
   /** Unregister the development package after the application exits. Only removes packages registered in development mode. */
   unregisterOnExit?: boolean;
@@ -2087,27 +2087,27 @@ export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResul
 // ---------------------------------------------------------------------------
 
 export interface UnregisterOptions extends CommonOptions {
-  /** App directory, .csproj, .sln, .slnx, or .cs file whose development package should be unregistered. Resolves the same app as 'winapp run' without building it. Recorded normal and unique identities are discovered automatically. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest. */
+  /** App folder, .csproj, .sln, .slnx, or .cs file to unregister: the same input you passed to 'winapp run'. Nothing is built. Works whether or not the run used --unique-identity. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest. */
   input?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target architecture (x64, arm64, x86) used to classify project/solution inputs or resolve a legacy .cs app's identity (default: the current process architecture). Pass the same architecture the run used. */
+  /** Target architecture (x64, arm64, x86) used when evaluating the app input to find the app (default: the current process architecture). Pass the same architecture the run used. */
   arch?: string;
-  /** Configuration used to classify project/solution inputs or resolve a legacy .cs app's identity (default: Debug). Pass the same configuration the run used. */
+  /** Configuration used when evaluating the app input to find the app (default: Debug). Pass the same configuration the run used. */
   configuration?: string;
-  /** Skip the install-location directory check for legacy registrations without managed ownership metadata. Never bypasses managed ownership or live-registration checks. Legacy candidates are matched by Identity/@Name alone, so a same-named legacy package from another publisher can also be removed with its app data. With --prune, skips the confirmation prompt. */
+  /** Skip the install-location check for registrations winapp has no record of (from create-debug-identity or an older winapp version). Has no effect on registrations recorded by 'winapp run'. Unrecorded registrations are matched by package name only, so a same-named package from another publisher can also be removed, with its app data. With --prune, skips the confirmation prompt. */
   force?: boolean;
   /** Format output as JSON */
   json?: boolean;
   /** Path to the Package.appxmanifest (default: auto-detect from current directory) */
   manifest?: string;
-  /** Select the AppX layout to unregister, including when several deployments belong to the same app. A recorded layout can be selected without the original source or manifest. For --on, pass the host layout used by the run. */
+  /** AppX layout folder the run registered. Use it when the app has several registered layouts or its source was deleted. With --on, pass the folder on this machine, not the Sandbox path. */
   outputAppxDirectory?: string;
-  /** MSBuild property (Name=Value) used to classify project/solution inputs or resolve a legacy .cs app's identity. Repeatable. For legacy .cs registrations, pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...). Managed registrations are selected by recorded app ownership. */
+  /** MSBuild property (Name=Value) used when evaluating the app input to find the app. Repeatable. Pass the same properties the run used (e.g. -p WinAppPackageName=...). */
   property?: string | string[];
-  /** Remove legacy development-mode registrations whose files are gone. Lists what it found and asks before removing; pass --force to skip the prompt. Managed deployments require an app input or --output-appx-directory instead, so ownership can be verified. Cannot be combined with an input or --manifest. */
+  /** Remove development registrations whose files are gone and that winapp has no record of. Lists them and asks before removing; pass --force to skip the prompt. To remove a registration recorded by 'winapp run', pass its app input or --output-appx-directory instead. Cannot be combined with an input or --manifest. */
   prune?: boolean;
-  /** Target .NET runtime identifier (e.g. win-x64) used to classify project/solution inputs or resolve a legacy .cs app's identity. Only its architecture is used, and it overrides --arch. */
+  /** Target .NET runtime identifier (e.g. win-x64) used when evaluating the app input to find the app. Only its architecture is used, and it overrides --arch. */
   runtime?: string;
 }
 

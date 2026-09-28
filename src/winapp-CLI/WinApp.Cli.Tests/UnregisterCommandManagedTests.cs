@@ -390,7 +390,7 @@ public class UnregisterCommandManagedTests : BaseCommandTests
         var exitCode = await InvokeAsync("--manifest", manifest.FullName, "--force", "--json");
 
         Assert.AreEqual(1, exitCode, TestAnsiConsole.Output);
-        StringAssert.Contains(JsonError(), "managed");
+        StringAssert.Contains(JsonError(), "--force does not apply");
         Assert.IsEmpty(_packages.UnregisterByFullNameCalls);
         Assert.IsNotNull(DevelopmentRegistrationStore.Read(new DirectoryInfo(registration.Identity.LayoutPath)));
     }
