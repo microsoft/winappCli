@@ -10,6 +10,9 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
 {
     private DirectoryInfo? _globalOverride;
 
+    internal Func<string> UserProfileProvider { get; set; } =
+        () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
     /// <summary>
     /// Method to override the cache directory for testing purposes
     /// </summary>
@@ -34,9 +37,21 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
             return new DirectoryInfo(cacheDirectory);
         }
 
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var userProfile = UserProfileProvider();
         var winappDir = Path.Combine(userProfile, ".winapp");
         return new DirectoryInfo(winappDir);
+    }
+
+    /// <summary>Shared state independent of the cache override and package identity.</summary>
+    internal static string GetUserStateDirectory(string? userProfile = null)
+    {
+        userProfile ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile) || !Path.IsPathFullyQualified(userProfile))
+        {
+            throw new IOException("The user profile folder could not be resolved to a fully qualified path.");
+        }
+
+        return Path.Combine(userProfile, ".winapp", "state");
     }
 
     public DirectoryInfo GetLocalWinappDirectory(DirectoryInfo? baseDirectory = null)
@@ -44,6 +59,7 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         baseDirectory ??= new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
 
         DirectoryInfo globalWinappDirectory = GetGlobalWinappDirectory();
+        var userWinappDirectory = Path.Combine(UserProfileProvider(), ".winapp");
 
         var originalBaseDir = new DirectoryInfo(baseDirectory.FullName);
         var dir = originalBaseDir;
@@ -53,7 +69,8 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
             if (Directory.Exists(winappDirectory))
             {
                 bool isGlobalWinAppDir =
-                    string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase);
+                    string.Equals(winappDirectory, globalWinappDirectory.FullName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(winappDirectory, userWinappDirectory, StringComparison.OrdinalIgnoreCase);
                 if (isGlobalWinAppDir)
                 {
                     // We don't currently allow the global winapp directory to be used as a local winapp directory,

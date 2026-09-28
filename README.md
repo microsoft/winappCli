@@ -193,6 +193,18 @@ The direct links above are provided by [nightly.link](https://nightly.link), a t
 Note: Downloading artifacts from GitHub Actions requires you to be signed in to GitHub.
 </details>
 
+### Try a pull request build
+
+Open the PR's **Build and Package** run and download `cli-binaries`, `npm-package`,
+`msix-packages`, or `nuget-packages` from **Artifacts**. The `build-artifacts` job
+summary also links to each download.
+
+Packages appear **before validation finishes**. They are experimental builds,
+not evidence that tests passed. Wait for **build-and-package** to succeed if you
+need a fully validated build. If a download is not available yet, check the
+`build-artifacts` job for progress or errors. A new commit cancels older runs of
+the same PR.
+
 ## 📋 Usage
 
 Once installed (see [Installation](#-installation) above), verify the installation by calling the CLI:
@@ -233,6 +245,8 @@ See also: [Debugging Guide](./docs/debugging.md) — choosing between `winapp ru
 - [`sign`](./docs/usage.md#sign) - Sign MSIX packages and executables
 - [`az-sign`](./docs/usage.md#az-sign) - Sign with Azure Trusted Signing (cloud-managed identity, no local PFX)
 - [`create-external-catalog`](./docs/usage.md#create-external-catalog) - Generate CodeIntegrityExternal.cat for TrustedLaunch sparse packages
+
+See also: [Security guidance](./docs/security.md) — what development certificates and Developer Mode change on your machine, safe handling of `devcert.pfx`, and production signing.
 
 **Development Tools:**
 

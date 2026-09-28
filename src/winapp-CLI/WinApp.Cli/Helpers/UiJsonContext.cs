@@ -235,8 +235,8 @@ internal sealed class UiWaitForResult
     public bool TimedOut { get; set; }
 }
 
-/// <summary>Envelope for <c>ui get-focused --json</c>. Always emitted (even when no element has focus)
-/// so consumers can deterministically detect the no-focus case.</summary>
+/// <summary>Envelope for successful <c>ui get-focused --json</c> queries, including no-match results.
+/// Query failures emit the standard error envelope instead.</summary>
 internal sealed class UiFocusedResult
 {
     public bool HasFocus { get; set; }

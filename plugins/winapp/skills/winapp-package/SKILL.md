@@ -12,12 +12,35 @@ Use this skill when:
 
 ## Prerequisites
 
-Before packaging, you need:
-1. **Built app output** in a folder (e.g., `bin/Release/`, `dist/`, `build/`)
-2. **`Package.appxmanifest`** — from `winapp init` or `winapp manifest generate`
-3. **Certificate** (optional) — `devcert.pfx` from `winapp cert generate` for signing
+What you need depends on the input:
+- **Project mode** (`winapp package MyApp.csproj`): an explicit `.csproj` for a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`). winapp publishes it and packages the output.
+- **Folder mode** (`winapp package ./bin/Release`): **built app output** in a folder (e.g., `bin/Release/`, `dist/`, `build/`) plus a **`Package.appxmanifest`** in the current directory, passed via `--manifest`, or in the folder.
+- **Certificate** (optional, both modes) — `devcert.pfx` from `winapp cert generate` for signing.
 
 ## Usage
+
+### Package directly from a .csproj (project mode)
+
+```powershell
+# Publish the project and create an MSIX in one step (no need to build or locate the output first)
+winapp package ./MyApp.csproj
+
+# Override configuration/architecture, or sign in the same step (project mode defaults to Release)
+winapp package ./MyApp.csproj -c Debug --arch arm64 --cert ./devcert.pfx
+
+# Package an already-built output without rebuilding
+winapp package ./MyApp.csproj --no-build
+
+# Produce an architecture .msixbundle from one project (publishes each arch, then bundles)
+winapp package ./MyApp.csproj --arch x64 --arch arm64 --cert ./devcert.pfx
+```
+
+Project mode is triggered only by an explicit `.csproj`. It publishes the project — so trimmed or
+self-contained apps package what actually ships — with the build options
+(`-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`,
+repeatable `-p`), defaults to the **Release** configuration, resolves the published output, and
+packages it. If the project publishes as an unpackaged app (`WindowsPackageType=None`) there is no
+manifest to package and the command errors. Folder, bundle, and sparse-manifest inputs are unchanged.
 
 ### Basic packaging (unsigned)
 
@@ -47,6 +70,14 @@ winapp package ./bin/Release --generate-cert
 
 # Also install the cert to trust it on this machine (requires admin)
 winapp package ./bin/Release --generate-cert --install-cert
+```
+
+### Unsigned output (Store submission or external signing)
+
+```powershell
+# Force an unsigned package. For a .csproj that configures its own signing, this overrides it.
+# Cannot be combined with --cert or --generate-cert.
+winapp package ./MyApp.csproj --no-sign
 ```
 
 ### Self-contained deployment

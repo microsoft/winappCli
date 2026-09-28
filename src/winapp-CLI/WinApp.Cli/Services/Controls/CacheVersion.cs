@@ -85,6 +85,30 @@ namespace WinApp.Cli.Services.Controls;
 ///          different output. Without the bump an existing cache still matches on "21"
 ///          and keeps serving both the placeholder-bearing blocks and the broken
 ///          attributes that this change exists to remove.
+///   "23" — Samples are no longer truncated. Gallery XAML/C# and Toolkit XAML/C# were
+///          capped (2000/2500 and 1000/2500 chars) and emitted with a
+///          "&lt;!-- ...truncated --&gt;" / "// ...truncated" marker, so longer samples were
+///          unbuildable as pasted (issue #716). Toolkit's "extract just the core control
+///          element" fallback for oversized XAML is gone with it, so those samples now
+///          carry their full surrounding markup. Rule 3: same input, different output —
+///          without the bump an existing cache keeps serving the truncated snippets.
+///   "24" — Gallery is now read from the sample index WinUI-Gallery publishes
+///          (catalog/windows-samples.json) instead of being scraped, and GalleryFetcher
+///          is deleted. Upstream decides what a sample is, so the corpus is theirs
+///          rather than our reconstruction of it: samples they withhold as unpasteable
+///          are absent, and samples our extraction missed appear. Rule 3 — same source
+///          repository, different output. Scenario ids are positional over kept samples
+///          (as they have been since "16"), so a sample upstream drops renumbers the
+///          ones after it on that control's page; an unbumped cache would keep serving
+///          the old numbering against the new data. The index publishes Gallery's source
+///          verbatim, so GalleryProvider normalizes each sample for pasting the way the
+///          scraper used to — Gallery-private symbols rewritten, event handlers with no
+///          implementation dropped — which is itself Rule 3. That pass also reaches two
+///          places the scraper never did: the index's xmlnsImports field (rendered as the
+///          "Setup:" line, so a "using:WinUIGallery.ControlPages" mapping was an
+///          instruction to declare a prefix that cannot resolve) and Gallery's own package
+///          assets under Assets/SampleMedia and Assets/Tiles, which rendered as a silently
+///          blank Image or an AppWindow.SetIcon that quietly did nothing.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -92,5 +116,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "22";
+    public const string Current = "24";
 }

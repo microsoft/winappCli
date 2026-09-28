@@ -616,6 +616,29 @@ public class InteractiveDesktopStoreTests
     }
 
     [TestMethod]
+    public void Paths_DefaultToUserStateIndependentOfCacheOverride()
+    {
+        var previousLock = Environment.GetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable);
+        var previousCache = Environment.GetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY");
+        try
+        {
+            Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, null);
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", Path.Combine(_lockDirectory, "other-cache"));
+
+            var paths = new InteractiveDesktopPaths(_inspector);
+
+            Assert.AreEqual(
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp", "state", "ui"),
+                paths.LockDirectory);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, previousLock);
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CACHE_DIRECTORY", previousCache);
+        }
+    }
+
+    [TestMethod]
     public void Paths_ScopeEveryArtifactToTheWindowsSession()
     {
         // Two signed-in sessions have independent foreground/focus/input, so they must not queue

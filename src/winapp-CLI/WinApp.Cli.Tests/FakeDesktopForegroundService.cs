@@ -30,7 +30,13 @@ internal sealed class FakeDesktopForegroundService : IDesktopForegroundService
     /// </summary>
     public bool AllWindowsMinimized { get; set; }
 
-    public void RequestForeground(long hwnd) => ForegroundRequests.Add(hwnd);
+    public Action<long>? OnRequestForeground { get; set; }
+
+    public void RequestForeground(long hwnd)
+    {
+        ForegroundRequests.Add(hwnd);
+        OnRequestForeground?.Invoke(hwnd);
+    }
 
     /// <summary>
     /// Whether <see cref="IsForeground"/> reports success. Defaults to <see langword="true"/> so the
@@ -43,11 +49,12 @@ internal sealed class FakeDesktopForegroundService : IDesktopForegroundService
 
     /// <summary>Window handles passed to <see cref="IsForeground"/>, in order.</summary>
     public List<long> ForegroundChecks { get; } = [];
+    public Func<long, bool>? CheckForeground { get; set; }
 
     public bool IsForeground(long hwnd)
     {
         ForegroundChecks.Add(hwnd);
-        return ForegroundRequestSucceeds;
+        return CheckForeground?.Invoke(hwnd) ?? ForegroundRequestSucceeds;
     }
 
     public bool IsMinimized(long hwnd) => AllWindowsMinimized || MinimizedWindows.Contains(hwnd);

@@ -230,7 +230,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
     private async Task<string> InvokeAddThirdPartyExtensionsAsync(string manifest, DotNetPackageListJson? packageList)
     {
         return await (Task<string>)AddThirdPartyExtensionsMethod.Invoke(
-            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None])!;
+            _msixService, [manifest, packageList, TestTaskContext, CancellationToken.None, null])!;
     }
 
     private async Task InvokeAppendThirdPartyEntriesAsync(StringBuilder sb, DotNetPackageListJson? packageList)
@@ -569,10 +569,10 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
     // ---- EmbedActivationManifestToExeAsync -----------------------------------------
 
-    private Task InvokeEmbedActivationManifestAsync(FileInfo exe, DirectoryInfo deployment, FileInfo appxManifest, DotNetPackageListJson? packageList)
+    private Task InvokeEmbedActivationManifestAsync(FileInfo exe, DirectoryInfo deployment, FileInfo appxManifest, DotNetPackageListJson? packageList, string? targetArch = null)
     {
         return (Task)EmbedActivationManifestMethod.Invoke(
-            _msixService, [exe, deployment, appxManifest, packageList, TestTaskContext, CancellationToken.None])!;
+            _msixService, [exe, deployment, appxManifest, packageList, TestTaskContext, CancellationToken.None, targetArch])!;
     }
 
     [TestMethod]
@@ -617,6 +617,44 @@ public class MsixServiceRuntimeTests : BaseCommandTests
             () => InvokeEmbedActivationManifestAsync(exe, deployment, appxManifest, null));
     }
 
+    [TestMethod]
+    public void CollectNativeFragmentDllNames_SelectsSuppliedArchitectureNotHost()
+    {
+        // A component fragment that ships DISTINCT native DLLs for two architectures. The embed path
+        // reads only the win-<architecture>\native directory for the architecture it is given, so a
+        // regression that ignored the supplied target arch (and used the host's) would pick the wrong DLLs.
+        var fragmentDir = _tempDirectory.CreateSubdirectory($"frag_{Guid.NewGuid():N}");
+        var fragmentFile = new FileInfo(Path.Join(fragmentDir.FullName, "package.appxfragment"));
+        File.WriteAllText(fragmentFile.FullName, "<fragment/>");
+
+        var x64Native = Directory.CreateDirectory(Path.Join(fragmentDir.FullName, "win-x64", "native"));
+        File.WriteAllText(Path.Join(x64Native.FullName, "x64only.dll"), "x");
+        var arm64Native = Directory.CreateDirectory(Path.Join(fragmentDir.FullName, "win-arm64", "native"));
+        File.WriteAllText(Path.Join(arm64Native.FullName, "arm64only.dll"), "x");
+
+        // Asserted both ways so the result follows the supplied architecture regardless of the host arch.
+        var arm64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "arm64");
+        CollectionAssert.Contains(arm64, "arm64only.dll");
+        CollectionAssert.DoesNotContain(arm64, "x64only.dll");
+
+        var x64 = MsixService.CollectNativeFragmentDllNames([fragmentFile], "x64");
+        CollectionAssert.Contains(x64, "x64only.dll");
+        CollectionAssert.DoesNotContain(x64, "arm64only.dll");
+    }
+
+    [TestMethod]
+    public void CollectNativeFragmentDllNames_NoMatchingArchDirectory_ReturnsEmpty()
+    {
+        var fragmentDir = _tempDirectory.CreateSubdirectory($"frag_{Guid.NewGuid():N}");
+        var fragmentFile = new FileInfo(Path.Join(fragmentDir.FullName, "package.appxfragment"));
+        File.WriteAllText(fragmentFile.FullName, "<fragment/>");
+        var x64Native = Directory.CreateDirectory(Path.Join(fragmentDir.FullName, "win-x64", "native"));
+        File.WriteAllText(Path.Join(x64Native.FullName, "x64only.dll"), "x");
+
+        // A fragment with no win-arm64\native directory contributes nothing for arm64.
+        Assert.AreEqual(0, MsixService.CollectNativeFragmentDllNames([fragmentFile], "arm64").Count);
+    }
+
     // ---- MsixService.cs: resource-language & signing guards -------------------------
 
     [TestMethod]
@@ -657,7 +695,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => (Task)SignMsixMethod.Invoke(
             _msixService,
-            [outputFolder, "", true, false, "MyApp", "", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None])!);
+            [outputFolder, "", true, false, "MyApp", "", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
     }
 
     [TestMethod]
@@ -669,7 +707,46 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => (Task)SignMsixMethod.Invoke(
             _msixService,
-            [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None])!);
+            [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
+    }
+
+    // ---- CreateStagingSiblingPath -------------------------------------------------
+
+    [TestMethod]
+    public void CreateStagingSiblingPath_PreservesExtensionInSameDirectory()
+    {
+        var method = typeof(MsixService).GetMethod("CreateStagingSiblingPath", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        var final = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_x64.msix"));
+        var staging = (FileInfo)method.Invoke(null, [final])!;
+        // signtool recognizes an MSIX by extension and refuses a .tmp file, so staging must keep .msix.
+        Assert.AreEqual(".msix", staging.Extension, "staging must keep the .msix extension so signtool accepts it");
+        Assert.AreEqual(_tempDirectory.FullName, staging.Directory!.FullName, "staging must be a sibling for an atomic move");
+        Assert.AreNotEqual(final.FullName, staging.FullName, "staging must be a distinct path");
+
+        var bundle = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_x64_arm64.msixbundle"));
+        var bundleStaging = (FileInfo)method.Invoke(null, [bundle])!;
+        Assert.AreEqual(".msixbundle", bundleStaging.Extension, "staging must keep the .msixbundle extension");
+    }
+
+    // ---- ResolveNativeDeliveryPath ------------------------------------------------
+
+    [TestMethod]
+    public void ResolveNativeDeliveryPath_SanitizesNameToPreventDirectoryEscape()
+    {
+        var method = typeof(MsixService).GetMethod("ResolveNativeDeliveryPath", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var outDir = _tempDirectory.CreateSubdirectory("native-out");
+        // The produced package's name is only read for its filename/underscore suffix; it need not exist.
+        var produced = new FileInfo(Path.Combine(_tempDirectory.FullName, "App_1.0.0.0_arm64.msix"));
+        // A directory --output (no .msix extension) hosts the file; --name only sets the filename prefix.
+        var outputArg = new FileInfo(outDir.FullName);
+
+        var result = (FileInfo)method.Invoke(_msixService, [produced, outputArg, @"..\..\evil"])!;
+
+        // A traversing --name must not redirect the artifact outside the requested output directory.
+        Assert.AreEqual(outDir.FullName, result.Directory!.FullName, "sanitized --name must stay inside the output directory");
+        StringAssert.EndsWith(result.Name, "_1.0.0.0_arm64.msix", "the SDK version/arch suffix must be preserved");
+        Assert.IsFalse(result.Name.Contains('\\') || result.Name.Contains('/'), "no path separators may survive in the filename");
     }
 
     // ---- PackSingleFolderToMsixAsync: self-contained end-to-end --------------------

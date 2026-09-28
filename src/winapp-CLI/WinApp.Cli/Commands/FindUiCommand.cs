@@ -172,7 +172,7 @@ internal sealed class FindUiCommand : Command, IShortDescription
                 return Fail(json, $"Failed to load the WinUI corpus: {ex.Message}");
             }
 
-            NoteEmbeddedCorpus(json);
+            NoteEmbeddedCorpus(json, coreOnly);
 
             if (list)
             {
@@ -188,8 +188,10 @@ internal sealed class FindUiCommand : Command, IShortDescription
         }
 
         /// <summary>
-        /// The <c>corpus</c> value for JSON output, or null when nothing upstream-derived
-        /// was loaded (a core-patterns-only result).
+        /// The <c>corpus</c> value for JSON output, or null when nothing could be loaded
+        /// at all (a missing or unreadable snapshot). The curated core patterns are
+        /// compiled into the binary and never fetched, so a core-only result reports
+        /// <c>embedded</c> like any other never-fetched corpus.
         /// </summary>
         private string? CorpusLabel() => searchService.LoadedOrigin switch
         {
@@ -215,10 +217,16 @@ internal sealed class FindUiCommand : Command, IShortDescription
         /// user redirecting stdout to a file keeps the results clean and still sees the
         /// staleness warning on the terminal. Under <c>--json</c> the provenance is carried
         /// by the <c>corpus</c> field instead.
+        /// <para>
+        /// Suppressed for a core-only request (<c>--source core</c>, an all-core
+        /// <c>--id</c>). Those results are curated patterns compiled into the binary, not a
+        /// snapshot of an upstream repo, so they cannot lag it and <c>--refresh</c> would
+        /// not change them — the notice would be wrong on both counts.
+        /// </para>
         /// </summary>
-        private void NoteEmbeddedCorpus(bool json)
+        private void NoteEmbeddedCorpus(bool json, bool coreOnly)
         {
-            if (searchService.LoadedOrigin != CorpusOrigin.Embedded)
+            if (coreOnly || searchService.LoadedOrigin != CorpusOrigin.Embedded)
             {
                 return;
             }

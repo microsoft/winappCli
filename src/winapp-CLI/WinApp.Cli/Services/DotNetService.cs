@@ -394,14 +394,16 @@ internal partial class DotNetService : IDotNetService
         string arguments,
         Action<string>? onOutputLine,
         Action<string>? onErrorLine,
+        IReadOnlyDictionary<string, string>? environmentOverrides = null,
         CancellationToken cancellationToken = default)
-        => RunDotnetCoreAsync(workingDirectory, arguments, onOutputLine, onErrorLine, cancellationToken);
+        => RunDotnetCoreAsync(workingDirectory, arguments, onOutputLine, onErrorLine, cancellationToken, environmentOverrides: environmentOverrides);
 
     public Task<int> RunDotnetInheritedAsync(
         DirectoryInfo workingDirectory,
         string arguments,
+        IReadOnlyDictionary<string, string>? environmentOverrides = null,
         CancellationToken cancellationToken = default)
-        => RunDotnetCoreAsync(workingDirectory, arguments, onOutputLine: null, onErrorLine: null, cancellationToken, inheritStdio: true);
+        => RunDotnetCoreAsync(workingDirectory, arguments, onOutputLine: null, onErrorLine: null, cancellationToken, inheritStdio: true, environmentOverrides: environmentOverrides);
 
     /// <summary>
     /// Shared launch core for the buffered (<see cref="RunDotnetCommandAsync"/>), streaming
@@ -424,7 +426,8 @@ internal partial class DotNetService : IDotNetService
         Action<string>? onOutputLine,
         Action<string>? onErrorLine,
         CancellationToken cancellationToken,
-        bool inheritStdio = false)
+        bool inheritStdio = false,
+        IReadOnlyDictionary<string, string>? environmentOverrides = null)
     {
         var processStartInfo = new ProcessStartInfo
         {
@@ -438,6 +441,16 @@ internal partial class DotNetService : IDotNetService
             UseShellExecute = false,
             CreateNoWindow = !inheritStdio
         };
+
+        // Merge any environment overrides (e.g. the Native AOT publish PATH that prepends the VS Installer
+        // directory so vswhere.exe resolves) over the inherited environment before launch.
+        if (environmentOverrides is not null)
+        {
+            foreach (var (key, value) in environmentOverrides)
+            {
+                processStartInfo.Environment[key] = value;
+            }
+        }
 
         using var process = new Process { StartInfo = processStartInfo };
 
@@ -606,9 +619,8 @@ internal partial class DotNetService : IDotNetService
             throw;
         }
 
-        // WaitForExitAsync returns once the process exits, but the async stdout/stderr readers may
-        // still have buffered data in flight. The parameterless overload blocks until those readers
-        // have flushed, so the StringBuilders are complete before we read them.
+        // On .NET 10, WaitForExitAsync already drains both asynchronous readers and completes their
+        // callbacks. The synchronous wait below is redundant for output delivery.
         process.WaitForExit();
 
         return (process.ExitCode, outputBuilder.ToString(), errorBuilder.ToString());

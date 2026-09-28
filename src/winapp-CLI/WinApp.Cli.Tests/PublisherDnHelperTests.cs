@@ -74,6 +74,123 @@ public class PublisherDnHelperTests
     }
 
     [TestMethod]
+    [DataRow("CN=", "CN", DisplayName = "Empty CN value")]
+    [DataRow("CN=A, O=", "O", DisplayName = "Empty trailing component value")]
+    public void Normalize_RejectsEmptyValuedComponent(string input, string componentName)
+    {
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, componentName, "The error must name the offending empty component.");
+    }
+
+    [TestMethod]
+    [DataRow("=Contoso", DisplayName = "Leading equals")]
+    [DataRow("CN=A,,O=B", DisplayName = "Empty RDN between components")]
+    [DataRow("OID.2.5.4.3=A,,O=B", DisplayName = "OID.-prefixed malformed DN")]
+    [DataRow("2.5.4.3=A,,O=B", DisplayName = "Bare-OID malformed DN")]
+    public void Normalize_RejectsMalformedDnAttempt(string input)
+    {
+        // Inputs that look like a DN (start with an attribute assignment, incl. an OID or "OID."
+        // prefix) but do not parse must be rejected rather than silently wrapped as a literal CN.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "distinguished name");
+    }
+
+    [TestMethod]
+    [DataRow("CN=Contoso\\Bar", DisplayName = "Literal backslash in a DN value")]
+    [DataRow("CN=Contoso\\, Inc", DisplayName = "X.500 escaped comma")]
+    [DataRow("Contoso\\Bar", DisplayName = "Backslash in a bare name")]
+    public void Normalize_RejectsBackslash(string input)
+    {
+        // The MSIX manifest publisher type cannot represent a backslash, so any publisher containing
+        // one can never match Identity/@Publisher and is rejected up front.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "backslash");
+    }
+
+    [TestMethod]
+    [DataRow("CN=A+O=", DisplayName = "Multi-valued RDN with an empty value")]
+    [DataRow("CN=Foo+OU=Bar", DisplayName = "Multi-valued RDN with values")]
+    public void Normalize_RejectsMultiValuedRdn(string input)
+    {
+        // A multi-valued RDN (a+b) is never used for a publisher and can hide an empty value, so it
+        // is rejected outright rather than accepted.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "multi-valued");
+    }
+
+    [TestMethod]
+    [DataRow("R&D = Team", DisplayName = "Ampersand and spaces around equals")]
+    [DataRow("Contoso (a=b)", DisplayName = "Equals inside parentheses")]
+    public void Normalize_BareNameContainingEquals_WrapsAsCn(string input)
+    {
+        // A plain name whose first '=' is preceded by non-attribute text is a bare name, not a DN
+        // attempt, so it is wrapped as CN=<name> (the documented behavior) rather than rejected.
+        var result = PublisherDnHelper.Normalize(input);
+        Assert.IsTrue(PublisherDnHelper.IsDistinguishedName(result), $"Result should be a valid DN: {result}");
+        StringAssert.StartsWith(result, "CN=");
+    }
+
+    [TestMethod]
+    [DataRow("CN=A;O=B", DisplayName = "Semicolon-separated components")]
+    [DataRow("CN=A ; O=B", DisplayName = "Semicolon separator with spaces")]
+    public void Normalize_RejectsSemicolonSeparator(string input)
+    {
+        // .NET treats an unquoted ';' as an RDN separator, but the raw string keeps the literal ';',
+        // so the certificate (re-parsed to commas) and the manifest (literal ';') diverge. Reject it.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "';'");
+    }
+
+    [TestMethod]
+    public void Normalize_SemicolonInsideQuotedValue_IsAccepted()
+    {
+        // A ';' inside a quoted value is data, not a separator, and round-trips as a single CN.
+        var result = PublisherDnHelper.Normalize("CN=\"A;B\"");
+        Assert.IsTrue(PublisherDnHelper.IsDistinguishedName(result), $"Result should be a valid DN: {result}");
+    }
+
+    [TestMethod]
+    [DataRow("CN=A,", DisplayName = "Trailing comma")]
+    [DataRow("CN=A+", DisplayName = "Trailing plus")]
+    [DataRow("CN=A, ", DisplayName = "Trailing comma with whitespace")]
+    [DataRow("CN=A,O=B,", DisplayName = "Trailing comma after multiple components")]
+    public void Normalize_RejectsTrailingSeparator(string input)
+    {
+        // A trailing ',' or '+' parses but is dropped when the certificate is encoded (CN=A, -> CN=A),
+        // while the manifest keeps it, so the two diverge. Reject it up front.
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => PublisherDnHelper.Normalize(input));
+        StringAssert.Contains(ex.Message, "stray");
+    }
+
+    [TestMethod]
+    public void Normalize_CommaInsideQuotedValue_IsNotATrailingSeparator()
+    {
+        // The comma here is data inside the quoted value, and the value does not end with an unquoted
+        // separator, so it is accepted.
+        var result = PublisherDnHelper.Normalize("CN=\"A,\"");
+        Assert.IsTrue(PublisherDnHelper.IsDistinguishedName(result), $"Result should be a valid DN: {result}");
+    }
+
+    [TestMethod]
+    public void TryNormalize_ValidBareName_WrapsAsCn()
+    {
+        Assert.IsTrue(PublisherDnHelper.TryNormalize("Contoso", out var normalized, out var error));
+        Assert.AreEqual("CN=Contoso", normalized);
+        Assert.IsNull(error);
+    }
+
+    [TestMethod]
+    [DataRow("CN=", DisplayName = "Empty CN value")]
+    [DataRow("CN=A,,O=B", DisplayName = "Unparseable DN")]
+    [DataRow("CN=A+O=", DisplayName = "Multi-valued RDN with an empty value")]
+    public void TryNormalize_MalformedInput_ReturnsFalseWithMessage(string input)
+    {
+        Assert.IsFalse(PublisherDnHelper.TryNormalize(input, out var normalized, out var error));
+        Assert.IsNull(normalized);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(error), "A user-facing error message must be provided.");
+    }
+
+    [TestMethod]
     public void Normalize_PreservesInternalQuotes()
     {
         // A DN with quoted value should NOT have its quotes stripped

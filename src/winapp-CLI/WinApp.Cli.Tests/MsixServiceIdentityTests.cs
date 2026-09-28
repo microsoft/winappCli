@@ -9,6 +9,7 @@ using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 using WinApp.Cli.Tools;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace WinApp.Cli.Tests;
 
@@ -2995,6 +2996,9 @@ internal sealed class ScriptedMtBuildToolsService : IBuildToolsService
     public Func<string, string, bool>? ThrowWhen { get; set; }
 
     public FileInfo? GetBuildToolPath(string toolName) => _inner.GetBuildToolPath(toolName);
+
+    public VerifiedTool OpenVerifiedTool(FileInfo toolPath)
+        => VerifiedTool.Open(toolPath, static (_, _) => true, NullLogger.Instance);
 
     public Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default) =>
         _inner.EnsureBuildToolAvailableAsync(toolName, taskContext, cancellationToken);

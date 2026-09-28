@@ -58,6 +58,51 @@ public class PackageCommandFakeMsixTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task PackageCommand_Folder_ProjectOnlyOption_Rejected()
+    {
+        // Build/project options require a .csproj; on a folder input they cannot take effect and must be
+        // rejected rather than silently ignored (e.g. --arch would not restage the runtime for that arch).
+        var packageCommand = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(packageCommand, new[] { _tempDirectory.FullName, "--arch", "x64" });
+
+        Assert.AreEqual(1, exitCode, "a project-only option must be rejected for a folder input");
+        Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "no packaging must run when a project-only option is used with a folder");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "require a .csproj input");
+    }
+
+    [TestMethod]
+    public async Task PackageCommand_Folder_NoSignWithCert_Rejected()
+    {
+        // --no-sign forces an unsigned artifact and is mutually exclusive with --cert on folder inputs too,
+        // not just project mode. It must be rejected before any packaging runs.
+        var pfx = new FileInfo(Path.Combine(_tempDirectory.FullName, "dev.pfx"));
+        await File.WriteAllTextAsync(pfx.FullName, "pfx", TestContext.CancellationToken);
+        var packageCommand = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(packageCommand, new[] { _tempDirectory.FullName, "--no-sign", "--cert", pfx.FullName });
+
+        Assert.AreEqual(1, exitCode, "--no-sign combined with --cert must be rejected");
+        Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count, "no packaging must run when the signing options conflict");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "--no-sign cannot be combined with --cert");
+    }
+
+    [TestMethod]
+    public async Task PackageCommand_Bundle_NoSignWithGenerateCert_Rejected()
+    {
+        // The same conflict applies to the multi-folder bundle path.
+        var folderA = _tempDirectory.CreateSubdirectory("arch-a");
+        var folderB = _tempDirectory.CreateSubdirectory("arch-b");
+        var packageCommand = GetRequiredService<PackageCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(packageCommand, new[] { folderA.FullName, folderB.FullName, "--no-sign", "--generate-cert" });
+
+        Assert.AreEqual(1, exitCode, "--no-sign combined with --generate-cert must be rejected");
+        Assert.AreEqual(0, _fakeMsixService.CreateBundleCalls.Count, "no bundling must run when the signing options conflict");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "--no-sign cannot be combined with --cert or --generate-cert");
+    }
+
+    [TestMethod]
     public async Task PackageCommand_SingleFolder_ServiceThrows_ReturnsError()
     {
         // Arrange — package creation blows up inside the service.

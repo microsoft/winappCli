@@ -21,8 +21,9 @@ internal class UiScreenshotCommand : Command, IShortDescription
 
     public UiScreenshotCommand()
         : base("screenshot", "Capture the target window or element as a PNG image. " +
-               "When multiple windows exist (e.g., dialogs), captures each to a separate file. " +
-               "With --json, returns file path and dimensions. Use --capture-screen for popup overlays.")
+               "Without an element selector, combines multiple windows into one labeled composite: " +
+               "--app by process name or PID includes the app's windows and their owned windows; a title match or --window selects one window plus its owned windows. " +
+               "With --json, returns file path and dimensions. Use --capture-screen with --window to capture one screen region, including visible overlays in place.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -368,7 +369,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 return (long)info.Width * info.Height;
             }).ToList();
 
-            if (!json)
+            if (!json && logger.IsEnabled(LogLevel.Information))
             {
                 ansiConsole.MarkupLine($"[yellow]⚠  {windows.Count} windows detected. Compositing into single image.[/]");
             }
@@ -434,7 +435,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                         Captured = true,
                     });
 
-                    if (!json)
+                    if (!json && logger.IsEnabled(LogLevel.Information))
                     {
                         var owner = info.OwnerHwnd != 0 ? $", owner: HWND {info.OwnerHwnd}" : "";
                         ansiConsole.MarkupLine($"  [green]✓[/] HWND [cyan]{w.Hwnd}[/]: \"{Markup.Escape(title)}\" [grey]({info.Label}, {width}x{height}{owner})[/]");
@@ -503,9 +504,11 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 ? captures.Max(c => c.Height) + LabelBarHeight
                 : captures[0].Height;
 
-            if (pass.IsComposite && !json)
+            if (pass.IsComposite && !json && logger.IsEnabled(LogLevel.Information))
             {
-                ansiConsole.MarkupLine($"  [green]✓[/] Saved composite: {absolutePath}");
+                // Keep paths intact on the wire: the host translates them after artifact delivery.
+                // Spectre rendering inserts line breaks before that translation can happen.
+                ansiConsole.Profile.Out.Writer.WriteLine($"  ✓ Saved composite: {absolutePath}");
             }
 
             if (json)
@@ -526,11 +529,10 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 return 0;
             }
 
-            if (!pass.IsComposite)
+            if (!pass.IsComposite && logger.IsEnabled(LogLevel.Information))
             {
-                logger.LogInformation(
-                    "Screenshot of \"{WindowTitle}\" (PID {ProcessId}) saved to {Path} ({Width}x{Height}, {Size}KB)",
-                    pass.Target.WindowTitle, pass.Target.ProcessId, absolutePath, width, height, pngBytes.Length / 1024);
+                ansiConsole.Profile.Out.Writer.WriteLine(
+                    $"Screenshot of \"{TerminalText.Sanitize(pass.Target.WindowTitle)}\" (PID {pass.Target.ProcessId}) saved to {absolutePath} ({width}x{height}, {pngBytes.Length / 1024}KB)");
             }
 
             return 0;

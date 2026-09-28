@@ -303,9 +303,9 @@ winapp update --setup-sdks experimental
 
 ### pack
 
-Create MSIX packages from prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
+Create MSIX packages from a project or prepared application directories. Requires a manifest file (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported) to be present in the target directory, in the current directory, or passed with the `--manifest` option. (run `init` or `manifest generate` to create a manifest)
 
-Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
+Pass a single `.csproj` to build the project and package its output in one step (**project mode**, see [Packaging a project directly](#packaging-a-project-directly) below). Pass multiple input folders to create an `.msixbundle` for multi-architecture distribution (see [Multi-architecture bundles](#multi-architecture-bundles) below).
 
 ```bash
 winapp pack <input-folder> [input-folder...] [options]
@@ -313,7 +313,7 @@ winapp pack <input-folder> [input-folder...] [options]
 
 **Arguments:**
 
-- `input-folder` - One or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
+- `input-folder` - A single `.csproj` to build and package (project mode), or one or more directories containing the application files to package. Pass multiple folders (e.g., `./publish/x64 ./publish/arm64`) to create an MSIX bundle. For **sparse identity packages**, pass a sparse `appxmanifest.xml` file directly instead of a folder (see [Sparse identity packages](#sparse-identity-packages) below).
 
 **Options:**
 
@@ -323,11 +323,23 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--cert <path>` - Path to signing certificate (enables auto-signing)
 - `--cert-password <password>` - Certificate password (default: "password")
 - `--generate-cert` - Generate a new development certificate
+- `--no-sign` - Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with `--cert` or `--generate-cert`.
 - `--install-cert` - Install certificate to machine
 - `--publisher <name>` - Publisher for certificate generation. Accepts a full X.500 distinguished name or a bare name (automatically wrapped as `CN=<name>`)
 - `--self-contained` - Bundle Windows App SDK runtime
 - `--skip-pri` - Skip PRI file generation
 - `--executable <path>` - Path to the executable relative to the input folder (also `--exe`). Used to resolve `$targetnametoken$` placeholders in the manifest.
+
+**Project-mode options** (require a `.csproj` input; rejected for folder/bundle/manifest inputs):
+
+- `--configuration <name>` (`-c`) - Build configuration (default: `Release`)
+- `--arch <arch>` - Target architecture: `x64`, `arm64`, or `x86` (default: the current process architecture)
+- `--framework <tfm>` (`-f`) - Target framework moniker for multi-targeted projects
+- `--no-build` - Package the existing build output without rebuilding
+- `--no-restore` - Skip restoring the project before building
+- `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
+
+> **Note:** For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
 
 **What it does:**
 
@@ -339,6 +351,27 @@ winapp pack <input-folder> [input-folder...] [options]
 - Automatically discovers third-party WinRT components and registers their activatable classes (see [WinRT component discovery](#winrt-component-discovery) below)
 - Handles self-contained WinAppSDK deployment
 - Signs package if certificate provided
+
+#### Packaging a project directly
+
+When the input is a single `.csproj`, `winapp pack` builds the project (using the options above) and packages the resulting output — no need to build separately or locate the output folder first. This mirrors `winapp run`'s project mode.
+
+```bash
+# Build MyApp in Release for arm64 and package + sign it in one step
+winapp pack ./MyApp.csproj -c Release --arch arm64 --cert ./devcert.pfx
+
+# Package an existing build output without rebuilding
+winapp pack ./MyApp.csproj --no-build
+
+# Select the target architecture with an exact RID instead of --arch
+winapp pack ./MyApp.csproj -p RuntimeIdentifier=win-x64
+```
+
+The target architecture comes from `--arch`, or from a lone `-p RuntimeIdentifier=<rid>` when you don't pass `--arch` (the exact RID is preserved and drives the build). Passing both `--arch` and `-p RuntimeIdentifier` is a conflict and is rejected.
+
+The project must build as a packaged app (`EnableMsixTooling=true` with a `Package.appxmanifest`); a project that builds as an unpackaged app (`WindowsPackageType=None`) has no MSIX manifest to package and `winapp pack` reports an actionable error. Folder, bundle, and sparse-manifest inputs are unchanged.
+
+Project mode produces a single `.msix` or an architecture-only `.msixbundle` (see [Multi-architecture bundles](#multi-architecture-bundles)). It does not produce Store-upload archives or resource-split (language/scale) bundles: an explicit `-p UapAppxPackageBuildMode=StoreUpload` or `-p AppxBundleAutoResourcePackageQualifiers=...` is rejected with a note to run the native SDK packaging command directly for those flows.
 
 #### Sparse identity packages
 
@@ -523,7 +556,7 @@ winapp manifest generate [directory] [options]
 **Options:**
 
 - `--package-name <name>` - Package name (default: folder name)
-- `--publisher-name <name>` - Publisher distinguished name (default: CN=\<current user\>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=\<name\>.
+- `--publisher-name <name>` - Publisher distinguished name (default: CN=\<current user\>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued `+` RDNs and backslashes are not supported); bare names are auto-wrapped as CN=\<name\>.
 - `--version <version>` - Version (default: "1.0.0.0")
 - `--description <text>` - Description (default: "My Application")
 - `--entrypoint <path>` - Entry point executable or script
@@ -979,6 +1012,8 @@ own manifest — see [Bring your own manifest](#bring-your-own-manifest) below.
 winapp run counter.cs
 ```
 
+Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
+
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
 ```csharp
@@ -1147,6 +1182,58 @@ launches the `.exe` directly. (A packaged app is launched through its execution 
 activation — see the console note above; that choice is separate from whether it is packaged.) The
 identity options (`--no-launch`, `--with-alias`, `--without-alias`, `--clean`, `--unregister-on-exit`,
 `--manifest`, `--output-appx-directory`, `--unique-identity`) apply to packaged apps only.
+
+##### Running with `dotnet run`
+
+You don't have to type `winapp` at all. Reference the
+[`Microsoft.Windows.SDK.BuildTools.WinApp`](../src/winapp-NuGet/README.md) package from the file and
+plain `dotnet run` gives you the same packaged launch:
+
+```csharp
+#:package Microsoft.Windows.SDK.BuildTools.WinApp@*
+#:property OutputType=Exe
+#:property TargetFramework=net10.0-windows10.0.19041.0
+
+System.Console.WriteLine(Windows.ApplicationModel.Package.Current.Id.FamilyName);
+```
+
+```bash
+dotnet run counter.cs
+```
+
+The package's MSBuild targets redirect the run to winapp, which packages, registers, and launches the
+app that `dotnet run` just built — it is not rebuilt. Manifest handling is unchanged: winapp resolves
+it exactly as it does for `winapp run`, so `#:property WinAppManifestPath=…` and a
+`<filename>.appxmanifest` beside the `.cs` are both honoured (see
+[Bring your own manifest](#bring-your-own-manifest)), a directory-wide `Package.appxmanifest` is still
+ignored, and otherwise one is generated from your `#:property` directives and refreshed every run.
+
+Two conditions have to hold for the redirect to happen:
+
+| Directive | Why |
+|-----------|-----|
+| `#:package Microsoft.Windows.SDK.BuildTools.WinApp@*` | the targets doing the redirect ship in this package |
+| `#:property TargetFramework=net10.0-windows…` | a plain `net10.0` file is left alone, so it runs unpackaged |
+
+Adding `#:property WindowsPackageType=None` also leaves the file alone: `dotnet run` then runs the
+`.exe` directly, without identity. Use `winapp run` for the unpackaged path if you want the matching
+Windows App Runtime installed first.
+
+Set `#:property EnableWinAppRunSupport=false` to opt out of the redirect entirely, and the
+`WinAppRun*` properties described under
+[Configuration](../src/winapp-NuGet/README.md#configuration) to shape the launch — for example:
+
+```csharp
+#:property WinAppRunUnregisterOnExit=true
+```
+
+If `dotnet run` runs the app unpackaged when you expected identity, ask MSBuild why. Use
+`dotnet build`, not `dotnet msbuild` — only `dotnet build` synthesizes the virtual project that a
+file-based app is compiled through:
+
+```bash
+dotnet build counter.cs -t:WinAppRunSupportInfo
+```
 
 Single-file mode requires the **.NET SDK 10.0.300 or newer**.
 
@@ -1399,19 +1486,43 @@ winapp cert generate [options]
 
 **Options:**
 
-- `--manifest <Package.appxmanifest>` - Extract publisher information from Package.appxmanifest 
-- `--publisher <name>` - Publisher for the certificate. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`
+- `--manifest <Package.appxmanifest>` - Extract the certificate publisher from the manifest's `Identity/@Publisher`. Only the publisher is required, so a partially-complete manifest still works. If the manifest has no usable publisher, the command fails instead of substituting a default, so the certificate can never silently mismatch the manifest.
+- `--publisher <name>` - Publisher for the certificate. When generating a certificate, this option takes precedence over `--manifest`; an explicitly empty value fails instead of using the manifest publisher. Accepts a full X.500 distinguished name (e.g., `CN=Contoso, O=Contoso Ltd, C=US`) or a bare name which is automatically wrapped as `CN=<name>`. Components must be single-valued and comma-separated; multi-valued RDNs (`CN=Foo+OU=Bar`) and backslashes are not supported because the MSIX manifest publisher cannot represent them. A malformed distinguished name (e.g. `CN=` or `CN=A,,O=B`) is rejected with a non-zero exit and an error naming the problem, rather than producing a certificate that can never match the manifest publisher.
 - `--output <path>` - Output certificate file path (supports absolute and relative paths)
-- `--password <password>` - Certificate password (default: "password")
+- `--password <password>` - Certificate password (default: `password`, which is publicly known — see [JSON output](#cert-generate-json-output) and [Security](security.md#the-default-password))
 - `--valid-days <valid-days>` - Number of days the certificate is valid (default: 365)
 - `--install` - Install the certificate to the local machine store after generation
 - `--if-exists <Error|Overwrite|Skip>` - Set behavior if the certificate file already exists (default: Error)
 - `--export-cer` - Export a `.cer` file (public key only) alongside the `.pfx`. Useful for distributing the public certificate separately for trust installation.
 - `--json` - Format output as JSON for programmatic consumption. Errors are also returned as JSON (`{"error": "..."}`).
 
+<a id="cert-generate-json-output"></a>
+
+**JSON output:**
+
+```json
+{
+  "certificatePath": "C:\\app\\devcert.pfx",
+  "password": "password",
+  "defaultPasswordIsPublic": true,
+  "publisher": "Contoso",
+  "subjectName": "CN=Contoso",
+  "warnings": [
+    "Protected with the default password ('password'), which is public. Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship."
+  ]
+}
+```
+
+`publisher` is the display name and `subjectName` the full distinguished name the certificate was
+issued to. `defaultPasswordIsPublic` is always present. When it is `true`, the `.pfx` is protected by
+a password anyone can guess, so the certificate must only sign builds that stay on your own machines
+— check it before a script hands the certificate to anything else. `warnings` carries the same
+disclosure as text and is omitted when there is nothing to report. `publicCertificatePath` appears
+only with `--export-cer`.
+
 #### cert info
 
-Display certificate details from a PFX file. Useful for verifying a certificate matches your manifest before signing.
+Display certificate details from a PFX or CER file. Useful for verifying a certificate matches your manifest before signing.
 
 ```bash
 winapp cert info <cert-path> [options]
@@ -1419,11 +1530,11 @@ winapp cert info <cert-path> [options]
 
 **Arguments:**
 
-- `cert-path` - Path to the certificate file (PFX)
+- `cert-path` - Path to the certificate file (PFX or CER)
 
 **Options:**
 
-- `--password <password>` - Password for the PFX file (default: "password")
+- `--password <password>` - Password for the PFX file, ignored for a public CER (default: "password")
 - `--json` - Format output as JSON
 
 #### cert install
@@ -1630,13 +1741,21 @@ winapp tool signtool verify /pa MyApp.msix
 
 **Signature verification**
 
-Build tools are downloaded from NuGet and then executed, so winapp checks each one for a valid Microsoft Authenticode signature immediately before running it. This applies to every command that shells out to an SDK tool, including `tool`, `package`, and `sign`. A tool that fails the check is not run:
+Build tools are downloaded from NuGet and then executed, so winapp checks each one for a valid Microsoft Authenticode signature immediately before running it. The certificate must name Microsoft Corporation as the signing organization. This applies to every command that shells out to an SDK tool, including `tool`, `package`, and `sign`. A tool that fails the check is not run:
 
 ```text
 'mt.exe' is not validly signed by Microsoft, so it was not run (C:\...\mt.exe).
 ```
 
 A failure here means the file on disk is not what Microsoft published — most often a corrupt or partial download. Delete the package from the NuGet cache and run the command again so winapp re-downloads it.
+
+winapp then keeps the tool open for as long as it runs, so the file it checked is the file Windows loads. If it cannot hold the tool in place, it is not run either:
+
+```text
+'mt.exe' could not be held open for verification, so it was not run (C:\...\mt.exe).
+```
+
+Close whatever is using the file — an antivirus scan or an open editor is the usual cause — and run the command again. If the tool is gone rather than in use, delete the package from the NuGet cache so winapp re-downloads it.
 
 ---
 
@@ -1722,7 +1841,7 @@ winapp target push sandbox .\setup.ps1 Setup\setup.ps1
 winapp target pull sandbox Results .\results
 ```
 
-Target paths are relative to `C:\WinApp\work`; absolute, rooted, and UNC target paths
+Target paths are relative to the target's managed work area; absolute, rooted, and UNC target paths
 are rejected. A file destination includes its filename. See
 [Running commands and copying files](sandbox-execution.md#running-commands-and-copying-files)
 for directory layout, link handling, and running a copied script.
@@ -1784,7 +1903,7 @@ winapp find-ui "<query>" [options]
 
 The Gallery, Toolkit, and Reactor corpora ship **inside the CLI**, so `find-ui` works with no network access — including on a first run in an agent sandbox or behind a corporate proxy that blocks `raw.githubusercontent.com`. When GitHub *is* reachable the CLI refreshes from it and caches the result per-user under `<global .winapp>/cache/find-ui`; the built-in corpus is only a floor, never a ceiling. Cached data is refreshed at most every 24 hours, or on demand with `--refresh`.
 
-The built-in corpus is re-fetched from GitHub every time a stable release is built, and a refresh that fails **stops the release build** rather than quietly shipping older data — the baker fetches through the same code path `--refresh` uses, so a failure there means the live refresh is broken too and is worth investigating before shipping. A release can still be cut against the previously committed corpus, but only as an explicit override. When results are served from the built-in copy, `find-ui` says so on stderr and `--json` output carries `"corpus": "embedded"` (other values: `"network"` for a fresh fetch, `"cache"` for the local cache).
+The built-in corpus is re-fetched from GitHub every time a stable release is built, and a refresh that fails **stops the release build** rather than quietly shipping older data — the baker fetches through the same code path `--refresh` uses, so a failure there means the live refresh is broken too and is worth investigating before shipping. A release can still be cut against the previously committed corpus, but only as an explicit override. When results are served from the built-in copy of the Gallery/Toolkit/Reactor corpora, `find-ui` says so on stderr and `--json` output carries `"corpus": "embedded"` (other values: `"network"` for a fresh fetch, `"cache"` for the local cache). A core-only request — `--source core`, or an `--id` set that is all core patterns — reports `"embedded"` too, because the curated core patterns are compiled into the CLI and never fetched; it prints no staleness notice, since `--refresh` cannot change them. The `corpus` field is reported whenever results were served; it is absent only when no corpus could be loaded at all.
 
 **Options:**
 
@@ -2175,7 +2294,7 @@ winapp ui [command] [options]
 - `search` - Find elements by selector
 - `get-property` - Read element properties
 - `get-text` / `get-value` - Read value/text from element (TextPattern, ValuePattern, or Name)
-- `screenshot` - Capture window/element as PNG (auto-captures dialogs separately)
+- `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
 - `invoke` - Activate element (click, toggle, expand)
 - `click` - Click element via mouse simulation (for controls that don't support invoke)
@@ -2229,7 +2348,7 @@ stop reason, optional `frameArtifacts`, and warnings.
 
 > **Known limitation:** recording a *specific element* inside a popup that renders in its own
 > top-level window (WinUI/XAML flyout, teaching tip, tooltip) may capture the underlying main
-> window instead. Record the whole window, or use `ui screenshot --capture-screen` for popup
-> stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
+> window instead. Record the whole window, or follow the [screenshot overlay workflow](ui-automation.md#screenshot)
+> for popup stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

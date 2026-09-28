@@ -45,6 +45,8 @@ internal sealed class FakeProjectRunService : IProjectRunService
     public List<string?> ResolveInputSelectors { get; } = [];
     public List<ProjectClassificationInputs?> ResolveInputClassificationInputs { get; } = [];
     public List<FileInfo> BuildAndResolveCalls { get; } = [];
+    public List<FileInfo> PublishAndResolveCalls { get; } = [];
+    public List<FileInfo> PublishNativeMsixCalls { get; } = [];
     public List<ProjectRunOptions> BuildOptions { get; } = [];
     public List<ProjectRunOptions> AotOptions { get; } = [];
     public List<FileInfo> BuildAndResolveSingleFileCalls { get; } = [];
@@ -118,10 +120,62 @@ internal sealed class FakeProjectRunService : IProjectRunService
             ?? throw new InvalidOperationException("FakeProjectRunService.AotOutcome was not configured."));
     }
 
+    /// <summary>Returned from <see cref="PublishNativeMsixAsync"/> when no exception is configured.</summary>
+    public NativeMsixPublishOutcome? NativeMsixOutcome { get; set; }
+
+    /// <summary>When set, <see cref="PublishNativeMsixAsync"/> throws it (simulates a guardrail violation).</summary>
+    public ProjectRunException? NativeMsixThrows { get; set; }
+
+    public Task<NativeMsixPublishOutcome> PublishNativeMsixAsync(FileInfo csproj, ProjectPackagePreparation preparation, DirectoryInfo packageDir, CancellationToken cancellationToken)
+    {
+        PublishNativeMsixCalls.Add(csproj);
+        BuildOptions.Add(preparation.Options);
+        if (NativeMsixThrows != null)
+        {
+            throw NativeMsixThrows;
+        }
+
+        return Task.FromResult(NativeMsixOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.NativeMsixOutcome was not configured."));
+    }
+
+    /// <summary>Default false = generic publish-layout path.</summary>
+    public bool IsNativeMsixProject { get; set; }
+
+    public List<ProjectRunOptions> PreparationOptions { get; } = [];
+    public Func<ProjectRunOptions, ProjectPackagePreparation>? PreparePackageHandler { get; set; }
+
+    /// <summary>
+    /// Returned from <see cref="PreparePackageAsync"/>. Default is a successfully-evaluated project
+    /// with no signing configured (SigningEnabled unset → unsigned). Set to <c>null</c> to model a project
+    /// whose signing configuration could not be evaluated (e.g. an unrestored clean checkout).
+    /// </summary>
+    public ProjectSigningProperties? ProjectSigning { get; set; } = new ProjectSigningProperties(null, null, null, null, null);
+
+    public Task<ProjectPackagePreparation> PreparePackageAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
+    {
+        PreparationOptions.Add(options);
+        return Task.FromResult(PreparePackageHandler?.Invoke(options)
+            ?? new ProjectPackagePreparation(options, null, DefinitivelyUnpackaged, IsNativeMsixProject, ProjectSigning));
+    }
+
     public Task<bool> IsDefinitivelyUnpackagedAsync(FileInfo csproj, ProjectRunOptions options, CancellationToken cancellationToken)
     {
         IsDefinitivelyUnpackagedCalls.Add(csproj);
         return Task.FromResult(DefinitivelyUnpackaged);
+    }
+
+    public Task<ProjectBuildOutcome> PublishAndResolveAsync(FileInfo csproj, ProjectPackagePreparation preparation, CancellationToken cancellationToken)
+    {
+        PublishAndResolveCalls.Add(csproj);
+        BuildOptions.Add(preparation.Options);
+        if (BuildThrows != null)
+        {
+            throw BuildThrows;
+        }
+
+        return Task.FromResult(BuildOutcome
+            ?? throw new InvalidOperationException("FakeProjectRunService.BuildOutcome was not configured."));
     }
 
     public Task<SingleFileBuildOutcome> BuildAndResolveSingleFileAsync(FileInfo singleFile, SingleFileRunOptions options, CancellationToken cancellationToken)

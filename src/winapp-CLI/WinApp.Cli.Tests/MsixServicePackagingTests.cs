@@ -89,6 +89,80 @@ public class MsixServicePackagingTests : BaseCommandTests
         Assert.AreEqual("MyApp", result.ApplicationId);
     }
 
+    // ---- ExtractPublisherFromPathAsync --------------------------------------------
+
+    [TestMethod]
+    public async Task ExtractPublisherFromPathAsync_NonexistentFile_ThrowsFileNotFoundException()
+    {
+        var missing = new FileInfo(Path.Join(_tempDirectory.FullName, "does-not-exist.xml"));
+
+        var ex = await Assert.ThrowsExactlyAsync<FileNotFoundException>(
+            () => MsixService.ExtractPublisherFromPathAsync(missing, TestContext.CancellationToken));
+
+        StringAssert.Contains(ex.Message, "AppX manifest not found");
+    }
+
+    [TestMethod]
+    public async Task ExtractPublisherFromPathAsync_ManifestWithoutApplications_ReturnsPublisher()
+    {
+        // A partially-complete manifest (valid Identity/@Publisher, no Applications/Name) must still
+        // yield the publisher — unlike ParseAppxManifestFromPathAsync, which requires an Application
+        // element (issue #839).
+        const string manifest =
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Publisher="CN=FlowHarnessPublisher, O=Fabrikam Inc, C=US" Version="1.0.0.0" />
+            </Package>
+            """;
+        var manifestPath = new FileInfo(Path.Join(_tempDirectory.FullName, "Partial.appxmanifest"));
+        await File.WriteAllTextAsync(manifestPath.FullName, manifest, TestContext.CancellationToken);
+
+        var publisher = await MsixService.ExtractPublisherFromPathAsync(manifestPath, TestContext.CancellationToken);
+
+        Assert.AreEqual("CN=FlowHarnessPublisher, O=Fabrikam Inc, C=US", publisher);
+    }
+
+    [TestMethod]
+    public async Task ExtractPublisherFromPathAsync_MissingPublisher_ThrowsInvalidOperationException()
+    {
+        const string manifest =
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Version="1.0.0.0" />
+            </Package>
+            """;
+        var manifestPath = new FileInfo(Path.Join(_tempDirectory.FullName, "NoPublisher.appxmanifest"));
+        await File.WriteAllTextAsync(manifestPath.FullName, manifest, TestContext.CancellationToken);
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => MsixService.ExtractPublisherFromPathAsync(manifestPath, TestContext.CancellationToken));
+
+        StringAssert.Contains(ex.Message, "Publisher");
+    }
+
+    [TestMethod]
+    public async Task ExtractPublisherFromPathAsync_EmptyPublisher_ThrowsInvalidOperationException()
+    {
+        // An empty/whitespace Publisher would otherwise slip through and surface a generic downstream
+        // "Publisher name cannot be empty" error rather than the actionable manifest guidance.
+        const string manifest =
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+              <Identity Name="FlowHarnessApp" Publisher="   " Version="1.0.0.0" />
+            </Package>
+            """;
+        var manifestPath = new FileInfo(Path.Join(_tempDirectory.FullName, "EmptyPublisher.appxmanifest"));
+        await File.WriteAllTextAsync(manifestPath.FullName, manifest, TestContext.CancellationToken);
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => MsixService.ExtractPublisherFromPathAsync(manifestPath, TestContext.CancellationToken));
+
+        StringAssert.Contains(ex.Message, "Publisher");
+    }
+
     // ---- CopyManifestReferencedFiles ----------------------------------------------
 
     [TestMethod]

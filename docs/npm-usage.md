@@ -102,7 +102,7 @@ function certGenerate(options?: CertGenerateOptions): Promise<WinappResult>
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
-| `password` | `string \| undefined` | No | Password for the generated PFX file |
+| `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 
@@ -528,7 +528,7 @@ function newCommand(options?: NewOptions): Promise<WinappResult>
 
 ### `packageApp()`
 
-Create MSIX installer from your built app. Run after building your app. A manifest (Package.appxmanifest or appxmanifest.xml) is required for packaging - it must be in current working directory, passed as --manifest or be in the input folder. Use --cert devcert.pfx to sign for testing. Example: winapp package ./dist --manifest Package.appxmanifest --cert ./devcert.pfx
+Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.
 
 ```typescript
 function packageApp(options: PackageOptions): Promise<WinappResult>
@@ -538,15 +538,22 @@ function packageApp(options: PackageOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `inputFolder` | `string \| string[]` | Yes | One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `inputFolder` | `string \| string[]` | Yes | A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `arch` | `string \| string[] \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture. |
 | `cert` | `string \| undefined` | No | Path to signing certificate (will auto-sign if provided) |
 | `certPassword` | `string \| undefined` | No | Certificate password (default: password) |
+| `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release. |
 | `executable` | `string \| undefined` | No | Path to the executable relative to the input folder. |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
 | `generateCert` | `boolean \| undefined` | No | Generate a new development certificate |
 | `installCert` | `boolean \| undefined` | No | Install certificate to machine |
 | `manifest` | `string \| undefined` | No | Path to AppX manifest file (default: auto-detect from input folder or current directory) |
 | `name` | `string \| undefined` | No | Package name (default: from manifest) |
+| `noBuild` | `boolean \| undefined` | No | Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
+| `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
+| `noSign` | `boolean \| undefined` | No | Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. |
 | `output` | `string \| undefined` | No | Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. |
+| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. |
 | `selfContained` | `boolean \| undefined` | No | Bundle Windows App SDK runtime for self-contained deployment |
 | `skipPri` | `boolean \| undefined` | No | Skip PRI file generation |
@@ -829,17 +836,17 @@ function uiDrag(options?: UiDragOptions): Promise<WinappResult>
 
 ### `uiFocus()`
 
-Move keyboard focus to the specified element using UIA SetFocus.
+Activate the specified element's window, focus the element, and verify foreground and keyboard focus. Fails if Windows refuses activation or focus cannot be confirmed.
 
 ```typescript
-function uiFocus(options?: UiFocusOptions): Promise<WinappResult>
+function uiFocus(options: UiFocusOptions): Promise<WinappResult>
 ```
 
 **Options:**
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string` | Yes | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -851,7 +858,7 @@ function uiFocus(options?: UiFocusOptions): Promise<WinappResult>
 
 ### `uiGetFocused()`
 
-Show the element that currently has keyboard focus in the target app.
+Show the element that currently has keyboard focus in the target app. With -w, focus must belong to that exact top-level window; owned popups are excluded.
 
 ```typescript
 function uiGetFocused(options?: UiGetFocusedOptions): Promise<WinappResult>
@@ -1046,7 +1053,7 @@ function uiPen(options?: UiPenOptions): Promise<WinappResult>
 
 ### `uiScreenshot()`
 
-Capture the target window or element as a PNG image. When multiple windows exist (e.g., dialogs), captures each to a separate file. With --json, returns file path and dimensions. Use --capture-screen for popup overlays.
+Capture the target window or element as a PNG image. Without an element selector, combines multiple windows into one labeled composite: --app by process name or PID includes the app's windows and their owned windows; a title match or --window selects one window plus its owned windows. With --json, returns file path and dimensions. Use --capture-screen with --window to capture one screen region, including visible overlays in place.
 
 ```typescript
 function uiScreenshot(options?: UiScreenshotOptions): Promise<WinappResult>
@@ -1733,7 +1740,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
-| `password` | `string \| undefined` | No | Password for the generated PFX file |
+| `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
@@ -2029,15 +2036,22 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `inputFolder` | `string \| string[]` | Yes | One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `inputFolder` | `string \| string[]` | Yes | A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). |
+| `arch` | `string \| string[] \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture. |
 | `cert` | `string \| undefined` | No | Path to signing certificate (will auto-sign if provided) |
 | `certPassword` | `string \| undefined` | No | Certificate password (default: password) |
+| `configuration` | `string \| undefined` | No | Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release. |
 | `executable` | `string \| undefined` | No | Path to the executable relative to the input folder. |
+| `framework` | `string \| undefined` | No | Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
 | `generateCert` | `boolean \| undefined` | No | Generate a new development certificate |
 | `installCert` | `boolean \| undefined` | No | Install certificate to machine |
 | `manifest` | `string \| undefined` | No | Path to AppX manifest file (default: auto-detect from input folder or current directory) |
 | `name` | `string \| undefined` | No | Package name (default: from manifest) |
+| `noBuild` | `boolean \| undefined` | No | Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
+| `noRestore` | `boolean \| undefined` | No | Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
+| `noSign` | `boolean \| undefined` | No | Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. |
 | `output` | `string \| undefined` | No | Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. |
+| `property` | `string \| string[] \| undefined` | No | Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs. |
 | `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. |
 | `selfContained` | `boolean \| undefined` | No | Bundle Windows App SDK runtime for self-contained deployment |
 | `skipPri` | `boolean \| undefined` | No | Skip PRI file generation |
@@ -2239,7 +2253,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string` | Yes | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |

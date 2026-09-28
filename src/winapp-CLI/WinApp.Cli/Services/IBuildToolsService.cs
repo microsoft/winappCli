@@ -29,6 +29,17 @@ internal interface IBuildToolsService
     /// <exception cref="InvalidOperationException">BuildTools installation failed</exception>
     Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Verifies a build tool and keeps it in place so it can be launched safely. Callers start the
+    /// returned tool from <see cref="VerifiedTool.Path"/> and dispose it once the tool has exited.
+    /// Use this instead of starting a path from <see cref="EnsureBuildToolAvailableAsync"/>, which
+    /// only reports a verdict and leaves the file free to be swapped before it runs.
+    /// </summary>
+    /// <exception cref="BuildToolSignatureException">
+    /// The tool could not be held in place, or is not validly signed by Microsoft.
+    /// </exception>
+    VerifiedTool OpenVerifiedTool(FileInfo toolPath);
+
     Task<DirectoryInfo?> EnsureBuildToolsAsync(TaskContext taskContext, bool forceLatest = false, CancellationToken cancellationToken = default);
 
     /// <summary>

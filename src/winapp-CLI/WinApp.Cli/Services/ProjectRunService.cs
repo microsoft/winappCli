@@ -24,9 +24,16 @@ internal sealed partial class ProjectRunService(
     private static readonly string[] RequestedProperties =
     [
         "TargetDir",
-        "MSBuildProjectDirectory",
+        // The publish output directory (`bin/<cfg>/<tfm>/<rid>/publish/`). Distinct from TargetDir — it is
+        // where deployment transforms (trimming, single-file, ReadyToRun, Native AOT, self-contained) land,
+        // so `winapp pack` (publish mode) packages this, not the build output.
         "PublishDir",
+        "MSBuildProjectDirectory",
         "FinalAppxManifestName",
+        // The NuGet targets' manifest escape hatch: a project can point WinAppManifestPath at an authored
+        // manifest outside the publish output. Honored here so a project that classifies as packaged through
+        // it (matching `winapp run`) can also be packaged, instead of failing to find a manifest.
+        "WinAppManifestPath",
         "AppxPackageRecipe",
         "AssemblyName",
         "TargetName",
@@ -41,6 +48,15 @@ internal sealed partial class ProjectRunService(
         "WindowsPackageType",
         "WindowsAppSDKSelfContained",
         "EnableMsixTooling",
+        // Whether the Windows App SDK MSIX packaging targets are active for this project. Distinguishes a
+        // native-MSIX project (winapp lets the SDK produce the package) from a generic publish-layout one.
+        "MsixPackageSupport",
+        // Project signing configuration, resolved into one signing policy for the final artifact (spec §6).
+        "AppxPackageSigningEnabled",
+        "PackageCertificateKeyFile",
+        "PackageCertificatePassword",
+        "PackageCertificateThumbprint",
+        "AppxPackageSigningTimestampServerUrl",
         "_WinAppRunSupportActive",
         "OutputType",
         // The app's own launch preference. Read here so a .csproj run directly gets the same behavior as
@@ -183,8 +199,14 @@ internal sealed partial class ProjectRunService(
             ProjectRunOptions options,
             DirectoryInfo workingDir,
             CancellationToken cancellationToken,
-            bool aotPublish = false)
+            bool aotPublish = false,
+            bool publish = false)
     {
+        if (publish)
+        {
+            options = WithPublishContext(options);
+        }
+
         // Pin an effective single TFM for a multi-targeted project (default = first declared) BEFORE any
         // pass so build/evaluate/packaging/provisioning all agree. No-op when single-targeted / --framework set.
         options = await ResolveEffectiveFrameworkAsync(csproj, options, workingDir, cancellationToken);
@@ -219,9 +241,24 @@ internal sealed partial class ProjectRunService(
         // (else NETSDK1004) — matching VS / `dotnet build <sln>`. Gated on actually building + restore not opted out.
         if (!options.NoBuild && !options.NoRestore)
         {
-            // (1) Restore the owning solution's managed siblings. An all-managed whole-solution restore also
-            // covered the target, so the passes below can skip their own restore.
-            var restoredWholeSolution = await RestoreSolutionSiblingsAsync(csproj, options, workingDir, cancellationToken);
+            // (1) Restore the owning solution's managed siblings. Build mode may reuse this restore;
+            // package preparation must also restore the selected project's exact publish inputs.
+            var restoredWholeSolution = await RestoreSolutionSiblingsAsync(csproj, options, workingDir, cancellationToken, publish);
+
+            if (publish)
+            {
+                // A solution can map Release to Debug for this project. Always refresh its publish
+                // graph directly before reading signing policy, even after a successful solution restore.
+                var restoreArgs = BuildRestorePassArguments(csproj, options, ResolveRestoreVerbosity(logger, options.Json), pinFramework: true);
+                var restoreExit = await RunRestoreCommandAsync(
+                    restoreArgs, $"Restoring {csproj.Name} dependencies...", options, workingDir, cancellationToken);
+                if (restoreExit != 0)
+                {
+                    throw new ProjectRunException($"Publish restore failed for '{csproj.Name}' (exit code {restoreExit}).");
+                }
+                csWinRTMetadata ??= ResolveCsWinRTMetadataShim(options, shimFramework);
+                return (options, options with { NoRestore = true }, csWinRTMetadata);
+            }
 
             // (2) SHIM (temporary): on a clean SDK-less host the ref pack may not be on disk when the shim
             // first resolves, so it no-ops and the first build fails even though it restores the ref pack.
@@ -254,19 +291,41 @@ internal sealed partial class ProjectRunService(
     }
 
     /// <inheritdoc />
-    public async Task<ProjectBuildOutcome> BuildAndResolveAsync(
+    public Task<ProjectBuildOutcome> BuildAndResolveAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         CancellationToken cancellationToken)
+        => BuildOrPublishAndResolveAsync(csproj, options, cancellationToken);
+
+    /// <summary>
+    /// Publishes the project (<c>dotnet publish</c>) and resolves the evaluated <c>PublishDir</c> as the
+    /// payload — where deployment transforms (trimming, single-file, ReadyToRun, Native AOT, self-contained)
+    /// land — so <c>winapp pack</c> packages what actually ships, not the build output. Mirrors
+    /// <see cref="BuildAndResolveAsync"/>; the returned <c>ProjectRunResolution.TargetDir</c> is the publish
+    /// directory. (General publish; the Native-AOT-specific verification lives with <c>winapp run --aot</c>.)
+    /// </summary>
+    public Task<ProjectBuildOutcome> PublishAndResolveAsync(
+        FileInfo csproj,
+        ProjectPackagePreparation preparation,
+        CancellationToken cancellationToken)
+        => BuildOrPublishAndResolveAsync(csproj, preparation.Options, cancellationToken, preparation);
+
+    private async Task<ProjectBuildOutcome> BuildOrPublishAndResolveAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken,
+        ProjectPackagePreparation? preparation = null)
     {
+        var publish = preparation is not null;
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
         WarnOnOverriddenFlags(options);
 
         // Restore output must remain visible: NuGet can spend minutes retrying an unreachable feed, and
         // buffering those diagnostics makes the command look frozen. Property discovery remains buffered
         // because winapp parses it, but every restore below streams progress and failures immediately.
-        var (preparedOptions, buildOptions, csWinRTMetadata) = await PrepareBuildInputsAsync(
-            csproj, options, workingDir, cancellationToken);
+        var (preparedOptions, buildOptions, csWinRTMetadata) = preparation is null
+            ? await PrepareBuildInputsAsync(csproj, options, workingDir, cancellationToken)
+            : (preparation.Options, preparation.Options, preparation.CsWinRTMetadata);
         options = preparedOptions;
 
         // Reject a non-runnable project (e.g. a class library) before building it — the post-build
@@ -286,19 +345,14 @@ internal sealed partial class ProjectRunService(
                 if (!string.IsNullOrEmpty(evaluatedOutputType) && !ProjectDetectionService.IsExecutableOutputType(evaluatedOutputType))
                 {
                     throw new ProjectRunException(
-                        $"'{csproj.Name}' is not a runnable project (OutputType='{evaluatedOutputType}'). 'winapp run' requires an executable project (OutputType Exe or WinExe).");
+                        $"'{csproj.Name}' is not an executable app project (OutputType='{evaluatedOutputType}'). winapp requires an executable project (OutputType Exe or WinExe).");
                 }
             }
         }
 
-        // Two passes: (1) BUILD — a plain `dotnet build` whose console log
-        // STREAMS live so the user sees progress (skipped under --no-build); then (2) EVALUATE — a
-        // fast `dotnet msbuild --getProperty` that returns the resolved output paths as JSON. The
-        // split is required because `--getProperty` SUPPRESSES normal MSBuild console output, so a
-        // single combined pass would build silently. The evaluate pass is fed the SAME effective
-        // Configuration/RID/Platform/TFM/-p as the build so its TargetDir/RunCommand match what was
-        // actually built.
-        if (!options.NoBuild)
+        // Builds keep their evaluate-only output-discovery fallback. Publishes capture properties
+        // after targets execute: a separate evaluation cannot recover target-assigned PublishDir.
+        if (!publish && !options.NoBuild)
         {
             var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
             if (buildExit != 0)
@@ -309,19 +363,28 @@ internal sealed partial class ProjectRunService(
             }
         }
 
-        var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata);
-        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(evaluateArgs));
-
-        var (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(workingDir, evaluateArgs, cancellationToken);
+        int exitCode;
+        string stdout;
+        string stderr;
+        if (publish)
+        {
+            (exitCode, stdout, stderr) = await RunPublishPassAsync(
+                csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
+        }
+        else
+        {
+            var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata);
+            logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(evaluateArgs));
+            (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(workingDir, evaluateArgs, cancellationToken);
+        }
 
         if (exitCode != 0)
         {
-            // The build (if any) succeeded but property evaluation failed — surface dotnet's
-            // diagnostics and propagate the exit code rather than launch against unknown output.
-            logger.LogError("{UISymbol} Could not evaluate project properties for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, exitCode);
+            // Publish diagnostics already streamed; buffered evaluation failures still need displaying.
+            logger.LogError("{UISymbol} {Operation} failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, publish ? "Publish" : "Property evaluation", csproj.Name, exitCode);
             var combined = string.Join(Environment.NewLine,
                 new[] { stdout, stderr }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.TrimEnd()));
-            if (!string.IsNullOrWhiteSpace(combined))
+            if (!publish && !string.IsNullOrWhiteSpace(combined))
             {
                 // Keep stdout clean for --json consumers; route diagnostics to stderr instead.
                 if (options.Json)
@@ -344,8 +407,9 @@ internal sealed partial class ProjectRunService(
         // the output path — bin\ARM64\Debug\<tfm>\win-arm64\ versus the bin\Debug\<tfm>\ that Visual
         // Studio and a plain `dotnet build` produce. So drop those injected knobs progressively and take
         // the first variant whose TargetDir exists. A winapp build writes the fully-qualified path, so it
-        // matches on the first try and never gets here.
-        if (options.NoBuild)
+        // matches on the first try and never gets here. Build mode only: publish mode ran the publish pass
+        // (even under --no-build) and resolves the payload from PublishDir below.
+        if (options.NoBuild && !publish)
         {
             var primaryTargetDir = GetProp(props, "TargetDir");
             if (!string.IsNullOrEmpty(primaryTargetDir) && !Directory.Exists(primaryTargetDir))
@@ -394,14 +458,46 @@ internal sealed partial class ProjectRunService(
             !string.Equals(outputType, "WinExe", StringComparison.OrdinalIgnoreCase))
         {
             throw new ProjectRunException(
-                $"'{csproj.Name}' is not a runnable project (OutputType='{outputType}'). 'winapp run' requires an executable project (OutputType Exe or WinExe).");
+                $"'{csproj.Name}' is not an executable app project (OutputType='{outputType}'). winapp requires an executable project (OutputType Exe or WinExe).");
         }
 
         var targetDir = GetProp(props, "TargetDir");
         var runCommand = GetProp(props, "RunCommand");
         var runArguments = GetProp(props, "RunArguments");
         var selfContained = string.Equals(GetProp(props, "WindowsAppSDKSelfContained"), "true", StringComparison.OrdinalIgnoreCase);
+
+        // Publish mode packages the deployment payload from PublishDir — EXCEPT for an MSIX-tooling app
+        // (WinUI / EnableMsixTooling), whose package is assembled from an MSBuild-generated .appxrecipe.
+        // That recipe, the generated AppxManifest.xml and the compiled XAML live in the build output
+        // (TargetDir); `dotnet publish` does NOT reproduce that layout in PublishDir (its publish folder
+        // omits the manifest, the recipe and the .xbf). So keep TargetDir when a recipe exists — recipe-based
+        // staging in MsixService gathers the manifest, compiled XAML and source-tree assets — and redirect
+        // to PublishDir only for recipe-less apps (self-contained / trimmed / single-file / AOT / simple),
+        // whose publish folder is the complete payload.
+        var appxRecipePath = ResolveEvaluatedFileIfPresent(props, "AppxPackageRecipe", workingDir.FullName);
+        if (publish && appxRecipePath is null)
+        {
+            var publishDir = GetProp(props, "PublishDir");
+            if (!string.IsNullOrEmpty(publishDir))
+            {
+                targetDir = Path.GetFullPath(publishDir, workingDir.FullName);
+            }
+        }
+
         var packaging = DeterminePackaging(props, targetDir);
+
+        // For a packaged app, carry the MSBuild-evaluated manifest and recipe so callers can package the
+        // authoritative layout (aligns with the Native AOT resolver). Prefer the project's explicit
+        // WinAppManifestPath escape hatch (the same one that can activate packaged support) over the
+        // SDK-generated FinalAppxManifestName. Only meaningful when packaged.
+        var appxManifestPath = packaging == ProjectPackaging.Packaged
+            ? ResolveEvaluatedFileIfPresent(props, "WinAppManifestPath", workingDir.FullName)
+                ?? ResolveEvaluatedFileIfPresent(props, "FinalAppxManifestName", workingDir.FullName)
+            : null;
+        if (packaging != ProjectPackaging.Packaged)
+        {
+            appxRecipePath = null;
+        }
 
         if (string.IsNullOrEmpty(targetDir))
         {
@@ -434,9 +530,52 @@ internal sealed partial class ProjectRunService(
             string.IsNullOrEmpty(outputType) ? null : outputType,
             ReadAliasPreference(props),
             GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
-            GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null);
+            GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null,
+            AppxManifestPath: appxManifestPath,
+            AppxRecipePath: appxRecipePath);
 
         return new ProjectBuildOutcome(resolution, 0);
+    }
+
+    /// <summary>
+    /// Resolves an evaluated MSBuild path property (relative to <paramref name="projectDirectory"/>) to an
+    /// absolute path, returning <c>null</c> when the property is unset or the resolved file does not exist.
+    /// Non-throwing counterpart to the Native AOT resolver's <c>ResolveEvaluatedFile</c>, used for the
+    /// optional packaged-app manifest/recipe where absence is a normal (non-packaged / non-recipe) case.
+    /// </summary>
+    internal static string? ResolveEvaluatedFileIfPresent(
+        IReadOnlyDictionary<string, string> properties,
+        string name,
+        string projectDirectory)
+    {
+        var value = GetProp(properties, name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        string resolved;
+        try
+        {
+            resolved = Path.GetFullPath(value, projectDirectory);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        // These paths (WinAppManifestPath / FinalAppxManifestName / AppxPackageRecipe) come from the
+        // project's evaluated properties — untrusted input. Probing a UNC / mapped-network-drive /
+        // reparse-redirected path with File.Exists can trigger outbound SMB authentication, so treat a
+        // network location as "not present" without probing it (matching the project-keyfile guard).
+        if (PathSafety.IsNetworkPath(resolved)
+            || PathSafety.IsNetworkDriveRoot(resolved)
+            || PathSafety.RedirectsToNetwork(resolved))
+        {
+            return null;
+        }
+
+        return File.Exists(resolved) ? resolved : null;
     }
 
     // RunCommand is an apphost path when UseAppHost is on, but a bare command name (e.g. "dotnet", with
@@ -479,6 +618,89 @@ internal sealed partial class ProjectRunService(
         ProjectRunOptions options,
         CancellationToken cancellationToken)
     {
+        var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+
+        // Only an EXPLICIT WindowsPackageType=None is definitive. An unset value is NOT — a packaged app
+        // declaring identity via an emitted recipe also evaluates empty here pre-build, so
+        // DeterminePackaging's post-build recipe fallback stays authoritative. Evaluation failure →
+        // indeterminate; let the authoritative build classify.
+        return props is not null
+            && string.Equals(GetProp(props, "WindowsPackageType"), "None", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Restores and evaluates the publish graph once for package policy and publisher selection.
+    /// </summary>
+    public async Task<ProjectPackagePreparation> PreparePackageAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+    {
+        var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+        (_, options, var metadata) = await PrepareBuildInputsAsync(
+            csproj, options, workingDir, cancellationToken, publish: true);
+        var props = await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, metadata, cancellationToken);
+        return new ProjectPackagePreparation(
+            options, metadata,
+            props is not null && string.Equals(GetProp(props, "WindowsPackageType"), "None", StringComparison.OrdinalIgnoreCase),
+            props is not null && (IsTrue(GetProp(props, "MsixPackageSupport")) || IsTrue(GetProp(props, "EnableMsixTooling"))),
+            ReadProjectSigning(csproj, props));
+    }
+
+    // dotnet publish sets this global before evaluation and restore, not just during its targets.
+    private static ProjectRunOptions WithPublishContext(ProjectRunOptions options) => options with
+    {
+        Properties = [.. options.Properties.Where(p =>
+            !p.Split('=', 2)[0].Trim().Equals("_IsPublishing", StringComparison.OrdinalIgnoreCase)),
+            "_IsPublishing=true"],
+    };
+
+    private static ProjectSigningProperties? ReadProjectSigning(
+        FileInfo csproj, IReadOnlyDictionary<string, string>? props)
+    {
+        if (props is null)
+        {
+            return null;
+        }
+
+        var workingDir = (csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory())).FullName;
+        var enabledRaw = GetProp(props, "AppxPackageSigningEnabled");
+        bool? enabled = string.IsNullOrWhiteSpace(enabledRaw)
+            ? null
+            : string.Equals(enabledRaw, "true", StringComparison.OrdinalIgnoreCase);
+
+        var keyFile = GetProp(props, "PackageCertificateKeyFile");
+        string? resolvedKeyFile = null;
+        if (!string.IsNullOrWhiteSpace(keyFile))
+        {
+            try
+            {
+                resolvedKeyFile = Path.GetFullPath(keyFile, workingDir);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                resolvedKeyFile = keyFile;
+            }
+        }
+
+        return new ProjectSigningProperties(
+            enabled,
+            resolvedKeyFile,
+            GetProp(props, "PackageCertificatePassword") is { Length: > 0 } pwd ? pwd : null,
+            GetProp(props, "PackageCertificateThumbprint") is { Length: > 0 } tp ? tp : null,
+            GetProp(props, "AppxPackageSigningTimestampServerUrl") is { Length: > 0 } ts ? ts : null);
+    }
+
+    /// <summary>
+    /// Runs the shared evaluate pass (same effective TFM / RID / platform / shim / profile as a real build)
+    /// and returns the parsed <see cref="RequestedProperties"/>, or <see langword="null"/> when dotnet
+    /// could not be started or evaluation failed. Evaluate-only: no build is triggered.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>?> TryEvaluateProjectPropertiesAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+    {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
 
         // Pin the same effective TFM the real build/evaluate passes use, so a multi-targeted project
@@ -494,8 +716,13 @@ internal sealed partial class ProjectRunService(
             csWinRTMetadata,
             cancellationToken);
 
-        // Reuse the exact evaluate pass (same -p/RID/TFM/shim as a real build) so the WindowsPackageType we
-        // read matches what the build would see. Evaluate-only — no build is triggered.
+        return await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, csWinRTMetadata, cancellationToken);
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>?> EvaluatePreparedPropertiesAsync(
+        FileInfo csproj, ProjectRunOptions options, DirectoryInfo workingDir, string? csWinRTMetadata,
+        CancellationToken cancellationToken)
+    {
         var evaluateArgs = BuildEvaluateArguments(csproj, options, csWinRTMetadata);
         int exitCode;
         string stdout;
@@ -507,24 +734,13 @@ internal sealed partial class ProjectRunService(
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException)
         {
-            // Starting/communicating with dotnet failed → indeterminate; let the authoritative build classify.
-            return false;
+            logger.LogDebug(ex, "Could not evaluate project properties for {Project}.", csproj.Name);
+            return null;
         }
 
-        if (exitCode != 0)
-        {
-            // Evaluation failed → indeterminate; let the authoritative build classify.
-            return false;
-        }
-
-        var props = MsBuildPropertyReader.Parse(stdout, RequestedProperties);
-
-        // Only an EXPLICIT WindowsPackageType=None is definitive. An unset value is NOT — a packaged app
-        // declaring identity via an emitted recipe also evaluates empty here pre-build, so
-        // DeterminePackaging's post-build recipe fallback stays authoritative.
-        return string.Equals(GetProp(props, "WindowsPackageType"), "None", StringComparison.OrdinalIgnoreCase);
+        return exitCode != 0 ? null : MsBuildPropertyReader.Parse(stdout, RequestedProperties);
     }
 
     /// <summary>
@@ -608,10 +824,10 @@ internal sealed partial class ProjectRunService(
     /// listed project is managed, a single <c>dotnet restore &lt;sln&gt;</c> covers the whole graph and this
     /// returns <see langword="true"/> (caller skips the build pass's restore). When a native project is
     /// present (<c>dotnet restore</c> can't handle it VS-less) OR the whole-solution restore fails, managed
-    /// siblings are restored individually and this returns <see langword="false"/>. All restores are
-    /// best-effort; the build pass surfaces any real error.
+    /// siblings are restored individually and this returns <see langword="false"/>. Build-mode restores
+    /// are best-effort; package preparation stops on failed dependency restores.
     /// </summary>
-    private async Task<bool> RestoreSolutionSiblingsAsync(FileInfo target, ProjectRunOptions options, DirectoryInfo workingDir, CancellationToken cancellationToken)
+    private async Task<bool> RestoreSolutionSiblingsAsync(FileInfo target, ProjectRunOptions options, DirectoryInfo workingDir, CancellationToken cancellationToken, bool publish = false)
     {
         if (options.Solution is null)
         {
@@ -651,20 +867,21 @@ internal sealed partial class ProjectRunService(
 
         // Native project present (dotnet restore <sln> errors VS-less) or the solution restore failed:
         // restore managed siblings individually and skip natives; the target restores in the normal pass.
-        await RestoreSiblingsIndividuallyAsync(siblings, options, workingDir, cancellationToken);
+        await RestoreSiblingsIndividuallyAsync(siblings, options, workingDir, cancellationToken, publish);
         return false;
     }
 
     /// <summary>
     /// Best-effort restores each managed sibling project individually (skipping the target, which the normal
     /// build pass restores). Used both when a native sibling forces a per-project plan and as the fallback
-    /// when a whole-solution restore fails. Each restore is non-fatal; a real error surfaces at build time.
+    /// when a whole-solution restore fails. Package preparation propagates failures immediately.
     /// </summary>
     private async Task RestoreSiblingsIndividuallyAsync(
         IReadOnlyList<FileInfo> siblings,
         ProjectRunOptions options,
         DirectoryInfo workingDir,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool publish = false)
     {
         var siblingOptions = options with { PublishProfile = null };
         foreach (var sibling in siblings)
@@ -678,6 +895,10 @@ internal sealed partial class ProjectRunService(
                 args, $"Restoring {sibling.Name} dependencies...", siblingOptions, workingDir, cancellationToken);
             if (exitCode != 0)
             {
+                if (publish)
+                {
+                    throw new ProjectRunException($"Publish restore failed for '{sibling.Name}' (exit code {exitCode}).");
+                }
                 WriteRestoreFallbackWarning(
                     options,
                     $"{UiSymbols.Warning} Restore of {sibling.Name} failed (exit code {exitCode}); continuing with the build, which will report any unresolved dependency errors.");
@@ -728,7 +949,7 @@ internal sealed partial class ProjectRunService(
                 workingDir, arguments,
                 onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
                 onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
-                cancellationToken);
+                cancellationToken: cancellationToken);
         }
 
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Sync} {banner}");
@@ -737,7 +958,7 @@ internal sealed partial class ProjectRunService(
         var writeLive = CreateSynchronizedRedactedLineWriter();
 
         return await dotNetService.RunDotnetStreamingAsync(
-            workingDir, arguments, writeLive, writeLive, cancellationToken);
+            workingDir, arguments, writeLive, writeLive, cancellationToken: cancellationToken);
     }
 
     private static string? ResolveRestoreVerbosity(ILogger logger, bool json) =>
@@ -796,7 +1017,7 @@ internal sealed partial class ProjectRunService(
                 workingDir, redirectedArgs,
                 onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
                 onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
-                cancellationToken);
+                cancellationToken: cancellationToken);
         }
 
         // Info-enabled paths (default interactive / --verbose / agent-CI): print the header and the sanitized
@@ -817,7 +1038,7 @@ internal sealed partial class ProjectRunService(
             // Real interactive terminal: hand the console to dotnet (inherited stdio, no -tl:off) so its
             // native terminal logger renders the live build directly — single warnings, live progress.
             // winapp never sees the lines; the persistent header/invocation above and ✓ Built below frame it.
-            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, cancellationToken);
+            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, cancellationToken: cancellationToken);
         }
         else
         {
@@ -826,7 +1047,7 @@ internal sealed partial class ProjectRunService(
             var writeLive = CreateSynchronizedRedactedLineWriter();
 
             streamedExit = await dotNetService.RunDotnetStreamingAsync(
-                workingDir, buildArgs, writeLive, writeLive, cancellationToken);
+                workingDir, buildArgs, writeLive, writeLive, cancellationToken: cancellationToken);
         }
 
         if (streamedExit == 0)
@@ -882,6 +1103,14 @@ internal sealed partial class ProjectRunService(
                 if (name.Equals("Configuration", StringComparison.OrdinalIgnoreCase) ||
                     name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase))
                 {
+                    // A lone -p RuntimeIdentifier with no --arch is HONORED as an exact-RID override
+                    // (ExactRuntimeIdentifier), not overridden — don't claim otherwise.
+                    if (name.Equals("RuntimeIdentifier", StringComparison.OrdinalIgnoreCase) &&
+                        options.ExactRuntimeIdentifier is { Length: > 0 })
+                    {
+                        continue;
+                    }
+
                     logger.LogDebug(
                         "{UISymbol} -p:{Property} is overridden by the dedicated flag (matches dotnet precedence).",
                         UiSymbols.Note, segment);

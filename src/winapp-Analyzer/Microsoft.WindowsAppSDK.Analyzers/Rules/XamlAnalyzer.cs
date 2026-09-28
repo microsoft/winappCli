@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -30,7 +29,7 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor NestedXBindRule = new(
         DiagnosticIds.XBindNestedNoFallback,
         "Nested x:Bind without FallbackValue",
-        "Nested x:Bind path '{0}' will crash if any segment is null at startup — add FallbackValue or use a flat ViewModel property",
+        "Nested x:Bind path '{0}' has no FallbackValue — if an intermediate segment is null the target may render empty or not update; add FallbackValue or bind a flat ViewModel property to make the null case explicit",
         DiagnosticCategories.Runtime,
         DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -104,7 +103,43 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         "CalendarDatePicker", "DatePicker", "TimePicker", "ColorPicker"
     };
 
-    private static readonly Regex XBindRegex = new(@"\{x:Bind\s+([^}]+)\}", RegexOptions.Compiled);
+    /// <summary>
+    /// Framework event names used when the element type is unavailable from the compilation.
+    /// Custom and third-party events are identified from their Roslyn symbols.
+    /// </summary>
+    private static readonly HashSet<string> EventAttributes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Click", "Tapped", "DoubleTapped", "RightTapped", "Holding",
+        "ContextRequested", "ContextCanceled",
+        "PointerPressed", "PointerReleased", "PointerMoved", "PointerEntered", "PointerExited",
+        "PointerCanceled", "PointerCaptureLost", "PointerWheelChanged",
+        "KeyDown", "KeyUp", "PreviewKeyDown", "PreviewKeyUp", "CharacterReceived",
+        "GotFocus", "LostFocus", "GettingFocus", "LosingFocus",
+        "AccessKeyDisplayDismissed", "AccessKeyDisplayRequested", "AccessKeyInvoked",
+        "BringIntoViewRequested", "NoFocusCandidateFound", "ProcessKeyboardAccelerators",
+        "Loaded", "Unloaded", "Loading", "SizeChanged", "LayoutUpdated", "ActualThemeChanged",
+        "DataContextChanged", "EffectiveViewportChanged", "FocusDisengaged", "FocusEngaged", "IsEnabledChanged",
+        "DragStarting", "DropCompleted", "Drop", "DragOver", "DragEnter", "DragLeave",
+        "DragItemsStarting", "DragItemsCompleted",
+        "ManipulationStarting", "ManipulationStarted", "ManipulationDelta",
+        "ManipulationInertiaStarting", "ManipulationCompleted",
+        "SelectionChanged", "SelectedDatesChanged", "TextChanged", "TextChanging", "BeforeTextChanging", "PasswordChanged",
+        "QuerySubmitted", "TextSubmitted", "SuggestionChosen",
+        "Checked", "Unchecked", "Indeterminate", "Toggled",
+        "ValueChanged", "ViewChanging", "ViewChanged", "DateChanged", "TimeChanged",
+        "ItemClick", "ItemInvoked", "Expanding", "Collapsed",
+        "AddTabButtonClick", "TabCloseRequested", "TabDragCompleted", "TabDragStarting",
+        "TabDroppedOutside", "TabItemsChanged", "TabStripDragOver", "TabStripDrop",
+        "ExternalTornOutTabsDropped", "ExternalTornOutTabsDropping",
+        "TabTearOutRequested", "TabTearOutWindowRequested",
+        "BackRequested", "DisplayModeChanged", "PaneOpening", "PaneOpened", "PaneClosing", "PaneClosed",
+        "Navigated", "Navigating", "NavigationFailed", "NavigationStopped",
+        "Opened", "Closed", "Opening", "Closing", "Completed"
+    };
+
+    private const string PresentationNamespace = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+    private const string XamlLanguageNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
+    private const string UsingNamespacePrefix = "using:";
 
     public override void Initialize(AnalysisContext context)
     {
@@ -172,26 +207,30 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
                     context.ReportDiagnostic(Diagnostic.Create(NullConverterRule, location));
                 }
 
-                foreach (Match match in XBindRegex.Matches(value))
+                foreach (var bindExpr in FindXBindExpressions(value))
                 {
-                    var bindExpr = match.Groups[1].Value.Trim();
+                    var (bindPath, bindArgs) = ParseBinding(bindExpr);
 
-                    if (!bindExpr.Contains("Mode=") && !IsEventHandler(bindExpr))
+                    var attrName = attr.Name.LocalName;
+                    var isEvent = IsEventBindingTarget(context.Compilation, element, attr);
+                    var isCommand = attrName == "Command" || attrName.EndsWith("Command", StringComparison.Ordinal);
+                    var hasExplicitMode = bindArgs.ContainsKey("Mode");
+                    var hasConverter = bindArgs.ContainsKey("Converter");
+
+                    // WUI2011 (missing Mode) applies to property bindings only. Skip events,
+                    // commands and converter bindings, honor an explicit Mode= (any whitespace),
+                    // and honor the nearest inherited x:DefaultBindMode.
+                    if (!hasExplicitMode && !hasConverter && !isCommand && !isEvent &&
+                        !HasInheritedDefaultBindMode(element))
                     {
-                        var attrName = attr.Name.LocalName;
-                        var isCommand = attrName == "Command" || attrName.EndsWith("Command");
-                        if (!bindExpr.Contains("Converter") && !isCommand && bindExpr.Contains("."))
-                        {
-                            var location = CreateLocation(file, sourceText, element);
-                            context.ReportDiagnostic(Diagnostic.Create(XBindNoModeRule, location));
-                        }
+                        var location = CreateLocation(file, sourceText, element);
+                        context.ReportDiagnostic(Diagnostic.Create(XBindNoModeRule, location));
                     }
 
-                    var bindPath = bindExpr.Split(',')[0].Trim();
-                    if (!bindPath.Contains("("))
+                    if (!isEvent && !bindPath.Contains("("))
                     {
                         var segments = bindPath.Split('.');
-                        if (segments.Length >= 3 && !bindExpr.Contains("FallbackValue"))
+                        if (segments.Length >= 3 && !bindArgs.ContainsKey("FallbackValue"))
                         {
                             var location = CreateLocation(file, sourceText, element);
                             context.ReportDiagnostic(Diagnostic.Create(NestedXBindRule, location, bindPath));
@@ -202,8 +241,269 @@ public sealed class XamlAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private static bool IsEventHandler(string bindExpr) =>
-        !bindExpr.Contains(".") && !bindExpr.Contains(",");
+    private static bool HasInheritedDefaultBindMode(XElement element)
+    {
+        for (var e = element; e != null; e = e.Parent)
+        {
+            if (e.Attributes().Any(a =>
+                a.Name.LocalName == "DefaultBindMode" &&
+                a.Name.NamespaceName == XamlLanguageNamespace))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsEventBindingTarget(
+        Compilation compilation,
+        XElement element,
+        XAttribute attribute)
+    {
+        var attributeName = attribute.Name.LocalName;
+        var separatorIndex = attributeName.LastIndexOf('.');
+        var memberName = separatorIndex >= 0
+            ? attributeName.Substring(separatorIndex + 1)
+            : attributeName;
+        var typeNames = separatorIndex >= 0
+            ? GetTypeNames(
+                string.IsNullOrEmpty(attribute.Name.NamespaceName)
+                    ? element.GetDefaultNamespace().NamespaceName
+                    : attribute.Name.NamespaceName,
+                attributeName.Substring(0, separatorIndex))
+            : GetElementTypeNames(element);
+
+        var resolvedTargetType = false;
+        foreach (var resolvedType in typeNames
+            .Select(typeName => compilation.GetTypeByMetadataName(typeName)))
+        {
+            if (resolvedType == null)
+            {
+                continue;
+            }
+
+            resolvedTargetType = true;
+            for (var type = resolvedType; type != null; type = type.BaseType)
+            {
+                if (type.GetMembers(memberName).Any(member => member.Kind == SymbolKind.Event))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return !resolvedTargetType && EventAttributes.Contains(memberName);
+    }
+
+    private static IEnumerable<string> FindXBindExpressions(string value)
+    {
+        const string prefix = "{x:Bind";
+        var searchStart = 0;
+
+        while (searchStart < value.Length)
+        {
+            var bindStart = value.IndexOf(prefix, searchStart, StringComparison.Ordinal);
+            if (bindStart < 0)
+            {
+                yield break;
+            }
+
+            var expressionStart = bindStart + prefix.Length;
+            if (expressionStart >= value.Length || !char.IsWhiteSpace(value[expressionStart]))
+            {
+                searchStart = expressionStart;
+                continue;
+            }
+
+            while (expressionStart < value.Length && char.IsWhiteSpace(value[expressionStart]))
+            {
+                expressionStart++;
+            }
+
+            var braceDepth = 1;
+            var quote = '\0';
+            for (var i = expressionStart; i < value.Length; i++)
+            {
+                var c = value[i];
+                var escaped = IsCaretEscaped(value, i);
+                if (quote != '\0')
+                {
+                    quote = c == quote && !escaped ? '\0' : quote;
+                }
+                else if ((c == '\'' || c == '"') && !escaped)
+                {
+                    quote = c;
+                }
+                else if (c == '{' && !escaped)
+                {
+                    braceDepth++;
+                }
+                else if (c == '}' && !escaped && --braceDepth == 0)
+                {
+                    yield return value.Substring(expressionStart, i - expressionStart).Trim();
+                    searchStart = i + 1;
+                    break;
+                }
+            }
+
+            if (braceDepth > 0)
+            {
+                yield break;
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetElementTypeNames(XElement element)
+    {
+        return GetTypeNames(element.Name.NamespaceName, element.Name.LocalName);
+    }
+
+    private static IEnumerable<string> GetTypeNames(string namespaceName, string localName)
+    {
+        if (namespaceName.StartsWith(UsingNamespacePrefix, StringComparison.Ordinal))
+        {
+            yield return namespaceName.Substring(UsingNamespacePrefix.Length) + "." + localName;
+        }
+        else if (namespaceName == PresentationNamespace)
+        {
+            yield return "Microsoft.UI.Xaml.Controls." + localName;
+            yield return "Microsoft.UI.Xaml.Controls.Primitives." + localName;
+            yield return "Microsoft.UI.Xaml.Media.Animation." + localName;
+            yield return "Microsoft.UI.Xaml." + localName;
+            yield return "Windows.UI.Xaml.Controls." + localName;
+            yield return "Windows.UI.Xaml.Controls.Primitives." + localName;
+            yield return "Windows.UI.Xaml.Media.Animation." + localName;
+            yield return "Windows.UI.Xaml." + localName;
+        }
+    }
+
+    /// <summary>
+    /// Splits an <c>{x:Bind}</c> expression into its path and named arguments, tolerant of any
+    /// whitespace around <c>,</c> and <c>=</c> (so <c>Mode = OneWay</c> is recognized). Commas
+    /// inside function-call parentheses or nested markup extensions are not treated as separators.
+    /// </summary>
+    private static (string path, Dictionary<string, string> args) ParseBinding(string bindExpr)
+    {
+        var parts = SplitTopLevel(bindExpr);
+        var path = string.Empty;
+        var args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var trimmedPart in parts.Select(part => part.Trim()))
+        {
+            var eq = IndexOfTopLevelEquals(trimmedPart);
+            if (eq > 0)
+            {
+                var key = trimmedPart.Substring(0, eq).Trim();
+                var value = trimmedPart.Substring(eq + 1).Trim();
+                args[key] = value;
+                if (key.Equals("Path", StringComparison.OrdinalIgnoreCase))
+                {
+                    path = value;
+                }
+            }
+            else if (path.Length == 0)
+            {
+                path = trimmedPart;
+            }
+        }
+        return (path, args);
+    }
+
+    private static List<string> SplitTopLevel(string expr)
+    {
+        var result = new List<string>();
+        var parenthesisDepth = 0;
+        var braceDepth = 0;
+        var start = 0;
+        var quote = '\0';
+        for (var i = 0; i < expr.Length; i++)
+        {
+            var c = expr[i];
+            var escaped = IsCaretEscaped(expr, i);
+            if (quote != '\0')
+            {
+                quote = c == quote && !escaped ? '\0' : quote;
+            }
+            else if ((c == '\'' || c == '"') && !escaped)
+            {
+                quote = c;
+            }
+            else if (c == '(' && !escaped)
+            {
+                parenthesisDepth++;
+            }
+            else if (c == ')' && !escaped && parenthesisDepth > 0)
+            {
+                parenthesisDepth--;
+            }
+            else if (c == '{' && !escaped)
+            {
+                braceDepth++;
+            }
+            else if (c == '}' && !escaped && braceDepth > 0)
+            {
+                braceDepth--;
+            }
+            else if (c == ',' && !escaped && parenthesisDepth == 0 && braceDepth == 0)
+            {
+                result.Add(expr.Substring(start, i - start));
+                start = i + 1;
+            }
+        }
+        result.Add(expr.Substring(start));
+        return result;
+    }
+
+    private static int IndexOfTopLevelEquals(string value)
+    {
+        var parenthesisDepth = 0;
+        var braceDepth = 0;
+        var quote = '\0';
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            var escaped = IsCaretEscaped(value, i);
+            if (quote != '\0')
+            {
+                quote = c == quote && !escaped ? '\0' : quote;
+            }
+            else if ((c == '\'' || c == '"') && !escaped)
+            {
+                quote = c;
+            }
+            else if (c == '(' && !escaped)
+            {
+                parenthesisDepth++;
+            }
+            else if (c == ')' && !escaped && parenthesisDepth > 0)
+            {
+                parenthesisDepth--;
+            }
+            else if (c == '{' && !escaped)
+            {
+                braceDepth++;
+            }
+            else if (c == '}' && !escaped && braceDepth > 0)
+            {
+                braceDepth--;
+            }
+            else if (c == '=' && !escaped && parenthesisDepth == 0 && braceDepth == 0)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool IsCaretEscaped(string value, int index)
+    {
+        var caretCount = 0;
+        for (var i = index - 1; i >= 0 && value[i] == '^'; i--)
+        {
+            caretCount++;
+        }
+        return caretCount % 2 != 0;
+    }
 
     private static Location CreateLocation(AdditionalText file, SourceText sourceText, XElement element)
     {

@@ -108,4 +108,5 @@ runs:
         name: metrics-data
         path: metrics-data
         if-no-files-found: error
+        overwrite: true
         retention-days: 7

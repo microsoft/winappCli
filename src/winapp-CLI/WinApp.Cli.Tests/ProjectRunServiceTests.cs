@@ -163,6 +163,35 @@ public class ProjectRunServiceTests
         string.Join(Environment.NewLine, relativeProjectPaths.Select(p => $"  <Project Path=\"{p}\" />")) +
         Environment.NewLine + "</Solution>";
 
+    #region ResolveEvaluatedFileIfPresent (network-path guard)
+
+    [TestMethod]
+    public void ResolveEvaluatedFileIfPresent_LocalExistingFile_ReturnsResolvedPath()
+    {
+        var manifest = WriteFile("Package.appxmanifest", "<Package/>");
+        var props = new Dictionary<string, string> { ["WinAppManifestPath"] = manifest.Name };
+
+        var resolved = ProjectRunService.ResolveEvaluatedFileIfPresent(props, "WinAppManifestPath", _tempDir.FullName);
+
+        Assert.AreEqual(manifest.FullName, resolved);
+    }
+
+    [TestMethod]
+    [DataRow(@"\\host\share\Package.appxmanifest")]
+    [DataRow(@"\\?\UNC\host\share\Package.appxmanifest")]
+    public void ResolveEvaluatedFileIfPresent_NetworkPath_ReturnsNullWithoutProbing(string networkPath)
+    {
+        // A project-evaluated path on a network share must be treated as "not present" without a File.Exists
+        // probe, which could trigger outbound SMB authentication (matches the project-keyfile guard).
+        var props = new Dictionary<string, string> { ["WinAppManifestPath"] = networkPath };
+
+        var resolved = ProjectRunService.ResolveEvaluatedFileIfPresent(props, "WinAppManifestPath", _tempDir.FullName);
+
+        Assert.IsNull(resolved);
+    }
+
+    #endregion
+
     #region BuildBuildPassArguments (streamed build pass, Change #1)
 
     [TestMethod]
@@ -364,6 +393,67 @@ public class ProjectRunServiceTests
         // an explicit -t:Build (Build is the default target when no --getProperty is present).
         Assert.IsFalse(args.Contains("--getProperty"), "build pass must not request properties");
         Assert.IsFalse(args.Contains("-t:Build"), "build pass does not need an explicit -t:Build");
+    }
+
+    [TestMethod]
+    public void BuildBuildPassArguments_Publish_UsesPublishVerbAndIncludesPublishItems()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var publishArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: true);
+        var buildArgs = ProjectRunService.BuildBuildPassArguments(csproj, options, "minimal", publish: false);
+
+        StringAssert.StartsWith(publishArgs, "publish ");
+        // Native AOT / trimmed publish replaces the managed build output; the package output group must
+        // include published items or `winapp pack` packages the wrong (managed-build) payload.
+        StringAssert.Contains(publishArgs, "-p:IncludePublishItemsOutputGroup=true");
+        // The build pass (winapp run) must not set it — that path packages nothing.
+        Assert.IsFalse(buildArgs.Contains("IncludePublishItemsOutputGroup"), "build pass must not set the publish-items flag");
+    }
+
+    [TestMethod]
+    public void BuildNativeMsixPublishArguments_TriggersSdkPackagingAndCapturesOutput()
+    {
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "arm64", null, NoBuild: false, NoRestore: false, Properties: []);
+        var pkgDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "pkgout"));
+
+        var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
+
+        StringAssert.StartsWith(args, "publish ");
+        StringAssert.Contains(args, "-r win-arm64");
+        // The SDK produces the package during publish, keeping the native (published) payload...
+        StringAssert.Contains(args, "-p:PublishAppxPackage=true");
+        StringAssert.Contains(args, "-p:IncludePublishItemsOutputGroup=true");
+        // ...exactly once (no separate build-time package), unsigned, single package, into winapp's scratch dir...
+        StringAssert.Contains(args, "-p:GenerateAppxPackageOnBuild=false");
+        StringAssert.Contains(args, "-p:AppxBundle=Never");
+        StringAssert.Contains(args, "-p:AppxPackageSigningEnabled=false");
+        StringAssert.Contains(args, $"-p:AppxPackageDir={pkgDir.FullName}{Path.DirectorySeparatorChar}");
+        // ...and reports the execution-time artifact path.
+        StringAssert.Contains(args, "--getProperty:AppxPackageOutput");
+    }
+
+    [TestMethod]
+    public void BuildNativeMsixPublishArguments_OmitRuntimeIdentifier_DropsRid()
+    {
+        // When an effective Platform conveys the arch and the ProjectReference closure splits on RID, the
+        // RID must be suppressed on the native path too, matching the build/restore/evaluate passes; emitting
+        // both -r and -p:Platform harvests duplicate outputs and fails packaging with APPX1101.
+        var csproj = new FileInfo(Path.Combine(_tempDir.FullName, "App.csproj"));
+        var options = new ProjectRunOptions("Release", "arm64", null, NoBuild: false, NoRestore: false, Properties: [])
+        {
+            Platform = "ARM64",
+            OmitRuntimeIdentifier = true,
+        };
+        var pkgDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "pkgout"));
+
+        var args = string.Join(' ', ProjectRunService.BuildNativeMsixPublishArguments(csproj, options, pkgDir, "minimal"));
+
+        StringAssert.Contains(args, "-p:Platform=ARM64");
+        Assert.IsFalse(args.Contains("-r win-arm64"), "the RID must be omitted when OmitRuntimeIdentifier is set");
+        Assert.IsFalse(args.Contains(" -r "), "no bare -r token should be emitted");
     }
 
     [TestMethod]
@@ -1918,6 +2008,314 @@ public class ProjectRunServiceTests
         $$"""{ "Properties": { "TargetDir": "{{_tempDir.FullName.Replace("\\", "\\\\")}}", "RunCommand": "", "WindowsPackageType": "MSIX", "OutputType": "WinExe", "WindowsAppSDKSelfContained": "" } }""";
 
     [TestMethod]
+    public async Task PublishPreparation_UsesPublishSigningAndNativeCapability()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => (0,
+                args.Contains("-p:_IsPublishing=true", StringComparison.Ordinal)
+                    ? """{"Properties":{"WindowsPackageType":"MSIX","EnableMsixTooling":"true","AppxPackageSigningEnabled":"true","PackageCertificateKeyFile":"publish.pfx"}}"""
+                    : """{"Properties":{"WindowsPackageType":"None","EnableMsixTooling":"false","AppxPackageSigningEnabled":"false"}}""",
+                string.Empty),
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Release", "arm64", null, false, true, []);
+
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+        Assert.AreEqual(true, preparation.Signing!.SigningEnabled);
+        Assert.IsTrue(preparation.IsNativeMsix);
+        Assert.IsFalse(preparation.IsDefinitivelyUnpackaged);
+        Assert.IsTrue(await service.IsDefinitivelyUnpackagedAsync(csproj, options, CancellationToken.None),
+            "Run preflight must retain build-context evaluation.");
+    }
+
+    [TestMethod]
+    public async Task PublishPreparation_StaleAssetsMustRefreshSigning()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var assets = WriteFileAt(Path.Combine("obj", "project.assets.json"), "{}");
+        var restored = false;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restored = true;
+                }
+                return (0, $$"""{"Properties":{"ProjectAssetsFile":"{{assets.FullName.Replace("\\", "\\\\")}}","AppxPackageSigningEnabled":"{{(restored ? "true" : "false")}}"} }""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Release", "arm64", "net10.0", false, false, ["Flavor=Retail"]);
+
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(true, preparation.Signing!.SigningEnabled);
+        Assert.IsTrue(preparation.Options.NoRestore);
+        var restore = dotnet.StreamingCalls.Single();
+        StringAssert.Contains(restore, "-p:_IsPublishing=true");
+        StringAssert.Contains(restore, "-p:Configuration=Release");
+        StringAssert.Contains(restore, "win-arm64");
+        StringAssert.Contains(restore, "-p:TargetFramework=net10.0");
+        StringAssert.Contains(restore, "-p:Flavor=Retail");
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task PublishPreparation_SolutionRestoreDoesNotCoverSelectedProjectConfiguration(bool noBuild, bool noRestore)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var selectedProjectRestored = false;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal))
+                {
+                    selectedProjectRestored = true;
+                }
+                // A successful solution restore may have mapped Release to Debug for this project.
+                return (0, selectedProjectRestored
+                    ? """{"Properties":{"AppxPackageSigningEnabled":"true","PackageCertificateKeyFile":"release.pfx"}}"""
+                    : """{"Properties":{"AppxPackageSigningEnabled":"false"}}""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out var console);
+        using (console)
+        {
+            var preparation = await service.PreparePackageAsync(
+                csproj, new ProjectRunOptions("Release", "arm64", null, noBuild, noRestore, [], Solution: solution),
+                CancellationToken.None);
+
+            if (noBuild || noRestore)
+            {
+                Assert.IsEmpty(dotnet.StreamingCalls, "Neither restore may run when the user opted out.");
+                return;
+            }
+
+            Assert.AreEqual(true, preparation.Signing!.SigningEnabled,
+                "Signing must reflect the selected project's Release graph, not the solution's mapped Debug graph.");
+            Assert.HasCount(2, dotnet.StreamingCalls);
+            StringAssert.StartsWith(dotnet.StreamingCalls[0], $"restore {solution.FullName}");
+            StringAssert.StartsWith(dotnet.StreamingCalls[1], $"restore {csproj.FullName}");
+            StringAssert.Contains(dotnet.StreamingCalls[1], "-p:Configuration=Release");
+            StringAssert.Contains(dotnet.StreamingCalls[1], "-p:_IsPublishing=true");
+            StringAssert.Contains(dotnet.StreamingCalls[1], "-r win-arm64");
+            Assert.IsTrue(preparation.Options.NoRestore);
+        }
+    }
+
+    [TestMethod]
+    public async Task PublishPreparation_NoBuildMustNotRestore()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService { RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty) };
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "arm64", null, true, false, []), CancellationToken.None);
+
+        Assert.IsEmpty(dotnet.StreamingCalls, "--no-build implies no restore.");
+    }
+
+    [TestMethod]
+    public async Task PublishPreparation_RestoreFailureMustNotResolveUnsigned()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (_, _, _) => 42,
+        };
+        var service = NewServiceWith(dotnet, out _);
+
+        await Assert.ThrowsAsync<ProjectRunException>(() => service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "arm64", null, false, false, []), CancellationToken.None));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PublishAndResolve_UsesExecutedTargetProperties(bool noBuild)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var shipping = _tempDir.CreateSubdirectory("shipping").FullName;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetArgumentListHandler = _ => (0,
+                $$"""{"Properties":{"PublishDir":"{{shipping.Replace("\\", "\\\\")}}","WindowsPackageType":"MSIX","PublishAot":"false","OutputType":"Exe"} }""",
+                string.Empty),
+        };
+        var service = NewServiceWith(dotnet, out _);
+
+        var preparation = await service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "x86", "net10.0", noBuild, true, []), CancellationToken.None);
+        var result = await service.PublishAndResolveAsync(csproj, preparation, CancellationToken.None);
+
+        Assert.AreEqual(shipping, result.Resolution!.TargetDir);
+        var publish = dotnet.ArgumentListInvocations.Single();
+        CollectionAssert.Contains(publish.ToList(), "--getProperty:PublishDir");
+        Assert.AreEqual(noBuild, publish.Contains("--no-build"));
+        Assert.IsFalse(publish.Contains("-p:PublishAot=true"));
+        Assert.IsFalse(publish.Contains("--getProperty:PackageCertificatePassword"));
+        Assert.IsEmpty(dotnet.StreamingCalls);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PublishPreparation_CancellationPropagates(bool duringRestore)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        using var cts = new CancellationTokenSource();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (!duringRestore || args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    cts.Cancel();
+                    throw new OperationCanceledException(cts.Token);
+                }
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        await Assert.ThrowsAsync<OperationCanceledException>(() => service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "arm64", null, false, false, []), cts.Token));
+    }
+
+    [TestMethod]
+    public async Task PublishAndResolve_FailureStreamsRedactedDiagnosticsAndPreservesExitCode()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetArgumentListHandler = _ => (37,
+                "{publish message}\nerror PUBLISH: failed https://feed.example/index.json?sig=SECRET",
+                "stderr diagnostic"),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        using (console)
+        {
+            var preparation = await service.PreparePackageAsync(
+                csproj, new ProjectRunOptions("Release", "arm64", null, false, true, []), CancellationToken.None);
+            var result = await service.PublishAndResolveAsync(csproj, preparation, CancellationToken.None);
+            Assert.AreEqual(37, result.ExitCode);
+            Assert.IsNull(result.Resolution);
+            StringAssert.Contains(console.Output, "error PUBLISH");
+            StringAssert.Contains(console.Output, "stderr diagnostic");
+            Assert.IsFalse(console.Output.Contains("SECRET", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
+    public async Task PreparePackageAsync_UnrestoredProject_RestoresBeforeResolvingSigning()
+    {
+        // A clean checkout evaluates ProjectAssetsFile to a path that does not exist yet, and signing
+        // properties imported from a NuGet package's build/*.props are invisible until restore. A
+        // --getProperty evaluate SUCCEEDS on that clean checkout but returns them empty, so signing
+        // resolution must restore and re-evaluate rather than silently treat the project as unsigned.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var absentAssets = Path.Combine(_tempDir.FullName, "obj", "project.assets.json"); // never created
+        var keyFile = WriteFile("dev.pfx", "not-a-real-key");
+        var restored = false;
+        var evaluateCount = 0;
+        string SigningJson(bool signing) =>
+            $$"""{ "Properties": { "ProjectAssetsFile": "{{absentAssets.Replace("\\", "\\\\")}}", "AppxPackageSigningEnabled": "{{(signing ? "true" : "")}}", "PackageCertificateKeyFile": "{{(signing ? keyFile.FullName.Replace("\\", "\\\\") : "")}}" } }""";
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restored = true;
+                    return (0, string.Empty, string.Empty);
+                }
+                evaluateCount++;
+                // The package-imported signing requirement only becomes visible once restore has run.
+                return (0, SigningJson(signing: restored), string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+        var signing = preparation.Signing;
+
+        Assert.IsTrue(restored, "an unrestored project must be restored before signing is resolved");
+        Assert.IsTrue(evaluateCount >= 2, "signing must be re-evaluated after the restore");
+        Assert.IsNotNull(signing);
+        Assert.AreEqual(true, signing!.SigningEnabled, "the NuGet-imported signing requirement must be seen after restore");
+        Assert.AreEqual(keyFile.FullName, signing.KeyFilePath);
+    }
+
+    [TestMethod]
+    public async Task PreparePackageAsync_RestoredProject_IncrementallyRestoresOnce()
+    {
+        // Existing assets do not establish the effective publish graph. Refresh once before evaluating policy.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var assets = WriteFileAt(Path.Combine("obj", "project.assets.json"), "{}");
+        var restoreCalls = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restoreCalls++;
+                    return (0, string.Empty, string.Empty);
+                }
+                return (0, $$"""{ "Properties": { "ProjectAssetsFile": "{{assets.FullName.Replace("\\", "\\\\")}}", "AppxPackageSigningEnabled": "", "PackageCertificateKeyFile": "" } }""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var preparation = await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+        var signing = preparation.Signing;
+
+        Assert.AreEqual(1, restoreCalls);
+        Assert.IsNotNull(signing);
+        Assert.IsNull(signing!.SigningEnabled, "no signing configured resolves to an unset policy, not a restore loop");
+    }
+
+    [TestMethod]
+    public async Task PreparePackageAsync_NoRestore_DoesNotRestoreEvenIfUnrestored()
+    {
+        // --no-restore is the user's promise that the project is already restored; signing resolution must
+        // honor it and never inject a restore, even when the assets file is absent.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var absentAssets = Path.Combine(_tempDir.FullName, "obj", "project.assets.json");
+        var restoreCalls = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    restoreCalls++;
+                    return (0, string.Empty, string.Empty);
+                }
+                return (0, $$"""{ "Properties": { "ProjectAssetsFile": "{{absentAssets.Replace("\\", "\\\\")}}", "AppxPackageSigningEnabled": "", "PackageCertificateKeyFile": "" } }""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: []);
+
+        await service.PreparePackageAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(0, restoreCalls, "--no-restore must suppress the signing restore");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_ShimResolvesFolder_InjectsMetadataIntoBuildPass()
     {
         // SHIM threading: when the shim resolves a folder (SDK absent), the build pass args must carry
@@ -2252,6 +2650,18 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void RidSplit_WithExactRuntimeIdentifier_ThrowsInsteadOfDroppingRid()
+    {
+        // A lone -p RuntimeIdentifier (exact-RID override) on a RID-splitting graph would otherwise be
+        // silently dropped; it must fail explicitly instead of building a different RID than requested.
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+        var options = PlatformOptions("arm64") with { ExactRuntimeIdentifier = "win10-arm64" };
+
+        var ex = Assert.Throws<ProjectRunException>(() => ProjectRunService.ResolvePlatformInjection(app, options));
+        StringAssert.Contains(ex.Message, "RuntimeIdentifier");
+    }
+
+    [TestMethod]
     public void RidSplit_NoStrippingEdge_KeepsRuntimeIdentifier()
     {
         var app = WriteRidSplitGraph(stripRidOnMiddleEdge: false);
@@ -2324,7 +2734,7 @@ public class ProjectRunServiceTests
 
         Assert.IsFalse(resolved.OmitRuntimeIdentifier);
         Assert.IsNull(resolved.Platform);
-        var arguments = ProjectRunService.BuildAotPublishArguments(
+        var arguments = ProjectRunService.BuildPublishArguments(
             app,
             resolved,
             "minimal");

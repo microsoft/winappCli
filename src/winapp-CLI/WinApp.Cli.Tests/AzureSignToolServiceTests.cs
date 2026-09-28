@@ -378,6 +378,8 @@ internal sealed class FakeSignToolBuildToolsService : IBuildToolsService
 {
     public FileInfo? GetBuildToolPath(string toolName) => throw new NotImplementedException();
 
+    public VerifiedTool OpenVerifiedTool(FileInfo toolPath) => throw new NotImplementedException();
+
     public Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 
@@ -399,6 +401,8 @@ internal sealed class RecordingBuildToolsService : IBuildToolsService
     public string? CapturedWorkingDirectory { get; private set; }
 
     public FileInfo? GetBuildToolPath(string toolName) => throw new NotImplementedException();
+
+    public VerifiedTool OpenVerifiedTool(FileInfo toolPath) => throw new NotImplementedException();
 
     public Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default)
         => Task.FromResult(SignToolToReturn);

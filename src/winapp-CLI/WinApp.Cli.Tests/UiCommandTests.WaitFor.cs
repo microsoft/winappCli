@@ -77,6 +77,29 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task WaitFor_EmptyValue_MatchesFreshOrClearedField(bool clearAfterEditing)
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "Edit", Name = "Title, required", Selector = "edit-1" };
+        if (clearAfterEditing)
+        {
+            _fakeUia.GetTextResults.Enqueue("Edited title");
+        }
+        _fakeUia.GetTextResult = "";
+
+        var command = GetRequiredService<UiWaitForCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["edit-1", "-a", "TestApp", "--value", "", "--json", "--timeout", "2000"]);
+
+        Assert.AreEqual(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.IsTrue(document.RootElement.GetProperty("found").GetBoolean());
+        Assert.IsFalse(document.RootElement.GetProperty("timedOut").GetBoolean());
+        Assert.AreEqual(clearAfterEditing ? 1 : 0, _fakePollDelay.CallCount);
+    }
+
+    [TestMethod]
     public async Task WaitFor_Timeout_Json_ReturnsError()
     {
         _fakeUia.FindSingleResult = null; // never appears

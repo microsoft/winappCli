@@ -152,7 +152,7 @@ export interface CertGenerateOptions extends CommonOptions {
   manifest?: string;
   /** Output path for the generated PFX file */
   output?: string;
-  /** Password for the generated PFX file */
+  /** Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. */
   password?: string;
   /** Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
@@ -787,14 +787,20 @@ export async function newCommand(options: NewOptions = {}): Promise<WinappResult
 // ---------------------------------------------------------------------------
 
 export interface PackageOptions extends CommonOptions {
-  /** One or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). */
+  /** A single .csproj to build and package (project mode), one or more input folders with package layout, or a single sparse appxmanifest.xml file (an identity-only package with AllowExternalContent). Pass multiple folders to create an MSIX bundle (e.g., winapp pack ./publish/x64 ./publish/arm64). */
   inputFolder: string | string[];
+  /** Project mode: target architecture (x64, arm64, or x86). Repeatable — pass two or more to publish each and produce one architecture .msixbundle. Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: the current process architecture. */
+  arch?: string | string[];
   /** Path to signing certificate (will auto-sign if provided) */
   cert?: string;
   /** Certificate password (default: password) */
   certPassword?: string;
+  /** Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release. */
+  configuration?: string;
   /** Path to the executable relative to the input folder. */
   executable?: string;
+  /** Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  framework?: string;
   /** Generate a new development certificate */
   generateCert?: boolean;
   /** Install certificate to machine */
@@ -803,8 +809,16 @@ export interface PackageOptions extends CommonOptions {
   manifest?: string;
   /** Package name (default: from manifest) */
   name?: string;
+  /** Project mode: skip building and package the existing build output (still evaluates output properties). Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  noBuild?: boolean;
+  /** Project mode: skip restoring the project before building. Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  noRestore?: boolean;
+  /** Deliver the package unsigned, overriding any project signing configuration (e.g. for Store submission or an external signing pipeline). Cannot be combined with --cert or --generate-cert. */
+  noSign?: boolean;
   /** Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles. */
   output?: string;
+  /** Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs. */
+  property?: string | string[];
   /** Publisher distinguished name (DN) for certificate generation (e.g., CN=MyCompany). Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
   /** Bundle Windows App SDK runtime for self-contained deployment */
@@ -814,21 +828,34 @@ export interface PackageOptions extends CommonOptions {
 }
 
 /**
- * Create MSIX installer from your built app. Run after building your app. A manifest (Package.appxmanifest or appxmanifest.xml) is required for packaging - it must be in current working directory, passed as --manifest or be in the input folder. Use --cert devcert.pfx to sign for testing. Example: winapp package ./dist --manifest Package.appxmanifest --cert ./devcert.pfx
+ * Create an MSIX installer from a built app folder or directly from a .csproj. Pass a package-layout folder (run after building your app; a manifest must be in the current directory, passed as --manifest, or in the input folder), or pass a .csproj to build and package it in one step (e.g. winapp package ./MyApp.csproj -c Release). Use --cert devcert.pfx to sign for testing.
  */
 export async function packageApp(options: PackageOptions): Promise<WinappResult> {
   const args: string[] = ['package'];
   const positionals: string[] = [];
   const inputFolderArr = Array.isArray(options.inputFolder) ? options.inputFolder : [options.inputFolder];
   positionals.push(...inputFolderArr);
+  if (options.arch) {
+    const archArr = Array.isArray(options.arch) ? options.arch : [options.arch];
+    for (const v of archArr) args.push('--arch', v);
+  }
   if (options.cert !== undefined) args.push('--cert', options.cert);
   if (options.certPassword !== undefined) args.push('--cert-password', options.certPassword);
+  if (options.configuration !== undefined) args.push('--configuration', options.configuration);
   if (options.executable !== undefined) args.push('--executable', options.executable);
+  if (options.framework !== undefined) args.push('--framework', options.framework);
   if (options.generateCert) args.push('--generate-cert');
   if (options.installCert) args.push('--install-cert');
   if (options.manifest !== undefined) args.push('--manifest', options.manifest);
   if (options.name !== undefined) args.push('--name', options.name);
+  if (options.noBuild) args.push('--no-build');
+  if (options.noRestore) args.push('--no-restore');
+  if (options.noSign) args.push('--no-sign');
   if (options.output !== undefined) args.push('--output', options.output);
+  if (options.property) {
+    const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
+    for (const v of propertyArr) args.push('--property', v);
+  }
   if (options.publisher !== undefined) args.push('--publisher', options.publisher);
   if (options.selfContained) args.push('--self-contained');
   if (options.skipPri) args.push('--skip-pri');
@@ -1289,7 +1316,7 @@ export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult>
 
 export interface UiFocusOptions extends CommonOptions {
   /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
-  selector?: string;
+  selector: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
@@ -1301,12 +1328,12 @@ export interface UiFocusOptions extends CommonOptions {
 }
 
 /**
- * Move keyboard focus to the specified element using UIA SetFocus.
+ * Activate the specified element's window, focus the element, and verify foreground and keyboard focus. Fails if Windows refuses activation or focus cannot be confirmed.
  */
-export async function uiFocus(options: UiFocusOptions = {}): Promise<WinappResult> {
+export async function uiFocus(options: UiFocusOptions): Promise<WinappResult> {
   const args: string[] = ['ui', 'focus'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.json) args.push('--json');
@@ -1331,7 +1358,7 @@ export interface UiGetFocusedOptions extends CommonOptions {
 }
 
 /**
- * Show the element that currently has keyboard focus in the target app.
+ * Show the element that currently has keyboard focus in the target app. With -w, focus must belong to that exact top-level window; owned popups are excluded.
  */
 export async function uiGetFocused(options: UiGetFocusedOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-focused'];
@@ -1682,7 +1709,7 @@ export interface UiScreenshotOptions extends CommonOptions {
 }
 
 /**
- * Capture the target window or element as a PNG image. When multiple windows exist (e.g., dialogs), captures each to a separate file. With --json, returns file path and dimensions. Use --capture-screen for popup overlays.
+ * Capture the target window or element as a PNG image. Without an element selector, combines multiple windows into one labeled composite: --app by process name or PID includes the app's windows and their owned windows; a title match or --window selects one window plus its owned windows. With --json, returns file path and dimensions. Use --capture-screen with --window to capture one screen region, including visible overlays in place.
  */
 export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'screenshot'];

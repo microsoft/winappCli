@@ -155,6 +155,12 @@ client without activation; a minimized manually opened client must be restored b
 If input is unavailable after reconnecting, the command fails rather than claiming
 it delivered input. Use the reconnect command in the error and retry.
 
+Use `winapp target snapshot sandbox --json` to check desktop readiness without starting
+or reconnecting the Sandbox. Recognized terminal-error windows do not count as remote
+desktops. If winapp cannot verify the selected desktop because it is still connecting
+or cannot be inspected, readiness remains unavailable; wait and retry. Multiple remote desktops can still be
+ambiguous. Snapshot does not close windows or resolve their errors for you.
+
 See [UI automation](ui-automation.md) for selectors, input methods, and assertions.
 
 ### Coordinating UI workflows in the Sandbox
@@ -273,6 +279,10 @@ that fact and exits successfully. To start one, use `winapp run . --on sandbox -
 The report distinguishes what the guest supports from what the current client can do;
 a minimized client can prevent input or capture even when the guest supports both.
 Use the guest window list for UI PIDs, not a deployment's tracked launcher process.
+The JSON `workRoot` field (shown as `Work root` in text output) is the absolute base
+for relative file-transfer paths, normally `C:\WinApp\work`. It is separate from
+`capabilities.managedRoot`, normally `C:\WinApp`, and is omitted when the guest
+does not report its managed root.
 If several client windows prevent an unambiguous capture, the error lists candidates;
 decide which to close before retrying.
 
@@ -280,8 +290,8 @@ decide which to close before retrying.
 
 ```powershell
 winapp target exec sandbox -- dotnet --info
-winapp target push sandbox .\setup.ps1 Setup\setup.ps1
-winapp target exec sandbox --cwd C:\WinApp\work\Setup -- powershell -ExecutionPolicy Bypass -File .\setup.ps1
+$copy = winapp target push sandbox .\setup.ps1 Setup\setup.ps1 --json | ConvertFrom-Json
+winapp target exec sandbox --cwd (Split-Path -Parent $copy.targetPath) -- powershell -ExecutionPolicy Bypass -File .\setup.ps1
 winapp target pull sandbox Results .\results
 ```
 
@@ -290,10 +300,14 @@ standard streams, and returns the command's exit code. It is not a full interact
 terminal; console applications see redirected pipes. `--json` formats winapp errors,
 not the child command's stdout.
 
-For `push` and `pull`, **target paths are relative to `C:\WinApp\work`**. Absolute,
+For `push` and `pull`, **target paths are relative to the `workRoot` reported by
+[`target snapshot`](#inspecting-the-sandbox)**. Absolute,
 rooted, and UNC target paths are refused. A single file lands at exactly the destination
 you name; a directory preserves its structure beneath that destination. Use the
-resolved guest path printed after a push as the next command's `--cwd`.
+resolved guest path printed after a push (JSON `targetPath`) to choose the next
+command's `--cwd`; for a single file, use its parent directory. If the guest does
+not report its managed root, push fails before copying; follow the error's update
+guidance rather than assuming a default path.
 
 Only run setup scripts you trust. The example uses process-scoped
 `-ExecutionPolicy Bypass` because a fresh Sandbox normally refuses scripts under its
@@ -352,6 +366,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested, then close/retry only with consent |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
+| `sandbox_state_unavailable` | Ensure `%USERPROFILE%\.winapp\state` is writable, or correct `WINAPP_TARGET_STATE_ROOT` if set |
 | `sandbox_deployment_dirty`, `sandbox_transfer_interrupted` | Retry the deployment or transfer |
 | `sandbox_runtime_provision_failed` | Resolve the named dependency or unsupported runtime configuration; see [Shared runtimes](#shared-runtimes) |
 | `sandbox_package_conflict`, `sandbox_provisioned_package_conflict` | Follow the package-specific action; do not remove unrelated or inbox packages |

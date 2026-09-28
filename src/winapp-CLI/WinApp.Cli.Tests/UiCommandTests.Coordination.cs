@@ -366,6 +366,7 @@ public partial class UiCommandTests
     [TestMethod]
     public async Task Focus_ReResolvesTheElementInsideTheDesktopSection()
     {
+        _fakeUia.PropertiesResult["HasKeyboardFocus"] = true;
         var stale = new UiElement { Id = "box", Selector = "box", Name = "Stale", WindowHandle = 4242 };
         var current = new UiElement { Id = "box", Selector = "box", Name = "Current", WindowHandle = 4242 };
         _fakeUia.MovingResults["box"] = new Queue<UiElement?>([stale, current]);

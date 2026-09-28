@@ -39,9 +39,12 @@ Does the project already have an appxmanifest.xml?
    │  └─ winapp manifest generate
    ├─ Only need a development certificate?
    │  └─ winapp cert generate
-   ├─ Ready to create an MSIX installer from built app output?
-   │  └─ winapp package <build-output-dir>
-   │     (add --cert ./devcert.pfx to sign in one step)
+   ├─ Ready to create an MSIX installer?
+   │  ├─ Have a .NET/WinUI .csproj? (build + package in one step)
+   │  │  └─ winapp package <project.csproj>   (add -c Release, --arch, --cert ./devcert.pfx)
+   │  └─ Have a built app-output folder?
+   │     └─ winapp package <build-output-dir>
+   │        (add --cert ./devcert.pfx to sign in one step)
    ├─ Need package identity for debugging Windows APIs?
    │  ├─ Have a .NET/WinUI .csproj or .sln/.slnx (or a folder with one)? (build + run in one step)
    │  │  └─ winapp run <project-or-solution>  (dotnet build + provision runtime + launch)
@@ -123,7 +126,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 
 2. **The key prerequisite is `appxmanifest.xml`, not `winapp.yaml`.** Most winapp commands (`package`, `create-debug-identity`, `sign`, `cert generate --manifest`) need an `appxmanifest.xml`. If one doesn't exist, guide the user to run `winapp init` or `winapp manifest generate`. A project does **not** need `winapp.yaml` to use winapp — `winapp.yaml` is only needed for SDK version management via `restore`/`update`. For SDK build tools, winapp resolves versions via a fallback chain: `winapp.yaml` → `.csproj` NuGet package references (e.g., `Microsoft.Windows.SDK.BuildTools`) → latest available version in the NuGet cache. This means any project with the right NuGet packages (common in .NET) can use winapp commands without ever running `init`, as long as it has an `appxmanifest.xml`.
 
-3. **Publisher must match between cert and manifest.** The `Publisher` field in `appxmanifest.xml` must exactly match the certificate subject distinguished name. Any valid X.500 DN is supported (e.g., `CN=YourName` or `OU=Team, O=Corp, C=US`). Use `winapp cert generate --manifest ./appxmanifest.xml` to auto-infer the correct publisher. If there's a mismatch, signing and installation will fail.
+3. **Publisher must match between cert and manifest.** The `Publisher` field in `appxmanifest.xml` must exactly match the certificate subject distinguished name. Most X.500 DNs are supported (e.g., `CN=YourName` or `OU=Team, O=Corp, C=US`), but components must be single-valued and comma-separated — multi-valued RDNs (`CN=Foo+OU=Bar`) and backslashes are rejected because the MSIX manifest publisher cannot represent them. Use `winapp cert generate --manifest ./appxmanifest.xml` to auto-infer the correct publisher. If there's a mismatch, signing and installation will fail.
 
 4. **`cert install` requires administrator elevation.** Always warn the user that `winapp cert install` must be run in an elevated (administrator) terminal. Without this, the certificate won't be trusted and MSIX installation will fail.
 
@@ -181,8 +184,8 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 **Requires:** `winapp.yaml`
 
 ### `winapp package <input-folder...>` (alias: `winapp pack`)
-**Purpose:** Create an MSIX package (single folder) or MSIX bundle (multiple folders).
-**When to use:** After building your app, when you want to create a distributable MSIX package or a multi-architecture bundle.
+**Purpose:** Create an MSIX package from a `.csproj` (project mode), a built app folder, or an MSIX bundle (multiple folders).
+**When to use:** To build a `.csproj` and package it in one step, or after building your app to package a folder, or to create a multi-architecture bundle.
 **Key options:**
 - `--cert <path>` — sign the package/bundle in one step
 - `--cert-password <pwd>` — certificate password (default: `password`)
@@ -190,12 +193,16 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `--output <path>` — output `.msix` or `.msixbundle` filename
 - `--self-contained` — bundle Windows App SDK runtime (arch-aware for bundles)
 - `--generate-cert` — auto-generate a certificate
+- `--no-sign` — deliver unsigned, overriding a project's signing configuration (for Store submission or external signing); cannot combine with `--cert`/`--generate-cert`
 - `--install-cert` — also install the certificate on the machine
 - `--skip-pri` — skip PRI resource file generation
+**Project mode (a single `.csproj` input):** builds the project, then packages its output.
+  `winapp package ./MyApp.csproj -c Release --cert ./devcert.pfx`
+  Accepts the same build options as `winapp run`: `-c/--configuration`, `--arch`, `-f/--framework`, `--no-build`, `--no-restore`, `-p`. These build options require a `.csproj`; they are rejected for folder/bundle/manifest inputs. A project that builds unpackaged (`WindowsPackageType=None`) cannot be packaged. If the project configures signing, winapp honors it; use `--no-sign` to force an unsigned artifact.
 **Bundle usage:** Pass multiple folders to create a bundle:
   `winapp pack ./publish/x64 ./publish/arm64`
   Each folder's architecture is auto-detected from the executable PE header.
-**Requires:** Built app output directory + `appxmanifest.xml`
+**Requires:** A packaged-app `.csproj`, or a built app-output directory + `appxmanifest.xml`
 
 ### `winapp create-debug-identity [entrypoint]`
 **Purpose:** Register a *sparse package* with Windows so an existing exe gets package identity without creating a full MSIX. The exe stays in its original location — Windows uses `Add-AppxPackage -ExternalLocation` to associate identity with it.
@@ -260,14 +267,16 @@ with `winapp target snapshot sandbox`; it does not create a VM. Consult
 **When to use:** When you need a development certificate to sign MSIX packages or executables.
 **Key options:**
 - `--manifest <path>` — auto-infer publisher from manifest (recommended)
-- `--publisher "CN=..."` — set publisher DN explicitly (any valid X.500 DN; bare names auto-wrapped as CN=\<name\>)
+- `--publisher "CN=..."` — set publisher DN explicitly (single-valued, comma-separated components; multi-valued `+` RDNs and backslashes unsupported; bare names auto-wrapped as CN=\<name\>)
 - `--output <path>` — output PFX path (default: `devcert.pfx`)
-- `--password <pwd>` — PFX password (default: `password`)
+- `--password <pwd>` — PFX password (default: `password`, which is publicly known)
 - `--valid-days <n>` — certificate validity period (default: 365)
 - `--install` — also install the certificate after generation
 - `--if-exists error|skip|overwrite` — behavior when output file exists
+- `--json` — machine-readable output
 **Creates:** `devcert.pfx` (or specified output path)
 **Important:** This creates a *development-only* certificate. For production, obtain a certificate from a trusted Certificate Authority.
+**Default password is public:** The PFX is protected by `password` whenever you omit `--password` **or** pass `--password password` explicitly — supplying the option does not make it private. Anyone can guess that value, so anyone who obtains the file can sign as that publisher. With `--json`, check `defaultPasswordIsPublic` (always present, and driven by the password's value rather than by whether the option was passed) and the `warnings` array before handing the certificate to anything beyond your own machines. See the **winapp-signing** skill.
 
 ### `winapp cert install <cert-path>`
 **Purpose:** Trust a certificate on the local machine.
@@ -379,11 +388,11 @@ rebuild per symbol. A single subject keeps the original payload shape; a batch r
 - `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window. **`--capture-screen` needs exactly one window** — it reads whatever is in front, and only one window can be. `-w <hwnd>` selects one: that window's screen region, including any dialog or overlay visibly on top of it. If `-a` matches several top-level or owned windows there is no such selection and it fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. If a capture reports `foreground_not_target`, the window could not be brought to the front — do the same thing: list the windows and target one with `-w <hwnd>`.
 - `ui record -a <app> [--output file.mp4] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--capture-screen] [--json]` — record a window or element to MP4. Prefer a positive CLI duration; npm helpers require `durationSec`. Use a fresh output path unless replacement is explicitly intended. See **winapp-ui-automation** for overwrite behavior, frame artifacts, and partial-output recovery.
 - `ui invoke <selector> -a <app>` — activate element by slug or text search. Auto-walks to invokable ancestor for non-invokable elements. Add `--action <invoke|select|toggle|toggle-on|toggle-off|expand|collapse>` to perform exactly that action on the selected element with no pattern or ancestor fallback; `toggle-on`/`toggle-off` are idempotent. Prefer a slug with `--action` — a plain-text/AutomationId selector that matches more than one element fails closed rather than guessing.
-- `ui hover <selector> -a <app> [--dwell-time <ms>]` — move mouse to element center to trigger tooltips, flyouts, and hover states. Use with `ui screenshot --capture-screen` to capture the result.
+- `ui hover <selector> -a <app> [--dwell-time <ms>]` — move mouse to element center to trigger tooltips, flyouts, and hover states. First use `ui list-windows -a <app>` to find the main HWND, then capture the result with `ui screenshot -w <hwnd> --capture-screen`.
 - `ui drag <from> <to> -a <app> [--right]` — press the mouse button at one point, move to another, and release (reorder, resize, sliders, drag-and-drop). Each of `<from>`/`<to>` is an element selector (drags from/to its center) or screen coordinates `x,y` as reported by `ui inspect`.
 - `ui send-keys "<keys>" -a <app> [--target <selector>] [--via post-message|send-input] [--verbatim] [--allow-system-keys]` — send synthetic keyboard input: named keys (`enter`, `down`), combos (`ctrl+shift+t`), raw virtual keys (`vk=0xNN`), or literal text. Use `--verbatim` to type the whole argument literally (no key/combo parsing). The default `post-message` transport auto-targets the window's focused child control (works for classic Win32/WinForms), but **windowless WinUI 3 / UWP / XAML controls ignore posted messages** — neither keys nor text reach them (it warns and still exits 0 when a XAML target is detected), so use **`--via send-input`** for WinUI 3 / UWP / WPF apps (also required for per-keystroke KeyDown on typed text, e.g. a WinUI 3/WPF TextBox). Pass `--allow-system-keys` with `--via send-input` to opt in to OS/shell hotkeys (e.g. `win+r`, `win+shift+v`); **`win+l` and `ctrl+alt+del` stay blocked even with this flag** (`win+l` locks the workstation — unrecoverable from automation; `ctrl+alt+del` is a Secure Attention Sequence Windows drops from injected input, so it errors instead of falsely reporting success).
 - `ui set-value <selector> "value" -a <app>` — set text or slider value programmatically (ValuePattern → RangeValuePattern → LegacyIAccessible `put_accValue` fallback for TextPattern-only rich-edit/compose boxes). WinUI 3 `RichEditBox` / WPF `RichTextBox` don't support programmatic value-setting (read-only to UIA value APIs) — use `send-keys` for those.
-- `ui focus <selector> -a <app>` — move keyboard focus
+- `ui focus <selector> -a <app>` — activate the control's window and verify both foreground ownership and keyboard focus before success. Activation can be refused; see the [focus recovery guidance](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#focus).
 - `ui scroll-into-view <selector> -a <app>` — scroll element visible
 - `ui scroll <selector> -a <app> --direction down` — scroll a container (up/down/left/right, --to top/bottom)
 - `ui touch <selector> -a <app> [--gesture tap|double-tap|long-press|swipe|pinch|stretch] [--at x,y] [--to-point x,y] [--direction right|left|up|down] [--distance px] [--duration-ms ms] [--hold-ms ms] [--fingers N]` — inject synthetic touch gestures (tap, swipe, pinch, stretch, long-press). Swipe direction defaults to right; long-press defaults to 500 ms hold if --hold-ms not set. Requires an unlocked interactive desktop.

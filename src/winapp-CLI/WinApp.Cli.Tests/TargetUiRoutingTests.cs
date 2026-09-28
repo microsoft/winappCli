@@ -297,7 +297,7 @@ public partial class TargetUiRoutingTests
         UiArgvRouter.Rewrite(arguments, GuestArtifacts, Path.GetFullPath);
 
     /// <summary>Host channel and guest server over one in-memory transport, with a real file service.</summary>
-    private sealed class Harness : IAsyncDisposable
+    internal sealed class Harness : IAsyncDisposable
     {
         private readonly CancellationTokenSource _cancellation = new(TimeSpan.FromSeconds(60));
         private readonly Task _serverTask;

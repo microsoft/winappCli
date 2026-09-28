@@ -2,7 +2,16 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using SkiaSharp;
+using Spectre.Console;
+using Spectre.Console.Testing;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Tests;
@@ -17,6 +26,239 @@ namespace WinApp.Cli.Tests;
 public partial class UiCommandTests
 {
     private string ShotPath() => Path.Combine(_tempDirectory.FullName, "shot.png");
+
+    private UiScreenshotCommand CreateScreenshotCommand(ILogger<UiScreenshotCommand> logger)
+    {
+        var command = new UiScreenshotCommand();
+        var handler = new UiScreenshotCommand.Handler(
+            _fakeTargetResolver, _fakeUia, _fakeWindowFinder, _fakeSystemQuery,
+            TestAnsiConsole, _fakeDesktopLock, logger);
+        command.SetAction((result, ct) => handler.InvokeAsync(result, ct));
+        return command;
+    }
+
+    [TestMethod]
+    [DataRow(40, false, false, false)]
+    [DataRow(80, false, false, false)]
+    [DataRow(120, false, false, false)]
+    [DataRow(40, true, false, false)]
+    [DataRow(80, true, false, false)]
+    [DataRow(120, true, false, false)]
+    [DataRow(60, true, false, false)]
+    [DataRow(40, false, true, false)]
+    [DataRow(40, true, true, false)]
+    [DataRow(40, true, false, true)]
+    [DataRow(40, true, true, true)]
+    public async Task Screenshot_RenderedOutput_PreservesPathsForHostPublication(
+        int width, bool composite, bool json, bool publicationFails)
+    {
+        TestAnsiConsole.Profile.Width = width;
+        _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
+        _fakeTargetResolver.TargetResult.WindowTitle = "\u001b[2JTest Window\r\nNext line\u009b31m";
+        if (composite)
+        {
+            _fakeUia.WindowsByPidResult = [((nint)11, 4321, "Main"), ((nint)12, 4321, "Dialog")];
+            _fakeSystemQuery.ProcessIdByHwnd[11] = 4321;
+            _fakeSystemQuery.ProcessIdByHwnd[12] = 4321;
+        }
+        var guestRoot = Path.Join(_tempDirectory.FullName, "guest staging with spaces");
+        var scope = TargetArtifactService.ScopeFor(Guid.NewGuid());
+        var name = width == 60 ? "a long screenshot filename & evidence [1].png" : "a long screenshot filename & evidence.png";
+        var path = Path.Join(guestRoot, "artifacts", scope.Scope, name);
+        var hostPath = Path.Join(_tempDirectory.FullName, "host destination with spaces", Path.GetFileName(path));
+        var artifact = new RoutedArtifact(Path.GetFileName(path), path, hostPath);
+        await using var harness = new TargetUiRoutingTests.Harness(guestRoot);
+        string[] args = ["-a", "4321", "-o", path];
+        if (json)
+        {
+            args = [.. args, "--json"];
+        }
+
+        var previous = AnsiConsole.Console;
+        AnsiConsole.Console = TestAnsiConsole;
+        try
+        {
+            var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiScreenshotCommand>(), args);
+            Assert.AreEqual(0, exitCode);
+            Assert.IsTrue(File.Exists(path));
+            using var hostConsole = new TestConsole();
+            hostConsole.Profile.Width = width;
+            var router = new ExecutionTargetUiRouter(null!, hostConsole);
+            using var output = new MemoryStream(Encoding.UTF8.GetBytes(TestAnsiConsole.Output));
+            using var errors = new StringWriter();
+            var relay = new ExecutionTargetUiRouter.ArtifactErrorRelay(errors, artifact);
+            Assert.AreEqual("", hostConsole.Output);
+            Assert.IsFalse(File.Exists(hostPath));
+            if (publicationFails)
+            {
+                Directory.CreateDirectory(hostPath);
+                var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+                    () => router.PublishArtifactAsync(harness.Channel, scope, artifact, output, relay, exitCode));
+                Assert.AreEqual("", hostConsole.Output, "A failed publication must not report capture success.");
+                Assert.IsTrue(File.Exists(path), "Guest recovery evidence must survive a failed publication.");
+                Assert.IsTrue(File.Exists(Path.Join(error.Error.Context!["hostRecoveryPath"], name)));
+                return;
+            }
+            await router.PublishArtifactAsync(harness.Channel, scope, artifact, output, relay, exitCode);
+            Assert.IsTrue(File.Exists(hostPath));
+            Assert.IsFalse(File.Exists(path), "Guest evidence is removed only after delivery.");
+            var reported = hostConsole.Output;
+            if (json)
+            {
+                using var document = JsonDocument.Parse(reported);
+                Assert.AreEqual(hostPath, document.RootElement.GetProperty("filePath").GetString());
+                Assert.AreEqual(composite ? 10 : 1, document.RootElement.GetProperty("width").GetInt32());
+                Assert.AreEqual(composite ? 29 : 1, document.RootElement.GetProperty("height").GetInt32());
+                Assert.AreEqual(_fakeTargetResolver.TargetResult.WindowTitle,
+                    document.RootElement.GetProperty("windowTitle").GetString());
+            }
+            else
+            {
+                StringAssert.Contains(reported, hostPath,
+                    "The rendered path must remain contiguous so host publication can translate it.");
+                Assert.IsFalse(reported.Contains("guest staging", StringComparison.Ordinal));
+                Assert.IsFalse(reported.Contains('\u001b'));
+                Assert.IsFalse(reported.Contains('\u009b'));
+            }
+        }
+        finally
+        {
+            AnsiConsole.Console = previous;
+        }
+    }
+
+    [TestMethod]
+    public async Task Screenshot_SingleWindow_DisabledInformationLog_DoesNotPrintSuccess()
+    {
+        _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
+        var command = CreateScreenshotCommand(NullLogger<UiScreenshotCommand>.Instance);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "-o", ShotPath()]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(File.Exists(ShotPath()));
+        Assert.AreEqual("", TestAnsiConsole.Output);
+    }
+
+    [TestMethod]
+    [DataRow(false, false, LogLevel.Information)]
+    [DataRow(true, false, LogLevel.Information)]
+    [DataRow(false, false, LogLevel.Warning)]
+    [DataRow(true, false, LogLevel.Warning)]
+    [DataRow(false, true, LogLevel.None)]
+    [DataRow(true, true, LogLevel.None)]
+    public async Task Screenshot_Composite_OutputHonorsLoggingMode(bool ownedDialog, bool json, LogLevel minimumLevel)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 11;
+        _fakeTargetResolver.TargetResult.ProcessId = 4321;
+        _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
+        _fakeSystemQuery.ProcessIdByHwnd[11] = 4321;
+        _fakeSystemQuery.ProcessIdByHwnd[12] = ownedDialog ? 9876u : 4321u;
+        if (ownedDialog)
+        {
+            _fakeWindowFinder.OwnedWindowsResult = [((nint)12, 9876, "Dialog")];
+            _fakeSystemQuery.WindowOwnerByHwnd[12] = 11;
+        }
+        else
+        {
+            _fakeUia.WindowsByPidResult = [((nint)11, 4321, "Main"), ((nint)12, 4321, "Dialog")];
+        }
+        var path = ShotPath();
+        using var logger = new LevelLogger<UiScreenshotCommand>(minimumLevel);
+        var command = CreateScreenshotCommand(logger);
+        string[] args = ["-a", "4321", "-o", path];
+        if (json)
+        {
+            args = [.. args, "--json"];
+        }
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+
+        Assert.AreEqual(0, exitCode);
+        using var image = SKBitmap.Decode(path);
+        Assert.IsNotNull(image);
+        Assert.AreEqual(10, image.Width);
+        Assert.AreEqual(29, image.Height);
+        Assert.HasCount(2, _fakeUia.ScreenshotCalls);
+        if (json)
+        {
+            using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+            var result = document.RootElement;
+            Assert.AreEqual(path, result.GetProperty("filePath").GetString());
+            Assert.AreEqual(image.Width, result.GetProperty("width").GetInt32());
+            Assert.AreEqual(image.Height, result.GetProperty("height").GetInt32());
+            var windows = result.GetProperty("windows").EnumerateArray().ToList();
+            Assert.HasCount(2, windows);
+            Assert.IsTrue(windows.All(w => w.GetProperty("captured").GetBoolean()));
+            CollectionAssert.AreEquivalent(
+                new long[] { 11, 12 }, windows.Select(w => w.GetProperty("hwnd").GetInt64()).ToArray());
+        }
+        else if (minimumLevel == LogLevel.Information)
+        {
+            StringAssert.Contains(TestAnsiConsole.Output, "2 windows detected. Compositing into single image.");
+            StringAssert.Contains(TestAnsiConsole.Output, "✓ HWND 11:");
+            StringAssert.Contains(TestAnsiConsole.Output, "✓ HWND 12:");
+            StringAssert.Contains(TestAnsiConsole.Output, $"✓ Saved composite: {path}");
+        }
+        else
+        {
+            Assert.AreEqual("", TestAnsiConsole.Output);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Screenshot_Composite_Quiet_PreservesFailureDiagnostics(bool allCapturesFail)
+    {
+        _fakeUia.WindowsByPidResult = [((nint)11, 4321, "Main"), ((nint)12, 4321, "Dialog")];
+        _fakeSystemQuery.ProcessIdByHwnd[11] = 4321;
+        _fakeSystemQuery.ProcessIdByHwnd[12] = allCapturesFail ? 4321u : 9999u;
+        _fakeUia.ScreenshotResult = (new byte[4], 1, 1);
+        var failure = "The window handle now belongs to a different process.";
+        if (allCapturesFail)
+        {
+            failure = "Capture failed for test window.";
+            _fakeUia.ScreenshotThrow = new InvalidOperationException(failure);
+        }
+        var path = ShotPath();
+        using var logger = new LevelLogger<UiScreenshotCommand>(LogLevel.Warning);
+        var command = CreateScreenshotCommand(logger);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "4321", "-o", path]);
+
+        Assert.AreEqual(allCapturesFail ? 1 : 0, exitCode);
+        Assert.AreEqual(!allCapturesFail, File.Exists(path));
+        StringAssert.Contains(TestAnsiConsole.Output, "✗ HWND 12:");
+        StringAssert.Contains(TestAnsiConsole.Output.ReplaceLineEndings(""), failure);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("windows detected", StringComparison.Ordinal));
+        Assert.IsFalse(TestAnsiConsole.Output.Contains('✓'));
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("Saved composite", StringComparison.Ordinal));
+        if (allCapturesFail)
+        {
+            Assert.IsTrue(logger.Entries.Any(e => e.Level == LogLevel.Error && e.Message == "No windows could be captured."));
+        }
+        else
+        {
+            using var image = SKBitmap.Decode(path);
+            Assert.IsNotNull(image);
+            Assert.AreEqual(1, image.Width);
+            Assert.AreEqual(29, image.Height);
+        }
+    }
+
+    [TestMethod]
+    public async Task Screenshot_Help_DescribesCompositeAndScreenScope()
+    {
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["ui", "screenshot", "--help"]);
+        Assert.AreEqual(0, exitCode);
+        var help = TestAnsiConsole.Output.ReplaceLineEndings(" ");
+        StringAssert.Contains(help, "labeled composite");
+        StringAssert.Contains(help, "owned windows");
+        StringAssert.Contains(help, "process name or PID");
+        StringAssert.Contains(help, "a title match");
+        Assert.IsFalse(help.Contains("separate file", StringComparison.Ordinal));
+    }
 
     [TestMethod]
     public async Task Screenshot_MissingApp_ReturnsError()

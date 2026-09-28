@@ -44,7 +44,7 @@ public class CertificateServiceTests : BaseCommandTests
 
     private static FileInfo CreatePfx(string dir, string fileName, string subject, string password)
     {
-        var path = Path.Combine(dir, fileName);
+        var path = Path.Join(dir, fileName);
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(2));
@@ -52,9 +52,20 @@ public class CertificateServiceTests : BaseCommandTests
         return new FileInfo(path);
     }
 
+    private static FileInfo CreateCer(string dir, string fileName, string subject)
+    {
+        var path = Path.Join(dir, fileName);
+        using var rsa = RSA.Create(2048);
+        var req = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(2));
+        // Export the public certificate only (DER), matching `cert generate --export-cer` output.
+        File.WriteAllBytes(path, cert.Export(X509ContentType.Cert));
+        return new FileInfo(path);
+    }
+
     private static FileInfo CreateManifest(string dir, string fileName, string publisher)
     {
-        var path = Path.Combine(dir, fileName);
+        var path = Path.Join(dir, fileName);
         var xml = $"""
             <?xml version="1.0" encoding="utf-8"?>
             <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
@@ -143,6 +154,57 @@ public class CertificateServiceTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void InstallCertificate_PublicCer_InstallsAndReturnsTrue()
+    {
+        var (svc, _, _) = NewService();
+        // A public-only .cer (as produced by `cert generate --export-cer`) has no private key
+        // and is not PKCS#12, so it must load via the certificate-only fallback path.
+        var cer = CreateCer(_tempDirectory.FullName, "public.cer", "CN=PublicCer");
+        svc.IsCertificateInstalledImpl = _ => false;
+        var addedCount = 0;
+        bool? hadPrivateKey = null;
+        svc.AddCertificateToStoreImpl = c =>
+        {
+            addedCount++;
+            // Inspect the certificate inside the callback, before InstallCertificate disposes it.
+            hadPrivateKey = c.HasPrivateKey;
+        };
+
+        var result = svc.InstallCertificate(cer, "unused-password", force: false, TestTaskContext);
+
+        Assert.IsTrue(result, "Installing a public .cer should return true");
+        Assert.AreEqual(1, addedCount, "Certificate should have been added to the store");
+        Assert.IsFalse(hadPrivateKey, "A public .cer carries no private key");
+    }
+
+    [TestMethod]
+    public void InstallCertificate_PublicCer_AlreadyInstalled_ReturnsFalse()
+    {
+        var (svc, _, _) = NewService();
+        var cer = CreateCer(_tempDirectory.FullName, "already-public.cer", "CN=AlreadyPublicCer");
+        svc.IsCertificateInstalledImpl = _ => true;
+
+        var result = svc.InstallCertificate(cer, "unused-password", force: false, TestTaskContext);
+
+        Assert.IsFalse(result, "Already-installed public .cer should return false");
+    }
+
+    [TestMethod]
+    public void InstallCertificate_WrongPfxPassword_SurfacesPasswordError()
+    {
+        var (svc, _, _) = NewService();
+        var pfx = CreatePfx(_tempDirectory.FullName, "wrongpw.pfx", "CN=WrongPw", "correct-pw");
+        svc.AddCertificateToStoreImpl = _ => { };
+
+        // A genuine PFX with the wrong password must surface the PFX loader's password error,
+        // not be misreported as an unreadable certificate file.
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(() =>
+            svc.InstallCertificate(pfx, "wrong-pw", force: true, TestTaskContext));
+
+        StringAssert.Contains(ex.Message, "password");
+    }
+
+    [TestMethod]
     public void InstallCertificate_Force_SkipsInstalledCheck()
     {
         var (svc, _, _) = NewService();
@@ -224,8 +286,40 @@ public class CertificateServiceTests : BaseCommandTests
             timestampUrl: "http://timestamp.example/rfc3161",
             cancellationToken: TestContext.CancellationToken);
 
-        StringAssert.Contains(bt.Invocations[0].Arguments, "/tr \"http://timestamp.example/rfc3161\"");
+        StringAssert.Contains(bt.Invocations[0].Arguments, "/tr http://timestamp.example/rfc3161");
         StringAssert.Contains(bt.Invocations[0].Arguments, "/td SHA256");
+    }
+
+    [TestMethod]
+    public async Task SignFileAsync_InvalidTimestampUrl_Throws()
+    {
+        var (svc, bt, _) = NewService();
+        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-ts.exe"));
+        await File.WriteAllTextAsync(file.FullName, "MZ");
+        var cert = CreatePfx(_tempDirectory.FullName, "sign-ts.pfx", "CN=SignTs", "pw");
+
+        // A non-absolute / non-http(s) timestamp URL (e.g. from a project's
+        // AppxPackageSigningTimestampServerUrl) must be rejected before signtool runs.
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => svc.SignFileAsync(
+            file, cert, TestTaskContext, password: "pw", timestampUrl: "ftp://ts.example",
+            cancellationToken: TestContext.CancellationToken));
+        Assert.HasCount(0, bt.Invocations);
+    }
+
+    [TestMethod]
+    public async Task SignFileAsync_TimestampUrlWithInjectedSwitch_Rejected()
+    {
+        var (svc, bt, _) = NewService();
+        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-inj.exe"));
+        await File.WriteAllTextAsync(file.FullName, "MZ");
+        var cert = CreatePfx(_tempDirectory.FullName, "sign-inj.pfx", "CN=SignInj", "pw");
+
+        // An attempt to smuggle an extra signtool switch through the timestamp URL is not a valid absolute
+        // URL, so it is rejected before reaching signtool (defense in depth on top of argument escaping).
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => svc.SignFileAsync(
+            file, cert, TestTaskContext, password: "pw", timestampUrl: "http://ts\" /debug /tr \"http://evil",
+            cancellationToken: TestContext.CancellationToken));
+        Assert.HasCount(0, bt.Invocations);
     }
 
     [TestMethod]

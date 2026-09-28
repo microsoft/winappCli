@@ -783,33 +783,39 @@ internal sealed class SearchEngine
         };
         sb.AppendLine($"## {ControlHeader(s.ControlName, s.HeaderText)}{sourceTag}");
 
-        // Toolkit-specific prerequisites — single compact line
-        if (s.Source == "toolkit" && (!string.IsNullOrEmpty(s.NuGetPackage) || s.XmlnsImports.Length > 0))
-        {
-            var parts = new List<string>(1 + s.XmlnsImports.Length);
-            if (!string.IsNullOrEmpty(s.NuGetPackage))
-                parts.Add($"NuGet `{s.NuGetPackage}`");
-            foreach (var ns in s.XmlnsImports)
-                parts.Add($"`{ns}`");
-            sb.AppendLine($"**Setup:** {string.Join(" · ", parts)}");
-        }
         // Reactor: surface the (uniform) NuGet package. Any control-level `using`
         // directives are already folded into the C# snippet, and the shared
         // Microsoft.UI.Reactor api namespace is deliberately NOT emitted as a
         // **Namespace:** line — all reactor controls share it, so it'd be pure noise.
-        else if (s.Source == "reactor")
+        if (s.Source == "reactor")
         {
             if (!string.IsNullOrEmpty(s.NuGetPackage))
                 sb.AppendLine($"**Setup:** NuGet `{s.NuGetPackage}`");
         }
-        // Gallery non-default namespace hint — agents miss `using Microsoft.Windows.Notifications`
-        // and similar long-tail imports. Skip the dominant Microsoft.UI.Xaml.Controls (auto-imported
-        // in default templates) so 79/107 controls stay quiet.
-        else if (s.Source == "gallery"
-                 && !string.IsNullOrEmpty(s.ApiNamespace)
-                 && s.ApiNamespace != "Microsoft.UI.Xaml.Controls")
+        else
         {
-            sb.AppendLine($"**Namespace:** `{s.ApiNamespace}`");
+            // Prerequisites — single compact line. Gallery samples carry xmlns imports
+            // too, and withholding them leaves markup using an undeclared prefix.
+            if (!string.IsNullOrEmpty(s.NuGetPackage) || s.XmlnsImports.Length > 0)
+            {
+                var parts = new List<string>(1 + s.XmlnsImports.Length);
+                if (!string.IsNullOrEmpty(s.NuGetPackage))
+                    parts.Add($"NuGet `{s.NuGetPackage}`");
+                foreach (var ns in s.XmlnsImports)
+                    parts.Add($"`{ns}`");
+                sb.AppendLine($"**Setup:** {string.Join(" · ", parts)}");
+            }
+
+            // Gallery non-default namespace hint — agents miss `using Microsoft.Windows.Notifications`
+            // and similar long-tail imports. Skip the dominant Microsoft.UI.Xaml.Controls (auto-imported
+            // in default templates) so 79/107 controls stay quiet. This is independent of the Setup
+            // line above: a sample can need both an xmlns declaration and a C# using.
+            if (s.Source == "gallery"
+                && !string.IsNullOrEmpty(s.ApiNamespace)
+                && s.ApiNamespace != "Microsoft.UI.Xaml.Controls")
+            {
+                sb.AppendLine($"**Namespace:** `{s.ApiNamespace}`");
+            }
         }
 
         if (s.Xaml != null)

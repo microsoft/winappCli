@@ -98,7 +98,7 @@ internal sealed class DotNetProjectRestoreService(
             $"restore \"{projectToRestore.FullName}\"",
             WriteRedacted,
             WriteRedacted,
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         if (restoreExitCode != 0)
         {

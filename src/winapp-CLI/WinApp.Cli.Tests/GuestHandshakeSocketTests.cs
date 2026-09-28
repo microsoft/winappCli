@@ -76,6 +76,78 @@ public class GuestHandshakeSocketTests
     };
 
     [TestMethod]
+    public async Task AuthenticatedEndpoints_DisableNagle()
+    {
+        var (listener, port) = ListenOnLoopback();
+        using var listening = listener;
+        var material = Material(NewKey(), port);
+        var connecting = GuestTcpTransport.ConnectAsync(Loopback, material, TestContext.CancellationToken);
+        using var client = await GuestTcpTransport.AcceptClientAsync(listener, TestContext.CancellationToken);
+        await using var guest = await GuestTcpTransport.EstablishAsync(client, material, TestContext.CancellationToken);
+        await using var host = await connecting;
+        Assert.IsTrue(client.NoDelay, "Guest handshake and frames must not wait for a delayed ACK.");
+
+        // Inspect the actual owned socket, not a separately configured test socket.
+        var field = typeof(GuestSecureChannel).GetField("_stream",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var stream = (NetworkStream)field.GetValue(host)!;
+        Assert.IsTrue(stream.Socket.NoDelay, "Host handshake and frames must not wait for a delayed ACK.");
+    }
+
+    [TestMethod]
+    public async Task ConcurrentTcpChannels_PreserveLargeFrameBytesAndOrdering()
+    {
+        var (listener, port) = ListenOnLoopback();
+        using var listening = listener;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        deadline.CancelAfter(Promptly);
+        var token = deadline.Token;
+        var material = Material(NewKey(), port);
+        var clients = new List<IGuestTransport>();
+        var servers = new List<IGuestTransport>();
+        try
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                var connecting = GuestTcpTransport.ConnectAsync(Loopback, material, token);
+                var client = await GuestTcpTransport.AcceptClientAsync(listener, token);
+                servers.Add(await GuestTcpTransport.EstablishAsync(client, material, token));
+                clients.Add(await connecting);
+            }
+
+            await Task.WhenAll(Enumerable.Range(0, clients.Count).Select(async connection =>
+            {
+                var host = clients[connection];
+                var guest = servers[connection];
+                var sending = Task.Run(async () =>
+                {
+                    for (var frame = 0; frame < 64; frame++)
+                    {
+                        var bytes = new byte[32 * 1024];
+                        Array.Fill(bytes, (byte)(frame + connection));
+                        await guest.SendFrameAsync(bytes, token);
+                    }
+                }, token);
+                for (var frame = 0; frame < 64; frame++)
+                {
+                    var received = await host.ReceiveFrameAsync(token);
+                    Assert.IsNotNull(received);
+                    Assert.AreEqual(32 * 1024, received.Value.Length);
+                    Assert.IsTrue(received.Value.Span.IndexOfAnyExcept((byte)(frame + connection)) < 0);
+                }
+                await sending;
+            }));
+        }
+        finally
+        {
+            foreach (var transport in clients.Concat(servers))
+            {
+                await transport.DisposeAsync();
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task PeerThatAcceptsThenResets_IsClassifiedAsClosedDuringHandshake()
     {
         var key = NewKey();

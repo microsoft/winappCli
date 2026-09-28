@@ -42,19 +42,11 @@ internal interface IGuestProcessHostFactory
 }
 
 /// <summary>Starts real Windows processes inside Job Objects.</summary>
-/// <remarks>
-/// Supplies the running winapp binary as the containment barrier. Only the agent can assert that
-/// its own executable understands the barrier verb, which is why the path is provided here rather
-/// than discovered inside the process host.
-/// </remarks>
 internal sealed class GuestProcessHostFactory : IGuestProcessHostFactory
 {
-    /// <summary>The winapp binary used as the per-operation containment barrier.</summary>
-    public string? BarrierExecutable { get; init; } = Environment.ProcessPath;
-
     /// <inheritdoc/>
     public IGuestProcessHost Start(
         GuestExecRequest request,
         Func<GuestStreamId, ReadOnlyMemory<byte>, Task> onOutput) =>
-        GuestProcessHost.Start(request, onOutput, BarrierExecutable);
+        GuestProcessHost.Start(request, onOutput);
 }

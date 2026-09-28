@@ -593,7 +593,7 @@ internal sealed partial class ProjectRunService
                 workingDir, redirectedArgs,
                 onOutputLine: static line => Console.Error.WriteLine(line),
                 onErrorLine: static line => Console.Error.WriteLine(line),
-                cancellationToken);
+                cancellationToken: cancellationToken);
         }
 
         var nativeTerminal = NativeTerminalGateOverrideForTests?.Invoke()
@@ -605,7 +605,7 @@ internal sealed partial class ProjectRunService
         int streamedExit;
         if (nativeTerminal)
         {
-            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, cancellationToken);
+            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, cancellationToken: cancellationToken);
         }
         else
         {
@@ -619,7 +619,7 @@ internal sealed partial class ProjectRunService
             }
 
             streamedExit = await dotNetService.RunDotnetStreamingAsync(
-                workingDir, buildArgs, WriteLive, WriteLive, cancellationToken);
+                workingDir, buildArgs, WriteLive, WriteLive, cancellationToken: cancellationToken);
         }
 
         if (streamedExit == 0)

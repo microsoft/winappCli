@@ -32,6 +32,46 @@ public class PathSafetyTests
     // ---------------------------------------------------------------------
 
     [TestMethod]
+    public void IsNetworkDriveRoot_LocalPath_ReturnsFalse()
+    {
+        // A local fixed-drive path (the temp dir) must not be treated as a network drive, so legitimate
+        // local certificate paths are never wrongly rejected.
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(_tempDir.FullName));
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(Path.Combine(_tempDir.FullName, "dev.pfx")));
+    }
+
+    [TestMethod]
+    public void IsNetworkDriveRoot_UncOrEmpty_ReturnsFalse()
+    {
+        // UNC is handled by IsNetworkPath (not a drive letter), and an empty path is not a drive mapping.
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(@"\\server\share\dev.pfx"));
+        Assert.IsFalse(PathSafety.IsNetworkDriveRoot(string.Empty));
+    }
+
+    [TestMethod]
+    [DataRow(@"GLOBALROOT\Device\Mup\host\share\dev.pfx")]
+    [DataRow(@"\GLOBALROOT\Device\Mup\host\share")]
+    [DataRow(@"Device\Mup\host\share\dev.pfx")]
+    [DataRow(@"UNC\host\share\dev.pfx")]
+    [DataRow(@"??\UNC\host\share")]
+    public void IsDeviceOrNtNamespaceTarget_NamespaceStrippedDeviceTargets_ReturnTrue(string target)
+    {
+        // LinkTarget strips the \\?\ prefix, so these device/NT-namespace forms must be treated as unsafe.
+        Assert.IsTrue(PathSafety.IsDeviceOrNtNamespaceTarget(target));
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\local\dev.pfx")]
+    [DataRow(@"..\sibling\dev.pfx")]
+    [DataRow(@"sub\dev.pfx")]
+    [DataRow("")]
+    public void IsDeviceOrNtNamespaceTarget_OrdinaryLocalTargets_ReturnFalse(string target)
+    {
+        // Ordinary drive-letter and relative junction/symlink targets must not be rejected.
+        Assert.IsFalse(PathSafety.IsDeviceOrNtNamespaceTarget(target));
+    }
+
+    [TestMethod]
     public void HasReparsePointOnPath_PathEqualsBoundary_ReturnsFalse()
     {
         // The boundary itself is a valid target — callers pass e.g. the
@@ -354,6 +394,12 @@ public class PathSafetyTests
     [DataRow(@"\\?\UNC\server\share")]
     [DataRow(@"\\?\GLOBALROOT\Device\Mup\server\share")]
     [DataRow(@"\\server\share\PKG~1")]
+    // Namespace-stripped forms that System.IO's LinkTarget actually returns at runtime for the
+    // corresponding \\?\ targets — these previously slipped past IsNetworkPath and were re-interpreted
+    // as relative local paths.
+    [DataRow(@"GLOBALROOT\Device\Mup\server\share\dev.pfx")]
+    [DataRow(@"Device\Mup\server\share\dev.pfx")]
+    [DataRow(@"UNC\server\share\dev.pfx")]
     public void RedirectsToNetwork_RejectsImmediateNetworkTarget(string networkTarget)
     {
         string target = Path.Combine(_tempDir.FullName, "Cache");

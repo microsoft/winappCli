@@ -1,8 +1,12 @@
 name: Test Samples & Guides
 
 on:
-  pull_request:
-    branches: [ "main" ]
+  workflow_call:
+    inputs:
+      use-existing-artifacts:
+        description: 'Use npm-package and nuget-packages from this run instead of rebuilding'
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       sample:
@@ -31,13 +35,15 @@ permissions:
   contents: read
 
 jobs:
-  # Build npm (and NuGet) package for pull_request and workflow_dispatch events.
-  # This makes the workflow self-contained — no cross-workflow artifact chaining.
+  # Manual runs stay self-contained; Build and Package calls us after uploading
+  # the same-run artifacts, so PRs do not publish the CLI a second time.
   build:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: ${{ !inputs.use-existing-artifacts }}
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
     - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
@@ -46,20 +52,23 @@ jobs:
         node-version: '22'
     - name: Build npm package
       shell: pwsh
-      run: .\scripts\build-cli.ps1 -SkipTests -SkipMsix
+      run: .\scripts\build-cli.ps1 -SkipTests -SkipMsix -SkipDocs
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: npm-package
         path: artifacts/*.tgz
+        if-no-files-found: error
+        overwrite: true
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: nuget-package
+        name: nuget-packages
         path: artifacts/nuget/*.nupkg
-        if-no-files-found: ignore
+        if-no-files-found: error
+        overwrite: true
 
   test-sample:
     needs: [build]
-    if: needs.build.result == 'success'
+    if: ${{ !cancelled() && ((inputs.use-existing-artifacts && needs.build.result == 'skipped') || needs.build.result == 'success') }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,9 +80,12 @@ jobs:
     - name: Check if sample should run
       id: check
       shell: pwsh
+      env:
+        REQUESTED_SAMPLE: ${{ inputs.sample || 'all' }}
+        MATRIX_SAMPLE: ${{ matrix.sample }}
       run: |
-        $requested = '${{ github.event.inputs.sample || 'all' }}'
-        if ($requested -ne 'all' -and $requested -ne '${{ matrix.sample }}') {
+        $requested = $env:REQUESTED_SAMPLE
+        if ($requested -ne 'all' -and $requested -ne $env:MATRIX_SAMPLE) {
           echo "skip=true" >> $env:GITHUB_OUTPUT
         } else {
           echo "skip=false" >> $env:GITHUB_OUTPUT
@@ -83,7 +95,7 @@ jobs:
       if: steps.check.outputs.skip != 'true'
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    # Download the npm package artifact built by the `build` job above
+    # Both entry points use artifacts from this run, never a privileged workflow_run.
     - name: Download npm package
       if: steps.check.outputs.skip != 'true'
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -98,9 +110,8 @@ jobs:
         contains(fromJson('["dotnet-app", "wpf-app"]'), matrix.sample)
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: nuget-package
+        name: nuget-packages
         path: artifacts/nuget
-      continue-on-error: true
 
     - name: Add local NuGet source
       if: >-
@@ -109,13 +120,10 @@ jobs:
       shell: pwsh
       run: |
         $nugetPath = "artifacts/nuget"
-        if (Test-Path $nugetPath) {
-          $resolvedPath = (Resolve-Path $nugetPath).Path
-          dotnet nuget add source $resolvedPath --name WinAppLocal
-          Write-Host "Added local NuGet source: $resolvedPath"
-        } else {
-          Write-Warning "No NuGet artifacts found — .NET samples may fail to restore"
-        }
+        $resolvedPath = (Resolve-Path $nugetPath).Path
+        dotnet nuget add source $resolvedPath --name WinAppLocal
+        if ($LASTEXITCODE -ne 0) { throw "Failed to add local NuGet source" }
+        Write-Host "Added local NuGet source: $resolvedPath"
 
     # --- Toolchain setup (conditional per sample) ---
 
@@ -229,7 +237,7 @@ jobs:
         $config.Run.Exit = $true
         $config.Output.Verbosity = 'Detailed'
         $config.TestResult.Enabled = $true
-        $config.TestResult.OutputPath = "test-results-${{ matrix.sample }}.xml"
+        $config.TestResult.OutputPath = Join-Path $env:GITHUB_WORKSPACE "test-results-${{ matrix.sample }}.xml"
         $config.TestResult.OutputFormat = 'JUnitXml'
         Invoke-Pester -Configuration $config
 
@@ -239,7 +247,8 @@ jobs:
       with:
         name: test-results-${{ matrix.sample }}
         path: test-results-${{ matrix.sample }}.xml
-        if-no-files-found: ignore
+        if-no-files-found: error
+        overwrite: true
 
   # Summary job to provide a single check status for branch protection
   test-samples-result:
@@ -248,9 +257,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Check results
+      shell: pwsh
+      env:
+        BUILD_RESULT: ${{ needs.build.result }}
+        SAMPLE_RESULT: ${{ needs.test-sample.result }}
+        REUSE_ARTIFACTS: ${{ inputs.use-existing-artifacts }}
       run: |
-        if [ "${{ needs.test-sample.result }}" = "failure" ]; then
-          echo "::error::One or more sample tests failed"
-          exit 1
-        fi
-        echo "All sample tests passed (or were skipped)"
+        $expectedBuild = if ($env:REUSE_ARTIFACTS -eq 'true') { 'skipped' } else { 'success' }
+        if ($env:BUILD_RESULT -ne $expectedBuild -or $env:SAMPLE_RESULT -ne 'success') {
+          throw "Sample validation did not succeed (build=$env:BUILD_RESULT, tests=$env:SAMPLE_RESULT)"
+        }
+        Write-Host "All requested sample jobs passed"

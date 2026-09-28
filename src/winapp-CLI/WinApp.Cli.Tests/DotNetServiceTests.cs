@@ -2249,7 +2249,7 @@ public class DotNetServiceTests : BaseCommandTests
         // kill-on-cancel policy as the buffered/streaming launchers. This proves the shared tree-kill (H1)
         // reaches grandchildren on the inherit path too — no weaker forked cancel path.
         => AssertLauncherKillsGrandchildTreeOnCancelAsync(
-            (dir, args, ct) => _dotNetService.RunDotnetInheritedAsync(dir, args, ct));
+            (dir, args, ct) => _dotNetService.RunDotnetInheritedAsync(dir, args, cancellationToken: ct));
 
     /// <summary>
     /// Shared grandchild-reap proof for every RunDotnetCoreAsync launcher. On Ctrl+C the runner must kill

@@ -8,32 +8,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # Required for creating releases
-  pull-requests: write  # Required for binary size report comments
-  actions: write  # Required for deleting old metrics baseline cache
+  contents: read
+  actions: read
+
+# Supersede only older runs of the same PR, never main or manual builds.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Fast docs validation - runs in parallel with the main build to fail PRs early on doc drift
-  # Only builds the CLI binary (no tests, npm, or MSIX) so it completes much faster
-  validate-docs:
-    if: github.event_name == 'pull_request'
-    runs-on: windows-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-    - name: Install .NET Core
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-      with:
-        dotnet-version: 10.0.x
-
-    - name: Build and publish CLI (x64 only)
-      run: dotnet publish src/winapp-CLI/WinApp.Cli/WinApp.Cli.csproj -c Release -r win-x64 --self-contained -o artifacts/cli/win-x64
-
-    - name: Validate CLI schema and plugin manifests
-      run: .\scripts\validate-llm-docs.ps1 -FailOnDrift
-
-  build-and-package:
+  build-artifacts:
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -51,83 +35,256 @@ jobs:
       with:
         node-version: '24'
     
-    # Run the build script which handles building, testing, versioning, npm packaging, and MSIX bundling
-    # Skip doc generation in CI - we validate the committed docs separately to detect drift
-    - name: Build, test, and package
-      id: build
-      run: |
-        .\scripts\build-cli.ps1 -SkipDocs
-        
-        # Get version information for release tagging
-        $versionJson = Get-Content "version.json" | ConvertFrom-Json
-        $baseVersion = $versionJson.version
-        $buildNumber = & ".\scripts\get-build-number.ps1"
-        
-        # Determine prerelease label based on current branch
-        $prereleaseLabel = & ".\scripts\get-prerelease-label.ps1"
-        $fullVersion = "$baseVersion-$prereleaseLabel.$buildNumber"
-        
-        # Export for use in subsequent steps
-        echo "version=$fullVersion" >> $env:GITHUB_OUTPUT
-        echo "base_version=$baseVersion" >> $env:GITHUB_OUTPUT
-        echo "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
-    
-    # Validate CLI schema and plugin manifests on push to main (warning only, not blocking)
-    - name: Validate CLI schema and plugin manifests
-      if: github.event_name != 'pull_request'
-      run: .\scripts\validate-llm-docs.ps1 -FailOnDrift:$false
-    
-    # Upload all build artifacts
-    - name: Upload test results
-      if: ${{ !cancelled() }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      with:
-        name: test-results
-        path: artifacts/TestResults/
-        if-no-files-found: error
+    # Build both architectures and packages together; validation consumes these
+    # same-run artifacts on separate runners without republishing.
+    - name: Build and package (awaiting validation)
+      run: .\scripts\build-cli.ps1 -SkipTests -SkipDocs
     
     - name: Upload CLI binaries
-      if: ${{ !cancelled() }}
+      id: cli
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: cli-binaries
         path: artifacts/cli/
         if-no-files-found: error
+        overwrite: true
     
     - name: Upload npm package
-      if: ${{ !cancelled() }}
+      id: npm
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: npm-package
         path: artifacts/*.tgz
         if-no-files-found: error
+        overwrite: true
 
     - name: Upload MSIX packages
-      if: ${{ !cancelled() }}
+      id: msix
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: msix-packages
         path: artifacts/msix-packages/
         if-no-files-found: error
+        overwrite: true
 
-    # NuGet packages: the CLI tools package plus the two UI Automation library packages
-    # (Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation and ...UIAutomation.Recording).
-    # build-cli.ps1 verifies all three are present before we get here.
+    # CLI tools, both UI Automation libraries, and the WinUI analyzer.
     - name: Upload NuGet packages
-      if: ${{ !cancelled() }}
+      id: nuget
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: nuget-packages
         path: artifacts/nuget/*.nupkg
         if-no-files-found: error
+        overwrite: true
 
-    # --- Build quality metrics ---
-    - name: Collect build metrics
+    - name: Link downloads awaiting validation
+      env:
+        CLI_URL: ${{ steps.cli.outputs.artifact-url }}
+        NPM_URL: ${{ steps.npm.outputs.artifact-url }}
+        MSIX_URL: ${{ steps.msix.outputs.artifact-url }}
+        NUGET_URL: ${{ steps.nuget.outputs.artifact-url }}
+      run: |
+        @"
+        ## Downloads - awaiting validation
+
+        These packages are available before tests finish. Download availability is not a passing check.
+        Check **build-and-package** before relying on this build.
+
+        | Artifact | Download |
+        | --- | --- |
+        | CLI (x64 + ARM64) | [cli-binaries]($env:CLI_URL) |
+        | npm | [npm-package]($env:NPM_URL) |
+        | MSIX | [msix-packages]($env:MSIX_URL) |
+        | NuGet (all four packages) | [nuget-packages]($env:NUGET_URL) |
+        "@ >> $env:GITHUB_STEP_SUMMARY
+
+  validate-tests:
+    needs: build-artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - lane: Cli-1
+          suite: Cli
+          shard: 1
+        - lane: Cli-2
+          suite: Cli
+          shard: 2
+        - lane: Auxiliary
+          suite: Auxiliary
+          shard: 0
+        - lane: UIAutomation
+          suite: UIAutomation
+          shard: 0
+    name: validate-tests (${{ matrix.lane }})
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Setup Node.js
+      if: matrix.suite != 'UIAutomation'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '24'
+
+    - name: Download CLI binaries
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-binaries
+        path: artifacts/cli
+
+    - name: Download NuGet packages
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: nuget-packages
+        path: artifacts/nuget
+
+    - name: Run validation without republishing
+      env:
+        TEST_SUITE: ${{ matrix.suite }}
+        CLI_SHARD: ${{ matrix.shard }}
+      run: |
+        $testArgs = @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = $env:TEST_SUITE }
+        if ($env:TEST_SUITE -eq 'Cli') { $testArgs.CliShard = [int]$env:CLI_SHARD }
+        .\scripts\build-cli.ps1 @testArgs
+
+    - name: Upload test results
       if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: validation-results-${{ matrix.lane }}
+        path: artifacts/TestResults/
+        if-no-files-found: error
+        overwrite: true
+
+  validate-docs:
+    needs: build-artifacts
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Download CLI binaries
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-binaries
+        path: artifacts/cli
+
+    - name: Validate CLI schema and plugin manifests
+      env:
+        IS_PR: ${{ github.event_name == 'pull_request' }}
+      run: .\scripts\validate-llm-docs.ps1 -FailOnDrift:($env:IS_PR -eq 'true')
+
+  # Called locally, within this run and with the PR token, including for forks.
+  samples:
+    if: github.event_name == 'pull_request'
+    needs: build-artifacts
+    uses: ./.github/workflows/test-samples.yml
+    with:
+      use-existing-artifacts: true
+
+  # Keep the existing branch-protection check name outside the reusable workflow.
+  test-samples-result:
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: samples
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check results
+      shell: pwsh
+      env:
+        SAMPLE_RESULT: ${{ needs.samples.result }}
+      run: |
+        if ($env:SAMPLE_RESULT -ne 'success') {
+          throw "Sample validation did not succeed ($env:SAMPLE_RESULT)"
+        }
+
+  metrics:
+    needs: [build-artifacts, validate-tests]
+    if: ${{ !cancelled() && needs.build-artifacts.result == 'success' && (needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure') }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: write  # Delete the old main metrics baseline cache
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Download CLI binaries
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-binaries
+        path: artifacts/cli
+
+    - name: Download npm package
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: npm-package
+        path: artifacts
+
+    - name: Download MSIX packages
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: msix-packages
+        path: artifacts/msix-packages
+
+    - name: Download NuGet packages
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: nuget-packages
+        path: artifacts/nuget
+
+    - name: Download CLI shard 1 results
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-Cli-1
+        path: artifacts/TestResults
+
+    - name: Download CLI shard 2 results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-Cli-2
+        path: artifacts/TestResults
+
+    - name: Download auxiliary test results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-Auxiliary
+        path: artifacts/TestResults
+
+    - name: Download UI Automation test results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: validation-results-UIAutomation
+        path: artifacts/TestResults
+
+    # Keep the public/reporting artifact name even if one lane failed before reporting.
+    - name: Upload combined test results
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: test-results
+        path: artifacts/TestResults
+        if-no-files-found: error
+        overwrite: true
+
+    - name: Collect build metrics
       uses: ./.github/actions/collect-metrics
 
     - name: Report build metrics
-      if: ${{ !cancelled() }}
+      # Failed main/manual validation still publishes test-results above, but
+      # must not promote failed measurements to the main comparison baseline.
+      if: github.event_name == 'pull_request' || needs.validate-tests.result == 'success'
       uses: ./.github/actions/report-metrics
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -139,7 +296,7 @@ jobs:
   # E2E test for winapp ui commands against WinUI 3 sample app
   e2e-test-ui:
     runs-on: windows-latest
-    needs: build-and-package
+    needs: build-artifacts
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -176,6 +333,7 @@ jobs:
         name: ui-coordination-test-results
         path: artifacts/TestResults/ui-coordination/
         if-no-files-found: warn
+        overwrite: true
 
     - name: Upload screenshots
       if: always()
@@ -184,3 +342,24 @@ jobs:
         name: ui-test-screenshots
         path: artifacts/screenshots/
         if-no-files-found: warn
+        overwrite: true
+
+  # Retain the original required check, but only turn it green after every lane.
+  build-and-package:
+    if: always()
+    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Require all build and validation jobs
+      shell: pwsh
+      env:
+        NEEDS_JSON: ${{ toJSON(needs) }}
+        IS_PR: ${{ github.event_name == 'pull_request' }}
+      run: |
+        $results = $env:NEEDS_JSON | ConvertFrom-Json -AsHashtable
+        foreach ($job in $results.Keys) {
+          $expected = if ($job -eq 'samples' -and $env:IS_PR -ne 'true') { 'skipped' } else { 'success' }
+          if ($results[$job].result -ne $expected) {
+            throw "$job did not meet the required outcome: $($results[$job].result) (expected $expected)"
+          }
+        }

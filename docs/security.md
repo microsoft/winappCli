@@ -43,6 +43,8 @@ A well-known password means the private key in `devcert.pfx` is effectively unpr
 > [!IMPORTANT]
 > Treat the default password as a signal that the certificate is disposable. If a certificate is ever used to sign something another person will install, it should not be a `winapp cert generate` certificate with the default password — see [Signing for production](#signing-for-production).
 
+Scripts and agents do not have to compare the password themselves: `winapp cert generate --json` reports `"defaultPasswordIsPublic": true` and repeats the disclosure in a `warnings` array whenever the default is in effect. See [cert generate JSON output](usage.md#cert-generate-json-output).
+
 ### Where the certificate file lives
 
 `devcert.pfx` is a private key on disk. Two rules keep it out of trouble:
@@ -76,7 +78,14 @@ Once a certificate is in `TrustedPeople`, Windows will accept **any** MSIX packa
 - Do not install a development certificate on shared, production, or build machines that other people rely on.
 - Prefer distributing the `.cer` (public key only) rather than the `.pfx` when a colleague needs to install your test package. They gain the ability to trust your builds without gaining the ability to sign as you.
 
-To trust a `.cer` on another test machine, import it directly — `winapp cert install` expects a PFX:
+To trust a `.cer` on another test machine, run `winapp cert install` on it directly — the command accepts either a `.pfx` or a public-only `.cer`:
+
+```powershell
+# Run as Administrator
+winapp cert install .\devcert.cer
+```
+
+The equivalent using only built-in Windows tooling is:
 
 ```powershell
 # Run as Administrator

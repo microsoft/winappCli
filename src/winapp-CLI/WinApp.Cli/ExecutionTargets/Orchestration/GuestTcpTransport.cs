@@ -225,6 +225,9 @@ internal static class GuestTcpTransport
 
         try
         {
+            // Handshakes and command/output/exit frames are small, latency-sensitive writes.
+            // NetworkStream.FlushAsync does not disable TCP's delayed-ACK/Nagle interaction.
+            client.NoDelay = true;
             return await GuestSecureChannel.EstablishAsync(
                 client.GetStream(),
                 GuestRole.Guest,
@@ -332,6 +335,7 @@ internal static class GuestTcpTransport
 
             try
             {
+                socket.NoDelay = true;
                 await socket.ConnectAsync(IPAddress.Parse(address), port, timeoutToken).ConfigureAwait(false);
                 return socket;
             }

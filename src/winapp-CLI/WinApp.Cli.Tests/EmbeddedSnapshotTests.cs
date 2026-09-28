@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using WinApp.Cli.Services.Controls;
 
 namespace WinApp.Cli.Tests;
@@ -32,6 +33,17 @@ public class EmbeddedSnapshotTests
     /// failing a bake that captured a truncated or mangled corpus.
     /// </summary>
     private const double MinCodeRetention = 0.90;
+
+    /// <summary>
+    /// Serving floors for the Gallery corpus, measured at 327 scenarios / 115 controls /
+    /// 290 XAML / 116 C# after sanitizing on the bake that introduced the published index.
+    /// Set roughly 10% below that so ordinary upstream churn doesn't fail the build, while
+    /// a partial or broken upstream publish does.
+    /// </summary>
+    private const int MinGalleryScenarios = 295;
+    private const int MinGalleryControls = 105;
+    private const int MinGalleryXaml = 260;
+    private const int MinGalleryCSharp = 100;
 
     // ------------------------------------------------------------------
     // Build gates: the committed snapshot must match the code that reads it
@@ -88,6 +100,30 @@ public class EmbeddedSnapshotTests
                 data.Scenarios.Length,
                 data.Scenarios.Select(s => s.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
                 $"scenario ids in the '{descriptor.Id}' snapshot must be unique — --id lookup resolves by id");
+        }
+    }
+
+    [TestMethod]
+    public void EmbeddedCorpus_CarriesNoTruncationMarker()
+    {
+        // find-ui used to cap snippet length and leave a "<!-- ...truncated -->" /
+        // "// ...truncated" marker behind, so a long sample didn't build when pasted
+        // (issue #716). The extraction no longer shortens anything; a marker in the
+        // baked corpus means a stale bake or that a cap came back.
+        foreach (var descriptor in ProviderRegistry.Descriptors)
+        {
+            var scenarios = ReadEmbeddedSnapshot(descriptor.Id)!.Scenarios;
+
+            var offenders = scenarios
+                .Where(s => (s.Xaml?.Contains("...truncated", StringComparison.Ordinal) ?? false)
+                         || (s.CSharp?.Contains("...truncated", StringComparison.Ordinal) ?? false)
+                         || (s.CSharp?.Contains("snippet truncated", StringComparison.Ordinal) ?? false))
+                .Select(s => s.Id)
+                .ToArray();
+
+            Assert.AreEqual(0, offenders.Length,
+                $"the '{descriptor.Id}' snapshot ships truncated samples ({string.Join(", ", offenders)}). " +
+                "Re-bake with the current fetchers.");
         }
     }
 
@@ -152,8 +188,8 @@ public class EmbeddedSnapshotTests
         //
         // The bar is deliberately a regression floor rather than zero. A handful of
         // upstream samples genuinely are unbalanced fragments, and the sanitizer strips
-        // them identically on a live fetch — that is issue #716 (truncated samples), not a
-        // property of baking. What this test must catch is the snapshot becoming materially
+        // them identically on a live fetch — that is a property of the upstream corpus,
+        // not of baking. What this test must catch is the snapshot becoming materially
         // worse than the live corpus it stands in for.
         // Deserialized fresh from the embedded resource rather than through
         // EmbeddedSnapshot.TryLoad: TryLoad memoizes one ProviderData per provider for the
@@ -191,6 +227,162 @@ public class EmbeddedSnapshotTests
         Assert.AreEqual(0, regressed.Count,
             $"the baked corpus degraded under the sanitizer: {string.Join("; ", regressed)}. " +
             $"Observed: {string.Join(" | ", report)}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_MeetsItsServingFloors()
+    {
+        // The Gallery corpus is no longer reconstructed by a scraper — it is whatever
+        // microsoft/WinUI-Gallery publishes in catalog/windows-samples.json. That removes a
+        // whole class of parsing bugs, but it also means a bad upstream publish (a partial
+        // export, a schema change that silently drops a field) now lands in our corpus with
+        // nothing in between. These floors are that "nothing in between".
+        //
+        // They are floors, not equalities: upstream adds and removes samples continuously
+        // and a bake that tracks that is working as intended. They sit below the measured
+        // corpus with room for ordinary churn, so what trips them is a collapse, not a
+        // release. Re-measure and move a floor only after confirming upstream really did
+        // shrink; a floor that is edited every bake is not guarding anything.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var controls = scenarios.Select(s => s.ControlId).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var xaml = scenarios.Count(s => !string.IsNullOrWhiteSpace(s.Xaml));
+        var csharp = scenarios.Count(s => !string.IsNullOrWhiteSpace(s.CSharp));
+
+        var observed = $"observed {scenarios.Length} scenarios / {controls} controls / " +
+                       $"{xaml} XAML / {csharp} C# after sanitizing";
+
+        Assert.IsTrue(scenarios.Length >= MinGalleryScenarios,
+            $"the Gallery corpus collapsed to {scenarios.Length} scenarios (floor {MinGalleryScenarios}). {observed}");
+        Assert.IsTrue(controls >= MinGalleryControls,
+            $"the Gallery corpus collapsed to {controls} controls (floor {MinGalleryControls}). {observed}");
+        Assert.IsTrue(xaml >= MinGalleryXaml,
+            $"only {xaml} Gallery scenarios still serve XAML (floor {MinGalleryXaml}). {observed}");
+        Assert.IsTrue(csharp >= MinGalleryCSharp,
+            $"only {csharp} Gallery scenarios still serve C# (floor {MinGalleryCSharp}). {observed}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoScenarioWithoutCode()
+    {
+        // A scenario that survives sanitizing with neither XAML nor C# is worse than an
+        // absent one: search ranks it, the user asks for it by id, and find-ui answers with
+        // a header and no sample. The scraper shipped five of these because it created a
+        // scenario per documented sample whether or not it could recover the source; the
+        // index only describes samples it actually carries, so the expected count is zero.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var empty = scenarios.Where(s => !HasCode(s)).Select(s => s.Id).ToList();
+
+        Assert.AreEqual(0, empty.Count,
+            $"{empty.Count} Gallery scenarios are served with no code at all: {string.Join(", ", empty.Take(10))}. " +
+            "Each one is a fetchable id that returns nothing useful.");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoUnresolvedSubstitutionToken()
+    {
+        // Gallery's page XAML carries $(Name) substitution tokens that its own runtime
+        // resolves. They are not valid XAML or C#, so a sample containing one does not
+        // compile when pasted. SampleIndexParser suppresses those blocks; this asserts none
+        // reached the corpus by another route.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var leaked = scenarios
+            .Where(s => (s.Xaml?.Contains("$(", StringComparison.Ordinal) ?? false)
+                        || (s.CSharp?.Contains("$(", StringComparison.Ordinal) ?? false))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Gallery samples are served with an unresolved $(...) token in them: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoUnbackedEventHandler()
+    {
+        // The index carries Gallery's XAML verbatim, including events wired to handlers
+        // that live in page code-behind it does not publish. Serving such an attribute
+        // hands the user markup that fails to compile with "handler not found", so
+        // GalleryProvider strips the ones the emitted C# doesn't declare. This asserts the
+        // corpus was baked with that step applied — the count guards above all pass without
+        // it, because nothing about them notices a sample that no longer builds.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var unbacked = scenarios
+            .Where(s => !string.IsNullOrEmpty(s.Xaml)
+                        && ControlSnippetText.StripUnbackedEventHandlers(s.Xaml!, s.CSharp) != s.Xaml)
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, unbacked.Count,
+            $"{unbacked.Count} Gallery samples wire a XAML event to a handler they don't define: " +
+            $"{string.Join(", ", unbacked.Take(10))}. Pasting one of these does not compile.");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoGalleryPrivateSymbol()
+    {
+        // Gallery's own page classes, its SamplePage navigation targets, its UIHelper
+        // accessibility helper and its CLR namespaces exist only inside the Gallery app. A
+        // sample that still names one compiles only if the user happens to have Gallery's
+        // source, so GalleryProvider rewrites them to obvious placeholders before baking.
+        // These match identifiers, not prose: a sample may legitimately mention a Gallery
+        // source file by name, and a "using:" or trailing-dot anchor keeps a source URL
+        // (".../main/WinUIGallery/ButtonPage.xaml.cs") out of the match.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        string[] privateSymbols =
+        [
+            @"\bSamplePage\d*",
+            @"\bUIHelper\.",
+            "x:Class=\"WinUIGallery",
+            @"namespace\s+WinUIGallery",
+            @"using:(?:WinUIGallery|AppUIBasics)",
+            @"\b(?:WinUIGallery|AppUIBasics)\.",
+        ];
+
+        // XmlnsImports is checked alongside the snippets because SearchEngine renders it as
+        // the "Setup:" line: a Gallery namespace there is an instruction to declare a prefix
+        // that cannot resolve, which the two snippet fields would never reveal.
+        var leaked = scenarios
+            .Where(s => privateSymbols.Any(sym =>
+                Regex.IsMatch(s.Xaml ?? "", sym)
+                || Regex.IsMatch(s.CSharp ?? "", sym)
+                || s.XmlnsImports.Any(import => Regex.IsMatch(import, sym))))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Gallery samples still name a Gallery-internal symbol: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
+    public void GalleryCorpus_ServesNoGalleryOnlyAsset()
+    {
+        // Gallery ships its sample photos and videos under Assets/SampleMedia and its own app
+        // icon and tile logos under Assets/Tiles, inside its package. A pasted sample naming
+        // one of those paths compiles and then renders nothing — an <Image> that is silently
+        // blank, an AppWindow.SetIcon that quietly does not take — so GalleryProvider rewrites
+        // them to a placeholder that fails visibly instead. Nothing else in this file notices:
+        // the counts pass and the XAML is well-formed either way.
+        var scenarios = ReadEmbeddedSnapshot("gallery")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var leaked = scenarios
+            .Where(s => Regex.IsMatch(s.Xaml ?? "", @"Assets/(?:SampleMedia|Tiles)/")
+                        || Regex.IsMatch(s.CSharp ?? "", @"Assets/(?:SampleMedia|Tiles)/"))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Gallery samples point at an asset that only exists in Gallery's own package: " +
+            $"{string.Join(", ", leaked.Take(10))}");
     }
 
     // ------------------------------------------------------------------
@@ -439,13 +631,51 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
-    public async Task LoadedOrigin_CoreOnly_ReportsNoCorpus()
+    public async Task LoadedOrigin_CoreOnly_ReportsEmbedded()
     {
-        // --source core never consults a provider, so there is no upstream origin to claim.
+        // --source core never consults a provider, but the curated core patterns are
+        // compiled into the binary — that is the embedded freshness tier, not "nothing
+        // loaded". Reporting None would make a successful core search's `corpus` null,
+        // indistinguishable from a failed load on the JSON surface.
         var gallery = new FakeSearchProvider("gallery", DataWithOrigin("gallery", "tabview", CorpusOrigin.Network));
         var sut = new ControlsSearchService([gallery]);
 
         await sut.GetEngineAsync(coreOnly: true);
+
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+    }
+
+    [TestMethod]
+    public async Task LoadedOrigin_AllProvidersEmpty_AllowCoreOnly_ReportsEmbedded()
+    {
+        // The degraded fallback: the snapshot is missing/unreadable and every provider came
+        // back empty, but the compiled-in core patterns still answer --list. Results were
+        // served from data baked into the binary, so the origin is the embedded tier — a
+        // None here would put a successful answer back in the same bucket as a total
+        // failure, which is exactly what this contract exists to separate.
+        var gallery = new FakeSearchProvider("gallery", ProviderData.Empty);
+        var sut = new ControlsSearchService([gallery]);
+
+        var engine = await sut.GetEngineAsync(allowCoreOnly: true);
+
+        Assert.IsTrue(engine.ListAll().Any(), "the core patterns must still answer");
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+    }
+
+    [TestMethod]
+    public async Task LoadedOrigin_AllProvidersEmpty_WithoutCoreOnly_ResetsToNone()
+    {
+        // Nothing was served at all — the one case an absent corpus is reserved for. The
+        // core-only call first puts the service in the embedded tier, so this pins that the
+        // failure path actively resets the origin rather than passing by default.
+        var gallery = new FakeSearchProvider("gallery", ProviderData.Empty);
+        var sut = new ControlsSearchService([gallery]);
+
+        await sut.GetEngineAsync(coreOnly: true);
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+
+        await Assert.ThrowsExactlyAsync<ControlsDataUnavailableException>(
+            () => sut.GetEngineAsync());
 
         Assert.AreEqual(CorpusOrigin.None, sut.LoadedOrigin);
     }
@@ -454,22 +684,21 @@ public class EmbeddedSnapshotTests
     public async Task LoadedOrigin_MemoizedEngineHit_ReportsThatEngineSOrigin()
     {
         // The origin has to travel with the engine it describes. A core-only request
-        // legitimately reports "no corpus", and the memoized full engine is returned
-        // without being rebuilt — so if the fast path doesn't restore its origin, the next
-        // search silently loses `"corpus"` from --json and stops warning that results came
-        // from the embedded floor.
-        var gallery = new FakeSearchProvider("gallery", DataWithOrigin("gallery", "tabview", CorpusOrigin.Embedded));
+        // reports the embedded tier, and the memoized full engine is returned without
+        // being rebuilt — so if the fast path doesn't restore its origin, a later network
+        // or cache result keeps claiming "embedded" and understates its own freshness.
+        var gallery = new FakeSearchProvider("gallery", DataWithOrigin("gallery", "tabview", CorpusOrigin.Cache));
         var sut = new ControlsSearchService([gallery]);
 
         await sut.GetEngineAsync();
-        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
+        Assert.AreEqual(CorpusOrigin.Cache, sut.LoadedOrigin);
 
         await sut.GetEngineAsync(coreOnly: true);
-        Assert.AreEqual(CorpusOrigin.None, sut.LoadedOrigin);
+        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin);
 
         await sut.GetEngineAsync();
 
-        Assert.AreEqual(CorpusOrigin.Embedded, sut.LoadedOrigin,
+        Assert.AreEqual(CorpusOrigin.Cache, sut.LoadedOrigin,
             "a memoized engine must keep reporting the origin its corpus was loaded from");
     }
 

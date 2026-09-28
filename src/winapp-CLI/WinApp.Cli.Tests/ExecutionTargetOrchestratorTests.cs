@@ -306,7 +306,7 @@ public class ExecutionTargetOrchestratorTests
     [DataRow(ExecutionTargetErrorCodes.Unsupported)]
     [DataRow(ExecutionTargetErrorCodes.StartFailed)]
     [DataRow(ExecutionTargetErrorCodes.TransportFailed)]
-    public async Task Prepare_ColdProviderCannotInspect_StillRunsSetup(string code)
+    public async Task Prepare_ColdProviderCannotReconnect_StillRunsSetup(string code)
     {
         var backend = new AttachableBackend { AttachError = code };
         using var mutationLock = new FakeMutationLock();
@@ -665,21 +665,23 @@ public class ExecutionTargetOrchestratorTests
             new Dictionary<string, string> { ["sandboxId"] = "sandbox-1" };
     }
 
-    private sealed class AttachableBackend : FakeBackend, IInspectableTarget
+    private sealed class AttachableBackend : FakeBackend, IReconnectableTarget, IInspectableTarget
     {
         public bool Available { get; init; } = true;
         public string? AttachError { get; init; }
 
-        public async Task<TargetAttachment> TryAttachAsync(CancellationToken cancellationToken)
+        public Task<TargetAttachment> TryAttachAsync(CancellationToken cancellationToken) =>
+            throw new AssertFailedException("Preparing must not use the observational snapshot path.");
+
+        public async Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken)
         {
             if (AttachError is { } code)
             {
                 throw ExecutionTargetException.Create(code, "Cannot attach");
             }
             return Available
-                ? new TargetAttachment(true, Epoch,
-                    await EnsureConnectedAsync(new EnsureTargetOptions(false), cancellationToken))
-                : TargetAttachment.NotRunning;
+                ? await EnsureConnectedAsync(new EnsureTargetOptions(false), cancellationToken)
+                : null;
         }
     }
 

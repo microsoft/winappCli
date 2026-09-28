@@ -473,14 +473,6 @@ internal static class TargetFileTransferService
         return TargetPathSafety.CombineInsideRoot(hostPath, segments);
     }
 
-    /// <summary>Guest path every managed copy lands beneath.</summary>
-    /// <remarks>
-    /// Stated in errors and success output so a caller can address the copied file afterwards. It is
-    /// the guest-side spelling of the managed work root the guest resolves <see cref="WorkScope"/>
-    /// against.
-    /// </remarks>
-    internal const string GuestWorkRoot = @"C:\WinApp\work";
-
     /// <summary>Reduces a guest path to a relative form inside managed storage.</summary>
     /// <remarks>
     /// <para>
@@ -532,16 +524,21 @@ internal static class TargetFileTransferService
     /// Reported on success so the effective location is never left implicit — the caller can copy
     /// it straight into the <c>--cwd</c> of the command they run next.
     /// </remarks>
-    internal static string DescribeTargetPath(string relativePath) =>
-        relativePath.Length == 0 ? GuestWorkRoot : $@"{GuestWorkRoot}\{relativePath}";
+    internal static string DescribeTargetPath(ExecutionTargetCapabilities capabilities, string relativePath)
+    {
+        var workRoot = GuestPaths.Resolve(capabilities, WorkScope);
+        return relativePath.Length == 0
+            ? workRoot
+            : DeploymentPlanner.ResolveContainedPath(workRoot, relativePath);
+    }
 
     private static ExecutionTargetException RootedTargetPath(string targetPath, string what) =>
         ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.TargetAmbiguous,
-            $"'{targetPath}' is {what}, and target paths are relative to '{GuestWorkRoot}'.",
+            $"'{targetPath}' is {what}, and target paths are relative to the managed work area.",
             userAction:
-                $"Drop the leading drive or separator and pass a relative path. It lands under " +
-                $"'{GuestWorkRoot}', which is what a following command should use as its working directory.",
+                "Drop the leading drive or separator and pass a relative path. " +
+                "Use 'winapp target snapshot sandbox --json' to find the workRoot for a following command's working directory.",
             example: @"winapp target push sandbox .\setup.ps1 Setup\setup.ps1",
             context: new Dictionary<string, string> { ["targetPath"] = targetPath });
 

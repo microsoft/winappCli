@@ -143,12 +143,12 @@ Informational only. When code uses any namespace listed in the [Microsoft Learn 
 ### WUI2010 — Nested `x:Bind` without `FallbackValue`
 * **Category:** `WinUI.Runtime` · **Severity:** `Warning`
 * **Fires when:** An `{x:Bind A.B.C}` path has 3+ segments and lacks `FallbackValue=`.
-* **Why:** Crashes if any segment is `null` at startup.
+* **Why:** If an intermediate segment is `null` the target may render empty or not update. Add `FallbackValue` (or bind a flat ViewModel property) to make the null case explicit. This is a missing-fallback signal, not a confirmed crash.
 
 <a id="wui2011"></a>
 ### WUI2011 — `x:Bind` without `Mode=`
 * **Category:** `WinUI.Runtime` · **Severity:** `Warning`
-* **Fires when:** `{x:Bind ...}` has no `Mode=` and is not a command/converter/event-handler binding.
+* **Fires when:** A property `{x:Bind ...}` has no explicit `Mode=`, no inherited `x:DefaultBindMode`, and is not a command/converter/event-handler binding. Simple (single-segment) and dotted paths are treated the same; an explicit `Mode=` is honored regardless of surrounding whitespace.
 * **Why:** `x:Bind` defaults to `OneTime` — UI never updates after first load.
 
 <a id="wui2012"></a>

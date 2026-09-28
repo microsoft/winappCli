@@ -7,6 +7,7 @@ using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 using WinApp.Cli.Tools;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace WinApp.Cli.Tests;
 
@@ -372,6 +373,9 @@ public class UpdateCommandTests : BaseCommandTests
         }
 
         public FileInfo? GetBuildToolPath(string toolName) => throw new NotSupportedException();
+
+        public VerifiedTool OpenVerifiedTool(FileInfo toolPath)
+            => VerifiedTool.Open(toolPath, static (_, _) => true, NullLogger.Instance);
 
         public Task<FileInfo> EnsureBuildToolAvailableAsync(string toolName, TaskContext taskContext, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

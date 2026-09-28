@@ -30,14 +30,14 @@ internal static class BannerHelper
         @"                        |_|   |_|                ",
     };
 
-    // ANSI color codes for gradient effect (Blue -> Purple, Windows-themed)
+    // ANSI true-color gradient inspired by the WinUI logo (Light Blue -> Deep Blue)
     private static readonly string[] GradientColors =
     {
-        "\x1b[38;5;33m",   // Blue
-        "\x1b[38;5;63m",   // Blue-Purple
-        "\x1b[38;5;99m",   // Purple
-        "\x1b[38;5;135m",  // Light Purple
-        "\x1b[38;5;141m",  // Lavender
+        "\x1b[38;2;96;205;255m", // #60CDFF
+        "\x1b[38;2;60;180;255m", // #3CB4FF
+        "\x1b[38;2;0;153;255m",  // #0099FF
+        "\x1b[38;2;0;120;212m",  // #0078D4
+        "\x1b[38;2;0;90;158m",   // #005A9E
     };
 
     private const string ResetColor = "\x1b[0m";

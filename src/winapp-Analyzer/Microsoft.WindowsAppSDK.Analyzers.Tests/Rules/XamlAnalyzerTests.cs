@@ -52,6 +52,394 @@ public sealed class XamlAnalyzerTests
     }
 
     [Fact]
+    public async Task Wui2011DoesNotFlagXBindWithSpacedMode()
+    {
+        // Explicit Mode must be recognized regardless of whitespace around '='.
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind ViewModel.Counter, Mode = OneWay}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011DoesNotFlagModeBeforeNamedPath()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind Mode=OneWay, Path=ViewModel.Counter}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2010FlagsNamedNestedPathWithoutFallback()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind Mode=OneWay, Path=ViewModel.Profile.Name}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindNestedNoFallback)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011DoesNotFlagInheritedDefaultBindMode()
+    {
+        // A binding under x:DefaultBindMode=""OneWay"" inherits that default; no missing-mode warning.
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml"">
+  <Grid x:DefaultBindMode=""OneWay"">
+    <TextBlock Text=""{x:Bind ViewModel.Counter}"" />
+  </Grid>
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011IgnoresUnrelatedDefaultBindModeProperty()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+       xmlns:local=""using:Sample"">
+  <local:Host DefaultBindMode=""Custom"">
+    <TextBlock Text=""{x:Bind Counter}"" />
+  </local:Host>
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011FlagsSimplePathBinding()
+    {
+        // A single-segment property path gets the same missing-mode policy as a dotted path,
+        // and must not be misclassified as an event handler.
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind Counter}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011DoesNotFlagEventHandlerBinding()
+    {
+        // Binding Mode is meaningless for events; an event handler reference must stay clean.
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Button Content=""Save"" Click=""{x:Bind ViewModel.Save}""
+          AutomationProperties.AutomationId=""save"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011DoesNotFlagFrameworkEventOutsideOriginalSet()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <DatePicker DateChanged=""{x:Bind ViewModel.OnDateChanged}""
+              AutomationProperties.AutomationId=""date"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011DoesNotFlagFrameNavigationEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Frame Navigated=""{x:Bind ViewModel.OnNavigated}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011DoesNotFlagPasswordChangedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <PasswordBox PasswordChanged=""{x:Bind OnPasswordChanged}""
+               AutomationProperties.AutomationId=""password"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagStoryboardCompletedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Storyboard Completed=""{x:Bind ViewModel.Events.OnCompleted}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagActualThemeChangedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       ActualThemeChanged=""{x:Bind ViewModel.Events.OnActualThemeChanged}"" />";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagTabCloseRequestedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TabView TabCloseRequested=""{x:Bind ViewModel.Events.OnClose}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagTabViewAddTabButtonClickEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TabView AddTabButtonClick=""{x:Bind ViewModel.Events.OnAddTabButtonClick}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagScrollViewerViewChangedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <ScrollViewer ViewChanged=""{x:Bind ViewModel.Events.OnViewChanged}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagNavigationViewBackRequestedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <NavigationView BackRequested=""{x:Bind ViewModel.Events.OnBackRequested}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagCalendarViewSelectedDatesChangedEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <CalendarView SelectedDatesChanged=""{x:Bind ViewModel.Events.OnSelectedDatesChanged}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagInheritedFrameworkEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Button IsEnabledChanged=""{x:Bind ViewModel.Events.OnIsEnabledChanged}""
+          AutomationProperties.AutomationId=""button"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsDoNotFlagOwnerQualifiedFrameworkEvent()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Grid Button.Click=""{x:Bind ViewModel.Events.OnClick}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsFlagResolvedOwnerQualifiedProperty()
+    {
+        const string source = @"namespace Sample
+{
+    public class Owner
+    {
+        public bool Click { get; set; }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:local=""using:Sample"">
+  <Grid local:Owner.Click=""{x:Bind ViewModel.IsEnabled}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task WuiDiagnosticsFlagResolvedStoryboardCompletedProperty()
+    {
+        const string source = @"namespace Microsoft.UI.Xaml.Media.Animation
+{
+    public class Storyboard
+    {
+        public bool Completed { get; set; }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <Storyboard Completed=""{x:Bind ViewModel.Events.OnCompleted}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindNestedNoFallback)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011DoesNotFlagCustomControlEvent()
+    {
+        const string source = @"namespace Sample
+{
+    public class Calendar
+    {
+        public event System.EventHandler DayTapped { add { } remove { } }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:local=""using:Sample"">
+  <local:Calendar DayTapped=""{x:Bind OnDayTapped}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2010DoesNotFlagNestedCustomEventHandlerPath()
+    {
+        const string source = @"namespace Sample
+{
+    public class Calendar
+    {
+        public event System.EventHandler DayTapped { add { } remove { } }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:local=""using:Sample"">
+  <local:Calendar DayTapped=""{x:Bind ViewModel.Events.OnDayTapped}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011FlagsCustomPropertyNamedLikeFrameworkEvent()
+    {
+        const string source = @"namespace Sample
+{
+    public class Panel
+    {
+        public bool Opened { get; set; }
+    }
+}";
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:local=""using:Sample"">
+  <local:Panel Opened=""{x:Bind ViewModel.IsOpen}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(source)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2010DoesNotFlagNestedBindingWithExplicitModeAndFallback()
+    {
+        // FP guard: a nested binding with an explicit mode still needs a fallback to stay clean;
+        // with FallbackValue provided, neither WUI2010 nor WUI2011 fires.
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind ViewModel.Profile.Name, Mode=OneWay, FallbackValue=''}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2010DoesNotFlagFallbackAfterNestedMarkupExtension()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind ViewModel.Profile.Name, Converter={StaticResource Converter}, FallbackValue=''}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .RunAsync();
+    }
+
+    [Fact]
+    public async Task Wui2011ParsesFunctionBindingWithEscapedQuote()
+    {
+        var xaml = @"<Page xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation"">
+  <TextBlock Text=""{x:Bind ViewModel.Format('it^'s')}"" />
+</Page>";
+        await new AnalyzerTest<XamlAnalyzer>()
+            .WithSource(MinimalCs)
+            .WithXaml("MainPage.xaml", xaml)
+            .ExpectDiagnostic(DiagnosticIds.XBindMissingMode)
+            .RunAsync();
+    }
+
+    [Fact]
     public async Task Wui2011DoesNotFlagCommandBinding()
     {
         // FP guard: command bindings are correctly OneTime.

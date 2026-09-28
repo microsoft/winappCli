@@ -173,8 +173,10 @@ needs proof. Zero findings is a great result.
 Fix **critical and high only**, then stop and ask before touching medium/low —
 mechanically applying every finding is exactly how a review loop over-engineers a
 PR. Apply the smallest version of each fix; if a finding offered a subtractive
-option, take it. Never push fixes onto the branch under review — use a new branch
-and a separate PR.
+option, take it. Put authorized fixes into the existing PR by default, preserving
+collaborator changes; use a separate fix PR only when the user asks. For publishing
+and readiness tracking, use [pr-lifecycle](../pr-lifecycle/SKILL.md). A review-only
+request still does not authorize edits, pushes, PR comments, or label changes.
 
 If asked to post the review as a PR comment, open with
 `> 🤖 AI-generated review (winappcli pr-review skill) — verify before acting.`

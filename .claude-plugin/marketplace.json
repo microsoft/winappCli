@@ -5,12 +5,12 @@
     "url": "https://github.com/microsoft/WinAppCli"
   },
   "description": "Windows app development, packaging, and distribution. Helps with creating Windows installers (MSIX), code signing, certificates, Windows SDK and Windows App SDK setup, package identity for Windows APIs (push notifications, background tasks, share target), appxmanifest authoring, and Microsoft Store distribution. Supports Electron, .NET, C++, Rust, Flutter, and Tauri apps.",
-  "version": "0.6.3",
+  "version": "0.7.1",
   "plugins": [
     {
       "name": "winappcli",
       "description": "Windows app development, packaging, and distribution. Helps with creating Windows installers (MSIX), code signing, certificates, Windows SDK and Windows App SDK setup, package identity for Windows APIs (push notifications, background tasks, share target), appxmanifest authoring, and Microsoft Store distribution. Supports Electron, .NET, C++, Rust, Flutter, and Tauri apps.",
-      "version": "0.6.3",
+      "version": "0.7.1",
       "source": "./plugins/winapp",
       "category": "windows-development",
       "tags": [

@@ -203,4 +203,23 @@ public class WinappDirectoryServiceTests : BaseCommandTests
         Assert.AreEqual(topWinAppDir.FullName, result.FullName,
             "Should return the top .winapp directory when local and global are the same");
     }
+
+    [TestMethod]
+    public void GetLocalWinappDirectory_WithCacheOverride_DoesNotUseProfileStateAsProjectCache()
+    {
+        var profile = _tempDirectory.CreateSubdirectory("profile");
+        var profileWinapp = profile.CreateSubdirectory(".winapp");
+        profileWinapp.CreateSubdirectory("state");
+        var project = profile.CreateSubdirectory("project");
+        var cache = _tempDirectory.CreateSubdirectory("other-cache");
+        var service = new WinappDirectoryService(GetRequiredService<ICurrentDirectoryProvider>())
+        {
+            UserProfileProvider = () => profile.FullName,
+        };
+        service.SetCacheDirectoryForTesting(cache);
+
+        var result = service.GetLocalWinappDirectory(project);
+
+        Assert.AreEqual(Path.Combine(_tempDirectory.FullName, ".winapp"), result.FullName);
+    }
 }

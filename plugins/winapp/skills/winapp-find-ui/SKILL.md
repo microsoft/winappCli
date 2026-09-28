@@ -131,9 +131,13 @@ winapp find-ui "color picker" --json
   built-in patterns and never touches the network at all.
 - **Check the corpus provenance when it matters.** `--json` carries `"corpus"`:
   `"network"` (fetched this run), `"cache"` (this machine's earlier fetch), or
-  `"embedded"` (served from the corpus built into the CLI — either the fetch failed
-  or the local cache predates the bake). Only `"embedded"` may lag upstream —
-  re-run with `--refresh` if a sample looks out of date.
+  `"embedded"` (served from a corpus built into the CLI — a core-only request
+  (`--source core`, or an `--id` set that is all core patterns), or a
+  Gallery/Toolkit/Reactor result whose fetch failed or whose local cache predates
+  the bake). A Gallery/Toolkit/Reactor `"embedded"` result may lag upstream — re-run
+  with `--refresh` if a sample looks out of date; core patterns ship with the CLI and
+  `--refresh` cannot change them. The field is absent only when no corpus could be
+  loaded at all.
 - **Scenario ids** are stable within a cached corpus and **case-insensitive** —
   `GALLERY-TABVIEW-1` resolves the same as `gallery-tabview-1`. Gallery/Toolkit/Reactor ids
   look like `gallery-<control>-<n>` / `toolkit-<control>-<n>` /
@@ -155,11 +159,11 @@ Which samples exist is upstream's call. winapp adds no samples of its own to the
 Gallery or Toolkit corpus and does not rewrite an individual sample's
 implementation to its own taste.
 
-Snippets are still processed: they're cleaned, truncated to a readable length, and
-event handlers with no accompanying code-behind are stripped. So treat a result as
-**upstream's sample, mechanically extracted** — not as a byte-for-byte copy of the
-file in their repo. Most samples paste and compile as-is; a few reference a page or
-type of their own that you'll need to define.
+Snippets are still processed: they're cleaned and event handlers with no
+accompanying code-behind are stripped. Samples are returned in full — nothing is cut
+short. So treat a result as **upstream's sample, mechanically extracted** — not as a
+byte-for-byte copy of the file in their repo. Most samples paste and compile as-is; a
+few reference a page or type of their own that you'll need to define.
 
 Where a control has a known pitfall, or two controls are easy to confuse, the CLI
 says so in the **Important** and **Family** notes attached to the result. Read
@@ -170,8 +174,8 @@ If a sample is missing or genuinely wrong **upstream**, report it against the
 source the result is tagged with: `[gallery]` →
 [WinUI-Gallery](https://github.com/microsoft/WinUI-Gallery/issues), `[toolkit]` →
 [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows/issues).
-If the defect looks like truncation, a missing handler, or markup that won't parse,
-that's winapp's extraction — report it here instead.
+If the defect looks like a cut-off snippet, a missing handler, or markup that won't
+parse, that's winapp's extraction — report it here instead.
 
 ## Related skills
 
