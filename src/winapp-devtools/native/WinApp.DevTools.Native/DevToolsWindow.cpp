@@ -39,6 +39,7 @@
 #include "DevToolsPathSyntax.h"
 #include "DevToolsBindingRow.h"
 #include "DevToolsCommentText.h"
+#include "DevToolsSettings.h"
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"
 static const size_t kMaxRenderNodes = 1000;

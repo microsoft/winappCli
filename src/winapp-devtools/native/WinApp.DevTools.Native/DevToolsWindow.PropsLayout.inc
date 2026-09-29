@@ -598,3 +598,25 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
     m += L"</StackPanel>";
     return m;
 }
+
+// The box model and the offered/took explanation, after the property grid and collapsed unless opened before.
+static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const std::vector<DevToolsCardRow>& rows)
+{
+    const bool open = LayoutSectionOpen();
+    std::wstring m = L"<StackPanel Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSection\">";
+    m += L"<HyperlinkButton x:Name=\"LayoutSectionToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
+         L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Layout\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSectionToggle\">";
+    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"7\">";
+    m += L"<TextBlock x:Name=\"LayoutSectionChev\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" FontSize=\"8\""
+         L" VerticalAlignment=\"Center\" Text=\"" + std::wstring(open ? L"\uE70D" : L"\uE76C") + L"\""
+         L" AutomationProperties.AccessibilityView=\"Raw\"/>";
+    m += L"<TextBlock Text=\"LAYOUT\" Style=\"{StaticResource CaptionTextBlockStyle}\" CharacterSpacing=\"60\""
+         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.AccessibilityView=\"Raw\"/>";
+    m += L"</StackPanel></HyperlinkButton>";
+    m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"" +
+         std::wstring(open ? L"Visible" : L"Collapsed") + L"\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSectionBody\">";
+    m += BuildLayoutSection(L, rows);
+    m += L"</StackPanel></StackPanel>";
+    return m;
+}

@@ -410,6 +410,15 @@ static IInspectable* g_layoutMore = nullptr;
 static IInspectable* g_layoutChev = nullptr;
 static IInspectable* g_layoutMoreLbl = nullptr;
 static bool g_layoutExpanded = false;
+// The Layout section's disclosure, remembered across panes and runs.
+static int g_layoutSectionOpen = -1;
+static bool LayoutSectionOpen()
+{
+    if (g_layoutSectionOpen < 0) g_layoutSectionOpen = DevToolsSettingsGetBool(L"InspectorLayoutOpen", false) ? 1 : 0;
+    return g_layoutSectionOpen == 1;
+}
+static IInspectable* g_layoutBody = nullptr;
+static IInspectable* g_layoutBodyChev = nullptr;
 static IInspectable* g_axmlOne  = nullptr;
 static IInspectable* g_axmlFull = nullptr;
 static IInspectable* g_axmlChev = nullptr;
@@ -419,6 +428,8 @@ static void ReleaseLayoutSectionRefs()
     if (g_layoutMore) { g_layoutMore->Release(); g_layoutMore = nullptr; }
     if (g_layoutChev) { g_layoutChev->Release(); g_layoutChev = nullptr; }
     if (g_layoutMoreLbl) { g_layoutMoreLbl->Release(); g_layoutMoreLbl = nullptr; }
+    if (g_layoutBody) { g_layoutBody->Release(); g_layoutBody = nullptr; }
+    if (g_layoutBodyChev) { g_layoutBodyChev->Release(); g_layoutBodyChev = nullptr; }
     if (g_axmlOne)  { g_axmlOne->Release();  g_axmlOne  = nullptr; }
     if (g_axmlFull) { g_axmlFull->Release(); g_axmlFull = nullptr; }
     if (g_axmlChev) { g_axmlChev->Release(); g_axmlChev = nullptr; }

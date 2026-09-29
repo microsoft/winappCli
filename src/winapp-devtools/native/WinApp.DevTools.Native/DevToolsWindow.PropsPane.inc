@@ -148,6 +148,24 @@ g_propRows = rows;
                 bt->Release();
             }
         }
+        if (IInspectable* lb = findByName(L"LayoutSectionBody")) {
+            lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);
+            lb->Release();
+        }
+        if (IInspectable* lc = findByName(L"LayoutSectionChev")) {
+            lc->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), (void**)&g_layoutBodyChev);
+            lc->Release();
+        }
+        if (IInspectable* lt = findByName(L"LayoutSectionToggle")) {
+            void* bb = nullptr;
+            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                LayoutSectionSink* sink = new LayoutSectionSink(); sink->Init();
+                __int64 tok = 0;
+                DevToolsAddClick(bb, sink, &tok);
+                reinterpret_cast<IUnknown*>(bb)->Release();
+            }
+            lt->Release();
+        }
         if (IInspectable* lm = findByName(L"LayoutMore")) {
             lm->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutMore);
             lm->Release();

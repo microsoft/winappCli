@@ -370,6 +370,21 @@ struct LayoutToggleSink : DevToolsSinkBase
     void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
 };
 
+struct LayoutSectionSink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    {
+        if (gen != g_route1Gen) return S_OK;
+        if (!g_layoutBody) return S_OK;
+        g_layoutSectionOpen = LayoutSectionOpen() ? 0 : 1;
+        DevToolsSettingsSetBool(L"InspectorLayoutOpen", g_layoutSectionOpen == 1);
+        DevToolsPutVisibility(g_layoutBody, g_layoutSectionOpen == 1 ? 0 : 1);
+        SetToggleLabel(g_layoutBodyChev, g_layoutSectionOpen == 1 ? L"\uE70D" : L"\uE76C");
+        return S_OK;
+    }
+    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+};
+
 struct AxmlToggleSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)

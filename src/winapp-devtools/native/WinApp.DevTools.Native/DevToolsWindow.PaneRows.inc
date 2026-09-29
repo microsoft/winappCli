@@ -159,13 +159,16 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         }
     }
     if (!authoredXaml.empty()) {
+        const std::wstring note = authoredState == L"likely"
+            ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."
+            : L"Source on disk; the running app may differ after a rebuild or hot reload.";
         m += L"<Border Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" CornerRadius=\"4\""
              L" Padding=\"8,6,8,6\" Margin=\"0,8,0,0\">";
         m += L"<StackPanel Spacing=\"0\">";
-        m += L"<TextBlock Text=\"" + std::wstring(authoredState == L"likely"
-             ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."
-             : L"Source on disk; the running app may differ after a rebuild or hot reload.") + L"\""
-             L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
+        m += L"<TextBlock Text=\"" + std::wstring(authoredState == L"likely" ? L"Likely source (unverified)" : L"Source on disk") +
+             L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\""
+             L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\""
              L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/>";
         m += L"<HyperlinkButton x:Name=\"AxmlToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
              L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Toggle authored XAML\""
@@ -190,11 +193,9 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXaml\"/>";
         m += L"</StackPanel></Border>";
     }
-    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) {
-        m += BuildLayoutSection(*layout, rows);
-    }
     if (rows.empty()) {
         m += L"<TextBlock Text=\"(no curated properties)\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
+        if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
         m += L"</StackPanel>";
         return m;
     }
@@ -239,12 +240,14 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         } else {
             why = L"Authored values ({x:Bind}, {ThemeResource}) can't be shown for this element.";
         }
-        m += L"<Border Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" CornerRadius=\"4\""
-             L" Padding=\"8,6,8,6\" Margin=\"0,0,0,6\">";
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\" FontSize=\"11\" TextWrapping=\"Wrap\""
+        // One line in the header; the full reason is on hover and for screen readers.
+        m += L"<TextBlock Text=\"Authored values unavailable (why?)\" FontSize=\"11\" TextWrapping=\"NoWrap\""
+             L" TextTrimming=\"CharacterEllipsis\" Margin=\"0,0,0,2\""
+             L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(why) + L"\""
              L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
-             L" AutomationProperties.Name=\"Authored values unavailable\"/>";
-        m += L"</Border>";
+             L" AutomationProperties.Name=\"Authored values unavailable\""
+             L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(why) + L"\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
     }
 
     m += L"<Grid ColumnSpacing=\"8\" Margin=\"0,2,0,0\"><Grid.ColumnDefinitions>"
@@ -333,6 +336,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AutomationId=\"WinAppDevToolsPropStatus\""
              L" Margin=\"0,4,0,0\" TextWrapping=\"Wrap\"/>";
     }
+    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
     m += L"</StackPanel>";
     return m;
 }

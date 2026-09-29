@@ -340,6 +340,24 @@ int main()
         alignment.value=L"Left";
         check(BuildLayoutSection(stretched,{alignment}).find(L"even though HorizontalAlignment is Left")!=std::wstring::npos,
             "extra width despite a non-default alignment is called out");
+        DevToolsCardRow text;text.name=L"Text";text.type=L"String";text.value=L"Hi";text.source=L"Local";
+        g_layoutSectionOpen=0;
+        const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
+            L"",0,{text},L"noSourceInfo",L"",&stretched);
+        const auto crumb=pane.find(L"WinAppDevToolsBreadcrumb"), filter=pane.find(L"PropFilter"),
+            section=pane.find(L"WinAppDevToolsLayoutSection"), box=pane.find(L"WinAppDevToolsLayout\"");
+        check(crumb<filter && filter<section && section<box && box!=std::wstring::npos,
+            "properties pane: header, then filter and grid, then the Layout section");
+        check(pane.find(L"x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"Collapsed\"")!=std::wstring::npos,
+            "Layout section is collapsed until opened");
+        g_layoutSectionOpen=1;
+        check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
+            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"Visibility=\"Visible\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSectionBody\"")!=std::wstring::npos,
+            "an opened Layout section stays open");
+        check(pane.find(L"Authored values unavailable (why?)")!=std::wstring::npos &&
+            pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"Authored values unavailable\"")==std::wstring::npos,
+            "source verification is one line; the reason is on hover");
+        g_layoutSectionOpen=-1;
     }
     std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
