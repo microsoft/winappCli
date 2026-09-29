@@ -14,11 +14,26 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiTouchCommand : Command, IShortDescription
+internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
 {
     private const int MaxDelayMs = 60_000;
 
-    public string ShortDescription => "Inject synthetic touch gestures (tap, swipe, pinch, stretch, long-press)";
+    public string ShortDescription => "Inject touch gestures (tap, swipe, pinch)";
+
+
+    public IReadOnlyList<string> Examples { get; } =
+
+    [
+
+        "winapp ui touch <selector> -a <app>",
+
+        "winapp ui touch <selector> --type ListItem -a <app> --gesture swipe --direction left",
+
+    ];
+
+
+
+    public string? Usage => "winapp ui touch [<selector>] (-a <app> | -w <hwnd>) [--at <x,y>] [options]";
 
     private static readonly Dictionary<string, TouchGesture> Gestures = new(StringComparer.OrdinalIgnoreCase)
     {

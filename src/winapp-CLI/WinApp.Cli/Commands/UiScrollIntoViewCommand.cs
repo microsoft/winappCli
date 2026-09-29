@@ -14,9 +14,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiScrollIntoViewCommand : Command, IShortDescription
+internal class UiScrollIntoViewCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Scroll an element into the visible area";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui scroll-into-view \"Settings\" -a <app>",
+        "winapp ui scroll-into-view \"Settings\" --type ListItem -a <app>",
+    ];
 
     public UiScrollIntoViewCommand()
         : base("scroll-into-view", "Scroll the specified element into the visible area using UIA ScrollItemPattern.")

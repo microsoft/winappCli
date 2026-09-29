@@ -14,11 +14,26 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiPenCommand : Command, IShortDescription
+internal class UiPenCommand : Command, IShortDescription, IHelpExamples
 {
     private const int MaxDelayMs = 60_000;
 
-    public string ShortDescription => "Inject synthetic pen/stylus input (taps and ink strokes with pressure and tilt)";
+    public string ShortDescription => "Inject pen input (taps and ink strokes)";
+
+
+    public IReadOnlyList<string> Examples { get; } =
+
+    [
+
+        "winapp ui pen <selector> -a <app>",
+
+        "winapp ui pen -w <hwnd> --path \"100,100 150,140 200,120\"",
+
+    ];
+
+
+
+    public string? Usage => "winapp ui pen [<selector>] (-a <app> | -w <hwnd>) [--at <x,y> | --path <points>] [options]";
 
     public static Option<string?> AtOption { get; } = new("--at")
     {

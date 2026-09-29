@@ -14,9 +14,16 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiInvokeCommand : Command, IShortDescription
+internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Activate an element via UIA patterns (Invoke, Toggle, etc.)";
+    public string ShortDescription => "Activate an element (Invoke, Toggle, Select, Expand)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui invoke \"Save\" -a <app>",
+        "winapp ui invoke \"Save\" --type Button -a <app>",
+        "winapp ui invoke <selector> -a <app> --action toggle-on",
+    ];
 
     public static Option<string?> ActionOption { get; } = new("--action")
     {
@@ -36,10 +43,9 @@ internal class UiInvokeCommand : Command, IShortDescription
     };
 
     public UiInvokeCommand()
-        : base("invoke", "Activate an element by slug or text search. " +
-               "Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. " +
-               "Use --action for an exact operation on only the selected element. " +
-               "With --type, --root, or --class-name the filtered selector must match exactly one element, and the invokable-ancestor fallback is skipped.")
+        : base("invoke", "Activate an element. Tries the Invoke, Toggle, SelectionItem, and ExpandCollapse patterns in order, " +
+               "then the nearest invokable ancestor. Use --action to require one exact action on the selected element. " +
+               "With --type, --root, or --class-name the selector must match exactly one element, and the ancestor fallback is skipped.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);

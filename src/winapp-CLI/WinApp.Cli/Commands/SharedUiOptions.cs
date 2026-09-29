@@ -33,17 +33,19 @@ internal static class SharedUiOptions
     {
         AppOption = new Option<string?>("--app", "-a")
         {
-            Description = "Target app (process name, window title, or PID). Lists windows if ambiguous."
+            HelpName = "app",
+            Description = "Target app by process name, window title, or PID"
         };
 
         WindowOption = new Option<long?>("--window", "-w")
         {
-            Description = "Target window by HWND (stable handle from list output). Takes precedence over --app."
+            HelpName = "hwnd",
+            Description = "Target window by handle (printed by -a and list-windows; overrides --app)"
         };
 
         SelectorArgument= new Argument<string?>("selector")
         {
-            Description = "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+            Description = "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
             Arity = ArgumentArity.ZeroOrOne
         };
 

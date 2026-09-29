@@ -2152,7 +2152,9 @@ as a credential, and is only ever persisted as a SHA-256 hash. See
 
 ### ui
 
-Inspect and interact with running Windows app UIs using UI Automation (UIA).
+Inspect and interact with running Windows app UIs using UI Automation (UIA). Run `winapp ui --help`
+for the core workflow (`inspect -a <app> --interactive`, then `invoke`/`set-value`, then `get-value`) and each
+command's `--help` for examples. An unknown `ui` command exits with code 1 and suggests the closest commands.
 
 ```bash
 winapp ui [command] [options]
@@ -2160,13 +2162,13 @@ winapp ui [command] [options]
 
 **Commands:**
 - `status` - Connect to app and show info
-- `inspect` - View element tree
-- `search` - Find elements by selector
+- `inspect` (alias `tree`) - View element tree
+- `search` (alias `find`) - Find elements by selector
 - `get-property` - Read element properties
 - `get-text` / `get-value` - Read value/text from element (TextPattern, ValuePattern, or Name)
 - `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
-- `invoke` - Activate element (click, toggle, expand); `--action` selects an exact operation and accepts `--root`, `--type`, and `--class-name` filters (see [invoke](ui-automation.md#invoke))
+- `invoke` - Activate element (click, toggle, expand); `--action` selects an exact operation (see [invoke](ui-automation.md#invoke))
 - `click` - Click element via mouse simulation (for controls that don't support invoke)
 - `hover` - Move mouse to element to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
 - `drag` - Drag the mouse from one point to another, by element selector or screen `x,y` coordinates (reorder, resize, sliders, drag-and-drop)
@@ -2185,6 +2187,7 @@ winapp ui [command] [options]
 - `-a, --app <app>` - Target app (name, title, or PID)
 - `-w, --window <hwnd>` - Target window by HWND (stable)
 - `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
+- `--type`, `--root`, `--class-name` - Narrow a selector on any command that takes one element (see [scoped queries](ui-automation.md#scoped-and-typed-queries))
 
 #### ui record
 

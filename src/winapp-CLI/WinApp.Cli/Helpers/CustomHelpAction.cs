@@ -13,7 +13,8 @@ namespace WinApp.Cli.Helpers;
 /// <summary>
 /// Custom help action that renders the root command help screen with
 /// categorized command tables and short descriptions, styled with Spectre.Console.
-/// For non-root commands, delegates to the default System.CommandLine help rendering.
+/// The <c>ui</c> group and its commands get plain-text help from <see cref="UiHelpRenderer"/>.
+/// Other commands use the default System.CommandLine help rendering.
 /// </summary>
 internal sealed class CustomHelpAction : SynchronousCommandLineAction
 {
@@ -46,6 +47,12 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
     {
         var command = parseResult.CommandResult.Command;
 
+        if (UiHelpRenderer.AppliesTo(command))
+        {
+            parseResult.InvocationConfiguration.Output.Write(UiHelpRenderer.Render(command));
+            return 0;
+        }
+
         // Only use custom rendering for the target command; fall back to default for others
         if (command != _targetCommand)
         {
@@ -69,6 +76,10 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         _ansiConsole.MarkupLine($"        [white]{commandPath} --help[/]");
         _ansiConsole.WriteLine();
         _ansiConsole.MarkupLine($" Use '[white]{commandPath} <command> --help[/]' to get detailed help for any command.");
+        if (command is RootCommand)
+        {
+            _ansiConsole.MarkupLine(" Driving an app's UI from an agent or script? Start with '[white]winapp ui --help[/]'.");
+        }
 
         // Build a lookup from command type -> Command object
         var subcommandByType = new Dictionary<Type, Command>();

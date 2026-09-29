@@ -103,7 +103,7 @@ function certGenerate(options?: CertGenerateOptions): Promise<WinappResult>
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
 | `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
-| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
+| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -122,9 +122,9 @@ function certInfo(options: CertInfoOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `certPath` | `string` | Yes | Path to the certificate file (PFX) |
+| `certPath` | `string` | Yes | Path to the certificate file (PFX or CER) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `password` | `string \| undefined` | No | Password for the PFX file |
+| `password` | `string \| undefined` | No | Password for the PFX file (ignored for a public CER) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -473,7 +473,7 @@ function manifestGenerate(options?: ManifestGenerateOptions): Promise<WinappResu
 | `ifExists` | `IfExists \| undefined` | No | Behavior when output file exists: 'error' (fail, default), 'skip' (keep existing), or 'overwrite' (replace) |
 | `logoPath` | `string \| undefined` | No | Path to logo image file |
 | `packageName` | `string \| undefined` | No | Package name (default: folder name) |
-| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>. |
+| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>. |
 | `template` | `ManifestTemplates \| undefined` | No | Manifest template type: 'packaged' (full MSIX app, default) or 'sparse' (desktop app with package identity for Windows APIs) |
 | `version` | `string \| undefined` | No | App version in Major.Minor.Build.Revision format (e.g., 1.0.0.0). |
 
@@ -795,13 +795,16 @@ function uiClick(options?: UiClickOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `double` | `boolean \| undefined` | No | Perform a double-click instead of a single click |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `right` | `boolean \| undefined` | No | Perform a right-click instead of a left click |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -822,12 +825,12 @@ function uiDrag(options?: UiDragOptions): Promise<WinappResult>
 | `from` | `string \| undefined` | No | Start point — an element selector (drags from its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-list-d736 or 100,200). |
 | `to` | `string \| undefined` | No | End point — an element selector (drops at its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-target-d746 or 300,400). |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `dwellMs` | `number \| undefined` | No | Milliseconds to dwell at the destination after moving, before releasing (default: 0). Lets drop targets / merge overlays that arm from a sustained hover latch before release. |
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold the button down at the start before moving (default: 0). With <from> == <to> (no movement) this performs a press-and-hold / long-press gesture. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `right` | `boolean \| undefined` | No | Drag with the right mouse button instead of the left button |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -845,11 +848,14 @@ function uiFocus(options: UiFocusOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string` | Yes | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string` | Yes | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -868,9 +874,9 @@ function uiGetFocused(options?: UiGetFocusedOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -888,15 +894,15 @@ function uiGetProperty(options?: UiGetPropertyOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -904,7 +910,7 @@ function uiGetProperty(options?: UiGetPropertyOptions): Promise<WinappResult>
 
 ### `uiGetValue()`
 
-Read the current value from an element. Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels). Usage: winapp ui get-value <selector> -a <app>
+Read the current value from an element. Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels).
 
 ```typescript
 function uiGetValue(options?: UiGetValueOptions): Promise<WinappResult>
@@ -914,14 +920,14 @@ function uiGetValue(options?: UiGetValueOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -939,12 +945,15 @@ function uiHover(options?: UiHoverOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `dwellTime` | `number \| undefined` | No | Time in milliseconds to wait after hovering for hover effects to appear (default: 800) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -952,7 +961,7 @@ function uiHover(options?: UiHoverOptions): Promise<WinappResult>
 
 ### `uiInspect()`
 
-View the UI element tree with semantic slugs, element types, names, and bounds.
+View the UI element tree with semantic slugs, element types, names, and bounds. With a selector, shows that element's subtree; --type, --root, and --class-name narrow the selector.
 
 ```typescript
 function uiInspect(options?: UiInspectOptions): Promise<WinappResult>
@@ -962,16 +971,19 @@ function uiInspect(options?: UiInspectOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `ancestors` | `boolean \| undefined` | No | Walk up the tree from the specified element to the root |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `depth` | `number \| undefined` | No | Tree inspection depth |
 | `hideDisabled` | `boolean \| undefined` | No | Hide disabled elements from output |
 | `hideOffscreen` | `boolean \| undefined` | No | Hide offscreen elements from output |
 | `interactive` | `boolean \| undefined` | No | Show only interactive/invokable elements (buttons, links, inputs, list items). Increases default depth to 8. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -979,7 +991,7 @@ function uiInspect(options?: UiInspectOptions): Promise<WinappResult>
 
 ### `uiInvoke()`
 
-Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element; --root, --type and --class-name require --action.
+Activate an element. Tries the Invoke, Toggle, SelectionItem, and ExpandCollapse patterns in order, then the nearest invokable ancestor. Use --action to require one exact action on the selected element. With --type, --root, or --class-name the selector must match exactly one element, and the ancestor fallback is skipped.
 
 ```typescript
 function uiInvoke(options?: UiInvokeOptions): Promise<WinappResult>
@@ -989,15 +1001,15 @@ function uiInvoke(options?: UiInvokeOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `action` | `string \| undefined` | No | Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1016,7 +1028,7 @@ function uiListWindows(options?: UiListWindowsOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `showHidden` | `boolean \| undefined` | No | Include untitled zero-size windows that are hidden by default |
 
@@ -1036,18 +1048,21 @@ function uiPen(options?: UiPenOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Pen contact point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. Ignored when --path is given. |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `durationMs` | `number \| undefined` | No | Total glide time in milliseconds distributed across the stroke path segments (default: ~10 ms per segment). |
 | `eraser` | `boolean \| undefined` | No | Use the eraser end of the pen instead of the tip. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `path` | `string \| undefined` | No | Ink stroke path as a whitespace-separated list of x,y pairs, e.g. "10,10 20,30 40,50". |
 | `pressure` | `number \| undefined` | No | Pen pressure from 0.0 to 1.0 (default: 0.5). |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `tiltX` | `number \| undefined` | No | Pen tilt along the x-axis in degrees (-90 to 90, default: 0). |
 | `tiltY` | `number \| undefined` | No | Pen tilt along the y-axis in degrees (-90 to 90, default: 0). |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1065,14 +1080,17 @@ function uiScreenshot(options?: UiScreenshotOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `captureScreen` | `boolean \| undefined` | No | Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `focus` | `boolean \| undefined` | No | Bring the target window to the foreground before capture. Already implied by --capture-screen. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `output` | `string \| undefined` | No | Save output to this file path. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1090,14 +1108,17 @@ function uiScroll(options?: UiScrollOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `direction` | `string \| undefined` | No | Scroll direction: up, down, left, right |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `to` | `string \| undefined` | No | Scroll to position: top, bottom |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
 | `wheel` | `number \| undefined` | No | Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). Synthesizes real wheel input instead of using ScrollPattern. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1115,11 +1136,14 @@ function uiScrollIntoView(options?: UiScrollIntoViewOptions): Promise<WinappResu
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1137,15 +1161,15 @@ function uiSearch(options?: UiSearchOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `max` | `number \| undefined` | No | Maximum search results |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1166,12 +1190,12 @@ function uiSendKeys(options?: UiSendKeysOptions): Promise<WinappResult>
 | `keys` | `string \| undefined` | No | Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). Use text=<literal> to type a single value verbatim when it would otherwise be read as a key name or combo (text=enter types "enter"; text=ctrl+a types "ctrl+a"); backslash escapes \\s \\t \\n \\r \\\\ are supported (text=a\\s\\sb types "a b"). To type the whole argument literally without escaping each token, pass --verbatim instead. Quote multi-token strings, e.g. "ctrl+a delete". |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `allowSystemKeys` | `boolean \| undefined` | No | Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `target` | `string \| undefined` | No | Optional selector (slug or text) to focus before sending keys. |
 | `verbatim` | `boolean \| undefined` | No | Type the entire keys argument as literal text — no named-key, combo, or vk= interpretation, and exact whitespace preserved. The whole-argument form of the per-token text= escape: --verbatim "down down enter" types the words instead of pressing Down, Down, Enter. |
 | `via` | `string \| undefined` | No | Transport: post-message (default, HWND-targeted, bypasses UIPI; typed text raises TextChanged but not a per-character KeyDown) or send-input (OS-wide; typed text raises a real per-character KeyDown + TextChanged). Named keys and combos raise KeyDown on both, but keyboard accelerators/shortcuts (KeyboardAccelerator, e.g. ctrl+t) only fire via send-input. post-message targets the focused child control and works for classic Win32/WinForms controls, but WinUI 3 / UWP / XAML controls are windowless and ignore posted messages — use send-input for those (a warning is emitted when the target looks like a XAML app). |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1179,7 +1203,7 @@ function uiSendKeys(options?: UiSendKeysOptions): Promise<WinappResult>
 
 ### `uiSetValue()`
 
-Set a value on an element programmatically. Works for TextBox, ComboBox, Slider, and other editable controls via UIA ValuePattern/RangeValuePattern, with a LegacyIAccessible (put_accValue) fallback for TextPattern-only edit controls — no app foreground required. Some rich text controls (e.g. WinUI 3 RichEditBox and WPF RichTextBox) don't support setting their value programmatically — use the 'send-keys' command with '--via send-input' to type into them instead. Usage: winapp ui set-value <selector> <value> -a <app>
+Set a value on an element programmatically. Works for TextBox, ComboBox, Slider, and other editable controls via UIA ValuePattern/RangeValuePattern, with a LegacyIAccessible (put_accValue) fallback for TextPattern-only edit controls — no app foreground required. Some rich text controls (e.g. WinUI 3 RichEditBox and WPF RichTextBox) don't support setting their value programmatically — use the 'send-keys' command with '--via send-input' to type into them instead.
 
 ```typescript
 function uiSetValue(options?: UiSetValueOptions): Promise<WinappResult>
@@ -1189,12 +1213,15 @@ function uiSetValue(options?: UiSetValueOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `value` | `string \| undefined` | No | Value to set (text for TextBox/ComboBox, number for Slider) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1213,9 +1240,9 @@ function uiStatus(options?: UiStatusOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1233,10 +1260,11 @@ function uiTouch(options?: UiTouchOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Explicit start point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `direction` | `string \| undefined` | No | Swipe direction: right (default), left, up, or down. Combined with --distance to compute the end point when --to-point is not given. |
 | `distance` | `number \| undefined` | No | Distance in pixels for pinch/stretch (finger spread) or swipe. |
 | `durationMs` | `number \| undefined` | No | Glide time in milliseconds for moving gestures (swipe/pinch/stretch). |
@@ -1244,8 +1272,10 @@ function uiTouch(options?: UiTouchOptions): Promise<WinappResult>
 | `gesture` | `string \| undefined` | No | Gesture to perform: tap, double-tap, long-press, swipe, pinch, stretch (default: tap). |
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold contacts down before lifting (long-press hold time). Defaults to 500 ms when --gesture long-press is used and this option is not set. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `toPoint` | `string \| undefined` | No | End point x,y for a swipe (screen coordinates). Takes precedence over --direction. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1263,19 +1293,19 @@ function uiWaitFor(options?: UiWaitForOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `contains` | `boolean \| undefined` | No | Use substring matching for --value instead of exact match |
 | `gone` | `boolean \| undefined` | No | Wait for element to disappear instead of appear |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `timeout` | `number \| undefined` | No | Timeout in milliseconds |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
 | `value` | `string \| undefined` | No | Wait for element value to equal this string. Uses smart fallback (TextPattern -> ValuePattern -> Name). Combine with --property to check a specific property instead. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -1743,7 +1773,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
 | `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
-| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
+| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -1755,9 +1785,9 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `certPath` | `string` | Yes | Path to the certificate file (PFX) |
+| `certPath` | `string` | Yes | Path to the certificate file (PFX or CER) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `password` | `string \| undefined` | No | Password for the PFX file |
+| `password` | `string \| undefined` | No | Password for the PFX file (ignored for a public CER) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -1994,7 +2024,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `ifExists` | `IfExists \| undefined` | No | Behavior when output file exists: 'error' (fail, default), 'skip' (keep existing), or 'overwrite' (replace) |
 | `logoPath` | `string \| undefined` | No | Path to logo image file |
 | `packageName` | `string \| undefined` | No | Package name (default: folder name) |
-| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>. |
+| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>. |
 | `template` | `ManifestTemplates \| undefined` | No | Manifest template type: 'packaged' (full MSIX app, default) or 'sparse' (desktop app with package identity for Windows APIs) |
 | `version` | `string \| undefined` | No | App version in Major.Minor.Build.Revision format (e.g., 1.0.0.0). |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
@@ -2218,13 +2248,16 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `double` | `boolean \| undefined` | No | Perform a double-click instead of a single click |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `right` | `boolean \| undefined` | No | Perform a right-click instead of a left click |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2238,12 +2271,12 @@ type ManifestTemplates = "packaged" | "sparse"
 | `from` | `string \| undefined` | No | Start point — an element selector (drags from its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-list-d736 or 100,200). |
 | `to` | `string \| undefined` | No | End point — an element selector (drops at its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-target-d746 or 300,400). |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `dwellMs` | `number \| undefined` | No | Milliseconds to dwell at the destination after moving, before releasing (default: 0). Lets drop targets / merge overlays that arm from a sustained hover latch before release. |
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold the button down at the start before moving (default: 0). With <from> == <to> (no movement) this performs a press-and-hold / long-press gesture. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `right` | `boolean \| undefined` | No | Drag with the right mouse button instead of the left button |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2254,11 +2287,14 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string` | Yes | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string` | Yes | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2270,9 +2306,9 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2283,15 +2319,15 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2302,14 +2338,14 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2320,12 +2356,15 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `dwellTime` | `number \| undefined` | No | Time in milliseconds to wait after hovering for hover effects to appear (default: 800) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2336,16 +2375,19 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `ancestors` | `boolean \| undefined` | No | Walk up the tree from the specified element to the root |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `depth` | `number \| undefined` | No | Tree inspection depth |
 | `hideDisabled` | `boolean \| undefined` | No | Hide disabled elements from output |
 | `hideOffscreen` | `boolean \| undefined` | No | Hide offscreen elements from output |
 | `interactive` | `boolean \| undefined` | No | Show only interactive/invokable elements (buttons, links, inputs, list items). Increases default depth to 8. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2356,15 +2398,15 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `action` | `string \| undefined` | No | Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2376,7 +2418,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `showHidden` | `boolean \| undefined` | No | Include untitled zero-size windows that are hidden by default |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
@@ -2389,18 +2431,21 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Pen contact point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. Ignored when --path is given. |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `durationMs` | `number \| undefined` | No | Total glide time in milliseconds distributed across the stroke path segments (default: ~10 ms per segment). |
 | `eraser` | `boolean \| undefined` | No | Use the eraser end of the pen instead of the tip. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `path` | `string \| undefined` | No | Ink stroke path as a whitespace-separated list of x,y pairs, e.g. "10,10 20,30 40,50". |
 | `pressure` | `number \| undefined` | No | Pen pressure from 0.0 to 1.0 (default: 0.5). |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `tiltX` | `number \| undefined` | No | Pen tilt along the x-axis in degrees (-90 to 90, default: 0). |
 | `tiltY` | `number \| undefined` | No | Pen tilt along the y-axis in degrees (-90 to 90, default: 0). |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2411,14 +2456,17 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `captureScreen` | `boolean \| undefined` | No | Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `focus` | `boolean \| undefined` | No | Bring the target window to the foreground before capture. Already implied by --capture-screen. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `output` | `string \| undefined` | No | Save output to this file path. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2429,14 +2477,17 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `direction` | `string \| undefined` | No | Scroll direction: up, down, left, right |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `to` | `string \| undefined` | No | Scroll to position: top, bottom |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
 | `wheel` | `number \| undefined` | No | Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). Synthesizes real wheel input instead of using ScrollPattern. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2447,11 +2498,14 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2462,15 +2516,15 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `max` | `number \| undefined` | No | Maximum search results |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2484,12 +2538,12 @@ type ManifestTemplates = "packaged" | "sparse"
 | `keys` | `string \| undefined` | No | Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). Use text=<literal> to type a single value verbatim when it would otherwise be read as a key name or combo (text=enter types "enter"; text=ctrl+a types "ctrl+a"); backslash escapes \\s \\t \\n \\r \\\\ are supported (text=a\\s\\sb types "a b"). To type the whole argument literally without escaping each token, pass --verbatim instead. Quote multi-token strings, e.g. "ctrl+a delete". |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `allowSystemKeys` | `boolean \| undefined` | No | Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `target` | `string \| undefined` | No | Optional selector (slug or text) to focus before sending keys. |
 | `verbatim` | `boolean \| undefined` | No | Type the entire keys argument as literal text — no named-key, combo, or vk= interpretation, and exact whitespace preserved. The whole-argument form of the per-token text= escape: --verbatim "down down enter" types the words instead of pressing Down, Down, Enter. |
 | `via` | `string \| undefined` | No | Transport: post-message (default, HWND-targeted, bypasses UIPI; typed text raises TextChanged but not a per-character KeyDown) or send-input (OS-wide; typed text raises a real per-character KeyDown + TextChanged). Named keys and combos raise KeyDown on both, but keyboard accelerators/shortcuts (KeyboardAccelerator, e.g. ctrl+t) only fire via send-input. post-message targets the focused child control and works for classic Win32/WinForms controls, but WinUI 3 / UWP / XAML controls are windowless and ignore posted messages — use send-input for those (a warning is emitted when the target looks like a XAML app). |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2500,12 +2554,15 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `value` | `string \| undefined` | No | Value to set (text for TextBox/ComboBox, number for Slider) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2517,9 +2574,9 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2530,10 +2587,11 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Explicit start point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `direction` | `string \| undefined` | No | Swipe direction: right (default), left, up, or down. Combined with --distance to compute the end point when --to-point is not given. |
 | `distance` | `number \| undefined` | No | Distance in pixels for pinch/stretch (finger spread) or swipe. |
 | `durationMs` | `number \| undefined` | No | Glide time in milliseconds for moving gestures (swipe/pinch/stretch). |
@@ -2541,8 +2599,10 @@ type ManifestTemplates = "packaged" | "sparse"
 | `gesture` | `string \| undefined` | No | Gesture to perform: tap, double-tap, long-press, swipe, pinch, stretch (default: tap). |
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold contacts down before lifting (long-press hold time). Defaults to 500 ms when --gesture long-press is used and this option is not set. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `toPoint` | `string \| undefined` | No | End point x,y for a swipe (screen coordinates). Takes precedence over --direction. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2553,19 +2613,19 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
-| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
-| `className` | `string \| undefined` | No | Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). |
+| `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
+| `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `contains` | `boolean \| undefined` | No | Use substring matching for --value instead of exact match |
 | `gone` | `boolean \| undefined` | No | Wait for element to disappear instead of appear |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `property` | `string \| undefined` | No | Property name to read or filter on |
-| `root` | `string \| undefined` | No | Search only descendants of this uniquely matching selector (excludes the root). |
+| `root` | `string \| undefined` | No | Only search inside this element (must match exactly one element) |
 | `timeout` | `number \| undefined` | No | Timeout in milliseconds |
-| `type` | `string \| undefined` | No | UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. |
+| `type` | `string \| undefined` | No | Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) |
 | `value` | `string \| undefined` | No | Wait for element value to equal this string. Uses smart fallback (TextPattern -> ValuePattern -> Name). Combine with --property to check a specific property instead. |
-| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -2615,3 +2675,4 @@ type ManifestTemplates = "packaged" | "sparse"
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
 | `signal` | `AbortSignal \| undefined` | No | Cancels the whole native invocation, not just a wait for the shared desktop.<br><br>`winapp ui` commands take cooperative turns on the desktop, so a command may wait for another workflow to finish. Aborting force-terminates the child on Windows; the CLI's own cleanup may not run, but Windows releases its coordination handles and deletes its participant lease, and other processes reclaim the queue entry. If the abort lands after the command acquired the desktop, UI side effects may already have happened, and aborting an active recording can leave partial output. Rejects with an `AbortError`. |
 | `workflowId` | `string \| undefined` | No | Groups this call with other `winapp ui` calls passing the same value into one logical workflow.<br><br>Collision arbitration is always on — every desktop-sensitive `winapp ui` command takes a turn whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop reserved between invocations for a short idle grace, may overlap with each other (a recording and the clicks it is recording), and are never interleaved with another workflow's input. Without it, each call is a self-contained one-shot that releases the desktop as soon as it finishes.<br><br>Applied to the spawned child process only; `process.env` is never modified. |
+

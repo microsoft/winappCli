@@ -14,9 +14,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiHoverCommand : Command, IShortDescription
+internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Move the mouse to an element to trigger hover effects like tooltips";
+    public string ShortDescription => "Move the mouse to an element (tooltips, hover states)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui hover \"Save\" -a <app>",
+        "winapp ui hover \"Save\" --type Button -a <app>",
+    ];
 
     public static Option<int> DwellTimeOption { get; } = new("--dwell-time")
     {

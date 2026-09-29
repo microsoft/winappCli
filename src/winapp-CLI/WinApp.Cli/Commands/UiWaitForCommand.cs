@@ -15,9 +15,16 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiWaitForCommand : Command, IShortDescription
+internal class UiWaitForCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Wait for an element to appear, disappear, or change";
+    public string ShortDescription => "Wait for an element to appear, disappear, or reach a value";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui wait-for \"Saved\" -a <app>",
+        "winapp ui wait-for <selector> -a <app> --gone --timeout 10000",
+        "winapp ui wait-for <selector> -a <app> --value \"<text>\" --contains",
+    ];
 
     public static Option<bool> GoneOption { get; }
     public static Option<string?> ValueOption { get; }

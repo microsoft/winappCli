@@ -83,7 +83,8 @@ winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --t
 ```
 
 Use `--root`, `--type`, and `--class-name` together or separately on `search`,
-`get-property`, `get-value`, and `wait-for`. The root must be unique; only its
+`get-property`, `get-value`, `wait-for`, and every command that acts on one
+selected element (`invoke`, `set-value`, `click`, `focus`, and so on). The root must be unique; only its
 descendants match. `wait-for` re-resolves it every poll, including when it is
 initially absent. Type names and literal whole ClassName values ignore case.
 The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
@@ -128,10 +129,10 @@ winapp ui invoke Open -w <dialog-HWND> --type Button --action invoke
 ```
 
 Use `--action` to avoid automatic pattern and ancestor fallback. Omit it for the
-existing automatic behavior. For a filtered explicit action, `--root`, `--type`,
-and `--class-name` follow the same matching rules as read queries: exactly one
-element must match inside the selected app/window, or the command fails without
-acting. Filters without `--action` are invalid. See the
+existing automatic behavior. With `--root`, `--type`, or `--class-name`, the
+filters follow the same matching rules as read queries: exactly one element must
+match inside the selected app/window, or the command fails without acting, and
+the ancestor fallback is skipped. See the
 [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
 for supported actions, scope, idempotent toggles, and failure recovery, and the
 [JSON envelope](references/ui-json-envelope.md#ui-invoke---json) for action results.

@@ -12,7 +12,7 @@ using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiRecordCommand : Command, IShortDescription
+internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
 {
     internal static readonly Option<bool> FramesOption = new("--frames")
     {
@@ -24,7 +24,22 @@ internal class UiRecordCommand : Command, IShortDescription
         Description = "Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory.",
     };
 
-    public string ShortDescription => "Record a window or element region to an MP4 (H.264) video";
+    public string ShortDescription => "Record a window or element region to MP4";
+
+
+    public IReadOnlyList<string> Examples { get; } =
+
+    [
+
+        "winapp ui record -a <app> --duration-sec 10 -o demo.mp4",
+
+        "winapp ui record <selector> -w <hwnd> --duration-sec 5",
+
+    ];
+
+
+
+    public string? Usage => "winapp ui record [<selector>] (-a <app> | -w <hwnd>) [options]";
 
     public UiRecordCommand()
         : base("record", "Record the target window (or an element's region) to an H.264 MP4 video. " +

@@ -14,9 +14,19 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal partial class UiInspectCommand : Command, IShortDescription
+internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "View the element tree of a running app";
+    public string ShortDescription => "Show an app's elements and their selectors";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui inspect -a <app> --interactive",
+        "winapp ui inspect <selector> -a <app> --depth 2",
+        "winapp ui inspect <selector> -w <hwnd> --ancestors",
+    ];
+
+
+    public string? Usage => "winapp ui inspect [<selector>] (-a <app> | -w <hwnd>) [options]";
 
     public static Option<bool> AncestorsOption { get; }
 
@@ -29,8 +39,10 @@ internal partial class UiInspectCommand : Command, IShortDescription
     }
 
     public UiInspectCommand()
-        : base("inspect", "View the UI element tree with semantic slugs, element types, names, and bounds.")
+        : base("inspect", "View the UI element tree with semantic slugs, element types, names, and bounds. " +
+               "With a selector, shows that element's subtree; --type, --root, and --class-name narrow the selector.")
     {
+        Aliases.Add("tree");
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
         Options.Add(SharedUiOptions.WindowOption);
@@ -281,10 +293,15 @@ internal partial class UiInspectCommand : Command, IShortDescription
                         : realElements;
                     var separators = (interactive ? allElements : elements).Where(e => e.Type == "---").ToArray();
                     var truncated = realElements.Count(e => e.HasMoreChildren == true);
-                    var example = realElements.FirstOrDefault(IsInteractive) ?? realElements.FirstOrDefault();
+                    var example = realElements.FirstOrDefault(e => e.IsInvokable)
+                        ?? realElements.FirstOrDefault(IsInteractive)
+                        ?? realElements.FirstOrDefault();
                     var exampleSelector = example?.Selector ?? example?.Id;
+                    var exampleCommand = example is { IsInvokable: false, IsEditable: true }
+                        ? $"set-value {exampleSelector} \"<text>\" -a <app>"
+                        : $"invoke {exampleSelector} -a <app>";
                     var exampleHint = exampleSelector is not null
-                        ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]{EscapeMarkup(UiCommandAdvice.Command($"invoke {exampleSelector} -a <app>"))}[/]"
+                        ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]{EscapeMarkup(UiCommandAdvice.Command(exampleCommand))}[/]"
                         : "";
                     ansiConsole.WriteLine();
                     ansiConsole.MarkupLine($"[grey]Found {displayedElements.Length} elements (--depth {depth}).{exampleHint}[/]");

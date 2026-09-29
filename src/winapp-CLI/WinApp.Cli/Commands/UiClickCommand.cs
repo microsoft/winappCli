@@ -14,9 +14,16 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiClickCommand : Command, IShortDescription
+internal class UiClickCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Click an element at its screen coordinates using mouse simulation";
+    public string ShortDescription => "Mouse click, when invoke is not supported";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui click \"Name\" -a <app>",
+        "winapp ui click \"Name\" --type HeaderItem -a <app>",
+        "winapp ui click <selector> -a <app> --right",
+    ];
 
     public static Option<bool> DoubleClickOption { get; } = new("--double")
     {

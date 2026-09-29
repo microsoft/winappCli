@@ -15,9 +15,18 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiScreenshotCommand : Command, IShortDescription
+internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Capture a screenshot of a window or element";
+    public string ShortDescription => "Capture a window or element as PNG";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui screenshot -a <app> -o window.png",
+        "winapp ui screenshot <selector> -w <hwnd> -o element.png",
+    ];
+
+
+    public string? Usage => "winapp ui screenshot [<selector>] (-a <app> | -w <hwnd>) [options]";
 
     public UiScreenshotCommand()
         : base("screenshot", "Capture the target window or element as a PNG image. " +
