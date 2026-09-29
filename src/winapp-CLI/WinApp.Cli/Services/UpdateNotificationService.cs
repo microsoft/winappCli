@@ -88,8 +88,7 @@ internal class UpdateNotificationService(
             // has a real chance of being populated before the process exits.
             if (!SkipBackgroundRefreshForTesting
                 && (!cache.LastCheck.HasValue
-                    || (DateTimeOffset.UtcNow - cache.LastCheck.Value).TotalHours >= CheckIntervalHours)
-                && Interlocked.CompareExchange(ref _refreshScheduled, Scheduled, NotScheduled) == NotScheduled)
+                    || (DateTimeOffset.UtcNow - cache.LastCheck.Value).TotalHours >= CheckIntervalHours))
             {
                 // On first run (no cache), write a placeholder so subsequent invocations see a valid
                 // LastCheck and don't re-race while the network call is in flight; the refresh fills in
@@ -97,9 +96,9 @@ internal class UpdateNotificationService(
                 // it can be saved. If it can't (a read-only winapp directory), skip the check: it would
                 // otherwise run, and on first run block briefly, on every invocation.
                 var placeholder = cache.LastCheck.HasValue ? cache : cache with { LastCheck = DateTimeOffset.UtcNow };
-                if (!WriteCacheFile(cacheFile, placeholder))
+                if (!WriteCacheFile(cacheFile, placeholder)
+                    || Interlocked.CompareExchange(ref _refreshScheduled, Scheduled, NotScheduled) != NotScheduled)
                 {
-                    Interlocked.Exchange(ref _refreshScheduled, NotScheduled);
                     return;
                 }
 
