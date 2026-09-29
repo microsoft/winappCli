@@ -586,13 +586,14 @@ static bool IsAuthoredSource(const std::wstring& source)
     return DevToolsAuthored_HasSourceRoot() ? DevToolsAuthored_IsProjectSource(source) : DevToolsAppXaml_IsAppAuthored(source);
 }
 
-// A pick selects the author's element, not a control template's part: a hit whose source is known framework or
-// template XAML resolves to its nearest ancestor whose source is authored. Unknown provenance keeps the hit.
+// A pick selects the author's element, not a control template's part or runtime-generated text (a Button's string
+// content, a placeholder): a hit without authored source resolves to its nearest ancestor with authored source.
+// A hit with no such ancestor is kept.
 static InstanceHandle PickTarget(InstanceHandle hit)
 {
     if (DevToolsWindow_ShowsFrameworkRows()) return hit;
     const std::wstring source = SourceOf_ui(hit);
-    if (source.empty() || IsAuthoredSource(source)) return hit;
+    if (!source.empty() && IsAuthoredSource(source)) return hit;
     std::vector<InstanceHandle> ancestors;
     AcquireSRWLockShared(&g_censusLock);
     for (InstanceHandle current = hit; ancestors.size() < 256;) {

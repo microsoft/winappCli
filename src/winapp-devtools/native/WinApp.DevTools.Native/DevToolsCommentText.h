@@ -44,6 +44,12 @@ inline std::wstring SourceLabel(const std::wstring& file, unsigned int line)
     return L"Historical: " + file + (line ? L":" + std::to_wstring(line) : L"");
 }
 
+// A comment on an element without authored source is stored, but an agent has to search for where it belongs.
+inline std::wstring SavedStatus(bool host, bool linked)
+{
+    return std::wstring(host ? L"Saved on the host." : L"Saved.") + (linked ? L"" : L" Not linked to source.");
+}
+
 inline std::wstring AddArguments(unsigned long pid, const std::wstring& text, const std::wstring& id,
     const std::wstring& handle)
 {

@@ -71,7 +71,7 @@ struct GuestCommentWrite {
     RECT bounds{};
     ULONGLONG began = 0;
     bool failed = false, persisted = false, superseded = false;
-    bool deleteRequested = false, discarded = false;
+    bool deleteRequested = false, discarded = false, linked = true;
     std::function<void(int)> completed;
 };
 static GuestCommentWrite g_guestCommentWrite;
@@ -255,6 +255,12 @@ static bool LikelySourceConfirmed(IInspectable* root)
     return SUCCEEDED(DevToolsAbi<DevToolsXCP::IToggleButton>(toggle.get())->put_IsChecked(winrt::get_abi(unchecked)));
 }
 
+static bool HasAuthoredSource(InstanceHandle handle)
+{
+    std::wstring file; unsigned int line = 0, column = 0;
+    return g_srcRead && g_srcRead(handle, &file, &line, &column) && !file.empty();
+}
+
 static bool LaunchCommentAdd(const std::wstring& text, const std::wstring& id, bool composer = false)
 {
     const auto handle = composer ? g_composerHandle : g_selHandle;
@@ -263,8 +269,7 @@ static bool LaunchCommentAdd(const std::wstring& text, const std::wstring& id, b
     std::wstring type, name, state, xaml;
     std::vector<DevToolsCardRow> rows;
     winrt::com_ptr<IInspectable> element;
-    std::wstring file; unsigned int line = 0, column = 0;
-    const bool hasSource = g_srcRead && g_srcRead(handle, &file, &line, &column) && !file.empty();
+    const bool hasSource = HasAuthoredSource(handle);
     if (hasSource && (!g_pickDiag || !g_cardRead || FAILED(g_pickDiag->GetIInspectableFromHandle(handle, element.put())) ||
         !element || !g_cardRead(element.get(), &type, &name, &rows, &state, &xaml))) {
         g_commentSourceError = L"Couldn't verify this comment's source. Reselect the element before saving.";
@@ -288,6 +293,7 @@ static bool LaunchCommentAdd(const std::wstring& text, const std::wstring& id, b
     guest.handle = handle; guest.root = g_pickRoot; guest.wire = wire;
     guest.generation = composer ? g_composerGeneration : g_selGen;
     guest.id = id; guest.submitted = outgoing; guest.draft = text;
+    guest.linked = hasSource;
     guest.revision = composer ? g_composerRevision : g_selCommentRevision;
     if (g_anchorOf && handle) g_anchorOf(handle, &guest.anchor);
     guest.bounds = composer ? g_composerBounds : g_selBounds;
@@ -532,7 +538,7 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
             L"Saved, but the refreshed comments differ. Draft retained; refresh before editing.") :
         newerDraft ? (write.authority ? L"Submitted text was saved on the host. Your newer draft is not saved yet." :
             L"Submitted text was saved. Your newer draft is not saved yet.") :
-        write.authority ? L"Saved on the host." : L"Saved.";
+        DevToolsCommentText::SavedStatus(write.authority != nullptr, write.linked);
     if (write.editor == GuestCommentEditor::WindowResolve) {
         auto completed = std::move(write.completed);
         if (write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
@@ -655,7 +661,7 @@ static void DevToolsSelCommitComment(bool explicitSave)
             } else {
                 DiscardSelectionCommentDraft();
                 GuestCommentSetStatus(g_selDiagRoot, L"DevToolsGuestCommentStatus",
-                    text.empty() ? L"" : L"Saved.");
+                    text.empty() ? L"" : DevToolsCommentText::SavedStatus(false, HasAuthoredSource(g_selHandle)));
             }
         }
         return;

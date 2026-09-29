@@ -1004,8 +1004,8 @@ int main()
             check(commentLaunches == 1, "comment commit", "Save click after blur does not start a second writer");
             commentExitCode = 0; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
-            check(g_selCommentSaved == text && g_guestCommentWrite.status == L"Saved.",
-                "comment commit", "acknowledgement caches exact text and reports local persistence");
+            check(g_selCommentSaved == text && g_guestCommentWrite.status == L"Saved. Not linked to source.",
+                "comment commit", "acknowledgement caches exact text and reports local persistence of a sourceless element");
             DevToolsSelCommitComment();
             check(commentLaunches == 1 && g_selCommentSaved == text, "comment commit",
                 "actual no-op commit launches no writer and preserves saved cache");
@@ -1238,7 +1238,7 @@ int main()
             commentExitCode = 0; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
             check(g_pins.size() == 1 && g_pins[0].seeded && g_pins[0].text == L"submitted" &&
-                !g_guestCommentWrite.failed && g_guestCommentWrite.status == L"Saved.",
+                !g_guestCommentWrite.failed && g_guestCommentWrite.status == L"Saved. Not linked to source.",
                 "local snapshot", "matching retry snapshot remains authoritative and completes normally");
             check(g_commentsShown, "local snapshot", "matching local save reveals markers without replacing the snapshot");
         }

@@ -979,18 +979,20 @@ int wmain(int argc, wchar_t** argv)
         // TextBox (app) -> Grid (template) -> PlaceholderTextContentPresenter (template): a pick on the placeholder
         // selects the TextBox the developer wrote.
         g_parent.clear();
-        g_parent[3] = 2; g_parent[2] = 1; g_parent[1] = 0;
+        g_parent[3] = 2; g_parent[2] = 1; g_parent[1] = 0; g_parent[6] = 3;
         AcquireSRWLockExclusive(&g_sourceUriLock);
         g_sourceInfo.clear();
         g_sourceInfo[1] = SourceInfoEntry{ L"ms-appx:///MainPage.xaml", 0 };
         g_sourceInfo[2] = SourceInfoEntry{ L"ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml", 0 };
         g_sourceInfo[3] = SourceInfoEntry{ L"ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml", 0 };
         g_sourceInfo[4] = SourceInfoEntry{ L"", 0 };
+        g_sourceInfo[6] = SourceInfoEntry{ L"", 0 };
         g_sourceInfo[5] = SourceInfoEntry{ L"ms-appx:///Microsoft.UI.Xaml/Themes/generic.xaml", 0 };
         ReleaseSRWLockExclusive(&g_sourceUriLock);
         check(PickTarget(3) == 1, "a pick on a control template part selects its nearest app-authored ancestor");
         check(PickTarget(1) == 1, "a pick on app XAML keeps the hit");
-        check(PickTarget(4) == 4, "a hit with unknown provenance is kept rather than guessed");
+        check(PickTarget(6) == 1, "runtime-generated text with no source selects its nearest app-authored ancestor");
+        check(PickTarget(4) == 4, "a sourceless hit with no app-authored ancestor is kept");
         check(PickTarget(5) == 5, "a framework hit with no app-authored ancestor is kept");
         // With a bound source root, authored means a file under it, whatever the package layout contains.
         wchar_t temp[MAX_PATH]{};

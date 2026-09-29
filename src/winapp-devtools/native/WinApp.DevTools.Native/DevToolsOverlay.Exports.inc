@@ -323,9 +323,7 @@ HRESULT DevToolsOverlay_Pick(IXamlDiagnostics* diag, InstanceHandle rootHandle, 
             const HRESULT allowed = g_selectionHost(picked, false);
             if (FAILED(allowed)) return allowed;
         }
-// Keep source, properties and geometry on the actual hit; missing authored metadata must not select a different
-// element.
-        // Hit-test order is not ancestry; keep source, properties, and geometry on the actual hit.
+        // Hit-test order is not ancestry; keep source, properties, and geometry on the picked element.
         LogHandleClass(diag, L"pick.top", picked);
         auto inStack = [&](double x, double y) { bool f = false; hitAt((long)x, (long)y, picked, nullptr, &f); return f; };
         const double tBounds0 = QpcNow();

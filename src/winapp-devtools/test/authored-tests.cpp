@@ -706,6 +706,12 @@ static void Test_ExactCommentTextAndHistoricalLabels()
         "M6: stored line 7 is explicitly historical when the rebuilt live element moves to line 12");
     ACheck(DevToolsCommentText::SourceLabel(L"", 7).empty(),
         "M6: no captured file does not manufacture source coordinates");
+    ACheck(DevToolsCommentText::SavedStatus(false, true) == L"Saved." &&
+        DevToolsCommentText::SavedStatus(true, true) == L"Saved on the host.",
+        "a comment on authored source reports a plain save");
+    ACheck(DevToolsCommentText::SavedStatus(false, false) == L"Saved. Not linked to source." &&
+        DevToolsCommentText::SavedStatus(true, false) == L"Saved on the host. Not linked to source.",
+        "a comment on an element without source says it is not linked to source");
 }
 
 int RunAuthoredTests()
