@@ -497,7 +497,7 @@ public partial class UiCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn", "-a", "TestApp", "--json"]);
 
         Assert.AreEqual(0, exitCode, $"stderr: {ConsoleStdErr}");
-        Assert.DoesNotContain(UiCoordinationErrorCodes.Unavailable, ConsoleStdOut.ToString() + ConsoleStdErr.ToString());
+        Assert.DoesNotContain(UiCoordinationErrorCodes.Unavailable, $"{ConsoleStdOut}{ConsoleStdErr}");
     }
 
     [TestMethod]
@@ -519,7 +519,7 @@ public partial class UiCommandTests
         // Falling back is only safe before the command did anything; rerunning would repeat its work.
         _fakeRecording.RecordException = CoordinationFolderDenied();
 
-        var outputPath = Path.Combine(_tempDirectory.FullName, "denied-mid-body.mp4");
+        var outputPath = Path.Join(_tempDirectory.FullName, "denied-mid-body.mp4");
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(
             command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath, "--json"]);
