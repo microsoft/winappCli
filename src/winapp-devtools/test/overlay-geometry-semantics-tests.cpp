@@ -579,12 +579,12 @@ int main()
         std::printf("%s %s: %s\n", ok ? "PASS" : "FAIL", entry, name);
     };
     {
-        SwitchObject canvas, bar, pill, dot, snaps[kCornerCount];
-        g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill; g_pinDot = &dot;
+        SwitchObject canvas, bar, pill, snaps[kCornerCount];
+        g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill;
         for (int i = 0; i < kCornerCount; ++i) g_snapUi[i] = &snaps[i];
         g_protoW = 800; g_protoH = 700; g_toolbarVisible = true;
         ShowARow(false);
-        check(bar.visibility == 1 && pill.visibility == 0 && dot.visibility == 1 &&
+        check(bar.visibility == 1 && pill.visibility == 0 &&
             bar.left >= 0 && bar.top >= 0, "toolbar visibility", "collapsed bar leaves layout without negative parking");
         ShowARow(true);
         check(bar.visibility == 0 && pill.visibility == 1, "toolbar visibility", "expanded bar replaces the pill");
@@ -595,24 +595,23 @@ int main()
         OnACollapse(nullptr, nullptr);
         check(!g_aRowOpen && pill.visibility == 0, "toolbar visibility", "unfocused unpinned bar can collapse");
         ProtoSetPinned(true); ShowARow(true);
-        check(dot.visibility == 0, "toolbar visibility", "pinned marker belongs to the expanded visible bar");
         g_dragging = true; ShowSnapTargets(true);
         check(std::all_of(std::begin(snaps), std::end(snaps), [](const auto& snap) { return snap.visibility == 0; }),
             "toolbar visibility", "visible drag exposes snap targets");
         DevToolsOverlay_SetToolbarVisible(false);
-        check(bar.visibility == 1 && pill.visibility == 1 && dot.visibility == 1 &&
+        check(bar.visibility == 1 && pill.visibility == 1 &&
             std::all_of(std::begin(snaps), std::end(snaps), [](const auto& snap) { return snap.visibility == 1; }),
-            "toolbar visibility", "explicit hide collapses both halves, marker and drag targets");
+            "toolbar visibility", "explicit hide collapses both halves and drag targets");
         ShowARow(true);
         check(bar.visibility == 1 && pill.visibility == 1, "toolbar visibility", "reposition cannot undo explicit hide");
         g_dragging = false;
         DevToolsOverlay_SetToolbarVisible(true);
-        check(bar.visibility == 0 && pill.visibility == 1 && dot.visibility == 0 &&
+        check(bar.visibility == 0 && pill.visibility == 1 &&
             std::all_of(std::begin(snaps), std::end(snaps), [](const auto& snap) { return snap.visibility == 1; }),
             "toolbar visibility", "show restores the selected half without stale drag targets");
         ProtoSetPinned(false); ShowARow(false);
-        check(dot.visibility == 1 && pill.visibility == 0, "toolbar visibility", "unpin removes the marker without parking");
-        g_canvasStatics = g_aRow = g_railL = g_pinDot = nullptr;
+        check(pill.visibility == 0, "toolbar visibility", "unpinned bar collapses to the pill without parking");
+        g_canvasStatics = g_aRow = g_railL = nullptr;
         for (auto& snap : g_snapUi) snap = nullptr;
         g_toolbarVisible = false;
     }

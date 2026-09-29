@@ -149,7 +149,7 @@
       <Button x:Name="DevToolsProtoTheme" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$THEMEENABLED$"
-              ToolTipService.ToolTip="Toggle the inspected app between Light and Dark themes"
+              ToolTipService.ToolTip="Switch app theme"
               AutomationProperties.AutomationId="DevToolsProtoTheme"
               AutomationProperties.Name="Toggle app theme">
         <FontIcon FlowDirection="LeftToRight" Glyph="&#xE706;" FontSize="15"
@@ -166,18 +166,32 @@
               AutomationProperties.Name="Open DevTools window">
         <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="15" Foreground="$TEXT$" />
       </Button>
-      <Button x:Name="DevToolsProtoPin" Style="{x:Null}" Width="24" Height="24" Padding="0" BorderThickness="0" CornerRadius="5"
+      <!-- Pinned is a mode: the same accent on-state as Pick and Layout adorners, exposed to UIA as a toggle. -->
+      <ToggleButton x:Name="DevToolsProtoPin" Style="{x:Null}" Width="24" Height="24" Padding="0" BorderThickness="0" CornerRadius="5"
               Background="#00000000" Foreground="$TEXTDIM$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Keep the toolbar open"
               AutomationProperties.AutomationId="DevToolsProtoPin"
               AutomationProperties.Name="Pin toolbar open">
-        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE718;" FontSize="14" Foreground="$TEXTDIM$" />
-      </Button>
+        <ToggleButton.Resources>
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+        </ToggleButton.Resources>
+        <Grid Width="24" Height="24">
+          <FontIcon x:Name="DevToolsPinOff" FlowDirection="LeftToRight" Glyph="&#xE718;" FontSize="14"
+                    Foreground="$TEXTDIM$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Grid x:Name="DevToolsPinOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsPinOn">
+            <Border Width="24" Height="24" CornerRadius="5" Background="$ACCENT$" />
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE718;" FontSize="14"
+                      Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Grid>
+        </Grid>
+      </ToggleButton>
     </StackPanel>
   </Border>
-  <Border Visibility="Collapsed" Canvas.ZIndex="1003" Width="7" Height="7" CornerRadius="4"
-          Background="$ACCENT$" BorderBrush="$ACCENTTEXT$" BorderThickness="1"
-          IsHitTestVisible="False" AutomationProperties.AutomationId="DevToolsProtoPinDot" />
   <Grid Visibility="Collapsed" Canvas.ZIndex="1010" Width="$SNAPW$" Height="$SNAPH$"
         IsHitTestVisible="False" AutomationProperties.AutomationId="DevToolsSnapBR">
     <Border CornerRadius="16" BorderBrush="$TEXTTERTIARY$" BorderThickness="2" />

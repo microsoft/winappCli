@@ -267,8 +267,8 @@ try {
         $hidden = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
         $hiddenNodes = @($hidden.windows | ForEach-Object { Nodes $_.elements })
         Check (@($hiddenNodes | Where-Object {
-            -not $_.isOffscreen -and $_.automationId -match '^DevTools(ProtoPill|ProtoRailL|ProtoPinDot|Snap)'
-        }).Count -eq 0) 'explicit hide removes toolbar halves, marker and snap targets'
+            -not $_.isOffscreen -and $_.automationId -match '^DevTools(ProtoPill|ProtoRailL|Snap)'
+        }).Count -eq 0) 'explicit hide removes toolbar halves and snap targets'
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
         $restored = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })

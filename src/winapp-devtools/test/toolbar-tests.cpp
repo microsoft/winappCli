@@ -103,11 +103,15 @@ static void TestToolbarContract()
     CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsProtoLayout\"") != std::string::npos &&
                      xaml.find("ToolTip=\"Show layout adorners") == std::string::npos,
                  "Layout adorners is a toggle for UI Automation, with a tooltip that holds in both states");
+    CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPin\"") != std::string::npos &&
+                     xaml.find("x:Name=\"DevToolsPinOn\"") != std::string::npos &&
+                     xaml.find("DevToolsProtoPinDot") == std::string::npos &&
+                     overlay.find("ProtoSetToggle(L\"DevToolsProtoPin\", L\"DevToolsPinOn\", L\"DevToolsPinOff\", on);") != std::string::npos,
+                 "Pinned uses the accent on-state and a UIA toggle, not a corner dot that reads as a badge");
+    CheckToolbar(xaml.find("ToolTipService.ToolTip=\"Switch app theme\"") != std::string::npos,
+                 "Theme tooltip is short enough not to clip at the window edge");
     CheckToolbar(xaml.find("AutomationProperties.Name=\"Toggle app theme\"") != std::string::npos,
                  "Theme has an accessible name");
-    CheckToolbar(xaml.find("ToolTipService.ToolTip=\"Toggle the inspected app between Light and Dark themes\"")
-                     != std::string::npos,
-                 "Theme has a Light/Dark tooltip");
     CheckToolbar(xaml.find("Glyph=\"&#xE706;\"") != std::string::npos,
                  "Theme uses the Segoe MDL2 Brightness glyph");
     const size_t inspectPos = xaml.find("x:Name=\"DevToolsProtoInspect\"");

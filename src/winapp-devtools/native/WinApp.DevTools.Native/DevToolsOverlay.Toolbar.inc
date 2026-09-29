@@ -104,7 +104,6 @@ static void ShowARow(bool open)
     MoveOverlayElement(g_railL, ChipX(), ChipY());
     SetOverlayElementVisible(g_aRow, g_toolbarVisible && open);
     SetOverlayElementVisible(g_railL, g_toolbarVisible && !open);
-    SetOverlayElementVisible(g_pinDot, g_toolbarVisible && open && g_pinned);
     if (open && g_toolbarVisible) BeginNamedStoryboard(g_protoRoot, L"DevToolsBarReveal");
     DevToolsOverlayLog(L"overlay.toolbar bar %s corner=%d", open ? L"open" : L"closed", g_corner);
 }
@@ -126,11 +125,12 @@ static void OnPillGotFocus(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar focus Pick hr=0x%08X succeeded=%d", hr, (int)focused);
 }
 
+static void ProtoSetToggle(const wchar_t* button, const wchar_t* onPart, const wchar_t* offPart, bool on);
+
 static void ProtoSetPinned(bool on)
 {
     g_pinned = on;
-    if (on) MoveOverlayElement(g_pinDot, BarX() + (double)kBarW - 12.0, BarY() + 5.0);
-    SetOverlayElementVisible(g_pinDot, on && g_toolbarVisible && g_aRowOpen);
+    ProtoSetToggle(L"DevToolsProtoPin", L"DevToolsPinOn", L"DevToolsPinOff", on);
 }
 
 // Pinning also opens the bar now; unpinning leaves it open until the next PointerExited (the pointer is on the
@@ -156,6 +156,21 @@ static void ProtoSetPartVisible(const wchar_t* name, bool visible)
             reinterpret_cast<IUnknown*>(ui)->Release();
         }
         el->Release();
+    }
+}
+
+// A toolbar mode: the accent on-part replaces the plain icon, and IsChecked carries the state to UI Automation.
+static void ProtoSetToggle(const wchar_t* button, const wchar_t* onPart, const wchar_t* offPart, bool on)
+{
+    ProtoSetPartVisible(onPart, on);
+    ProtoSetPartVisible(offPart, !on);
+    if (!g_protoRoot) return;
+    winrt::com_ptr<IInspectable> element;
+    element.attach(DevToolsSelFindName(g_protoRoot, button));
+    winrt::com_ptr<IUnknown> toggle;
+    if (element && SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsXCP::IToggleButton>(), toggle.put_void()))) {
+        const auto checked = winrt::box_value(on);
+        DevToolsAbi<DevToolsXCP::IToggleButton>(toggle.get())->put_IsChecked(winrt::get_abi(checked));
     }
 }
 
@@ -563,10 +578,9 @@ static void WirePrototype(IInspectable* canvas)
 // Cache the movable groups (AddRef'd for the agent lifetime).
     if (g_aRow)    { g_aRow->Release();    g_aRow = nullptr; }    childAt(1, &g_aRow);
     if (g_railL)   { g_railL->Release();   g_railL = nullptr; }   childAt(0, &g_railL);
-    if (g_pinDot)  { g_pinDot->Release();  g_pinDot = nullptr; }  childAt(2, &g_pinDot);
     for (int i = 0; i < kCornerCount; ++i) {
         if (g_snapUi[i]) { g_snapUi[i]->Release(); g_snapUi[i] = nullptr; }
-        childAt(3 + (unsigned int)i, &g_snapUi[i]);
+        childAt(2 + (unsigned int)i, &g_snapUi[i]);
     }
 
 // Wire the pill (hover-in expand; SizeChanged re-anchors it to the parked corner) + bar (hover-out collapse;
@@ -614,7 +628,7 @@ static void WirePrototype(IInspectable* canvas)
         barUi->Release();
     }
 
-    DevToolsOverlayLog(L"overlay.toolbar wired (bar=%p pill=%p pinDot=%p snaps=%p,%p,%p,%p,%p,%p position=%d)",
-                  g_aRow, g_railL, g_pinDot, g_snapUi[0], g_snapUi[1], g_snapUi[2],
+    DevToolsOverlayLog(L"overlay.toolbar wired (bar=%p pill=%p snaps=%p,%p,%p,%p,%p,%p position=%d)",
+                  g_aRow, g_railL, g_snapUi[0], g_snapUi[1], g_snapUi[2],
                   g_snapUi[3], g_snapUi[4], g_snapUi[5], g_corner);
 }

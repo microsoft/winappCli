@@ -14,6 +14,7 @@
 #include "DevToolsSink.h"
 #include "DevToolsBindingRow.h"
 #include "DevToolsCommentText.h"
+#include "DevToolsSettings.h"
 #include "DevToolsText.h"
 #include "DevToolsPathWalk.h"
 #include "DevToolsBindingRelay.h"
