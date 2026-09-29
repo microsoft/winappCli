@@ -235,6 +235,36 @@ public class UpdateNotificationServiceTests : BaseCommandTests
         Assert.DoesNotContain("available", TestAnsiConsole.Output, "A notice that can't be recorded as shown would repeat on every run.");
     }
 
+    [TestMethod]
+    public void CheckAndNotify_StaleCache_KeepsLastCheckUntilTheRefreshCompletes()
+    {
+        // A short command can exit before the background refresh returns. The stale LastCheck must
+        // survive that, so the next run retries instead of waiting another day.
+        using var responseGate = new ManualResetEventSlim();
+        var handler = new FakeHttpMessageHandler().When(_ => true, _ =>
+        {
+            responseGate.Wait(TimeSpan.FromSeconds(10));
+            return new HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
+        });
+        _concreteService.Http = new HttpClient(handler);
+        _concreteService.SkipBackgroundRefreshForTesting = false;
+        var cacheFile = Path.Join(_testCacheDirectory.FullName, ".update-check");
+        Directory.CreateDirectory(_testCacheDirectory.FullName);
+        File.WriteAllText(cacheFile, "2020-01-01T00:00:00.0000000+00:00\n\n");
+
+        try
+        {
+            _updateNotificationService.CheckAndNotify();
+
+            Assert.StartsWith("2020-01-01", File.ReadAllText(cacheFile), "An in-flight refresh must not mark the check as done.");
+        }
+        finally
+        {
+            responseGate.Set();
+            SpinWait.SpinUntil(() => !File.ReadAllText(cacheFile).StartsWith("2020-01-01", StringComparison.Ordinal), TimeSpan.FromSeconds(10));
+        }
+    }
+
     private static AclRestore DenyWritesTo(DirectoryInfo directory)
     {
         directory.Create();

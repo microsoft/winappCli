@@ -91,11 +91,13 @@ internal class UpdateNotificationService(
                     || (DateTimeOffset.UtcNow - cache.LastCheck.Value).TotalHours >= CheckIntervalHours)
                 && Interlocked.CompareExchange(ref _refreshScheduled, Scheduled, NotScheduled) == NotScheduled)
             {
-                // Record the check before making it, so concurrent invocations don't re-race while
-                // the network call is in flight; the refresh fills in the version when it completes.
-                // If it can't be recorded (a read-only winapp directory), skip the check: it would
+                // On first run (no cache), write a placeholder so subsequent invocations see a valid
+                // LastCheck and don't re-race while the network call is in flight; the refresh fills in
+                // the version when it completes. A stale cache is rewritten unchanged, only to confirm
+                // it can be saved. If it can't (a read-only winapp directory), skip the check: it would
                 // otherwise run, and on first run block briefly, on every invocation.
-                if (!WriteCacheFile(cacheFile, new UpdateCheckCache(DateTimeOffset.UtcNow, cache.LatestVersion, cache.LastShownDate)))
+                var placeholder = cache.LastCheck.HasValue ? cache : cache with { LastCheck = DateTimeOffset.UtcNow };
+                if (!WriteCacheFile(cacheFile, placeholder))
                 {
                     Interlocked.Exchange(ref _refreshScheduled, NotScheduled);
                     return;
