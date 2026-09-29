@@ -1282,8 +1282,9 @@ bindings, and save source-anchored review comments. See the
 `winapp devtools --help` for available commands.
 
 With `winapp run --devtools --json`, the run result also includes `devTools`
-with the inspected `NodeCount` and whether the requested overlay is shown
-(`OverlayShown`).
+with the inspected `nodeCount` and whether the requested overlay is shown
+(`overlayShown`). When source locations are unavailable, `sourceWarnings` lists
+one entry per reason, with `count` when several XAML files share it.
 
 ---
 

@@ -57,7 +57,7 @@ internal partial class RunCommand
                         snapshot.Coordinates.Where(file => file.Attribution != "likely")
                             .ToDictionary(file => file.Resource, file => file.XbfHash, StringComparer.OrdinalIgnoreCase),
                         context, token).ConfigureAwait(false);
-                    return (0, "Compiled XAML resources matched on disk; running bytes are not verified.");
+                    return (0, "Compiled XAML resources matched on disk.");
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or System.Xml.XmlException)
                 {
@@ -177,6 +177,7 @@ internal partial class RunCommand
                 else if (detach)
                 {
                     ansiConsole.WriteLine(pid.ToString());
+                    ansiConsole.WriteLine($"Next: winapp devtools inspect -a {pid}");
                 }
                 else
                 {
@@ -213,9 +214,16 @@ internal partial class RunCommand
 
         private void LogSourceExclusions(IReadOnlyList<XamlSourceExclusion>? exclusions)
         {
-            foreach (var exclusion in exclusions ?? [])
+            foreach (var exclusion in XamlSourceExclusion.Collapse(exclusions) ?? [])
             {
-                logger.LogWarning("Compiled XAML coordinates excluded for {Source}: {Reason}", exclusion.Source, exclusion.Reason);
+                if (exclusion.Count is int count)
+                {
+                    logger.LogWarning("Source locations are unavailable for {Count} XAML files: {Reason}", count, exclusion.Reason);
+                }
+                else
+                {
+                    logger.LogWarning("Source locations are unavailable for {Source}: {Reason}", exclusion.Source, exclusion.Reason);
+                }
             }
         }
 

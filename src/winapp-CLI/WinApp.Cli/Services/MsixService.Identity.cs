@@ -871,7 +871,7 @@ internal partial class MsixService
             try { AtomicFile.Copy(entry.SourcePath, destPath); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                throw new IOException($"Could not stage '{entry.SourcePath}' as '{destPath}': {RunFailure.Describe(error)}", error);
+                throw new IOException($"Could not stage '{entry.SourcePath}' as '{destPath}': {RunFailure.Describe(error, RunFailure.ProcessesRunningFrom(destPath))}", error);
             }
             copied++;
         }

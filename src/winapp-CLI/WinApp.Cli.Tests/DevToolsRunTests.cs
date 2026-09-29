@@ -218,14 +218,15 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
             Assert.AreEqual(12345u, document.RootElement.GetProperty("ProcessId").GetUInt32());
             Assert.IsFalse(document.RootElement.TryGetProperty("Error", out _));
             var devTools = document.RootElement.GetProperty("devTools");
-            Assert.AreEqual(3, devTools.GetProperty("NodeCount").GetInt32());
-            Assert.AreEqual(!noOverlay, devTools.GetProperty("OverlayShown").GetBoolean());
-            Assert.AreEqual("local", devTools.GetProperty("Comments").GetString());
-            Assert.IsFalse(devTools.TryGetProperty("SourceSnapshot", out _));
+            Assert.AreEqual(3, devTools.GetProperty("nodeCount").GetInt32());
+            Assert.AreEqual(!noOverlay, devTools.GetProperty("overlayShown").GetBoolean());
+            Assert.AreEqual("local", devTools.GetProperty("comments").GetString());
+            Assert.IsFalse(devTools.TryGetProperty("sourceSnapshot", out _));
         }
         else
         {
             StringAssert.Contains(TestAnsiConsole.Output, "12345");
+            StringAssert.Contains(TestAnsiConsole.Output, "Next: winapp devtools inspect -a 12345");
         }
     }
 

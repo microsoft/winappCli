@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Spectre.Console;
 using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Models;
@@ -10,8 +11,12 @@ namespace WinApp.Cli.Commands;
 
 // A local launch reports only the connection; the source fields describe a Sandbox launch's snapshot.
 internal sealed record GuestDevToolsRunInfo(
-    int NodeCount, bool OverlayShown, string Comments,
-    string? HostProject = null, string? SourceSnapshot = null, string? SourceHash = null);
+    [property: JsonPropertyName("nodeCount")] int NodeCount,
+    [property: JsonPropertyName("overlayShown")] bool OverlayShown,
+    [property: JsonPropertyName("comments")] string Comments,
+    [property: JsonPropertyName("hostProject")] string? HostProject = null,
+    [property: JsonPropertyName("sourceSnapshot")] string? SourceSnapshot = null,
+    [property: JsonPropertyName("sourceHash")] string? SourceHash = null);
 
 internal partial class RunCommand
 {
@@ -72,7 +77,7 @@ internal partial class RunCommand
                         output.AUMID = $"{appLauncherService.ComputePackageFamilyName(package.PackageName, package.Publisher)}!{package.ApplicationId}";
                     }
                     output.AppSelector = selector;
-                    output.SourceWarnings = prepared.Sources.CoordinateExclusions is { Count: > 0 } exclusions ? exclusions : null;
+                    output.SourceWarnings = Services.DevTools.XamlSourceExclusion.Collapse(prepared.Sources.CoordinateExclusions);
                     output.SourceError = prepared.Sources.CoordinateError;
                     output.DevTools = new(frame.NodeCount!.Value, frame.OverlayShown == true, "host",
                         prepared.Sources.ProjectPath, prepared.Sources.GuestRoot!, prepared.Sources.ManifestHash!);

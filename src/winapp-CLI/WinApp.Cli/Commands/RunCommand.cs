@@ -1154,7 +1154,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 AUMID = aumid,
                 ProcessId = processId,
                 Error = errorMessage,
-                SourceWarnings = sourceWarnings is { Count: > 0 } ? sourceWarnings : null,
+                SourceWarnings = Services.DevTools.XamlSourceExclusion.Collapse(sourceWarnings),
                 SourceError = sourceError,
                 DevTools = devTools,
             };

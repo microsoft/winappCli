@@ -86,6 +86,8 @@ internal sealed class XamlCoordinateMap
         _sourceLines = LineStarts(source);
     }
 
+    internal const string StaleBuild = "The build output does not match the XAML sources. Rebuild (run without --no-build) to get source locations.";
+
     internal static XamlCoordinateMap Create(GuestSourceManifest snapshot, BuildProof proof,
         byte[] sourceBytes, byte[] generatedBytes, byte[] xbfBytes)
     {
@@ -95,7 +97,7 @@ internal sealed class XamlCoordinateMap
             proof.SourceWriteTicks <= 0 || proof.SourceWriteTicks != proof.SavedSourceWriteTicks ||
             proof.ResourceMapName.Length != 0 || proof.ComponentResourceLocation.Length != 0)
         {
-            throw new InvalidDataException("Missing or mismatched selected-build provenance.");
+            throw new InvalidDataException(StaleBuild);
         }
         var sourcePath = GuestCommentBinding.ValidateRelativeSource(proof.SourceRelativePath);
         var resource = GuestCommentBinding.ValidateRelativeSource(proof.ResourcePath);

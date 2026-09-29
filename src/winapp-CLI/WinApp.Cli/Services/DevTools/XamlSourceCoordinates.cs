@@ -14,7 +14,16 @@ internal sealed record XamlCompilerArtifacts(string Input, string Output, string
 internal sealed record XamlSourceExclusion(
     [property: System.Text.Json.Serialization.JsonPropertyName("source")] string Source,
     [property: System.Text.Json.Serialization.JsonPropertyName("resource")] string Resource,
-    [property: System.Text.Json.Serialization.JsonPropertyName("reason")] string Reason);
+    [property: System.Text.Json.Serialization.JsonPropertyName("reason")] string Reason,
+    [property: System.Text.Json.Serialization.JsonPropertyName("count"),
+        System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    int? Count = null)
+{
+    /// <summary>One entry per distinct reason; <see cref="Count"/> says how many files share it.</summary>
+    internal static IReadOnlyList<XamlSourceExclusion>? Collapse(IReadOnlyList<XamlSourceExclusion>? exclusions)
+        => exclusions is not { Count: > 0 } ? null : exclusions.GroupBy(exclusion => exclusion.Reason)
+            .Select(group => group.Count() == 1 ? group.First() : group.First() with { Count = group.Count() }).ToArray();
+}
 internal sealed record XamlCoordinateCapture(
     IReadOnlyList<XamlSourceCoordinateFile> Files, IReadOnlyList<XamlSourceExclusion> Exclusions);
 

@@ -278,7 +278,7 @@ public sealed class GuestDevToolsRunPipelineTests() : BaseCommandTests(logLevel:
         var id = selector["guest:".Length..];
         Assert.IsFalse(Directory.Exists(Path.Combine(host.Resolve(_backend.Target, id).FullName, "sources")),
             "The transferred source copy is not retained on the host.");
-        Assert.AreEqual(overlay, result.RootElement.GetProperty("devTools").GetProperty("OverlayShown").GetBoolean());
+        Assert.AreEqual(overlay, result.RootElement.GetProperty("devTools").GetProperty("overlayShown").GetBoolean());
     }
 
     [TestMethod]

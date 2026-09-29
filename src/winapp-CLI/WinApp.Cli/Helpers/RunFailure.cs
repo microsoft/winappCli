@@ -7,10 +7,17 @@ namespace WinApp.Cli.Helpers;
 
 internal static class RunFailure
 {
-    internal static string Describe(Exception error)
+    /// <param name="error">The staging or launch failure.</param>
+    /// <param name="runningFrom">PIDs of processes whose image is the file that could not be written, if any.</param>
+    internal static string Describe(Exception error, IReadOnlyList<int>? runningFrom = null)
     {
         var code = error is Win32Exception native ? native.NativeErrorCode
             : ((uint)error.HResult & 0xffff0000u) == 0x80070000u ? error.HResult & 0xffff : 0;
+        if (code is 5 or 32 or 33 && runningFrom is { Count: > 0 })
+        {
+            return $"The app is still running from this build (PID {string.Join(", ", runningFrom)}), so its files cannot be replaced. " +
+                $"Close it, then run again. (Win32 {code}, HRESULT 0x{error.HResult:X8}).";
+        }
         var guidance = code switch
         {
             5 => "Access was denied. Check permissions on the app's input and staging files. " +
@@ -28,5 +35,31 @@ internal static class RunFailure
             detail.StartsWith("Arg_", StringComparison.Ordinal);
         var context = resourceKey ? string.Empty : $" {detail}";
         return $"{guidance} (Win32 {code}, HRESULT 0x{error.HResult:X8}).{context}";
+    }
+
+    /// <summary>PIDs of this user's processes whose executable is <paramref name="imagePath"/>.</summary>
+    internal static IReadOnlyList<int> ProcessesRunningFrom(string imagePath)
+    {
+        var target = Path.GetFullPath(imagePath);
+        var pids = new List<int>();
+        foreach (var process in System.Diagnostics.Process.GetProcessesByName(Path.GetFileNameWithoutExtension(target)))
+        {
+            using (process)
+            {
+                try
+                {
+                    if (string.Equals(new Services.LaunchedProcess(process).ExecutablePath, target, StringComparison.OrdinalIgnoreCase))
+                    {
+                        pids.Add(process.Id);
+                    }
+                }
+                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+                {
+                    // Another user's or an elevated process: it cannot be this user's staged app.
+                }
+            }
+        }
+        pids.Sort();
+        return pids;
     }
 }
