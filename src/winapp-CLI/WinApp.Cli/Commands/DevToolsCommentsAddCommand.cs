@@ -218,8 +218,8 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription
                 comment.Context = new CommentContext { Property = property, Bounds = bounds };
             }
 
-            // If the anchor carries no usable identity and no source file, flag it weak so the agent greps + doesn't guess.
-            if (!comment.Anchor.Weak && !HasUsableIdentity(comment.Anchor))
+            // Without a source file the anchor is weak: an agent has to search the project and must not guess.
+            if (string.IsNullOrEmpty(comment.Anchor.SourceFile))
             {
                 comment.Anchor.Weak = true;
             }
@@ -296,19 +296,6 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription
             error = ex.Message;
             return false;
         }
-    }
-
-    internal static bool HasUsableIdentity(CommentAnchor anchor)
-    {
-        if (anchor.SourceFile is { Length: > 0 })
-        {
-            return true;
-        }
-
-        var id = anchor.Identity;
-        return !string.IsNullOrEmpty(id.Name)
-            || (!string.IsNullOrEmpty(id.AutomationId) && id.AutomationId != "0")
-            || !string.IsNullOrWhiteSpace(id.Content);
     }
 
     internal static bool TryParseBounds(string? s, out CommentBounds? bounds)

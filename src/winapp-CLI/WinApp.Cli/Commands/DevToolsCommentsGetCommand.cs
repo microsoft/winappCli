@@ -68,9 +68,9 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription
                     }
                     var idn = view.Anchor.Identity;
                     DevToolsRender.WriteMarkupLine(ansiConsole, $"  [teal]{Markup.Escape(idn.Type ?? "element")}[/] {Markup.Escape(idn.Name ?? string.Empty)}");
-                    if (view.Anchor.SourceFile is { Length: > 0 } file)
+                    if (CommentViewBuilder.HistoricalLocation(view) is { } historical)
                     {
-                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Created at (historical): {Markup.Escape(file)}:{view.Anchor.Line}[/]");
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Created at (historical): {Markup.Escape(historical)}[/]");
                     }
                     if (view.Anchor.Authored is { } authored)
                     {

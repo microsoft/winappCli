@@ -305,12 +305,18 @@ public class CommentSelectionCaptureTests
                 },
             };
             var view = CommentViewBuilder.ToView(comment, new CommentAnchorResolver(), root.FullName);
-            Assert.IsFalse(view.AnchorConfirmed);
-            Assert.IsTrue(view.RequiresConfirmation);
             if (captured.Authored is not null)
             {
+                // The declaration matches exactly one source declaration; an unclassified runtime peer is irrelevant.
                 Assert.AreEqual("unclassified-peer", captured.Authored.UniquenessReason);
-                StringAssert.Contains(CommentViewBuilder.AnchorHealthWarning(view), "unclassified-peer");
+                Assert.IsTrue(view.AnchorConfirmed);
+                Assert.IsFalse(view.RequiresConfirmation);
+                Assert.IsNull(CommentViewBuilder.AnchorHealthWarning(view));
+            }
+            else
+            {
+                Assert.IsFalse(view.AnchorConfirmed);
+                Assert.IsTrue(view.RequiresConfirmation);
             }
         }
         finally { root.Delete(recursive: true); }

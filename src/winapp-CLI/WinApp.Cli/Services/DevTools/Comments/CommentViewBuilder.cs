@@ -76,7 +76,7 @@ internal static class CommentViewBuilder
             view.Hits = [confirmed];
             return view;
         }
-        view.RequiresConfirmation = view.Hits.Count > 0;
+        view.RequiresConfirmation = view.Hits.Count > 0 || view.Anchor.Weak;
 
         // Surface the same-via ambiguity signal structurally so --json consumers don't have to
         // re-derive it. AmbiguousCandidates returns [] unless the strongest facet re-anchored to >1 distinct place.
@@ -126,13 +126,9 @@ internal static class CommentViewBuilder
     }
 
     public static string CandidatesReason(CommentView c)
-        => (c.Anchor.SourceFile is { Length: > 0 } file && c.Anchor.Line is int line && line > 0
+        => c.Anchor.SourceFile is { Length: > 0 } file && c.Anchor.Line is int line && line > 0
             ? $"creation location {file}:{line} is historical; current candidates require confirmation"
-            : "no location was captured for this element, so this is a source-wide search") + UniquenessNote(c);
-
-    private static string UniquenessNote(CommentView c)
-        => c.Anchor.Authored is { UniqueInstance: false, UniquenessReason: { Length: > 0 } reason }
-            ? $"; captured instance uniqueness: {reason}" : "";
+            : "no location was captured for this element, so this is a source-wide search";
 
     public static CommentsListPayload BuildPayload(
         IEnumerable<Comment> comments,
@@ -205,11 +201,19 @@ internal static class CommentViewBuilder
         => c.Hits.Count == 0 && !string.IsNullOrEmpty(c.Anchor.SourceFile) && HasResolvableIdentity(c.Anchor);
 
     public static string? AnchorHealthWarning(CommentView c)
-        => c.RequiresConfirmation
-            ? "current source candidates require explicit confirmation; the creation location is historical" +
-                UniquenessNote(c)
-            : IsUnanchorable(c)
+        => IsUnanchorable(c)
             ? "saved without source identity — cannot be re-anchored (re-add the comment on the running app)"
+            : string.IsNullOrEmpty(c.Anchor.SourceFile)
+            ? c.Hits.Count > 0
+                ? "not linked to source; candidates come from a source-wide search and require explicit confirmation"
+                : "not linked to source; no source candidates were found"
+            : c.RequiresConfirmation
+            ? "current source candidates require explicit confirmation; the creation location is historical"
             : IsMaybeStale(c) ? "no current source match — source may be unavailable, or element may be renamed or removed (stale)" : null;
+
+    /// <summary>The creation location, shown only while it is useful: a confirmed anchor has a current one.</summary>
+    public static string? HistoricalLocation(CommentView c)
+        => c.AnchorConfirmed || c.Anchor.SourceFile is not { Length: > 0 } file ? null
+            : c.Anchor.Line is > 0 ? $"{file}:{c.Anchor.Line}" : file;
 
 }

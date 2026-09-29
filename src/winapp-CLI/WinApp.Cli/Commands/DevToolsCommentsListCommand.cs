@@ -117,9 +117,9 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"   [grey]Project root: {Markup.Escape(c.ProjectRoot)}[/]");
                     }
                     DevToolsRender.WriteMarkupLine(ansiConsole, $"   {Markup.Escape(c.Text)}");
-                    if (c.Anchor.SourceFile is { Length: > 0 } file)
+                    if (CommentViewBuilder.HistoricalLocation(c) is { } historical)
                     {
-                        DevToolsRender.WriteMarkupLine(ansiConsole, $"   [grey]Created at (historical): {Markup.Escape(file)}:{c.Anchor.Line}[/]");
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"   [grey]Created at (historical): {Markup.Escape(historical)}[/]");
                     }
                     if (c.Resolution?.Note is { Length: > 0 } note)
                     {

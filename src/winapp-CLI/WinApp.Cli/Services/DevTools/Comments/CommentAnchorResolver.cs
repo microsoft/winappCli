@@ -80,7 +80,8 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
                     {
                         continue;
                     }
-                    var qualified = authored is not null && authored.UniqueInstance && !authored.Templated &&
+                    // Runtime instance counts do not matter here: one matching declaration is one place to edit.
+                    var qualified = authored is not null && !authored.Templated &&
                         !anchor.Templated && !anchor.Weak &&
                         authored.Type == CommentAuthoredIdentity.TypeIdentity(element) &&
                         CommentStoreLocator.SameProject(authored.ProjectRoot, sourceRoot) &&
@@ -102,6 +103,12 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
             {
                 (logger ?? NullLogger<CommentAnchorResolver>.Instance).LogWarning(ex, "Could not read comment source file {File}.", file);
             }
+        }
+
+        // A type-only match is noise once the declaration or x:Name identified candidates.
+        if (hits.Exists(hit => hit.Via is "declaration" or "x:Name"))
+        {
+            hits.RemoveAll(hit => hit.Via == "type");
         }
 
         var pivot = anchor.Line ?? 0;

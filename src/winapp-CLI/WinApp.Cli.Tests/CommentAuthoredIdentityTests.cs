@@ -156,7 +156,7 @@ public sealed class CommentAuthoredIdentityTests
     }
 
     [TestMethod]
-    public void TemplateDeclarationsAndRepeatedRuntimeInstancesRequireConfirmation()
+    public void TemplateDeclarationsRequireConfirmation_RepeatedRuntimeInstancesOfOneDeclarationDoNot()
     {
         var templated = Capture("""
             <DataTemplate x:DataType="local:Row">
@@ -167,8 +167,37 @@ public sealed class CommentAuthoredIdentityTests
         Assert.IsFalse(View(templated).AnchorConfirmed);
         Assert.IsTrue(View(templated).RequiresConfirmation);
         var repeated = Capture("""<TextBlock Text="Same" />""", unique: false);
-        Assert.IsFalse(View(repeated).AnchorConfirmed);
-        Assert.IsTrue(View(repeated).RequiresConfirmation);
+        var view = View(repeated);
+        Assert.IsTrue(view.AnchorConfirmed, "One matching declaration is one place to edit, however often it is instantiated.");
+        Assert.IsFalse(view.RequiresConfirmation);
+        Assert.IsNull(CommentViewBuilder.AnchorHealthWarning(view));
+    }
+
+    [TestMethod]
+    public void TypeOnlyCandidatesAreDroppedWhenTheDeclarationMatches()
+    {
+        var comment = Capture("""
+            <Grid><TextBlock Text="Same" /></Grid>
+            <Grid><TextBlock Text="Same" /></Grid>
+            <TextBlock Text="Unrelated" />
+            """);
+        var view = View(comment);
+        Assert.AreEqual(2, view.Hits.Count);
+        Assert.IsTrue(view.Hits.All(hit => hit.Via == "declaration"), string.Join(", ", view.Hits.Select(hit => hit.Via)));
+    }
+
+    [TestMethod]
+    public void HistoricalLocationIsShownOnlyWithoutACurrentMatch()
+    {
+        const string target = """<TextBlock x:Name="Label" Text="Same" />""";
+        var comment = Capture(target);
+        var path = Path.Combine(_root, "Page.xaml");
+        File.WriteAllText(path, File.ReadAllText(path).Replace(target, "\n\n" + target, StringComparison.Ordinal));
+        Assert.IsNull(CommentViewBuilder.HistoricalLocation(View(comment)), "A moved but confirmed anchor has one location: the current one.");
+        comment.Anchor.Authored = null;
+        Assert.AreEqual($"Page.xaml:{comment.Anchor.Line}", CommentViewBuilder.HistoricalLocation(View(comment)));
+        comment.Anchor.Line = null;
+        Assert.AreEqual("Page.xaml", CommentViewBuilder.HistoricalLocation(View(comment)), "No line is not printed as an empty ':'.");
     }
 
     [TestMethod]

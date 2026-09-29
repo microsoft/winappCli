@@ -95,7 +95,8 @@ public class DevToolsCommentsHumanOutputTests
         });
         File.WriteAllText(path, "\n\n" + Page.Replace("Content=\"Save\"", "Content=\"Save changes\"", StringComparison.Ordinal));
         var human = Success("get", "authored-note");
-        StringAssert.Contains(human, "Created at (historical): MainWindow.xaml:6");
+        Assert.IsFalse(human.Contains("Created at (historical)", StringComparison.Ordinal),
+            "A confirmed anchor has one location; the stale creation line would contradict it.");
         StringAssert.Contains(human, "Current match: MainWindow.xaml:8");
         StringAssert.Contains(human, "Captured declaration:");
         StringAssert.Contains(human, "Content=\"Save\"");
@@ -107,6 +108,18 @@ public class DevToolsCommentsHumanOutputTests
         Assert.IsFalse(payload.Comment.RequiresConfirmation);
         Assert.AreEqual(6, payload.Comment.Anchor.Line);
         Assert.AreEqual(8, payload.Comment.Hits.Single().Line);
+    }
+
+    [TestMethod]
+    public void CommentWithoutSourceIsWeakAndSaysItIsNotLinked()
+    {
+        File.WriteAllText(Path.Combine(_root, "MainWindow.xaml"), Page);
+        var added = JsonSerializer.Deserialize(Success("add", "--id", "cmt_unlinked00001", "--text", "Wider",
+            "--type", "Button", "--content", "Save", "--json"), CommentsJsonContext.Default.CommentResultPayload)!;
+        Assert.IsTrue(added.Comment!.Anchor.Weak);
+        Assert.IsTrue(added.Comment.RequiresConfirmation);
+        Assert.IsFalse(added.Comment.AnchorConfirmed);
+        StringAssert.Contains(Success("list"), "not linked to source");
     }
 
     [TestMethod]
