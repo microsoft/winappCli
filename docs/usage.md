@@ -2108,7 +2108,7 @@ Winapp creates this directory when a command first needs it.
 
 #### When winapp can't write to the global cache directory
 
-Some environments, such as agent sandboxes that only allow writes to the current project, block access to `%USERPROFILE%\.winapp`. Most commands still work there. Each run prints the one-line telemetry notice to stderr, and the update check is skipped.
+Some environments, such as agent sandboxes that only allow writes to the current project, block access to `%USERPROFILE%\.winapp`. Most commands still work there, and the update check is skipped. If winapp hasn't completed its first run in that directory, each run also prints a one-line telemetry notice to stderr.
 
 These commands need to write to the cache directory and stop with an error that names the path:
 
