@@ -110,6 +110,24 @@ public sealed class BindingDiagnosisTests
         Assert.AreEqual(state, result.RootElement.GetProperty("state").GetString());
     }
 
+    private sealed class PrivateSource
+    {
+#pragma warning disable CS0414, IDE0052
+        private readonly string cachedModels = "private";
+#pragma warning restore CS0414, IDE0052
+    }
+
+    [TestMethod]
+    public void CompiledBindingReachesNonPublicMembersButRuntimeBindingDoesNot()
+    {
+        using var compiled = JsonDocument.Parse(Walk(null, "", null, "cachedModels", new PrivateSource(), kind: "{x:Bind}"));
+        Assert.AreEqual("evaluated", compiled.RootElement.GetProperty("state").GetString(), compiled.RootElement.ToString());
+        Assert.AreEqual("private", compiled.RootElement.GetProperty("sourceValue").GetString());
+        using var runtime = JsonDocument.Parse(Walk(null, "", null, "cachedModels", new PrivateSource()));
+        Assert.AreEqual("bad-segment", runtime.RootElement.GetProperty("state").GetString());
+        StringAssert.Contains(runtime.RootElement.GetProperty("reason").GetString()!, "no public property or field");
+    }
+
     private sealed class FormattingConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, string language) => $"formatted:{value}";

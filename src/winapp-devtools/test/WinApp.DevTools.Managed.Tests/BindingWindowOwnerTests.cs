@@ -29,7 +29,9 @@ public sealed class BindingWindowOwnerTests
     public sealed class StaticOnlyApp
     {
         public static Window? Retained;
+        private static Window? Hidden { get; set; }
         public static Window Getter => throw new AssertFailedException("Static getters must not be evaluated.");
+        public static void SetHidden(Window? window) => Hidden = window;
     }
 
     private static WindowOwner Create(object target)
@@ -108,16 +110,21 @@ public sealed class BindingWindowOwnerTests
     }
 
     [TestMethod]
-    public void StaticWindowIsNotReadOrEnrolled()
+    public void StaticWindowFieldsAreEnrolledWithoutRunningGetters()
     {
         var target = new object();
-        StaticOnlyApp.Retained = Create(target);
+        var retained = Create(target);
+        StaticOnlyApp.Retained = retained;
         try
         {
-            Assert.IsNull(BindingDiagnosis.ResolveWindowOwner(target, new StaticOnlyApp(),
-                _ => throw new AssertFailedException("Static fields must not yield a candidate.")));
+            Assert.AreSame(retained, BindingDiagnosis.ResolveWindowOwner(target, new StaticOnlyApp(), _ => true)!.Owner);
+            StaticOnlyApp.Retained = null;
+            var hidden = Create(target);
+            StaticOnlyApp.SetHidden(hidden);
+            Assert.AreSame(hidden, BindingDiagnosis.ResolveWindowOwner(target, new StaticOnlyApp(), _ => true)!.Owner,
+                "An App.MainWindow { get; private set; } auto-property is found through its backing field.");
         }
-        finally { StaticOnlyApp.Retained = null; }
+        finally { StaticOnlyApp.Retained = null; StaticOnlyApp.SetHidden(null); }
     }
 
     [TestMethod]
@@ -141,7 +148,7 @@ public sealed class BindingWindowOwnerTests
     }
 
     [TestMethod]
-    public void UnknownNearerTemplateCannotEscapeToAWindow()
+    public void NearerScopesThatDoNotReferenceTheTargetDoNotHideItsOwner()
     {
         var target = new object();
         var window = Create(target);
@@ -149,8 +156,12 @@ public sealed class BindingWindowOwnerTests
         var owner = BindingDiagnosis.ResolveCompiledOwner(target, _ => null, _ => null,
             () => BindingDiagnosis.ResolveWindowOwner(target, app, _ => true));
         Assert.AreSame(window, owner!.Owner);
+        Assert.AreSame(window, BindingDiagnosis.ResolveCompiledOwner(target, _ => null, _ => new object(),
+            () => BindingDiagnosis.ResolveWindowOwner(target, app, _ => true))!.Owner,
+            "An unknown template component is not an owner, so the window's proven ownership still applies.");
         Assert.IsNull(BindingDiagnosis.ResolveCompiledOwner(target, _ => null, _ => new object(),
-            () => throw new AssertFailedException("Do not escape a nearer generated scope.")));
+            () => BindingDiagnosis.ResolveWindowOwner(target, new AppFields { First = Create(new object()) }, _ => true)),
+            "Escaping a nearer scope still requires the outer owner to reference the exact target.");
     }
 
     [TestMethod]

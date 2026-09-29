@@ -144,11 +144,26 @@ public sealed class BindingTemplateSafetyTests
             node => ReferenceEquals(node, templateRoot) ? bindings : null);
         Assert.AreSame(bindings, scope!.Bindings);
         Assert.AreSame(templateRoot, scope.Owner);
-        Assert.IsNull(BindingDiagnosis.ResolveCompiledOwner(row,
-            _ => throw new AssertFailedException("Do not escape an unknown template scope"),
-            _ => new object()));
+        Assert.IsNull(BindingDiagnosis.ResolveCompiledOwner(row, _ => null, _ => new object()),
+            "An unknown template component proves nothing.");
         bindings.dataRoot = null;
         Assert.IsNull(Resolve(row, bindings));
+    }
+
+    [TestMethod]
+    public void NonOwningUserControlScopeDoesNotHideTheEnclosingPage()
+    {
+        // HomePage supplies an ItemsView as content of a UserControl that has its own compiled Bindings.
+        var row = new Row("MRUView");
+        var control = new BindingAcceptanceTests.CompiledOwner();
+        control.Bindings.dataRoot = control;
+        control.Bindings.obj1 = new Row("control's own element");
+        var page = new BindingAcceptanceTests.CompiledOwner();
+        page.Bindings.dataRoot = page;
+        page.Bindings.obj1 = row;
+        var scope = BindingDiagnosis.ResolveCompiledOwner(row,
+            node => ReferenceEquals(node, row) ? control : ReferenceEquals(node, control) ? page : null, _ => null);
+        Assert.AreSame(page, scope!.Owner);
     }
 
     [TestMethod]

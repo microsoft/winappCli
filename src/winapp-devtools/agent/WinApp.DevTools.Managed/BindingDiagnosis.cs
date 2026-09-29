@@ -209,6 +209,10 @@ internal static class BindingDiagnosis
 
         object? current = source;
         string[] segments = string.IsNullOrEmpty(path) || path == "." ? [] : path.Split('.');
+        // x:Bind is compiled against its owner, so it can reach non-public members; {Binding} reflects public ones only.
+        var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy |
+            (kind == "{x:Bind}" ? BindingFlags.NonPublic : 0);
+        string visibility = kind == "{x:Bind}" ? "" : "public ";
         for (int i = 0; i < segments.Length; i++)
         {
             string seg = segments[i];
@@ -220,7 +224,7 @@ internal static class BindingDiagnosis
             }
 
             Type t = current.GetType();
-            PropertyInfo? pi = t.GetProperty(seg, BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy);
+            PropertyInfo? pi = t.GetProperty(seg, flags);
             if (pi is not null)
             {
                 try { current = pi.GetValue(current); }
@@ -233,10 +237,10 @@ internal static class BindingDiagnosis
                 continue;
             }
 
-            FieldInfo? fi = t.GetField(seg, BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy);
+            FieldInfo? fi = t.GetField(seg, flags);
             if (fi is null)
             {
-                return Fault("bad-segment", seg, "no public property or field '" + seg + "' on " + ShortName(t),
+                return Fault("bad-segment", seg, "no " + visibility + "property or field '" + seg + "' on " + ShortName(t),
                     path, sourceLabel, kind, mode);
             }
             try { current = fi.GetValue(current); }
@@ -474,6 +478,8 @@ internal static class BindingDiagnosis
             node => component((DependencyObject)node))?.Source;
     }
 
+    // The nearest generated scope that references the exact target owns it. A nearer scope that does not (for example a
+    // UserControl whose content was supplied by the enclosing page) is skipped rather than ending the search.
     internal static CompiledOwner? ResolveCompiledOwner(object selected, Func<object, object?> parent,
         Func<object, object?> component, Func<CompiledOwner?>? windowOwner = null)
     {
@@ -483,7 +489,7 @@ internal static class BindingDiagnosis
             FieldInfo? field = FindInstanceField(node.GetType(), "Bindings");
             if (bindings is null && field is null) continue;
             bindings ??= field?.GetValue(node);
-            return GeneratedOwner(node, bindings, selected);
+            if (GeneratedOwner(node, bindings, selected) is { } owner) return owner;
         }
         return windowOwner?.Invoke();
     }
@@ -524,13 +530,14 @@ internal static class BindingDiagnosis
         const int limit = 256;
         var windows = new HashSet<Window>(ReferenceEqualityComparer.Instance);
         var fieldCount = 0;
+        // Apps commonly keep the window in a static property (App.MainWindow); fields are read, getters never run.
         for (Type? type = application.GetType(); type is not null && type != typeof(Application) && type != typeof(object);
             type = type.BaseType)
         {
-            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
             {
                 if (++fieldCount > limit) throw new InvalidOperationException("Window owner discovery exceeded its field limit.");
-                var value = field.GetValue(application);
+                var value = field.GetValue(field.IsStatic ? null : application);
                 if (value is Window window) Add(window);
                 else if (value?.GetType() == typeof(Window[]))
                 {
