@@ -162,7 +162,7 @@ static std::wstring CommentRowAccessibleName(const DevToolsWindowComment& c, boo
         n += L", " + DevToolsCommentText::SourceLabel(c.file, c.line);
     }
     if (done)       n += L", resolved";
-    else if (!live) n += L", not on this screen";
+    else if (!live) n += std::wstring(L", ") + DevToolsCommentText::AbsentLabel(!c.anchor.empty());
     return n;
 }
 
@@ -183,8 +183,9 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
          L" HorizontalContentAlignment=\"Left\" Padding=\"8,6\" Background=\"Transparent\" BorderThickness=\"0\""
          L" AutomationProperties.AutomationId=\"Comment" + i + L"\"";
     m += L" AutomationProperties.Name=\"" + DevToolsXmlEscape(CommentRowAccessibleName(c, live, done), true) + L"\"";
+    const std::wstring absent = DevToolsCommentText::AbsentLabel(!c.anchor.empty());
     m += L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(live ? L"Select this element"
-                                                     : L"Not on this screen. Use the actions on the row") + L"\">";
+                                                     : L"Marker unavailable: " + absent + L". Use the actions on the row") + L"\">";
     m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
          L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
     m += L"<Grid Grid.Column=\"0\" VerticalAlignment=\"Top\" Margin=\"0,6,0,0\">";
@@ -207,7 +208,7 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
              L" BorderBrush=\"{ThemeResource ControlStrokeColorDefaultBrush}\""
              L" Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" VerticalAlignment=\"Center\""
              L" Visibility=\"" + (live ? L"Collapsed" : L"Visible") + L"\">"
-             L"<TextBlock Text=\"not on this screen\" FontSize=\"10\""
+             L"<TextBlock Text=\"" + absent + L"\" FontSize=\"10\""
              L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
     }
     m += L"<TextBlock FontSize=\"11\" VerticalAlignment=\"Center\" TextTrimming=\"CharacterEllipsis\">";
@@ -295,7 +296,7 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
             const std::wstring key = c.file.empty() ? std::wstring(L"(source not resolved)") : c.file;
             if (key != f) continue;
             const bool live = g_anchorWireFn && !c.anchor.empty() && g_anchorWireFn(c.anchor.c_str()) != 0;
-            if (!live) ++offscreen;
+            if (!live && !c.anchor.empty()) ++offscreen;
             m += BuildCommentRowMarkup(g_commentRows.size(), c, live);
             g_commentRows.push_back(c);
             g_commentRowLive.push_back(live ? 1 : 0);
@@ -326,9 +327,7 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
 // recompute, so the two cannot drift.
 static std::wstring CommentsOffscreenNote(size_t offscreen)
 {
-    if (!offscreen) return L"";
-    return std::to_wstring(offscreen) +
-           L" of these aren\u2019t on this screen right now, so they have no marker in the app.";
+    return DevToolsCommentText::OffscreenNote(offscreen);
 }
 
 // Recompute anchor liveness after coalesced tree changes and update only changed row state.
@@ -345,7 +344,7 @@ static void RecomputeCommentLiveness()
         // Ask. A handle that resolved a moment ago says nothing about now, which is the whole reason the
         // tree-change notification exists.
         const bool live = g_anchorWireFn && !c.anchor.empty() && g_anchorWireFn(c.anchor.c_str()) != 0;
-        if (!live) ++offscreen;
+        if (!live && !c.anchor.empty()) ++offscreen;
         if (live == r.live) continue;
         r.live = live;
         ++changed;

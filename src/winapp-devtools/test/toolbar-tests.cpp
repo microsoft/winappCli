@@ -100,6 +100,9 @@ static void TestToolbarContract()
     }
     CheckToolbar(CountOf(xaml, "AutomationProperties.AutomationId=\"DevToolsProtoTheme\"") == 1,
                  "Theme has exactly one stable AutomationId");
+    CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsProtoLayout\"") != std::string::npos &&
+                     xaml.find("ToolTip=\"Show layout adorners") == std::string::npos,
+                 "Layout adorners is a toggle for UI Automation, with a tooltip that holds in both states");
     CheckToolbar(xaml.find("AutomationProperties.Name=\"Toggle app theme\"") != std::string::npos,
                  "Theme has an accessible name");
     CheckToolbar(xaml.find("ToolTipService.ToolTip=\"Toggle the inspected app between Light and Dark themes\"")
@@ -388,7 +391,7 @@ static void TestToolbarContract()
                      window.find("AutomationProperties.Name=\\\"\" + DevToolsXmlEscape(CommentRowAccessibleName(c, live, done), true)") != std::string::npos &&
                      window.find("AutomationProperties.Name=\\\"\" + DevToolsXmlEscape(c.id)") == std::string::npos,
                  "a comment row's accessible name is the whole row, not the comment id");
-    CheckToolbar(window.find("not on this screen") != std::string::npos &&
+    CheckToolbar(window.find("DevToolsCommentText::AbsentLabel(!c.anchor.empty())") != std::string::npos &&
                      window.find("<Run Text=\\\"   not on this screen\\\"") == std::string::npos,
                  "the not-on-this-screen marker is a leading chip, not a trailing run the ellipsis eats first");
     // Every permanent comment action needs a comment-qualified accessible name.
@@ -404,10 +407,9 @@ static void TestToolbarContract()
     CheckToolbar(window.find("if (g_xamlHandlerPresent) {") != std::string::npos,
                  "which actions exist still depends on whether anything opens .xaml");
     // One writer updates total-versus-placed text without reparsing the list.
-    CheckToolbar(window.find("of these aren\\u2019t on this screen right now, so they have no marker in the app.")
-                     != std::string::npos &&
+    CheckToolbar(window.find("return DevToolsCommentText::OffscreenNote(offscreen);") != std::string::npos &&
                      window.find("static std::wstring CommentsOffscreenNote(size_t offscreen)") != std::string::npos,
-                 "the set-level off-screen footnote is unchanged, and has exactly one writer");
+                 "the set-level off-screen footnote has exactly one writer");
     // Comment liveness updates subscribe to the coalesced tree signal, not per-node notifications,
     // and must not rebuild markup on every change.
     CheckToolbar(window.find("static void OnAppTreeChanged()") != std::string::npos,

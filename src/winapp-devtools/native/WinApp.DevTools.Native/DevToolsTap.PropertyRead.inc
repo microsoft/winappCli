@@ -520,7 +520,12 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                 std::wstring name = v[i].PropertyName;
                 DevToolsReadChainEntry e;
                 e.source  = ValueSourceLabel(v[i], s, sc);
-                e.value   = v[i].Value ? v[i].Value : L"";
+                // Resolve like the row: a raw object handle ("0" for a null default) is not a value to show.
+                const long long bits = (long long)v[i].MetadataBits;
+                const std::wstring raw = v[i].Value ? v[i].Value : L"";
+                const bool isHandle = (bits & 0x1) != 0;
+                e.value   = (bits & 0x20) || (isHandle && raw == L"0") ? std::wstring()
+                          : ResolveDisplayValue(name, PickValueType(v[i]), raw, isHandle);
                 e.winner  = !v[i].Overridden;
                 unsigned int si = v[i].PropertyChainIndex;
                 if (s && si < sc) {

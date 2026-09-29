@@ -338,8 +338,8 @@ static void CheckCuratedText(const std::function<void(bool,const char*)>& check)
             const auto& p=props[0];
             check(p.value==text && p.type==L"Windows.Foundation.String" && p.valueState.empty(),
                 "curated effective Text preserves exact String value/type/state");
-            check(p.chain.size()==2 && p.chain[0].value==(diagnostics.text.text.empty() ? L"0" : text) &&
-                p.chain[1].value==L"0","curated raw Text chain remains unmodified");
+            check(p.chain.size()==2 && p.chain[0].value==diagnostics.text.text &&
+                p.chain[1].value.empty(),"curated Text chain shows a null default as empty, not as the raw handle \"0\"");
             check(props[1].value==L"0" && props[1].valueState==L"null" && props[1].type==L"Windows.Foundation.Object",
                 "object Content null is not an empty String");
             check(props[2].value==L"0" && props[2].valueState.empty(),"unrelated literal String zero is preserved");

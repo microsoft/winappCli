@@ -761,9 +761,12 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         SetSelectionOperationError(g_selOperationProperty, g_selOperationError);
     if (g_selPanel) BeginNamedStoryboard(g_selPanel, L"DevToolsSelMorph");
     insp->Release();
-    DevToolsOverlayLog(L"overlay.sel shown title=%s fromUserPick=%d tag=%d,%d panel=%s(%d,%d side=%s) rows=%zu readOnly=%d",
+    DevToolsOverlayLog(L"overlay.sel shown title=%s fromUserPick=%d tag=%d,%d panel=%s(%d,%d side=%s) rows=%zu readOnly=%d"
+                  L" element=%d,%d,%d,%d viewport=%d,%d,%d,%d",
                   title.c_str(), (int)fromUserPick, tagX, tagY, g_selPanel ? L"yes" : L"no", px, py,
-                  onRight ? L"right" : L"left", rows.size(), (int)readOnly);
+                  onRight ? L"right" : L"left", rows.size(), (int)readOnly,
+                  element.left, element.top, element.right, element.bottom,
+                  viewport.left, viewport.top, viewport.right, viewport.bottom);
 }
 
 

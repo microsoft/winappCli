@@ -120,12 +120,20 @@
           </Border>
         </Grid>
       </Button>
-      <!-- Layout adorners are a mode and need an explicit on-state. -->
-      <Button x:Name="DevToolsProtoLayout" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <!-- Layout adorners are a mode: a ToggleButton exposes the on-state to UI Automation. -->
+      <ToggleButton x:Name="DevToolsProtoLayout" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
-              ToolTipService.ToolTip="Show layout adorners (margin, padding, alignment)"
+              ToolTipService.ToolTip="Layout adorners (margin, padding, alignment)"
               AutomationProperties.AutomationId="DevToolsProtoLayout"
               AutomationProperties.Name="Layout adorners">
+        <ToggleButton.Resources>
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+        </ToggleButton.Resources>
         <Grid Width="30" Height="26">
           <FontIcon x:Name="DevToolsLayoutOff" FlowDirection="LeftToRight" Glyph="&#xE80A;"
                     FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -135,7 +143,7 @@
                       Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
         </Grid>
-      </Button>
+      </ToggleButton>
 
       <!-- The overlay itself keeps its fixed opaque palette, so this action cannot make the tooling illegible. -->
       <Button x:Name="DevToolsProtoTheme" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"

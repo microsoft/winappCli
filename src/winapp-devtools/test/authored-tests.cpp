@@ -712,6 +712,13 @@ static void Test_ExactCommentTextAndHistoricalLabels()
     ACheck(DevToolsCommentText::SavedStatus(false, false) == L"Saved. Not linked to source." &&
         DevToolsCommentText::SavedStatus(true, false) == L"Saved on the host. Not linked to source.",
         "a comment on an element without source says it is not linked to source");
+    ACheck(std::wstring(DevToolsCommentText::AbsentLabel(true)) == L"not on this screen" &&
+        std::wstring(DevToolsCommentText::AbsentLabel(false)) == L"not linked to source",
+        "an unanchored comment is not described as off screen");
+    ACheck(DevToolsCommentText::OffscreenNote(0).empty() &&
+        DevToolsCommentText::OffscreenNote(1) == L"1 of these isn\u2019t on this screen right now, so it has no marker in the app." &&
+        DevToolsCommentText::OffscreenNote(2) == L"2 of these aren\u2019t on this screen right now, so they have no marker in the app.",
+        "the off-screen footnote agrees in number");
 }
 
 int RunAuthoredTests()

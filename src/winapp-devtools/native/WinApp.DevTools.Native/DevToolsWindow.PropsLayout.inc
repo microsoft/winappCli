@@ -561,9 +561,9 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
         else if (hasMin && fabs((double)rw - minW) < 0.5 && minW > dw + 0.5)
             why = L"Its width is being held up by MinWidth (" + LayoutNumW(minW) +
                   L"), which is larger than the " + LayoutNumW(dw) + L" the content asked for.";
-        else if (rw > dw + 0.5)
-            why = L"It got MORE width than it asked for. Something is stretching it. Check "
-                  L"HorizontalAlignment on this element (Stretch is the default) and the parent's layout.";
+        else if (rw > dw + 0.5 && !rowValue(L"HorizontalAlignment").empty() && rowValue(L"HorizontalAlignment") != L"Stretch")
+            why = L"It got MORE width than it asked for even though HorizontalAlignment is " +
+                  rowValue(L"HorizontalAlignment") + L". Check the parent's layout.";
         else if (rw < dw - 0.5)
             why = L"It got LESS width than it asked for. It is being constrained. Check MaxWidth on this "
                   L"element and the space the parent had to give.";

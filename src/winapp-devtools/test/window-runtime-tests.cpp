@@ -329,6 +329,18 @@ int main()
         nativeCloses==closesBeforeFailure+1 && captionReleasedBeforeClose,
         "failed theme unsubscription cannot suppress actual native close");
     g_route1WindowInsp=nullptr;removeThemeResult=S_OK;
+    {
+        DevToolsWindowLayout stretched{};
+        stretched.haveDesired=stretched.haveRender=true;
+        stretched.desiredW=80;stretched.renderW=400;stretched.renderH=32;
+        DevToolsCardRow alignment;alignment.name=L"HorizontalAlignment";alignment.value=L"Stretch";
+        check(BuildLayoutSection(stretched,{alignment}).find(L"MORE width")==std::wstring::npos &&
+            BuildLayoutSection(stretched,{}).find(L"MORE width")==std::wstring::npos,
+            "default Stretch alignment explains extra width without a warning");
+        alignment.value=L"Left";
+        check(BuildLayoutSection(stretched,{alignment}).find(L"even though HorizontalAlignment is Left")!=std::wstring::npos,
+            "extra width despite a non-default alignment is called out");
+    }
     std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

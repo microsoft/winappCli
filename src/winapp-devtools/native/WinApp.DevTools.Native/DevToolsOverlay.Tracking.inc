@@ -263,6 +263,15 @@ static void SetLayoutAdornersOn(bool on)
     g_layoutOn = on;
     ProtoSetPartVisible(L"DevToolsLayoutOn", on);
     ProtoSetPartVisible(L"DevToolsLayoutOff", !on);
+    if (g_protoRoot) {
+        winrt::com_ptr<IInspectable> button;
+        button.attach(DevToolsSelFindName(g_protoRoot, L"DevToolsProtoLayout"));
+        winrt::com_ptr<IUnknown> toggle;
+        if (button && SUCCEEDED(button->QueryInterface(DevToolsIid<DevToolsXCP::IToggleButton>(), toggle.put_void()))) {
+            const auto checked = winrt::box_value(on);
+            DevToolsAbi<DevToolsXCP::IToggleButton>(toggle.get())->put_IsChecked(winrt::get_abi(checked));
+        }
+    }
     SyncLayoutAdorner();
     DevToolsOverlayLog(L"overlay.layout adorners %s (selection=%llu)", on ? L"on" : L"off",
                   (unsigned long long)g_selectedHandle);

@@ -50,6 +50,17 @@ inline std::wstring SavedStatus(bool host, bool linked)
     return std::wstring(host ? L"Saved on the host." : L"Saved.") + (linked ? L"" : L" Not linked to source.");
 }
 
+// Why an open comment has no marker: its element is not on screen, or it was never linked to an element.
+inline const wchar_t* AbsentLabel(bool anchored) { return anchored ? L"not on this screen" : L"not linked to source"; }
+
+inline std::wstring OffscreenNote(size_t offscreen)
+{
+    if (!offscreen) return L"";
+    return std::to_wstring(offscreen) + (offscreen == 1
+        ? L" of these isn\u2019t on this screen right now, so it has no marker in the app."
+        : L" of these aren\u2019t on this screen right now, so they have no marker in the app.");
+}
+
 inline std::wstring AddArguments(unsigned long pid, const std::wstring& text, const std::wstring& id,
     const std::wstring& handle)
 {
