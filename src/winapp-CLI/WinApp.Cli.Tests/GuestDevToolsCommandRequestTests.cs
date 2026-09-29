@@ -256,7 +256,7 @@ public sealed class GuestDevToolsCommandRequestTests : BaseCommandTests
         Assert.IsTrue(forwarded.GetValue(DevToolsListCommand.IncludeAvailableOption));
         Assert.IsFalse(process.Request.RequiresRealInput);
         await process.EmitBytesAsync(GuestStreamId.StandardOutput, System.Text.Encoding.UTF8.GetBytes(
-            """{"apps":[{"pid":123,"startTicksUtc":"456","appSelector":"guest:forged","attached":false},{"pid":124,"startTicksUtc":"457"},{"pid":125}]}"""));
+            """{"apps":[{"processId":123,"startTicksUtc":"456","appSelector":"guest:forged","attached":false},{"processId":124,"startTicksUtc":"457"},{"processId":125}]}"""));
         process.Exit(0);
         var apps = (await running).Apps;
         Assert.AreEqual($"guest-process:123:456:{epoch.Value}", apps[0].AppSelector);

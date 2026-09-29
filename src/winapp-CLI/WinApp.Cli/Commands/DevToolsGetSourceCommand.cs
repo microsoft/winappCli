@@ -82,7 +82,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand
                 WriteJson(DevToolsJson.Serialize(writer =>
                 {
                     writer.WriteBoolean("ok", hasSource);
-                    writer.WriteNumber("pid", target.Pid);
+                    writer.WriteNumber("processId", target.Pid);
                     WriteIdentity(writer, target, handle, cancellationToken);
                     WriteWarning(writer);
                     if (hasSource)

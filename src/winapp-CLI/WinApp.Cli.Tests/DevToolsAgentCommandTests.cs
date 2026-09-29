@@ -563,7 +563,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
 
         using var doc = JsonDocument.Parse(payload);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.AreEqual(1234, doc.RootElement.GetProperty("pid").GetInt32());
+        Assert.AreEqual(1234, doc.RootElement.GetProperty("processId").GetInt32());
         var error = doc.RootElement.GetProperty("error");
         Assert.AreEqual(-32001, error.GetProperty("code").GetInt32());
         Assert.AreEqual("stale-handle", error.GetProperty("token").GetString());

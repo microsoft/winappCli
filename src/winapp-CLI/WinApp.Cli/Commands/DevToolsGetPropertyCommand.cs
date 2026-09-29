@@ -188,7 +188,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand
                 WriteJson(DevToolsJson.Serialize(writer =>
                 {
                     writer.WriteBoolean("ok", true);
-                    writer.WriteNumber("pid", target.Pid);
+                    writer.WriteNumber("processId", target.Pid);
                     if (queryNode is not null)
                     {
                         writer.WriteString("selector", queryNode.Selector);

@@ -767,6 +767,7 @@ public class DevToolsJsonParityTests
             else
             {
                 StringAssert.Contains(output, warning);
+                StringAssert.Contains(output, "Restart the app to restore the binding.");
             }
         }
     }

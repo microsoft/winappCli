@@ -99,7 +99,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand
                 WriteJson(DevToolsJson.Serialize(writer =>
                 {
                     writer.WriteBoolean("ok", found);
-                    writer.WriteNumber("pid", target.Pid);
+                    writer.WriteNumber("processId", target.Pid);
                     writer.WriteString("query", query);
                     writer.WriteBoolean("appAuthored", appAuthored);
                     if (fallback is not null)

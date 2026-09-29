@@ -201,7 +201,7 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
                 WriteJson(DevToolsJson.Serialize(writer =>
                 {
                     writer.WriteBoolean("ok", succeeded);
-                    writer.WriteNumber("pid", target.Pid);
+                    writer.WriteNumber("processId", target.Pid);
                     WriteIdentity(writer, target, handle, cancellationToken);
                     writer.WriteString("property", beforeRow.Name);
                     writer.WriteString("type", writeType);
@@ -297,9 +297,10 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
 
             if (replacedBinding is not null)
             {
-                DevToolsRender.WriteMarkupLine(Console, beforeRow.Binding is not null
-                    ? $"{UiSymbols.Warning} This replaced the binding {Markup.Escape(replacedBinding)}; its source no longer updates {Markup.Escape(beforeRow.Name)} until the app restarts."
-                    : $"{UiSymbols.Warning} This overrode {Markup.Escape(replacedBinding)} with a local value until the binding updates again.");
+                DevToolsRender.WriteMarkupLine(Console, (beforeRow.Binding is not null
+                    ? $"{UiSymbols.Warning} This replaced the binding {Markup.Escape(replacedBinding)}; its source no longer updates {Markup.Escape(beforeRow.Name)}."
+                    : $"{UiSymbols.Warning} This overrode {Markup.Escape(replacedBinding)} with a local value until the binding updates again.") +
+                    " Restart the app to restore the binding.");
             }
 
             return Task.FromResult(0);

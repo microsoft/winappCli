@@ -73,6 +73,20 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void DevToolsPayloadsNameTheProcessProcessId()
+    {
+        var list = System.Text.Json.JsonSerializer.Serialize(new DevToolsListPayload { Apps = [new() { Pid = 7 }] },
+            DevToolsProtocolJsonContext.Default.DevToolsListPayload);
+        var attach = System.Text.Json.JsonSerializer.Serialize(new DevToolsAttachPayload { Ok = true, Pid = 7 },
+            DevToolsProtocolJsonContext.Default.DevToolsAttachPayload);
+        foreach (var json in new[] { list, attach, DevToolsJson.Result(7, "{}"), DevToolsJson.Error(7, "failed") })
+        {
+            StringAssert.Contains(json, "\"processId\": 7");
+            Assert.IsFalse(json.Contains("\"pid\"", StringComparison.Ordinal), json);
+        }
+    }
+
+    [TestMethod]
     public void IdenticalSourceWarningsCollapseToOneEntry()
     {
         var warnings = Enumerable.Range(0, 94)

@@ -7,6 +7,7 @@ namespace WinApp.Cli.Services.DevTools;
 
 internal sealed class DevToolsAppInfo
 {
+    [JsonPropertyName("processId")]
     public int Pid { get; set; }
 
     public string? StartTicksUtc { get; set; }
@@ -43,6 +44,7 @@ internal sealed class DevToolsAttachPayload
 {
     public bool Ok { get; set; }
 
+    [JsonPropertyName("processId")]
     public int Pid { get; set; }
 
     public string? PipeName { get; set; }

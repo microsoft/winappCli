@@ -121,7 +121,7 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
                 WriteJson(DevToolsJson.Serialize(writer =>
                 {
                     writer.WriteBoolean("ok", false);
-                    writer.WriteNumber("pid", pid);
+                    writer.WriteNumber("processId", pid);
                     DevToolsJson.WriteError(writer, "selector", resolved.Error!);
                     writer.WriteStartArray("candidates");
                     foreach (var candidate in resolved.Candidates)

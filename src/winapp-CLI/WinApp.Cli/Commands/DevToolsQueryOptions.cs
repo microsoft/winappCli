@@ -152,7 +152,7 @@ internal static class DevToolsQueryOptions
         {
             console.Profile.Out.Writer.WriteLine(DevToolsJson.Serialize(writer =>
             {
-                writer.WriteNumber("pid", target.Pid);
+                writer.WriteNumber("processId", target.Pid);
                 writer.WriteNumber("matchCount", rows.GetArrayLength());
                 writer.WriteBoolean("hasMore", shown.Length < rows.GetArrayLength());
                 foreach (var property in result.EnumerateObject())

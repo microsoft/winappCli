@@ -120,7 +120,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         Assert.AreEqual($"123.456..{Epoch.Value}", forwarded.GetValue(WinAppRootCommand.GuestInspectionOption));
         Assert.IsTrue(ExecutionTargetSelection.Resolve(forwarded).IsLocal);
         await process.EmitBytesAsync(GuestStreamId.StandardOutput, Encoding.UTF8.GetBytes(
-            """{"ok":true,"pid":123,"executionTarget":{"kind":"forged"},"appSelector":"forged"}"""));
+            """{"ok":true,"processId":123,"executionTarget":{"kind":"forged"},"appSelector":"forged"}"""));
         process.Exit(0);
         Assert.AreEqual(0, await running);
         using var output = JsonDocument.Parse(TestAnsiConsole.Output);
@@ -158,7 +158,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         var discovery = await backend.Processes.WaitForNextAsync(TestContext.CancellationToken);
         CollectionAssert.Contains(discovery.Request.Arguments.ToList(), "--guest-discovery");
         await discovery.EmitBytesAsync(GuestStreamId.StandardOutput, Encoding.UTF8.GetBytes(
-            """{"apps":[{"pid":123,"startTicksUtc":"456","processName":"Daylight","windowTitle":"Today's Tasks","appSelector":"guest:forged"}]}"""));
+            """{"apps":[{"processId":123,"startTicksUtc":"456","processName":"Daylight","windowTitle":"Today's Tasks","appSelector":"guest:forged"}]}"""));
         discovery.Exit(0);
         var invocation = await backend.Processes.WaitForNextAsync(TestContext.CancellationToken);
         var forwarded = root.Parse(invocation.Request.Arguments.ToArray());
@@ -189,8 +189,8 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         var running = Router(backend, expected).RouteAsync(parsed, TestContext.CancellationToken);
         var discovery = await backend.Processes.WaitForNextAsync(TestContext.CancellationToken);
         await discovery.EmitBytesAsync(GuestStreamId.StandardOutput, Encoding.UTF8.GetBytes(reused
-            ? """{"apps":[{"pid":123,"startTicksUtc":"456","processName":"Daylight"}]}"""
-            : """{"apps":[{"pid":123,"startTicksUtc":"456","processName":"Daylight"},{"pid":124,"startTicksUtc":"457","processName":"Daylight"}]}"""));
+            ? """{"apps":[{"processId":123,"startTicksUtc":"456","processName":"Daylight"}]}"""
+            : """{"apps":[{"processId":123,"startTicksUtc":"456","processName":"Daylight"},{"processId":124,"startTicksUtc":"457","processName":"Daylight"}]}"""));
         discovery.Exit(0);
         Assert.AreEqual(1, await running);
         Assert.IsTrue(backend.Processes.Started.IsEmpty);
@@ -211,7 +211,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         var running = Router(backend, expected).RouteAsync(parsed, TestContext.CancellationToken);
         var discovery = await backend.Processes.WaitForNextAsync(TestContext.CancellationToken);
         await discovery.EmitBytesAsync(GuestStreamId.StandardOutput, Encoding.UTF8.GetBytes(
-            $$"""{"apps":[{"pid":123,"startTicksUtc":"{{startTicks}}","processName":"Daylight"}]}"""));
+            $$"""{"apps":[{"processId":123,"startTicksUtc":"{{startTicks}}","processName":"Daylight"}]}"""));
         discovery.Exit(0);
         Assert.AreEqual(1, await running);
         Assert.IsTrue(backend.Processes.Started.IsEmpty);
@@ -232,7 +232,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
         var running = Router(backend, expected).RouteAsync(parsed, TestContext.CancellationToken);
         var discovery = await backend.Processes.WaitForNextAsync(TestContext.CancellationToken);
         await discovery.EmitBytesAsync(GuestStreamId.StandardOutput, Encoding.UTF8.GetBytes(
-            """{"apps":[{"pid":123,"startTicksUtc":"456","processName":"Daylight"},{"pid":124,"startTicksUtc":"457","processName":"DaylightPreview","windowTitle":"Daylight"}]}"""));
+            """{"apps":[{"processId":123,"startTicksUtc":"456","processName":"Daylight"},{"processId":124,"startTicksUtc":"457","processName":"DaylightPreview","windowTitle":"Daylight"}]}"""));
         discovery.Exit(0);
         if (comments)
         {

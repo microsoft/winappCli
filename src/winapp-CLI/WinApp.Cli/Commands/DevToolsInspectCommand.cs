@@ -176,7 +176,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand
                     {
                         writer.WriteString("previewWarning", previews.Error);
                     }
-                    writer.WriteNumber("pid", target.Pid);
+                    writer.WriteNumber("processId", target.Pid);
                     if (rootHandle is not null)
                     {
                         writer.WriteString("rootHandle", rootHandle);
@@ -288,7 +288,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand
                 WriteJson(DevToolsJson.Serialize(writer =>
                 {
                     writer.WriteBoolean("ok", true);
-                    writer.WriteNumber("pid", target.Pid);
+                    writer.WriteNumber("processId", target.Pid);
                     writer.WriteString("handle", handle);
                     WriteWarning(writer);
                     writer.WriteNumber("count", path.Count);

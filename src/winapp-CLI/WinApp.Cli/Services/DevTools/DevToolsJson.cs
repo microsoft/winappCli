@@ -42,7 +42,7 @@ internal static class DevToolsJson
         Serialize(writer =>
         {
             writer.WriteBoolean("ok", ok);
-            writer.WriteNumber("pid", pid);
+            writer.WriteNumber("processId", pid);
             extra?.Invoke(writer);
             writer.WritePropertyName("result");
             WriteRaw(writer, resultJson);
@@ -52,7 +52,7 @@ internal static class DevToolsJson
         Serialize(writer =>
         {
             writer.WriteBoolean("ok", false);
-            writer.WriteNumber("pid", pid);
+            writer.WriteNumber("processId", pid);
             WriteError(writer, error);
         });
 
