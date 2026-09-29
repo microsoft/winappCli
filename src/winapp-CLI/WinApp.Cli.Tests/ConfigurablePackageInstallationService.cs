@@ -25,10 +25,6 @@ internal sealed class ConfigurablePackageInstallationService : IPackageInstallat
     /// <summary>Packages requested through <see cref="EnsurePackageAsync"/>, in order.</summary>
     public List<string> EnsuredPackages { get; } = [];
 
-    public void InitializeWorkspace(DirectoryInfo rootDirectory)
-    {
-    }
-
     public Task<Dictionary<string, string>> InstallPackagesAsync(
         DirectoryInfo rootDirectory,
         IEnumerable<string> packages,

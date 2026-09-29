@@ -12,7 +12,6 @@ namespace WinApp.Cli.Tests;
 /// </summary>
 internal sealed class FakePackageInstallationService : IPackageInstallationService
 {
-    public List<DirectoryInfo> InitializeWorkspaceCalls { get; } = [];
     public List<(DirectoryInfo Root, string[] Packages, bool IgnoreConfig)> InstallPackagesCalls { get; } = [];
     public List<(DirectoryInfo Root, string PackageName, string? Version)> EnsurePackageCalls { get; } = [];
 
@@ -40,11 +39,6 @@ internal sealed class FakePackageInstallationService : IPackageInstallationServi
 
     /// <summary>Package names passed to the most recent <see cref="InstallPackagesAsync"/> call.</summary>
     public string[] LastRequestedPackages { get; private set; } = [];
-
-    public void InitializeWorkspace(DirectoryInfo rootDirectory)
-    {
-        InitializeWorkspaceCalls.Add(rootDirectory);
-    }
 
     public Task<Dictionary<string, string>> InstallPackagesAsync(
         DirectoryInfo rootDirectory,

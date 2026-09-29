@@ -2104,7 +2104,22 @@ In **PowerShell** and **pwsh**:
 $env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
-Winapp will create this directory automatically when you run commands like `init` or `restore`.
+Winapp creates this directory when a command first needs it.
+
+#### When winapp can't write to the global cache directory
+
+Some environments, such as agent sandboxes that only allow writes to the current project, block access to `%USERPROFILE%\.winapp`. Most commands still work there. Each run prints the one-line telemetry notice to stderr, and the update check is skipped.
+
+These commands need to write to the cache directory and stop with an error that names the path:
+
+| Command | What it writes |
+|---------|----------------|
+| `find-api` | The API index, when it needs to be built or refreshed. An existing, up-to-date index is still read. |
+| `store` | The Microsoft Store Developer CLI, the first time it's installed. |
+
+To fix it, set `WINAPP_CLI_CACHE_DIRECTORY` to a folder winapp can write to (for example, one inside your project), then retry.
+
+`winapp ui` and Windows Sandbox commands keep their state in `%USERPROFILE%\.winapp\state` instead. If that folder isn't writable, they stop with `desktop_coordination_unavailable` or `sandbox_state_unavailable` and name the variable to set.
 
 ### Update Checks
 

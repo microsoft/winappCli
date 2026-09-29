@@ -112,6 +112,11 @@ internal sealed class ApiMetadataService(
     public ApiQueryResult<ApiRefreshOutput> Refresh(ApiRequestScope scope, bool scan, Action<string>? onProgress = null, bool force = false)
     {
         string cacheDir = GetCacheDir();
+        if (CacheWriteError(cacheDir) is { } writeError)
+        {
+            return ApiQueryResult<ApiRefreshOutput>.NoProject(writeError);
+        }
+
         string? runtimePath = ApiCacheBuilder.DetectWinAppSdkRuntime();
 
         // 'refresh --project sdk' rebuilds the machine-wide scope explicitly (the
@@ -599,7 +604,11 @@ internal sealed class ApiMetadataService(
     /// </summary>
     internal string? RunIndexWithLock(string projectDir, string cacheDir)
     {
-        Directory.CreateDirectory(cacheDir);
+        if (CacheWriteError(cacheDir) is { } writeError)
+        {
+            return writeError;
+        }
+
         string lockPath = Path.Combine(cacheDir, ".lock");
 
         FileStream? lockFile = TryAcquireIndexLock(lockPath);
@@ -984,6 +993,11 @@ internal sealed class ApiMetadataService(
             return ResolvedScope.Sdk(manifest);
         }
 
+        if (CacheWriteError(cacheDir) is { } writeError)
+        {
+            return ResolvedScope.Failed(writeError);
+        }
+
         try
         {
             List<PackageWithWinMd> packages = sdkPackages.GetSdkPackages();
@@ -1043,6 +1057,31 @@ internal sealed class ApiMetadataService(
     private const string NoSdkMessage =
         "No project was found here and no Windows SDK metadata is available on this machine. " +
         "Run 'winapp find-api' from a project directory, or install the Windows SDK / Windows App SDK.";
+
+    /// <summary>
+    /// Returns an error message when the index can't be written to <paramref name="cacheDir"/>
+    /// (typically a sandbox that denies access to the global winapp folder), or <c>null</c>.
+    /// Checked before any indexing so the caller gets one clear error instead of a failure
+    /// per package. An index that is already current is still read without this check.
+    /// </summary>
+    internal static string? CacheWriteError(string cacheDir)
+    {
+        try
+        {
+            Directory.CreateDirectory(cacheDir);
+            using (new FileStream(
+                Path.Combine(cacheDir, $".write-test-{Environment.ProcessId}-{Environment.CurrentManagedThreadId}"),
+                FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose))
+            {
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return $"winapp can't write the API index to '{cacheDir}'. " +
+                "Set WINAPP_CLI_CACHE_DIRECTORY to a folder winapp can write to, then retry.";
+        }
+    }
 
     /// <summary>
     /// A resolved query scope: the manifest to read plus whether it came from the

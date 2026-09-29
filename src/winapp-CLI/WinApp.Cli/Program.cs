@@ -131,11 +131,15 @@ internal static class Program
         if (!isCliSchemaMode && !isCompleteMode && !json)
         {
             var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
-            didShowFirstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();
+            var firstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();
+            didShowFirstRunNotice = firstRunNotice == FirstRunNotice.Shown;
 
             // Check for CLI updates — shows cached notice instantly (no network),
             // and starts a background refresh if the cache is stale (fire-and-forget).
-            if (!quiet)
+            // Skipped when the global winapp directory isn't writable (the first-run marker
+            // couldn't be saved): the result could never be cached, so every command would
+            // otherwise pay for a fresh network check.
+            if (!quiet && firstRunNotice != FirstRunNotice.Unsaved)
             {
                 var updateNotificationService = serviceProvider.GetRequiredService<IUpdateNotificationService>();
                 updateNotificationService.CheckAndNotify();
