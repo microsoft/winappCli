@@ -1070,7 +1070,7 @@ internal sealed class ApiMetadataService(
         {
             Directory.CreateDirectory(cacheDir);
             using (new FileStream(
-                Path.Combine(cacheDir, $".write-test-{Environment.ProcessId}-{Environment.CurrentManagedThreadId}"),
+                Path.Join(cacheDir, $".write-test-{Environment.ProcessId}-{Environment.CurrentManagedThreadId}"),
                 FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose))
             {
             }

@@ -24,12 +24,12 @@ internal class FirstRunService : IFirstRunService
         _logger = logger;
     }
 
-    public FirstRunNotice CheckAndDisplayFirstRunNotice()
+    public bool CheckAndDisplayFirstRunNotice()
     {
         _firstRunMarkerFile.Refresh();
         if (_firstRunMarkerFile.Exists)
         {
-            return FirstRunNotice.None;
+            return false;
         }
 
         try
@@ -44,7 +44,7 @@ internal class FirstRunService : IFirstRunService
         {
             _logger.LogDebug("Could not save first run marker {Path}: {ErrorMessage}", _firstRunMarkerFile.FullName, ex.Message);
             UnsavedNoticeWriter.WriteLine($"winapp collects anonymous usage data ({PrivacyUrl}). Set WINAPP_CLI_TELEMETRY_OPTOUT=1 to opt out.");
-            return FirstRunNotice.Unsaved;
+            return false;
         }
 
         BannerHelper.DisplayBanner();
@@ -53,6 +53,6 @@ internal class FirstRunService : IFirstRunService
         _logger.LogInformation("You can opt out of telemetry by setting the WINAPP_CLI_TELEMETRY_OPTOUT environment variable to '1'.");
         _logger.LogInformation("For more information, please visit: https://aka.ms/winappcli-telemetry-optout{NewLine}", Environment.NewLine);
 
-        return FirstRunNotice.Shown;
+        return true;
     }
 }

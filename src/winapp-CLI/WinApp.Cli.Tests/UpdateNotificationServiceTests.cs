@@ -204,6 +204,60 @@ public class UpdateNotificationServiceTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void CheckAndNotify_ReadOnlyCache_NeverChecksTheNetwork()
+    {
+        // A read-only winapp directory (for example, an agent sandbox over an existing profile)
+        // can never record that a check happened, so checking would repeat on every run.
+        var handler = new FakeHttpMessageHandler();
+        _concreteService.Http = new HttpClient(handler);
+        _concreteService.SkipBackgroundRefreshForTesting = false;
+
+        using (DenyWritesTo(_testCacheDirectory))
+        {
+            _updateNotificationService.CheckAndNotify();
+        }
+
+        Assert.IsEmpty(handler.Requests, "No update check may run when its result can't be saved.");
+    }
+
+    [TestMethod]
+    public void CheckAndNotify_ReadOnlyCache_DoesNotRepeatTheNoticeEveryRun()
+    {
+        var newerVersion = GetGuaranteedNewerVersion();
+        Directory.CreateDirectory(_testCacheDirectory.FullName);
+        File.WriteAllText(Path.Join(_testCacheDirectory.FullName, ".update-check"), $"{DateTime.UtcNow:O}\n{newerVersion}\n2020-01-01");
+
+        using (DenyWritesTo(_testCacheDirectory))
+        {
+            _updateNotificationService.CheckAndNotify();
+        }
+
+        Assert.DoesNotContain("available", TestAnsiConsole.Output, "A notice that can't be recorded as shown would repeat on every run.");
+    }
+
+    private static AclRestore DenyWritesTo(DirectoryInfo directory)
+    {
+        directory.Create();
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(
+            System.Security.Principal.WindowsIdentity.GetCurrent().User!,
+            System.Security.AccessControl.FileSystemRights.CreateFiles | System.Security.AccessControl.FileSystemRights.CreateDirectories,
+            System.Security.AccessControl.AccessControlType.Deny);
+        var acl = directory.GetAccessControl();
+        acl.AddAccessRule(deny);
+        directory.SetAccessControl(acl);
+        return new AclRestore(directory, acl, deny);
+    }
+
+    private sealed class AclRestore(DirectoryInfo directory, System.Security.AccessControl.DirectorySecurity acl, System.Security.AccessControl.FileSystemAccessRule deny) : IDisposable
+    {
+        public void Dispose()
+        {
+            acl.RemoveAccessRule(deny);
+            directory.SetAccessControl(acl);
+        }
+    }
+
+    [TestMethod]
     public void CheckAndNotify_NpmCaller_ShowsNpmUpgradeHint()
     {
         var newerVersion = GetGuaranteedNewerVersion();

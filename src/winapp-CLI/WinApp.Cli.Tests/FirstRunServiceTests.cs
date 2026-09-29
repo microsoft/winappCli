@@ -55,7 +55,7 @@ public class FirstRunServiceTests
 
         var result = service.CheckAndDisplayFirstRunNotice();
 
-        Assert.AreEqual(FirstRunNotice.Shown, result, "First run must be reported the first time.");
+        Assert.IsTrue(result, "First run must be reported the first time.");
 
         var marker = new FileInfo(Path.Combine(_globalDir.FullName, ".first-run-complete"));
         marker.Refresh();
@@ -79,7 +79,7 @@ public class FirstRunServiceTests
 
         var result = service.CheckAndDisplayFirstRunNotice();
 
-        Assert.AreEqual(FirstRunNotice.None, result, "Marker present => not a first run.");
+        Assert.IsFalse(result, "Marker present => not a first run.");
         Assert.IsFalse(
             logger.Has(LogLevel.Information, "anonymous usage data"),
             "The notice must not be shown once the marker exists.");
@@ -100,7 +100,7 @@ public class FirstRunServiceTests
 
         var result = service.CheckAndDisplayFirstRunNotice();
 
-        Assert.AreEqual(FirstRunNotice.Unsaved, result);
+        Assert.IsFalse(result, "The banner was not shown, so the no-args path still shows it.");
         StringAssert.Contains(stderr.ToString(), "anonymous usage data");
         StringAssert.Contains(stderr.ToString(), "WINAPP_CLI_TELEMETRY_OPTOUT=1");
         Assert.IsFalse(
@@ -111,7 +111,7 @@ public class FirstRunServiceTests
         // Without the marker, the next run shows the short notice again.
         var secondStderr = new StringWriter();
         service.UnsavedNoticeWriter = secondStderr;
-        Assert.AreEqual(FirstRunNotice.Unsaved, service.CheckAndDisplayFirstRunNotice());
+        Assert.IsFalse(service.CheckAndDisplayFirstRunNotice());
         StringAssert.Contains(secondStderr.ToString(), "anonymous usage data");
     }
 }

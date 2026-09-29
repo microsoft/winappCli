@@ -255,7 +255,7 @@ public sealed class ApiMetadataServiceTests
     }
 
     /// <summary>Makes the find-api cache folder impossible to create, as a denied global folder does.</summary>
-    private void BlockCacheFolder() => File.WriteAllText(Path.Combine(_globalDir, "cache"), string.Empty);
+    private void BlockCacheFolder() => File.WriteAllText(Path.Join(_globalDir, "cache"), string.Empty);
 
     [TestMethod]
     public void Refresh_CacheNotWritable_ReturnsOneClearError()
@@ -284,7 +284,7 @@ public sealed class ApiMetadataServiceTests
     public void Query_CurrentIndexInReadOnlyCache_StillAnswers()
     {
         WriteSdkManifest();
-        var cacheDir = new DirectoryInfo(Path.Combine(_globalDir, "cache", "find-api"));
+        var cacheDir = new DirectoryInfo(Path.Join(_globalDir, "cache", "find-api"));
         var user = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
         var deny = new System.Security.AccessControl.FileSystemAccessRule(
             user,

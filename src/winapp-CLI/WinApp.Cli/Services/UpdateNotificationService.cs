@@ -69,14 +69,18 @@ internal class UpdateNotificationService(
                 WriteCacheFile(cacheFile, cache);
             }
 
-            // Show notice if a newer version is cached and not yet shown today.
+            // Show notice if a newer version is cached and not yet shown today. Recording the
+            // date comes first: if it can't be saved (a read-only winapp directory, as in some
+            // sandboxes), the notice would repeat on every run, so it isn't shown at all.
             if (!string.IsNullOrEmpty(cache.LatestVersion)
                 && IsNewerVersion(cache.LatestVersion, currentVersion)
                 && cache.LastShownDate != DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
             {
-                DisplayUpdateNotification(cache.LatestVersion);
                 cache = cache with { LastShownDate = DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) };
-                WriteCacheFile(cacheFile, cache);
+                if (WriteCacheFile(cacheFile, cache))
+                {
+                    DisplayUpdateNotification(cache.LatestVersion);
+                }
             }
 
             // If cache is stale (or missing), refresh in the background — fire and forget.
@@ -87,12 +91,14 @@ internal class UpdateNotificationService(
                     || (DateTimeOffset.UtcNow - cache.LastCheck.Value).TotalHours >= CheckIntervalHours)
                 && Interlocked.CompareExchange(ref _refreshScheduled, Scheduled, NotScheduled) == NotScheduled)
             {
-                // On first run (no cache), write a placeholder synchronously so subsequent
-                // invocations see a valid LastCheck and don't re-race while the network call
-                // is in flight. The actual version will be filled in once the refresh completes.
-                if (!cache.LastCheck.HasValue)
+                // Record the check before making it, so concurrent invocations don't re-race while
+                // the network call is in flight; the refresh fills in the version when it completes.
+                // If it can't be recorded (a read-only winapp directory), skip the check: it would
+                // otherwise run, and on first run block briefly, on every invocation.
+                if (!WriteCacheFile(cacheFile, new UpdateCheckCache(DateTimeOffset.UtcNow, cache.LatestVersion, cache.LastShownDate)))
                 {
-                    WriteCacheFile(cacheFile, new UpdateCheckCache(DateTimeOffset.UtcNow, cache.LatestVersion, cache.LastShownDate));
+                    Interlocked.Exchange(ref _refreshScheduled, NotScheduled);
+                    return;
                 }
 
                 var refreshTask = Task.Run(async () =>
@@ -385,7 +391,7 @@ internal class UpdateNotificationService(
         }
     }
 
-    private void WriteCacheFile(FileInfo cacheFile, UpdateCheckCache cache)
+    private bool WriteCacheFile(FileInfo cacheFile, UpdateCheckCache cache)
     {
         try
         {
@@ -399,10 +405,12 @@ internal class UpdateNotificationService(
 
             cacheFile.Refresh();
             cacheFile.Attributes |= FileAttributes.Hidden;
+            return true;
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Failed to write update check cache.");
+            return false;
         }
     }
 
