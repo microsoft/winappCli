@@ -2,7 +2,7 @@
  * AUTO-GENERATED — DO NOT EDIT
  *
  * Regenerate with:  npm run generate-commands
- * Source schema version: 0.6.3
+ * Source schema version: 0.7.1
  *
  * Programmatic wrappers for all winapp CLI commands.
  * Each function builds the CLI arguments, invokes the native CLI,
@@ -154,7 +154,7 @@ export interface CertGenerateOptions extends CommonOptions {
   output?: string;
   /** Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. */
   password?: string;
-  /** Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. */
+  /** Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
   /** Number of days the certificate is valid */
   validDays?: number;
@@ -182,11 +182,11 @@ export async function certGenerate(options: CertGenerateOptions = {}): Promise<W
 // ---------------------------------------------------------------------------
 
 export interface CertInfoOptions extends CommonOptions {
-  /** Path to the certificate file (PFX) */
+  /** Path to the certificate file (PFX or CER) */
   certPath: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Password for the PFX file */
+  /** Password for the PFX file (ignored for a public CER) */
   password?: string;
 }
 
@@ -690,7 +690,7 @@ export interface ManifestGenerateOptions extends CommonOptions {
   logoPath?: string;
   /** Package name (default: folder name) */
   packageName?: string;
-  /** Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>. */
+  /** Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>. */
   publisherName?: string;
   /** Manifest template type: 'packaged' (full MSIX app, default) or 'sparse' (desktop app with package identity for Windows APIs) */
   template?: ManifestTemplates;
@@ -1230,19 +1230,25 @@ export async function tool(options: ToolOptions = {}): Promise<WinappResult> {
 // ---------------------------------------------------------------------------
 
 export interface UiClickOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Perform a double-click instead of a single click */
   double?: boolean;
   /** Format output as JSON */
   json?: boolean;
   /** Perform a right-click instead of a left click */
   right?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1255,9 +1261,12 @@ export async function uiClick(options: UiClickOptions = {}): Promise<WinappResul
   if (options.selector) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.double) args.push('--double');
   if (options.json) args.push('--json');
   if (options.right) args.push('--right');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1274,7 +1283,7 @@ export interface UiDragOptions extends CommonOptions {
   to?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Milliseconds to dwell at the destination after moving, before releasing (default: 0). Lets drop targets / merge overlays that arm from a sustained hover latch before release. */
   dwellMs?: number;
@@ -1284,7 +1293,7 @@ export interface UiDragOptions extends CommonOptions {
   json?: boolean;
   /** Drag with the right mouse button instead of the left button */
   right?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1312,15 +1321,21 @@ export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult>
 // ---------------------------------------------------------------------------
 
 export interface UiFocusOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1333,7 +1348,10 @@ export async function uiFocus(options: UiFocusOptions): Promise<WinappResult> {
   positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1346,11 +1364,11 @@ export async function uiFocus(options: UiFocusOptions): Promise<WinappResult> {
 export interface UiGetFocusedOptions extends CommonOptions {
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1371,23 +1389,23 @@ export async function uiGetFocused(options: UiGetFocusedOptions = {}): Promise<W
 // ---------------------------------------------------------------------------
 
 export interface UiGetPropertyOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
-  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  /** Only match this exact UIA ClassName (case-insensitive) */
   className?: string;
   /** Format output as JSON */
   json?: boolean;
   /** Property name to read or filter on */
   property?: string;
-  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  /** Only search inside this element (must match exactly one element) */
   root?: string;
-  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
   type?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1415,26 +1433,26 @@ export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise
 // ---------------------------------------------------------------------------
 
 export interface UiGetValueOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
-  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  /** Only match this exact UIA ClassName (case-insensitive) */
   className?: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  /** Only search inside this element (must match exactly one element) */
   root?: string;
-  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
   type?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
 /**
- * Read the current value from an element. Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels). Usage: winapp ui get-value <selector> -a <app>
+ * Read the current value from an element. Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels).
  */
 export async function uiGetValue(options: UiGetValueOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-value'];
@@ -1456,17 +1474,23 @@ export async function uiGetValue(options: UiGetValueOptions = {}): Promise<Winap
 // ---------------------------------------------------------------------------
 
 export interface UiHoverOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Time in milliseconds to wait after hovering for hover effects to appear (default: 800) */
   dwellTime?: number;
   /** Format output as JSON */
   json?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1479,8 +1503,11 @@ export async function uiHover(options: UiHoverOptions = {}): Promise<WinappResul
   if (options.selector) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.dwellTime !== undefined) args.push('--dwell-time', options.dwellTime.toString());
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1491,14 +1518,16 @@ export async function uiHover(options: UiHoverOptions = {}): Promise<WinappResul
 // ---------------------------------------------------------------------------
 
 export interface UiInspectOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Walk up the tree from the specified element to the root */
   ancestors?: boolean;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Tree inspection depth */
   depth?: number;
   /** Hide disabled elements from output */
@@ -1509,12 +1538,16 @@ export interface UiInspectOptions extends CommonOptions {
   interactive?: boolean;
   /** Format output as JSON */
   json?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
 /**
- * View the UI element tree with semantic slugs, element types, names, and bounds.
+ * View the UI element tree with semantic slugs, element types, names, and bounds. With a selector, shows that element's subtree; --type, --root, and --class-name narrow the selector.
  */
 export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'inspect'];
@@ -1523,11 +1556,14 @@ export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappR
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.ancestors) args.push('--ancestors');
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.depth !== undefined) args.push('--depth', options.depth.toString());
   if (options.hideDisabled) args.push('--hide-disabled');
   if (options.hideOffscreen) args.push('--hide-offscreen');
   if (options.interactive) args.push('--interactive');
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1538,28 +1574,28 @@ export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappR
 // ---------------------------------------------------------------------------
 
 export interface UiInvokeOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. */
   action?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
-  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  /** Only match this exact UIA ClassName (case-insensitive) */
   className?: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  /** Only search inside this element (must match exactly one element) */
   root?: string;
-  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
   type?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
 /**
- * Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element; --root, --type and --class-name require --action.
+ * Activate an element. Tries the Invoke, Toggle, SelectionItem, and ExpandCollapse patterns in order, then the nearest invokable ancestor. Use --action to require one exact action on the selected element. With --type, --root, or --class-name the selector must match exactly one element, and the ancestor fallback is skipped.
  */
 export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'invoke'];
@@ -1584,7 +1620,7 @@ export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappRes
 export interface UiListWindowsOptions extends CommonOptions {
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Format output as JSON */
   json?: boolean;
@@ -1609,14 +1645,16 @@ export async function uiListWindows(options: UiListWindowsOptions = {}): Promise
 // ---------------------------------------------------------------------------
 
 export interface UiPenOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Pen contact point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. Ignored when --path is given. */
   at?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Total glide time in milliseconds distributed across the stroke path segments (default: ~10 ms per segment). */
   durationMs?: number;
   /** Use the eraser end of the pen instead of the tip. */
@@ -1627,11 +1665,15 @@ export interface UiPenOptions extends CommonOptions {
   path?: string;
   /** Pen pressure from 0.0 to 1.0 (default: 0.5). */
   pressure?: number;
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
   /** Pen tilt along the x-axis in degrees (-90 to 90, default: 0). */
   tiltX?: number;
   /** Pen tilt along the y-axis in degrees (-90 to 90, default: 0). */
   tiltY?: number;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1645,13 +1687,16 @@ export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.at !== undefined) args.push('--at', options.at);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.durationMs !== undefined) args.push('--duration-ms', options.durationMs.toString());
   if (options.eraser) args.push('--eraser');
   if (options.json) args.push('--json');
   if (options.path !== undefined) args.push('--path', options.path);
   if (options.pressure !== undefined) args.push('--pressure', options.pressure.toString());
+  if (options.root !== undefined) args.push('--root', options.root);
   if (options.tiltX !== undefined) args.push('--tilt-x', options.tiltX.toString());
   if (options.tiltY !== undefined) args.push('--tilt-y', options.tiltY.toString());
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1662,14 +1707,16 @@ export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
 // ---------------------------------------------------------------------------
 
 export interface UiRecordOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). */
   captureScreen?: boolean;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Recording duration in seconds. 0 records until Ctrl+C or redirected-stdin newline/EOF. */
   durationSec?: number;
   /** Frames per second to capture */
@@ -1684,7 +1731,11 @@ export interface UiRecordOptions extends CommonOptions {
   output?: string;
   /** Replace an existing recording only after the new take finishes. Previous frame bundles are retained under a .previous-<id> directory. */
   overwrite?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1696,21 +1747,27 @@ export interface UiRecordOptions extends CommonOptions {
 // ---------------------------------------------------------------------------
 
 export interface UiScreenshotOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). */
   captureScreen?: boolean;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Bring the target window to the foreground before capture. Already implied by --capture-screen. */
   focus?: boolean;
   /** Format output as JSON */
   json?: boolean;
   /** Save output to this file path. */
   output?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1724,9 +1781,12 @@ export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<W
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.captureScreen) args.push('--capture-screen');
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.focus) args.push('--focus');
   if (options.json) args.push('--json');
   if (options.output !== undefined) args.push('--output', options.output);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1737,21 +1797,27 @@ export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<W
 // ---------------------------------------------------------------------------
 
 export interface UiScrollOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Scroll direction: up, down, left, right */
   direction?: string;
   /** Format output as JSON */
   json?: boolean;
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
   /** Scroll to position: top, bottom */
   to?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
   /** Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). Synthesizes real wheel input instead of using ScrollPattern. */
   wheel?: number;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1764,9 +1830,12 @@ export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappRes
   if (options.selector) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.direction !== undefined) args.push('--direction', options.direction);
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
   if (options.to !== undefined) args.push('--to', options.to);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.wheel !== undefined) args.push('--wheel', options.wheel.toString());
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
@@ -1778,15 +1847,21 @@ export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappRes
 // ---------------------------------------------------------------------------
 
 export interface UiScrollIntoViewOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1799,7 +1874,10 @@ export async function uiScrollIntoView(options: UiScrollIntoViewOptions = {}): P
   if (options.selector) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1810,23 +1888,23 @@ export async function uiScrollIntoView(options: UiScrollIntoViewOptions = {}): P
 // ---------------------------------------------------------------------------
 
 export interface UiSearchOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
-  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  /** Only match this exact UIA ClassName (case-insensitive) */
   className?: string;
   /** Format output as JSON */
   json?: boolean;
   /** Maximum search results */
   max?: number;
-  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  /** Only search inside this element (must match exactly one element) */
   root?: string;
-  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
   type?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1860,7 +1938,7 @@ export interface UiSendKeysOptions extends CommonOptions {
   on?: string;
   /** Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. */
   allowSystemKeys?: boolean;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Format output as JSON */
   json?: boolean;
@@ -1870,7 +1948,7 @@ export interface UiSendKeysOptions extends CommonOptions {
   verbatim?: boolean;
   /** Transport: post-message (default, HWND-targeted, bypasses UIPI; typed text raises TextChanged but not a per-character KeyDown) or send-input (OS-wide; typed text raises a real per-character KeyDown + TextChanged). Named keys and combos raise KeyDown on both, but keyboard accelerators/shortcuts (KeyboardAccelerator, e.g. ctrl+t) only fire via send-input. post-message targets the focused child control and works for classic Win32/WinForms controls, but WinUI 3 / UWP / XAML controls are windowless and ignore posted messages — use send-input for those (a warning is emitted when the target looks like a XAML app). */
   via?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1898,22 +1976,28 @@ export async function uiSendKeys(options: UiSendKeysOptions = {}): Promise<Winap
 // ---------------------------------------------------------------------------
 
 export interface UiSetValueOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Value to set (text for TextBox/ComboBox, number for Slider) */
   value?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
 /**
- * Set a value on an element programmatically. Works for TextBox, ComboBox, Slider, and other editable controls via UIA ValuePattern/RangeValuePattern, with a LegacyIAccessible (put_accValue) fallback for TextPattern-only edit controls — no app foreground required. Some rich text controls (e.g. WinUI 3 RichEditBox and WPF RichTextBox) don't support setting their value programmatically — use the 'send-keys' command with '--via send-input' to type into them instead. Usage: winapp ui set-value <selector> <value> -a <app>
+ * Set a value on an element programmatically. Works for TextBox, ComboBox, Slider, and other editable controls via UIA ValuePattern/RangeValuePattern, with a LegacyIAccessible (put_accValue) fallback for TextPattern-only edit controls — no app foreground required. Some rich text controls (e.g. WinUI 3 RichEditBox and WPF RichTextBox) don't support setting their value programmatically — use the 'send-keys' command with '--via send-input' to type into them instead.
  */
 export async function uiSetValue(options: UiSetValueOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'set-value'];
@@ -1922,7 +2006,10 @@ export async function uiSetValue(options: UiSetValueOptions = {}): Promise<Winap
   if (options.value) positionals.push(options.value);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -1935,11 +2022,11 @@ export async function uiSetValue(options: UiSetValueOptions = {}): Promise<Winap
 export interface UiStatusOptions extends CommonOptions {
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1960,14 +2047,16 @@ export async function uiStatus(options: UiStatusOptions = {}): Promise<WinappRes
 // ---------------------------------------------------------------------------
 
 export interface UiTouchOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Explicit start point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. */
   at?: string;
+  /** Only match this exact UIA ClassName (case-insensitive) */
+  className?: string;
   /** Swipe direction: right (default), left, up, or down. Combined with --distance to compute the end point when --to-point is not given. */
   direction?: string;
   /** Distance in pixels for pinch/stretch (finger spread) or swipe. */
@@ -1982,9 +2071,13 @@ export interface UiTouchOptions extends CommonOptions {
   holdMs?: number;
   /** Format output as JSON */
   json?: boolean;
+  /** Only search inside this element (must match exactly one element) */
+  root?: string;
   /** End point x,y for a swipe (screen coordinates). Takes precedence over --direction. */
   toPoint?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
+  type?: string;
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -1998,6 +2091,7 @@ export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResul
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.at !== undefined) args.push('--at', options.at);
+  if (options.className !== undefined) args.push('--class-name', options.className);
   if (options.direction !== undefined) args.push('--direction', options.direction);
   if (options.distance !== undefined) args.push('--distance', options.distance.toString());
   if (options.durationMs !== undefined) args.push('--duration-ms', options.durationMs.toString());
@@ -2005,7 +2099,9 @@ export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResul
   if (options.gesture !== undefined) args.push('--gesture', options.gesture);
   if (options.holdMs !== undefined) args.push('--hold-ms', options.holdMs.toString());
   if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
   if (options.toPoint !== undefined) args.push('--to-point', options.toPoint);
+  if (options.type !== undefined) args.push('--type', options.type);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -2016,13 +2112,13 @@ export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResul
 // ---------------------------------------------------------------------------
 
 export interface UiWaitForOptions extends CommonOptions {
-  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
-  /** Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard). */
+  /** Only match this exact UIA ClassName (case-insensitive) */
   className?: string;
   /** Use substring matching for --value instead of exact match */
   contains?: boolean;
@@ -2032,15 +2128,15 @@ export interface UiWaitForOptions extends CommonOptions {
   json?: boolean;
   /** Property name to read or filter on */
   property?: string;
-  /** Search only descendants of this uniquely matching selector (excludes the root). */
+  /** Only search inside this element (must match exactly one element) */
   root?: string;
   /** Timeout in milliseconds */
   timeout?: number;
-  /** UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text. */
+  /** Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text) */
   type?: string;
   /** Wait for element value to equal this string. Uses smart fallback (TextPattern -> ValuePattern -> Name). Combine with --property to check a specific property instead. */
   value?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 

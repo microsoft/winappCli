@@ -13,16 +13,22 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiSetValueCommand : Command, IShortDescription
+internal class UiSetValueCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Set a value on an element via UIA ValuePattern (with LegacyIAccessible fallback)";
+    public string ShortDescription => "Set the text or value of an element";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui set-value \"Search\" \"<text>\" -a <app>",
+        "winapp ui set-value <selector> \"<text>\" --type Document -a <app>",
+    ];
 
     public UiSetValueCommand()
         : base("set-value", "Set a value on an element programmatically. " +
                "Works for TextBox, ComboBox, Slider, and other editable controls via UIA ValuePattern/RangeValuePattern, " +
                "with a LegacyIAccessible (put_accValue) fallback for TextPattern-only edit controls — no app foreground required. " +
                "Some rich text controls (e.g. WinUI 3 RichEditBox and WPF RichTextBox) don't support setting their value programmatically — " +
-               "use the 'send-keys' command with '--via send-input' to type into them instead. Usage: winapp ui set-value <selector> <value> -a <app>")
+               "use the 'send-keys' command with '--via send-input' to type into them instead.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Arguments.Add(SharedUiOptions.ValueArgument);
@@ -30,6 +36,7 @@ internal class UiSetValueCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.WindowOption);
 
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -79,7 +86,7 @@ internal class UiSetValueCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -94,7 +101,7 @@ internal class UiSetValueCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
                 var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
@@ -115,6 +122,11 @@ internal class UiSetValueCommand : Command, IShortDescription
                     logger.LogInformation("Set value on {ElementId}", (element.Selector ?? element.Id ?? ""));
                 }
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

@@ -14,11 +14,26 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiPenCommand : Command, IShortDescription
+internal class UiPenCommand : Command, IShortDescription, IHelpExamples
 {
     private const int MaxDelayMs = 60_000;
 
-    public string ShortDescription => "Inject synthetic pen/stylus input (taps and ink strokes with pressure and tilt)";
+    public string ShortDescription => "Inject pen input (taps and ink strokes)";
+
+
+    public IReadOnlyList<string> Examples { get; } =
+
+    [
+
+        "winapp ui pen <selector> -a <app>",
+
+        "winapp ui pen -w <hwnd> --path \"100,100 150,140 200,120\"",
+
+    ];
+
+
+
+    public string? Usage => "winapp ui pen [<selector>] (-a <app> | -w <hwnd>) [--at <x,y> | --path <points>] [options]";
 
     public static Option<string?> AtOption { get; } = new("--at")
     {
@@ -77,6 +92,7 @@ internal class UiPenCommand : Command, IShortDescription
         Options.Add(EraserOption);
         Options.Add(DurationOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -193,7 +209,7 @@ internal class UiPenCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -239,7 +255,7 @@ internal class UiPenCommand : Command, IShortDescription
                     if (path is null)
                     {
                         var target = await PointerCommandSupport.ResolvePointAsync(
-                            uiAutomation, selectorParser, uiTarget, selectorStr, at, atStr,
+                            uiAutomation, selectorParser, parseResult, uiTarget, selectorStr, at, atStr,
                             "pen", "pen point", logger, json, cancellationToken);
                         if (!target.Ok)
                         {
@@ -326,6 +342,11 @@ internal class UiPenCommand : Command, IShortDescription
                 }
 
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

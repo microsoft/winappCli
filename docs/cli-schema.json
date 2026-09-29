@@ -3655,15 +3655,30 @@
       }
     },
     "ui": {
-      "description": "Inspect and interact with any running Windows app using UI Automation (UIA). Works with WPF, WinForms, Win32, Electron, and WinUI 3 apps.",
+      "description": "Drive any running Windows app through UI Automation (WinUI 3, WPF, WinForms, Win32, UWP, Electron).\n\n  winapp ui inspect -a <app> --interactive           see what you can act on\n  winapp ui invoke <selector> -a <app>               press buttons, menu items, tabs, toggles\n  winapp ui set-value <selector> \"<text>\" -a <app>   fill text boxes and documents\n  winapp ui get-value <selector> -a <app>            check the result\n\n  -a <app>     Process name, window title, or PID. Targets the app's active window,\n               including an open dialog. It prints the window's -w <hwnd>; use that\n               if it picked the wrong window.\n  <selector>   A visible label (\"Save as\"), an AutomationId (stable), or a slug from\n               inspect (changes when the element is recreated). If a label matches\n               several elements, narrow it: \"Save\" --type Button, or --root <selector>.\n  After an action changes the UI (a dialog opens, a page loads), inspect again.",
       "hidden": false,
+      "options": {
+        "--json": {
+          "description": "Format output as JSON",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        }
+      },
       "subcommands": {
         "click": {
           "description": "Click an element by slug or text search using mouse simulation. Works on elements that don't support InvokePattern (e.g., column headers, list items). Use --double for double-click, --right for right-click.",
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -3676,11 +3691,25 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -3745,6 +3774,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -3762,11 +3816,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -3807,11 +3862,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -3906,11 +3962,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -3927,7 +3984,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -3940,11 +3997,25 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -3983,6 +4054,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -4000,11 +4096,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -4021,11 +4118,12 @@
           "hidden": false,
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4081,11 +4179,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -4102,7 +4201,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -4115,11 +4214,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4130,8 +4230,9 @@
               "recursive": false
             },
             "--class-name": {
-              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
               "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4186,8 +4287,9 @@
               "recursive": false
             },
             "--root": {
-              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "description": "Only search inside this element (must match exactly one element)",
               "hidden": false,
+              "helpName": "selector",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4198,7 +4300,7 @@
               "recursive": false
             },
             "--type": {
-              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -4226,11 +4328,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -4243,11 +4346,11 @@
           }
         },
         "get-value": {
-          "description": "Read the current value from an element. Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels). Usage: winapp ui get-value <selector> -a <app>",
+          "description": "Read the current value from an element. Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels).",
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -4260,11 +4363,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4275,8 +4379,9 @@
               "recursive": false
             },
             "--class-name": {
-              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
               "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4316,8 +4421,9 @@
               "recursive": false
             },
             "--root": {
-              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "description": "Only search inside this element (must match exactly one element)",
               "hidden": false,
+              "helpName": "selector",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4328,7 +4434,7 @@
               "recursive": false
             },
             "--type": {
-              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -4356,11 +4462,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -4377,7 +4484,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -4390,11 +4497,25 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4446,6 +4567,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -4463,11 +4609,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -4480,11 +4627,14 @@
           }
         },
         "inspect": {
-          "description": "View the UI element tree with semantic slugs, element types, names, and bounds.",
+          "description": "View the UI element tree with semantic slugs, element types, names, and bounds. With a selector, shows that element's subtree; --type, --root, and --class-name narrow the selector.",
           "hidden": false,
+          "aliases": [
+            "tree"
+          ],
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -4510,11 +4660,25 @@
               "recursive": false
             },
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4611,6 +4775,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -4628,11 +4817,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -4645,11 +4835,11 @@
           }
         },
         "invoke": {
-          "description": "Activate an element by slug or text search. Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. Use --action for an exact operation on only the selected element; --root, --type and --class-name require --action.",
+          "description": "Activate an element. Tries the Invoke, Toggle, SelectionItem, and ExpandCollapse patterns in order, then the nearest invokable ancestor. Use --action to require one exact action on the selected element. With --type, --root, or --class-name the selector must match exactly one element, and the ancestor fallback is skipped.",
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -4674,11 +4864,12 @@
               "recursive": false
             },
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4689,8 +4880,9 @@
               "recursive": false
             },
             "--class-name": {
-              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
               "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4730,8 +4922,9 @@
               "recursive": false
             },
             "--root": {
-              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "description": "Only search inside this element (must match exactly one element)",
               "hidden": false,
+              "helpName": "selector",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4742,7 +4935,7 @@
               "recursive": false
             },
             "--type": {
-              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -4770,11 +4963,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -4791,11 +4985,12 @@
           "hidden": false,
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4870,7 +5065,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -4883,11 +5078,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4900,6 +5096,19 @@
             "--at": {
               "description": "Pen contact point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. Ignored when --path is given.",
               "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -4989,6 +5198,19 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--tilt-x": {
               "description": "Pen tilt along the x-axis in degrees (-90 to 90, default: 0).",
               "hidden": false,
@@ -5015,6 +5237,18 @@
               "required": false,
               "recursive": false
             },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -5032,11 +5266,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5053,7 +5288,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -5066,11 +5301,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5088,6 +5324,19 @@
               "defaultValue": false,
               "arity": {
                 "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
                 "maximum": 1
               },
               "required": false,
@@ -5202,6 +5451,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -5219,11 +5493,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5240,7 +5515,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -5253,11 +5528,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5275,6 +5551,19 @@
               "defaultValue": false,
               "arity": {
                 "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
                 "maximum": 1
               },
               "required": false,
@@ -5337,6 +5626,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -5354,11 +5668,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5375,7 +5690,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -5388,11 +5703,25 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5443,8 +5772,33 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--to": {
               "description": "Scroll to position: top, bottom",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -5484,11 +5838,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5505,7 +5860,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -5518,11 +5873,25 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5561,6 +5930,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -5578,11 +5972,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5597,9 +5992,12 @@
         "search": {
           "description": "Search the element tree for elements matching a text query. Returns all matches with semantic slugs.",
           "hidden": false,
+          "aliases": [
+            "find"
+          ],
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -5612,11 +6010,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5627,8 +6026,9 @@
               "recursive": false
             },
             "--class-name": {
-              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
               "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5681,8 +6081,9 @@
               "recursive": false
             },
             "--root": {
-              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "description": "Only search inside this element (must match exactly one element)",
               "hidden": false,
+              "helpName": "selector",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5693,7 +6094,7 @@
               "recursive": false
             },
             "--type": {
-              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -5721,11 +6122,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5768,11 +6170,12 @@
               "recursive": false
             },
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5866,11 +6269,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5883,11 +6287,11 @@
           }
         },
         "set-value": {
-          "description": "Set a value on an element programmatically. Works for TextBox, ComboBox, Slider, and other editable controls via UIA ValuePattern/RangeValuePattern, with a LegacyIAccessible (put_accValue) fallback for TextPattern-only edit controls — no app foreground required. Some rich text controls (e.g. WinUI 3 RichEditBox and WPF RichTextBox) don't support setting their value programmatically — use the 'send-keys' command with '--via send-input' to type into them instead. Usage: winapp ui set-value <selector> <value> -a <app>",
+          "description": "Set a value on an element programmatically. Works for TextBox, ComboBox, Slider, and other editable controls via UIA ValuePattern/RangeValuePattern, with a LegacyIAccessible (put_accValue) fallback for TextPattern-only edit controls — no app foreground required. Some rich text controls (e.g. WinUI 3 RichEditBox and WPF RichTextBox) don't support setting their value programmatically — use the 'send-keys' command with '--via send-input' to type into them instead.",
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -5911,11 +6315,25 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -5954,6 +6372,31 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--verbose": {
               "description": "Enable verbose output",
               "hidden": false,
@@ -5971,11 +6414,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5992,11 +6436,12 @@
           "hidden": false,
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -6052,11 +6497,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -6073,7 +6519,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -6086,11 +6532,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -6103,6 +6550,19 @@
             "--at": {
               "description": "Explicit start point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center.",
               "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--class-name": {
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
+              "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -6222,8 +6682,33 @@
               "required": false,
               "recursive": false
             },
+            "--root": {
+              "description": "Only search inside this element (must match exactly one element)",
+              "hidden": false,
+              "helpName": "selector",
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
             "--to-point": {
               "description": "End point x,y for a swipe (screen coordinates). Takes precedence over --direction.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -6251,11 +6736,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -6272,7 +6758,7 @@
           "hidden": false,
           "arguments": {
             "selector": {
-              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "description": "Visible label, AutomationId, or slug from inspect (see winapp ui --help)",
               "order": 0,
               "hidden": false,
               "valueType": "System.String",
@@ -6285,11 +6771,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -6300,8 +6787,9 @@
               "recursive": false
             },
             "--class-name": {
-              "description": "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+              "description": "Only match this exact UIA ClassName (case-insensitive)",
               "hidden": false,
+              "helpName": "name",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -6382,8 +6870,9 @@
               "recursive": false
             },
             "--root": {
-              "description": "Search only descendants of this uniquely matching selector (excludes the root).",
+              "description": "Only search inside this element (must match exactly one element)",
               "hidden": false,
+              "helpName": "selector",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -6410,7 +6899,7 @@
               "recursive": false
             },
             "--type": {
-              "description": "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+              "description": "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -6450,11 +6939,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {

@@ -14,9 +14,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiListWindowsCommand : Command, IShortDescription
+internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "List all visible windows, optionally filtered by app";
+    public string ShortDescription => "List an app's windows, when -a picks the wrong one";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui list-windows -a <app>",
+        "winapp ui list-windows -a <app> --show-hidden",
+    ];
 
     public UiListWindowsCommand()
         : base("list-windows", "List all visible windows with their HWND, title, process, and size. " +
@@ -118,6 +124,13 @@ internal class UiListWindowsCommand : Command, IShortDescription
                                 // Fall back to title search
                                 windows = uiAutomation.FindWindowsByTitle(app);
                             }
+                        }
+
+                        // A packaged app's window can belong to ApplicationFrameHost rather than
+                        // the app's process, so a matched process may own no window at all.
+                        if (windows.Count == 0)
+                        {
+                            windows = uiAutomation.FindWindowsByTitle(app);
                         }
                     }
                 }

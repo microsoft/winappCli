@@ -46,7 +46,8 @@ internal static class UiJsonError
                             TextWriter? errorOut = null,
                             string? recoveryHint = null,
                             UiPartialOutputInfo? partialOutput = null,
-                            UiCoordinationInfo? coordination = null)
+                            UiCoordinationInfo? coordination = null,
+                            string[]? suggestions = null)
     {
         if (!json) { return; }
 
@@ -58,6 +59,7 @@ internal static class UiJsonError
                 Message = message,
                 Selector = selector,
                 Details = details,
+                Suggestions = suggestions,
                 RecoveryHint = recoveryHint,
                 PartialOutput = partialOutput,
                 Coordination = coordination,

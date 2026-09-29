@@ -2645,6 +2645,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         // Try to get current value for editable elements (TextBox, ComboBox, etc.)
         string? value = null;
+        bool? isEditable = null;
         try
         {
             var valuePattern = (IUIAutomationValuePattern)element.GetCurrentPattern(UIA_PATTERN_ID.UIA_ValuePatternId);
@@ -2653,6 +2654,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
             if (!string.IsNullOrEmpty(v))
             {
                 value = v;
+            }
+            if (!(bool)valuePattern.get_CurrentIsReadOnly())
+            {
+                isEditable = true;
             }
         }
         catch { }
@@ -2744,6 +2749,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             ScrollDir = scrollDir,
             Selector = selector,
             IsInvokable = isInvokable,
+            IsEditable = isEditable,
         };
     }
 
