@@ -15,7 +15,6 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public sealed class ProjectRunServiceAotTests
 {
-    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
     private DirectoryInfo _tempDirectory = null!;
     private readonly List<TestConsole> _consoles = [];
 
@@ -578,22 +577,18 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task PublishAot_StreamsDiagnosticsAndPropertiesEnvelope(bool indented)
+    public async Task PublishAot_StreamsOutputAndReadsPropertiesFromResultFile()
     {
         var project = WriteProject();
         var assets = WriteFile("obj\\project.assets.json", "{}");
         WriteFile("publish\\Sample.exe", "native");
         var properties = PropertyJson(project, assets, publishAot: true, packaging: "None");
-        if (indented)
-        {
-            using var parsed = JsonDocument.Parse(properties);
-            properties = JsonSerializer.Serialize(parsed.RootElement, IndentedJsonOptions);
-        }
+        // Project targets may print their own property-shaped JSON; it is ordinary output, not the result.
+        const string targetOutput = """{"Properties":{"PublishAot":"false"}}""";
         var dotnet = new FakeDotNetService
         {
-            RunDotnetArgumentListHandler = _ => (0, "Publish diagnostic\n" + properties, string.Empty),
+            RunDotnetArgumentListHandler = _ => (0, $"{targetOutput}\nPublish diagnostic", string.Empty),
+            ResultOutputFileHandler = _ => properties,
         };
         using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
         var service = NewService(dotnet, logger: logger);
@@ -602,37 +597,69 @@ public sealed class ProjectRunServiceAotTests
             project, Options(), CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        StringAssert.Contains(_consoles.Last().Output, "Publish diagnostic");
-        StringAssert.Contains(_consoles.Last().Output, properties.ReplaceLineEndings());
+        var output = _consoles.Last().Output;
+        StringAssert.Contains(output, targetOutput);
+        StringAssert.Contains(output, "Publish diagnostic");
+        Assert.IsFalse(output.Contains(properties, StringComparison.Ordinal));
+        var resultFile = dotnet.ResultOutputFiles.Single();
+        CollectionAssert.Contains(
+            dotnet.ArgumentListInvocations.Single().ToList(),
+            $"--getResultOutputFile:{resultFile}");
+        Assert.IsFalse(File.Exists(resultFile), "the temporary result file must be deleted");
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task PublishAot_UsesFinalPropertiesEnvelopeAndKeepsEarlierTargetOutputVisible(bool indented)
+    public async Task PublishAot_FailureDeletesResultFile()
+    {
+        var project = WriteProject();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetArgumentListHandler = _ => (17, "Publish warning", "Native linker failed"),
+        };
+        using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = NewService(dotnet, logger: logger);
+
+        var outcome = await service.PublishAotAndResolveAsync(project, Options(), CancellationToken.None);
+
+        Assert.AreEqual(17, outcome.ExitCode);
+        StringAssert.Contains(_consoles.Last().Output, "Native linker failed");
+        Assert.IsFalse(File.Exists(dotnet.ResultOutputFiles.Single()));
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false, LogLevel.Warning)]
+    [DataRow(true, LogLevel.None)]
+    public async Task PublishAot_QuietAndJsonKeepDiagnosticsOnStderr(bool json, LogLevel level)
     {
         var project = WriteProject();
         var assets = WriteFile("obj\\project.assets.json", "{}");
         WriteFile("publish\\Sample.exe", "native");
-        var finalProperties = PropertyJson(project, assets, publishAot: true, packaging: "None");
-        var targetOutput = indented
-            ? "{\n  \"Properties\": { \"PublishAot\": \"false\" }\n}"
-            : """{"Properties":{"PublishAot":"false"}}""";
+        var properties = PropertyJson(project, assets, publishAot: true, packaging: "None");
         var dotnet = new FakeDotNetService
         {
-            RunDotnetArgumentListHandler = _ =>
-                (0, $"{targetOutput}\nPublish diagnostic\n{finalProperties}", string.Empty),
+            RunDotnetArgumentListHandler = _ => (0, "Publish diagnostic", string.Empty),
+            ResultOutputFileHandler = _ => properties,
         };
-        using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        using var logger = new LevelLogger<ProjectRunService>(level);
         var service = NewService(dotnet, logger: logger);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            var outcome = await service.PublishAotAndResolveAsync(
+                project, Options() with { Json = json }, CancellationToken.None);
+            Assert.IsNotNull(outcome.Resolution);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
 
-        var outcome = await service.PublishAotAndResolveAsync(
-            project, Options(), CancellationToken.None);
-
-        Assert.IsNotNull(outcome.Resolution);
-        StringAssert.Contains(_consoles.Last().Output, targetOutput.ReplaceLineEndings());
-        StringAssert.Contains(_consoles.Last().Output, "Publish diagnostic");
-        StringAssert.Contains(_consoles.Last().Output, finalProperties);
+        Assert.AreEqual(string.Empty, _consoles.Last().Output);
+        StringAssert.Contains(stderr.ToString(), "Publish diagnostic");
+        Assert.IsFalse(stderr.ToString().Contains("\"Properties\"", StringComparison.Ordinal));
     }
 
     [TestMethod]

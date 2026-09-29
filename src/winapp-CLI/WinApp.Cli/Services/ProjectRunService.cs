@@ -368,7 +368,8 @@ internal sealed partial class ProjectRunService(
         string stderr;
         if (publish)
         {
-            (exitCode, stdout, stderr) = await RunPublishPassAsync(
+            // Publish output already streamed; its properties come from the MSBuild result file.
+            (exitCode, _, stderr, stdout) = await RunPublishPassAsync(
                 csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
         }
         else
