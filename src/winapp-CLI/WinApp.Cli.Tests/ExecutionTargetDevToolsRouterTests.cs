@@ -142,6 +142,7 @@ public sealed class ExecutionTargetDevToolsRouterTests : BaseCommandTests
     [DataRow("123", "get-source Title")]
     [DataRow("123", "diagnose-binding Title Text")]
     [DataRow("123", "set-property Title Changed --property Text")]
+    [DataRow("123", "set-property Title Text Changed")]
     [DataRow("123", "call DevTools.ping")]
     [DataRow("123", "comments add --text note --from-element handle:42")]
     public async Task FriendlyApp_DiscoveryPreservesHostLaunchAuthority(string app, string command)

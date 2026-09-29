@@ -682,7 +682,7 @@ internal static class Program
     {
         var payload = IsDescendantOf(parseResult, "comments")
             ? System.Text.Json.JsonSerializer.Serialize(new CommentResultPayload { Ok = false, Error = message },
-                CommentsJsonContext.Default.CommentResultPayload)
+                CommentsJsonContext.Output.CommentResultPayload)
             : IsDescendantOf(parseResult, "attach")
                 ? System.Text.Json.JsonSerializer.Serialize(new DevToolsAttachPayload
                 {

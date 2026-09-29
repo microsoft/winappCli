@@ -24,7 +24,7 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription
     public static Option<string?> ProjectOption { get; } = new("--project") { Description = "Filter by the captured project root." };
 
     public DevToolsCommentsListCommand()
-        : base("list", "List locally saved UI comments and source matches; use --source-root, not --app or --on.")
+        : base("list", "List locally saved UI comments and their current source matches; choose the project with --source-root.")
     {
         Options.Add(StatusOption);
         Options.Add(AllOption);
@@ -90,16 +90,14 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription
 
                 if (json)
                 {
-                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Default.CommentsListPayload));
+                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentsListPayload));
                     return Task.FromResult(0);
                 }
-
-                var hidden = inProject.Count - selected.Count;
 
                 if (payload.Comments.Count == 0)
                 {
                     DevToolsRender.WriteMarkupLine(ansiConsole, $"[grey]No comments in {Markup.Escape(location.StorePath)}.[/]");
-                    WriteHiddenFootnote(ansiConsole, inProject, hidden);
+                    WriteHiddenFootnote(ansiConsole, inProject, selected);
                     return Task.FromResult(0);
                 }
 
@@ -137,7 +135,7 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription
                     }
                 }
 
-                WriteHiddenFootnote(ansiConsole, inProject, hidden);
+                WriteHiddenFootnote(ansiConsole, inProject, selected);
                 logger.LogDebug("Listed {Count} comments from {Store}", payload.Comments.Count, location.StorePath);
                 return Task.FromResult(0);
             }
@@ -147,31 +145,18 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription
             }
         }
 
-        private static void WriteHiddenFootnote(IAnsiConsole ansiConsole, List<Comment> all, int hidden)
+        private static void WriteHiddenFootnote(IAnsiConsole ansiConsole, List<Comment> all, List<Comment> shown)
         {
-            if (hidden <= 0)
+            var breakdown = all.Except(shown).GroupBy(c => c.Status)
+                .OrderBy(group => Array.IndexOf(CommentStatus.All, group.Key))
+                .Select(group => $"{group.Count()} {group.Key}").ToList();
+            if (breakdown.Count == 0)
             {
                 return;
             }
 
-            var breakdown = new List<string>();
-            foreach (var s in CommentStatus.All)
-            {
-                if (s == CommentStatus.Open)
-                {
-                    continue;
-                }
-
-                var n = all.FindAll(c => c.Status == s).Count;
-                if (n > 0)
-                {
-                    breakdown.Add($"{n} {s}");
-                }
-            }
-
             var noun = all.Count == 1 ? "comment" : "comments";
-            var detail = breakdown.Count > 0 ? string.Join(", ", breakdown) : $"{hidden} not open";
-            DevToolsRender.WriteMarkupLine(ansiConsole, $"[grey]{all.Count} {noun} total ({Markup.Escape(detail)} — hidden, use --all).[/]");
+            DevToolsRender.WriteMarkupLine(ansiConsole, $"[grey]{all.Count} {noun} total ({Markup.Escape(string.Join(", ", breakdown))} hidden; use --all).[/]");
         }
 
         private static int NoStore(IAnsiConsole ansiConsole, bool json, CommentStoreLocation location)
@@ -179,7 +164,7 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription
             if (json)
             {
                 var payload = new CommentsListPayload { App = new CommentAppInfo { SourceRoot = location.StartDirectory, StorePath = location.StorePath } };
-                ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Default.CommentsListPayload));
+                ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentsListPayload));
                 return 0;
             }
 

@@ -473,7 +473,7 @@ export interface DevtoolsCommentsGetOptions extends CommonOptions {
 }
 
 /**
- * Show one locally saved UI comment and source matches; use --source-root, not --app or --on.
+ * Show one locally saved UI comment and its current source matches; choose the project with --source-root.
  */
 export async function devtoolsCommentsGet(options: DevtoolsCommentsGetOptions): Promise<WinappResult> {
   const args: string[] = ['devtools', 'comments', 'get'];
@@ -505,7 +505,7 @@ export interface DevtoolsCommentsListOptions extends CommonOptions {
 }
 
 /**
- * List locally saved UI comments and source matches; use --source-root, not --app or --on.
+ * List locally saved UI comments and their current source matches; choose the project with --source-root.
  */
 export async function devtoolsCommentsList(options: DevtoolsCommentsListOptions = {}): Promise<WinappResult> {
   const args: string[] = ['devtools', 'comments', 'list'];

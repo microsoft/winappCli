@@ -117,10 +117,12 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand
 
             // The remaining fields are all optional on the wire and each says something different, so print
             // exactly the ones the agent supplied rather than inventing placeholders for the rest.
+            // A healthy binding's reason is a scope disclaimer, not a finding; JSON keeps it.
+            var healthy = state is "evaluated" or "ok" or "resolved" or "none";
             foreach (var (field, label) in Fields)
             {
                 var value = ReadString(root, field);
-                if (value.Length > 0)
+                if (value.Length > 0 && !(healthy && field == "reason"))
                 {
                     DevToolsRender.WriteMarkupLine(Console, $"  {label}: {Markup.Escape(value)}");
                 }

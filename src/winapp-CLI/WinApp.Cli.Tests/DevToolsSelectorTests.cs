@@ -621,6 +621,39 @@ public class DevToolsSelectorTests
             "not finished classifying");
     }
 
+    /// <summary>Items created from data have no XAML source; a search for their text must still find them.</summary>
+    [TestMethod]
+    public async Task Search_NoAuthoredMatch_FindsGeneratedItemsAndSaysSo()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find",
+                """{"matches":[],"query":"phi","appAuthoredOnly":true,"searchedNodes":2,"censusNodes":20,"truncated":false,"sourceInstrumented":true,"classificationTruncated":false}""",
+                request => request.Contains("\"appAuthoredOnly\":true", StringComparison.Ordinal))
+            .Answer("VisualTree.find",
+                """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.NavigationViewItem","depth":9}],"query":"phi","appAuthoredOnly":false,"searchedNodes":20,"censusNodes":20,"truncated":false}""");
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium"]);
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "NavigationViewItem");
+        StringAssert.Contains(output, "Nothing in your XAML matches");
+
+        var (_, jsonOut) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium", "--json"]);
+        using var doc = JsonDocument.Parse(jsonOut);
+        Assert.IsTrue(doc.RootElement.GetProperty("fallback").GetBoolean());
+        Assert.AreEqual(1, doc.RootElement.GetProperty("matchCount").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task Search_NoMatchAnywhere_DoesNotClaimTextIsUnsearched()
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find",
+            """{"matches":[],"query":"x","appAuthoredOnly":false,"searchedNodes":2,"censusNodes":2,"truncated":false,"sourceInstrumented":true,"classificationTruncated":false}""");
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["__missing__"]);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "displayed text");
+        Assert.IsFalse(output.Contains("not an element's rendered text", StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// The agent-facing shape has to be actionable. An ambiguity error that carries only a sentence ending in
     /// a colon leaves a `--json` caller with nothing to retry — on the duplicate-`x:Name` workflow, where

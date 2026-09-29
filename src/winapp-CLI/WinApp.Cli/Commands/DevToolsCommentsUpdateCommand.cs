@@ -26,7 +26,7 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription
     public static Option<string?> NoteOption { get; } = new("--note") { Description = "What changed, or why work is deferred." };
     public static Option<string?> ByOption { get; } = new("--by") { Description = "Who made the update (default: current user)." };
 
-    public static Option<string?> AppOption { get; } = new("--app")
+    public static Option<string?> AppOption { get; } = new("--app", "-a")
     {
         Description = "Optional marker refresh target: PID, process name, or window title.",
     };
@@ -134,7 +134,7 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription
             {
                 var view = CommentViewBuilder.ToView(updated, resolver, sourceRoot);
                 var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
-                ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Default.CommentResultPayload));
+                ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
             }
             else
             {

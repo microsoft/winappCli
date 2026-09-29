@@ -70,19 +70,21 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand
                 return Task.FromResult(Fail(json, target.Pid, error));
             }
 
-            // The honest fallback, decided from the SAME pass that produced the matches: the reply carries
-            // whether source information exists at all and whether the classifier finished, so no second
-            // classification is needed to explain an empty authored result — and none can contradict it.
+            // Nothing of the app's own XAML matched: search the whole tree before giving up. Items created from
+            // data or code (a NavigationViewItem added from a model list) have no XAML source of their own.
             string? fallback = null;
-            if (appAuthored && result!.Matches.Count == 0 && result.ExplainIfNothingAuthored() is string why)
+            if (appAuthored && result!.Matches.Count == 0)
             {
-                fallback = why;
+                var why = result.ExplainIfNothingAuthored();
                 appAuthored = false;
                 (result, error) = DevToolsSelector.Find(target.Tap!, query, appAuthoredOnly: false, cancellationToken);
                 if (error is not null)
                 {
                     return Task.FromResult(Fail(json, target.Pid, error));
                 }
+                fallback = why ?? (result!.Matches.Count > 0
+                    ? $"Nothing in your XAML matches \"{query}\"; these are generated or framework elements, such as items created from data."
+                    : null);
             }
 
             var matches = result!.Matches;
@@ -214,7 +216,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand
                 ? " in your XAML — pass --all to search framework and template elements too"
                 : string.Empty;
             var why = $"No element matches \"{query}\" in {target.Describe()}{scope}. " +
-                      "Matching covers type, x:Name, and source file — not an element's rendered text.";
+                      "Matching covers type, x:Name, source file, and displayed text.";
             return classificationTruncated
                 ? why + " The agent has also not finished classifying this app's XAML, so run the command " +
                         "again in a moment."

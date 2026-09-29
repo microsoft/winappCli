@@ -154,7 +154,8 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand
             }
 
             var normalizedFilter = DevToolsFormat.NormalizeQuery(filter);
-            var returned = new VisualTreeSnapshot(roots, depth).Count;
+            var unfiltered = new VisualTreeSnapshot(roots, depth);
+            var returned = unfiltered.Count;
             var kept = FilterForest(roots, normalizedFilter);
             var previews = DevToolsPreviews.Read(target.Tap!, kept, cancellationToken);
             kept = previews.Roots;
@@ -163,7 +164,8 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand
             // ONE verdict for both shapes: an empty tree is a failure in the human path, and `--json` used to
             // report ok:true with count:0 and exit 0 for the same run.
             var found = kept.Count > 0;
-            var emptyReason = found ? null : DescribeEmpty(normalizedFilter, classificationTruncated);
+            var emptyReason = found ? null : DescribeEmpty(normalizedFilter, classificationTruncated,
+                unfiltered.DepthLimitedElements > 0 ? depth : null);
 
             if (json)
             {
@@ -245,11 +247,13 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand
         /// and an empty answer is exactly when "the classifier has not looked at everything yet" is the fact
         /// that explains it.
         /// </summary>
-        private static string DescribeEmpty(string filter, bool classificationTruncated)
+        private static string DescribeEmpty(string filter, bool classificationTruncated, int? cutAtDepth = null)
         {
-            var why = filter.Length > 0
-                ? "No elements matched. Drop --filter to see the whole tree."
-                : "The app has no visual tree yet.";
+            var why = filter.Length == 0 ? "The app has no visual tree yet."
+                : cutAtDepth is int depth
+                    ? $"No elements matched within --depth {depth}; deeper elements were not searched. " +
+                      $"Rerun with --depth {depth * 2}, or use `winapp devtools search \"{filter}\"`."
+                    : "No elements matched. Drop --filter to see the whole tree.";
             return classificationTruncated
                 ? why + " The agent has also not finished classifying this app's XAML, so run the command " +
                         "again in a moment, or pass --all."

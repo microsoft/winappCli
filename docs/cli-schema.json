@@ -957,6 +957,9 @@
                 "--app": {
                   "description": "Live capture and marker target: PID, process name, or window title.",
                   "hidden": false,
+                  "aliases": [
+                    "-a"
+                  ],
                   "valueType": "System.String",
                   "hasDefaultValue": false,
                   "arity": {
@@ -1170,6 +1173,9 @@
                 "--app": {
                   "description": "Optional marker refresh target: PID, process name, or window title.",
                   "hidden": false,
+                  "aliases": [
+                    "-a"
+                  ],
                   "valueType": "System.String",
                   "hasDefaultValue": false,
                   "arity": {
@@ -1239,7 +1245,7 @@
               }
             },
             "get": {
-              "description": "Show one locally saved UI comment and source matches; use --source-root, not --app or --on.",
+              "description": "Show one locally saved UI comment and its current source matches; choose the project with --source-root.",
               "hidden": false,
               "arguments": {
                 "id": {
@@ -1315,7 +1321,7 @@
               }
             },
             "list": {
-              "description": "List locally saved UI comments and source matches; use --source-root, not --app or --on.",
+              "description": "List locally saved UI comments and their current source matches; choose the project with --source-root.",
               "hidden": false,
               "options": {
                 "--all": {
@@ -1446,6 +1452,9 @@
                 "--app": {
                   "description": "Optional marker refresh target: PID, process name, or window title.",
                   "hidden": false,
+                  "aliases": [
+                    "-a"
+                  ],
                   "valueType": "System.String",
                   "hasDefaultValue": false,
                   "arity": {
@@ -1808,6 +1817,17 @@
             "selector": {
               "description": "Element to read: the selector printed in brackets, an x:Name, or a handle.",
               "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "property": {
+              "description": "One property to read, e.g. Text. Same as --property.",
+              "order": 1,
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,
@@ -2557,9 +2577,20 @@
                 "maximum": 1
               }
             },
+            "property": {
+              "description": "The property to change, e.g. Width. Same as --property.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
             "value": {
               "description": "The new value, e.g. 200, false, #FF0067C0, or \"Save changes\".",
-              "order": 1,
+              "order": 2,
               "hidden": false,
               "valueType": "System.String",
               "hasDefaultValue": false,

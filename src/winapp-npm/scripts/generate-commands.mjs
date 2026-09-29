@@ -445,6 +445,9 @@ function generate(schema) {
       const propName = kebabToCamel(argName);
       // The passthrough arg (e.g. run's app-args) is emitted after '--' below, not as a positional.
       if (passthrough && propName === passthrough.propName) continue;
+      // A positional shortcut for an option (`get-property <selector> Text` for `--property Text`) adds
+      // nothing to an options object, and its property name would collide with the option's.
+      if (opts.some((opt) => opt.propName === propName)) continue;
       positionalArgs.push({ cliName: argName, def: argDef, propName, alias: argAliases[propName] || null });
     }
     // Sort by order

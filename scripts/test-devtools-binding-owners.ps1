@@ -458,8 +458,9 @@ try {
     }
     $window = [string]$windows.unsupported
     Window-Guard $window
-    $negative = Invoke-Cli @('devtools', 'diagnose-binding', 'WindowHeading', 'Text', '-w', $window) $false
-    Check ($negative.error.token -eq 'binding-unavailable' -and $negative.result.state -eq 'unavailable') 'static-only Window owner is unavailable, not guessed'
+    # A Window held only in a static App field (App.MainWindow { get; private set; }) is still proven by its generated bindings.
+    $static = Invoke-Cli @('devtools', 'diagnose-binding', 'WindowHeading', 'Text', '-w', $window)
+    Check ($static.ok -eq $true -and $static.result.sourceValue -ceq 'Static-only') 'static-held Window owner is diagnosed from its own bindings'
     if ($VerifyComments) {
         $sourceRoot = Split-Path -Parent $project
         $window = [string]$windows.beta
@@ -468,9 +469,9 @@ try {
         $named = @($nodes | Where-Object name -eq 'WindowHeading')
         $templates = @($nodes | Where-Object name -eq 'TemplateHeading')
         Check ($named.Count -eq 1 -and $templates.Count -eq 2) 'comment targets are exact owned-window handles'
-        $repeated = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'repeated', '--text', 'Repeated source requires confirmation',
+        $repeated = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'repeated', '--text', 'A unique x:Name is one place to edit',
             '--from-element', [string]$named[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
-        Check (-not $repeated.comment.anchorConfirmed -and $repeated.comment.requiresConfirmation) 'repeated windows cannot auto-confirm'
+        Check ($repeated.comment.anchorConfirmed -and -not $repeated.comment.requiresConfirmation) 'a unique x:Name confirms even when its window is open twice'
         $templated = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'template', '--text', 'Template instance requires confirmation',
             '--from-element', [string]$templates[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
         Check (-not $templated.comment.anchorConfirmed -and $templated.comment.requiresConfirmation) 'typed-template comment cannot auto-confirm'
@@ -496,8 +497,7 @@ try {
             Check ($nodes.Count -ge 400) 'larger fixture retains at least 400 live nodes'
             $cold = Invoke-Cli @('devtools', 'comments', 'add', '--id', 'cold-large', '--text', 'Bounded cold capture',
                 '--from-element', [string]$named[0].handle, '--app', [string]$owned.Id, '--source-root', $sourceRoot)
-            Check (-not $cold.comment.anchorConfirmed -and $cold.comment.requiresConfirmation -and
-                $cold.comment.anchor.authored.uniquenessReason -in @('unclassified-peer', 'unclassified-ancestor', 'incomplete-source-census')) 'incomplete large census gives a precise weak result without hidden retry'
+            Check ($cold.comment.anchorConfirmed -and -not $cold.comment.requiresConfirmation) 'a unique x:Name confirms without waiting for the large census'
             for ($attempt = 0; $attempt -lt 20; $attempt++) {
                 $classification = (Invoke-Cli @('devtools', 'call', 'VisualTree.getAppAuthored', '-a', [string]$owned.Id)).result
                 if ($classification.truncated -eq $false) { break }

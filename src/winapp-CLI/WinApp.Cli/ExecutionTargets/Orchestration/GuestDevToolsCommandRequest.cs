@@ -152,11 +152,12 @@ internal static class GuestDevToolsCommandRequest
                 !DevToolsQueryOptions.HasCriteria(parsed)) ||
                 parsed.GetValue(DevToolsSearchCommand.MaxOption) <= 0:
                 throw new InvalidOperationException("Search requires a query and --max 1 or greater.");
-            case DevToolsSetPropertyCommand when string.IsNullOrWhiteSpace(parsed.GetValue(SharedDevToolsOptions.PropertyOption)) ||
+            case DevToolsSetPropertyCommand when DevToolsSetPropertyCommand.ResolvePropertyAndValue(parsed) is var (property, value, conflict) &&
+                (conflict || string.IsNullOrWhiteSpace(property) ||
                 (DevToolsQueryOptions.HasCriteria(parsed)
                     ? parsed.GetValue(DevToolsQueryOptions.Value) is null
-                    : parsed.GetValue(DevToolsSetPropertyCommand.ValueArgument) is null):
-                throw new InvalidOperationException("set-property requires --property and a value.");
+                    : value is null)):
+                throw new InvalidOperationException("set-property requires a property and a value.");
             case DevToolsDiagnoseBindingCommand when string.IsNullOrWhiteSpace(parsed.GetValue(DevToolsDiagnoseBindingCommand.PropertyArgument)):
                 throw new InvalidOperationException("diagnose-binding requires a property.");
             case DevToolsCallCommand:

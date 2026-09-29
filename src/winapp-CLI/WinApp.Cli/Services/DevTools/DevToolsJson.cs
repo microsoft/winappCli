@@ -18,7 +18,9 @@ internal static class DevToolsJson
     public static string Serialize(Action<Utf8JsonWriter> writeBody)
     {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true, NewLine = "\n", MaxDepth = TapWireJson.MaxDepth }))
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true, NewLine = "\n", MaxDepth = TapWireJson.MaxDepth,
+            // XAML travels in these payloads; "<Button Content=\"Save\" />" should read as XAML, not \u003C escapes.
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStartObject();
             writeBody(writer);

@@ -272,4 +272,13 @@ internal sealed class CommentResultPayload
     NewLine = "\n",
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class CommentsJsonContext : JsonSerializerContext;
+internal partial class CommentsJsonContext : JsonSerializerContext
+{
+    private static CommentsJsonContext? s_output;
+
+    /// <summary>Command output: relaxed escaping so captured XAML reads as XAML. The persisted store keeps the default.</summary>
+    internal static CommentsJsonContext Output => s_output ??= new(new System.Text.Json.JsonSerializerOptions(Default.Options)
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    });
+}

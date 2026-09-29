@@ -25,10 +25,17 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand
         Arity = ArgumentArity.ZeroOrOne,
     };
 
+    public static Argument<string?> PropertyArgument { get; } = new("property")
+    {
+        Description = "One property to read, e.g. Text. Same as --property.",
+        Arity = ArgumentArity.ZeroOrOne,
+    };
+
     public DevToolsGetPropertyCommand()
         : base("get-property", "Read an element's live property values and where they come from.")
     {
         Arguments.Add(SelectorArgument);
+        Arguments.Add(PropertyArgument);
         Options.Add(SharedDevToolsOptions.PropertyOption);
         Options.Add(AllOption);
         DevToolsQueryOptions.Add(this);
@@ -51,6 +58,14 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand
         {
             var selector = parseResult.GetValue(SelectorArgument);
             var property = parseResult.GetValue(SharedDevToolsOptions.PropertyOption);
+            if (parseResult.GetValue(PropertyArgument) is { } positional)
+            {
+                if (property is not null)
+                {
+                    return Task.FromResult(Fail(json, target.Pid, "Pass the property once: positionally or with --property.", "bad-args"));
+                }
+                property = positional;
+            }
             string? handle;
             DevToolsProtocolResponse response;
             VisualTreeNode? queryNode = null;
@@ -146,7 +161,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand
                     return Task.FromResult(Fail(
                         json,
                         target.Pid,
-                        $"'{property}' is not among the {total} propert(ies) the agent reports for this element. " +
+                        $"'{property}' is not among the {total} {(total == 1 ? "property" : "properties")} the agent reports for this element. " +
                         "Run the command without --property to see which it reads."));
                 }
             }
@@ -252,7 +267,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand
             {
                 Console.WriteLine();
                 Console.MarkupLineInterpolated(
-                    $"[grey]Showing {selected.Count} of {total} propert(ies) — the ones something set. Use --all for the rest.[/]");
+                    $"[grey]Showing {selected.Count} of {total} {(total == 1 ? "property" : "properties")} — the ones something set. Use --all for the rest.[/]");
             }
 
             return Task.FromResult(0);

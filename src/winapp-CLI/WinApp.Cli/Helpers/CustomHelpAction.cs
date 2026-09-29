@@ -56,8 +56,18 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         // Only use custom rendering for the target command; fall back to default for others
         if (command != _targetCommand)
         {
-            var defaultHelp = new HelpAction();
-            return defaultHelp.Invoke(parseResult);
+            // --on is recursive, but these commands read the local comment store and always reject it.
+            var onOption = ExecutionTargetSelection.OnOption;
+            var wasHidden = onOption.Hidden;
+            onOption.Hidden |= command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand;
+            try
+            {
+                return new HelpAction().Invoke(parseResult);
+            }
+            finally
+            {
+                onOption.Hidden = wasHidden;
+            }
         }
 
         var useColor = BannerHelper.UseEmoji;

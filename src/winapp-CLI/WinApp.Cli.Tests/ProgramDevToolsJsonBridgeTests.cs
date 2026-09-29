@@ -21,7 +21,7 @@ public class ProgramDevToolsJsonBridgeTests : BaseCommandTests
         Assert.IsEmpty(parse.Errors);
         Assert.IsEmpty(Helpers.WindowsCommandLine.FindOptionLikePositionals(parse));
         Assert.IsFalse(Commands.ExecutionTargetSelection.WasSupplied(parse));
-        Assert.AreEqual(value, parse.GetValue(Commands.DevToolsSetPropertyCommand.ValueArgument));
+        Assert.AreEqual(value, Commands.DevToolsSetPropertyCommand.ResolvePropertyAndValue(parse).Value);
     }
 
     [TestMethod]

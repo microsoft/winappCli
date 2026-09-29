@@ -102,8 +102,9 @@ public class DevToolsCommentsHumanOutputTests
         StringAssert.Contains(human, "Content=\"Save\"");
         StringAssert.Contains(human, "Content=\"Save changes\"");
         StringAssert.Contains(human, "Captured runtime text (context): Saved 12 rows");
-        var payload = JsonSerializer.Deserialize(Success("get", "authored-note", "--json"),
-            CommentsJsonContext.Default.CommentResultPayload)!;
+        var getJson = Success("get", "authored-note", "--json");
+        StringAssert.Contains(getJson, "<Button x:Name=\\\"SaveButton\\\"", "captured XAML is not \\u003C-escaped");
+        var payload = JsonSerializer.Deserialize(getJson, CommentsJsonContext.Default.CommentResultPayload)!;
         Assert.IsTrue(payload.Comment!.AnchorConfirmed);
         Assert.IsFalse(payload.Comment.RequiresConfirmation);
         Assert.AreEqual(6, payload.Comment.Anchor.Line);

@@ -29,7 +29,7 @@ internal class DevToolsCommentsDeleteCommand : Command, IShortDescription
 
     public static Argument<string> IdArgument { get; } = new("id") { Description = "The comment id." };
 
-    public static Option<string?> AppOption { get; } = new("--app")
+    public static Option<string?> AppOption { get; } = new("--app", "-a")
     {
         Description = "Optional marker refresh target: PID, process name, or window title.",
     };
@@ -90,7 +90,7 @@ internal class DevToolsCommentsDeleteCommand : Command, IShortDescription
                 {
                     var view = CommentViewBuilder.ToView(removed, resolver, sourceRoot);
                     var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
-                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Default.CommentResultPayload));
+                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
                 }
                 else
                 {

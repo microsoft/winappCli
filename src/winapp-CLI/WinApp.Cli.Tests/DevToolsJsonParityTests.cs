@@ -181,6 +181,24 @@ public class DevToolsJsonParityTests
     }
 
     [TestMethod]
+    public async Task Inspect_FilterWithNoMatchAboveTheDepthCutoff_SaysDeeperElementsWereNotSearched()
+    {
+        const string cut = """
+            [{"handle":"10","name":"Root","type":"Microsoft.UI.Xaml.Controls.Grid","file":"ms-appx:///MainWindow.xaml",
+              "childCount":1,"children":[
+                {"handle":"42","name":"SaveButton","type":"Microsoft.UI.Xaml.Controls.Button",
+                 "file":"ms-appx:///MainWindow.xaml","childCount":2,"children":[]}]}]
+            """;
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.enumerate", AuthoredTree(cut), IsAuthored).Answer("VisualTree.enumerate", cut);
+
+        var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["--filter", "DeepLabel", "--depth", "1"]);
+
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "within --depth 1; deeper elements were not searched");
+        Assert.IsFalse(output.Contains("No elements matched.", StringComparison.Ordinal), output);
+    }
+
+    [TestMethod]
     public async Task Inspect_FilterMatchingNothing_IsAFailureInBothShapes()
     {
         using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree);
@@ -338,6 +356,38 @@ public class DevToolsJsonParityTests
         using var doc = JsonDocument.Parse(jsonOut);
         Assert.IsTrue(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.AreEqual("broken", doc.RootElement.GetProperty("result").GetProperty("state").GetString());
+    }
+
+    [TestMethod]
+    public async Task DiagnoseBinding_HealthyReasonStaysInJsonOnly_AndBrokenReasonIsShown()
+    {
+        using (var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Binding.diagnose", """{"state":"evaluated","path":"Title","reason":"Forward path and CLR type evaluated only"}"""))
+        {
+            var (_, human) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled"]);
+            var (_, json) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled", "--json"]);
+            Assert.IsFalse(human.Contains("Forward path", StringComparison.Ordinal), human);
+            StringAssert.Contains(json, "Forward path and CLR type evaluated only");
+        }
+
+        using var broken = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Binding.diagnose", """{"state":"bad-segment","path":"Missing","reason":"no property or field 'Missing'"}""");
+        StringAssert.Contains((await RunAsync(new DevToolsDiagnoseBindingCommand(), broken, ["42", "IsEnabled"])).Output,
+            "reason: no property or field 'Missing'");
+    }
+
+    [TestMethod]
+    public async Task GetProperty_UnknownPropertySaysProperties()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Property.get", """{"props":[{"name":"Text","value":"a","valueType":"String"},{"name":"Width","value":"1","valueType":"Double"}]}""");
+        var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["42", "Missing"]);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "among the 2 properties");
+        Assert.IsFalse(output.Contains("(ies)", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -674,6 +724,51 @@ public class DevToolsJsonParityTests
         var property = read.RootElement.GetProperty("properties")[0];
         Assert.AreEqual(valueSource, property.GetProperty("valueSource").GetString());
         Assert.AreEqual(authored, property.GetProperty("authored").GetString());
+    }
+
+    [TestMethod]
+    [DataRow("""{"binding":"{Binding Title}"}""", """{}""", "{Binding Title}", "This replaced the binding {Binding Title}")]
+    [DataRow("""{"binding":"{Binding Title}"}""", """{"binding":"{Binding Title}"}""", null, null)]
+    [DataRow("""{"authored":"{x:Bind Label}","authoredKind":"xBind"}""", """{"authored":"{x:Bind Label}","authoredKind":"xBind"}""", "{x:Bind Label}", "This overrode {x:Bind Label}")]
+    [DataRow("""{}""", """{}""", null, null)]
+    public async Task SetProperty_ReportsAReplacedBinding(string beforeExtra, string afterExtra, string? replaced, string? warning)
+    {
+        static string Row(string value, string extra)
+        {
+            var row = System.Text.Json.Nodes.JsonNode.Parse(extra)!.AsObject();
+            row["name"] = "Text"; row["value"] = value; row["valueType"] = "String"; row["writeType"] = "String";
+            return $$"""{"props":[{{row.ToJsonString()}}]}""";
+        }
+        FakeDevToolsProtocolAgent Agent()
+        {
+            var reads = 0;
+            return new FakeDevToolsProtocolAgent()
+                .Answer("Property.get", Row("seed", beforeExtra), _ => Interlocked.Increment(ref reads) == 1)
+                .Answer("Property.get", Row("override", afterExtra))
+                .Answer("HotReload.setProperty", "null")
+                .Answer("VisualTree.enumerate", Tree);
+        }
+
+        using (var agent = Agent())
+        {
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, ["42", "override", "-p", "Text", "--json"]);
+            Assert.AreEqual(0, exit, output);
+            using var doc = JsonDocument.Parse(output);
+            Assert.AreEqual(replaced, doc.RootElement.TryGetProperty("replacedBinding", out var value) ? value.GetString() : null);
+        }
+        using (var agent = Agent())
+        {
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, ["42", "override", "-p", "Text"]);
+            Assert.AreEqual(0, exit, output);
+            if (warning is null)
+            {
+                Assert.IsFalse(output.Contains("binding", StringComparison.OrdinalIgnoreCase) || output.Contains("overrode", StringComparison.Ordinal), output);
+            }
+            else
+            {
+                StringAssert.Contains(output, warning);
+            }
+        }
     }
 
     [TestMethod]

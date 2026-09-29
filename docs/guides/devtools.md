@@ -29,10 +29,11 @@ source. **Open in DevTools** opens the full inspector for detailed binding work.
 Hover picking pauses while the quick peek or comment editor is open, preserving
 your selection and draft.
 
-Picking selects the element you declared: clicking a control's template part, such as
-a TextBox's placeholder, selects the control from your XAML. An element whose source
-is unknown is selected as-is rather than redirected. To pick framework and template
-parts themselves, turn off **Just my XAML** in the inspector window.
+Picking selects the element you declared: clicking a control's template part or its
+generated text, such as a TextBox's placeholder or a Button's string content, selects
+the control from your XAML. An element with no authored ancestor is selected as-is;
+a comment on it is saved but marked **Not linked to source**. To pick framework and
+template parts themselves, turn off **Just my XAML** in the inspector window.
 
 Comment markers follow elements on the active window's XamlRoot. Comments that
 cannot resolve there remain saved but unplaced. Markers disappear while their
@@ -138,8 +139,9 @@ Use a second terminal for inspection commands while the app runs:
 winapp devtools inspect
 ```
 
-Alternatively, `winapp run . --devtools --detach` prints the PID and returns to
-your terminal. Use that PID with `-a` when more than one app is attached.
+Alternatively, `winapp run . --devtools --detach` prints the PID and the next
+command, then returns to your terminal. Use that PID with `-a` when more than one
+app is attached.
 
 Add `--json` only when a script or structured consumer needs JSON output. It
 changes output formatting, not the overlay. For example:
@@ -168,12 +170,15 @@ they do not require the app or Sandbox to be running. Choose the host project wi
 `--source-root`; use `list --project` to filter a shared repository store. `list`
 and `get` do not accept `--app` or `--on`.
 
-`get` shows the captured declaration and historical creation location separately
-from current source matches. Runtime text is context, not a required XAML literal.
-A unique declaration or identifier in the captured project, file, and ancestor
-scope can remain confirmed after line moves. Repeated templates, moved files, and
-ambiguous matches remain ranked candidates; confirm the intended candidate before
-editing.
+`get` shows the captured declaration and current source matches, and the historical
+creation location only when there is no current match. Runtime text is context, not
+a required XAML literal. A declaration or `x:Name` that matches exactly one place in
+the captured project, file, and ancestor scope is confirmed, including after line
+moves and when the element is shown more than once at runtime. Templates, moved
+files, and ambiguous matches remain ranked candidates; confirm the intended candidate
+before editing. A comment on an element without source is not linked to source:
+it reports `weak` and `requiresConfirmation`, and any candidates come from a
+source-wide search.
 
 The agent should verify each source location, make the requested change, and
 resolve the comment only after checking the result:
@@ -246,7 +251,7 @@ supplies both.
 ```powershell
 winapp devtools inspect -a 12345
 winapp devtools search Save -a 12345
-winapp devtools get-property SaveButton -p Content -a 12345
+winapp devtools get-property SaveButton Content -a 12345
 winapp devtools get-layout SaveButton -a 12345
 winapp devtools get-source SaveButton -a 12345
 winapp devtools diagnose-binding SaveButton Content -a 12345
@@ -278,7 +283,9 @@ Without confirmation, nothing is saved for a likely capture. The in-app comment
 editors show an unchecked **Use this likely source for my comment** box.
 
 Inspection and search prefer your app's authored XAML; `--all` includes framework
-and control-template elements. `inspect --depth 8` expands more levels. `search Save`
+and control-template elements. When nothing in your XAML matches, `search` looks at
+the whole tree and says so; that is how you find items created from data, such as a
+`NavigationViewItem` added from a list. `inspect --depth 8` expands more levels. `search Save`
 matches text content as well as type, `x:Name`, and source file. Text comes from
 realized TextBlock/TextBox elements and primitive Content values, not from executing
 bindings or converters. Uncreated virtualized items are not searched.
@@ -389,12 +396,14 @@ refuses a subtree constraint rather than allowing subsequent picks outside it.
 ## Try a live property change
 
 ```powershell
-winapp devtools set-property SaveButton 200 -p Width -a 12345
+winapp devtools set-property SaveButton Width 200 -a 12345
 ```
 
 The command reads the value before and after the write and reports what actually
 took effect. Changes are in-memory; they do not edit your source files and disappear
-when the app restarts. In JSON, `valueSource` is the runtime precedence slot,
+when the app restarts. Writing a bound property replaces its `{Binding}`, or
+overrides its `x:Bind` until the binding updates again; the output warns and JSON
+reports `replacedBinding`. In JSON, `valueSource` is the runtime precedence slot,
 `binding` is a remaining runtime expression, and `authored` is the original XAML
 when available.
 
@@ -411,7 +420,7 @@ For a managed binding, capture it before temporarily replacing its value:
 
 ```powershell
 winapp devtools call Binding.capture handle=123 prop=Content -a 12345
-winapp devtools set-property 123 "Temporary label" -p Content -a 12345
+winapp devtools set-property 123 Content "Temporary label" -a 12345
 winapp devtools call Binding.restore handle=123 prop=Content -a 12345
 ```
 
@@ -454,7 +463,7 @@ The usual workflow starts with comments a person leaves in the overlay. For
 explicit programmatic authoring, `comments add` is also available:
 
 ```powershell
-winapp devtools comments add --app 12345 --from-element SaveButton --text "Make this label clearer"
+winapp devtools comments add -a 12345 --from-element SaveButton --text "Make this label clearer"
 ```
 
 You can also pick an element in the overlay and use `--from-selection`, or author a

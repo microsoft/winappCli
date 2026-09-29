@@ -19,7 +19,7 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription
     public static Argument<string> IdArgument { get; } = new("id") { Description = "The comment id." };
 
     public DevToolsCommentsGetCommand()
-        : base("get", "Show one locally saved UI comment and source matches; use --source-root, not --app or --on.")
+        : base("get", "Show one locally saved UI comment and its current source matches; choose the project with --source-root.")
     {
         Arguments.Add(IdArgument);
         Options.Add(CommentsSharedOptions.SourceRootOption);
@@ -56,7 +56,7 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription
                 if (json)
                 {
                     var payload = new CommentResultPayload { Ok = true, Comment = view };
-                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Default.CommentResultPayload));
+                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
                 }
                 else
                 {

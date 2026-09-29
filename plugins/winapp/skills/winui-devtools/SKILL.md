@@ -136,9 +136,10 @@ For disk-matched source declarations and their limits, follow the guide's
 [source-coordinate guidance](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#find-and-inspect-an-element)
 before editing XAML or capturing a source-anchored comment.
 
-Use `set-property <selector> <value> -p <property>` for an authorized in-memory
+Use `set-property <selector> <property> <value>` for an authorized in-memory
 change. Report its observed read-back, not the requested value as if it succeeded.
-This does not edit source. `call` is for advertised protocol methods without a
+If the result has `replacedBinding`, say so: the local value replaced a `{Binding}`
+or overrode an `x:Bind`. This does not edit source. `call` is for advertised protocol methods without a
 curated command; it rejects internal methods and requires `--attach` to inject.
 
 Before a binding edit or restore, follow the guide's

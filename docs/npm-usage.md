@@ -297,7 +297,7 @@ function devtoolsCommentsDelete(options: DevtoolsCommentsDeleteOptions): Promise
 
 ### `devtoolsCommentsGet()`
 
-Show one locally saved UI comment and source matches; use --source-root, not --app or --on.
+Show one locally saved UI comment and its current source matches; choose the project with --source-root.
 
 ```typescript
 function devtoolsCommentsGet(options: DevtoolsCommentsGetOptions): Promise<WinappResult>
@@ -317,7 +317,7 @@ function devtoolsCommentsGet(options: DevtoolsCommentsGetOptions): Promise<Winap
 
 ### `devtoolsCommentsList()`
 
-List locally saved UI comments and source matches; use --source-root, not --app or --on.
+List locally saved UI comments and their current source matches; choose the project with --source-root.
 
 ```typescript
 function devtoolsCommentsList(options?: DevtoolsCommentsListOptions): Promise<WinappResult>

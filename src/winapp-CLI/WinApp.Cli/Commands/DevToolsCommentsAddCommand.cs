@@ -24,7 +24,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription
     public static Option<string?> KindOption { get; } = new("--kind") { Description = "Triage: visual | binding | behavior | a11y | other." };
     public static Option<bool> FromSelectionOption { get; } = new("--from-selection") { Description = "Use the picked element in a running DevTools app (requires --app)." };
     public static Option<string?> FromElementOption { get; } = new("--from-element") { Description = "Use an element's x:Name or handle in a running DevTools app (requires --app)." };
-    public static Option<string?> AppOption { get; } = new("--app") { Description = "Live capture and marker target: PID, process name, or window title." };
+    public static Option<string?> AppOption { get; } = new("--app", "-a") { Description = "Live capture and marker target: PID, process name, or window title." };
     public static Option<string?> FileOption { get; } = new("--file") { Description = "Source file leaf the element lives in (e.g. MainWindow.xaml)." };
     public static Option<int?> LineOption { get; } = new("--line") { Description = "Source line (advisory)." };
     public static Option<int?> ColumnOption { get; } = new("--column") { Description = "Source column (advisory)." };
@@ -250,7 +250,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription
                 {
                     var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot);
                     var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
-                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Default.CommentResultPayload));
+                    ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
                 }
                 else
                 {
@@ -330,7 +330,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription
         if (json)
         {
             var payload = new CommentResultPayload { Ok = false, Error = message };
-            ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Default.CommentResultPayload));
+            ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
         }
         else
         {

@@ -11,7 +11,7 @@ using WinApp.Cli.Services.DevTools;
 namespace WinApp.Cli.Commands;
 
 /// <summary>
-/// <c>winapp devtools set-property &lt;selector&gt; &lt;value&gt; --property &lt;name&gt;</c> — change one
+/// <c>winapp devtools set-property &lt;selector&gt; &lt;property&gt; &lt;value&gt;</c> — change one
 /// dependency property on a live element and report what the app actually did.
 /// <para>
 /// The command reads the property, writes it, and reads it back, and reports the OBSERVED before → after. It
@@ -30,6 +30,12 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
         Arity = ArgumentArity.ZeroOrOne,
     };
 
+    public static Argument<string?> PropertyArgument { get; } = new("property")
+    {
+        Description = "The property to change, e.g. Width. Same as --property.",
+        Arity = ArgumentArity.ZeroOrOne,
+    };
+
     public static Argument<string?> ValueArgument { get; } = new("value")
     {
         Description = "The new value, e.g. 200, false, #FF0067C0, or \"Save changes\".",
@@ -40,10 +46,25 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
         : base("set-property", "Change a live property and read it back; source files stay unchanged.")
     {
         Arguments.Add(SelectorArgument);
+        Arguments.Add(PropertyArgument);
         Arguments.Add(ValueArgument);
         Options.Add(SharedDevToolsOptions.PropertyOption);
         Options.Add(SharedDevToolsOptions.TypeOption);
         DevToolsQueryOptions.Add(this, write: true);
+    }
+
+    /// <summary>
+    /// <c>set-property &lt;selector&gt; &lt;property&gt; &lt;value&gt;</c>, or <c>set-property &lt;selector&gt; &lt;value&gt; -p &lt;property&gt;</c>.
+    /// </summary>
+    internal static (string? Property, string? Value, bool Conflict) ResolvePropertyAndValue(ParseResult parseResult)
+    {
+        var property = parseResult.GetValue(SharedDevToolsOptions.PropertyOption);
+        var value = parseResult.GetValue(ValueArgument);
+        var second = parseResult.GetValue(PropertyArgument);
+        return second is null ? (property, value, false)
+            : property is null ? (second, value, false)
+            : value is null ? (property, second, false)
+            : (property, value, true);
     }
 
     public class Handler(
@@ -56,16 +77,19 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
             bool json,
             CancellationToken cancellationToken)
         {
-            var property = parseResult.GetValue(SharedDevToolsOptions.PropertyOption);
-            var value = parseResult.GetValue(ValueArgument);
             var type = parseResult.GetValue(SharedDevToolsOptions.TypeOption);
+            var (property, value, conflict) = ResolvePropertyAndValue(parseResult);
+            if (conflict)
+            {
+                return Task.FromResult(Fail(json, target.Pid, "Pass the property once: positionally or with --property.", "bad-args"));
+            }
 
             if (string.IsNullOrWhiteSpace(property))
             {
                 return Task.FromResult(Fail(
                     json,
                     target.Pid,
-                    "Provide the property to change with --property/-p, e.g. `--property Width`."));
+                    "Provide the property to change, e.g. `winapp devtools set-property SaveButton Width 200`."));
             }
 
             if (DevToolsQueryOptions.HasCriteria(parseResult))
@@ -93,7 +117,7 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
                 return Task.FromResult(Fail(
                     json,
                     target.Pid,
-                    "Provide the new value, e.g. `winapp devtools set-property SaveButton 200 --property Width`."));
+                    "Provide the new value, e.g. `winapp devtools set-property SaveButton Width 200`."));
             }
 
             var handle = RequireHandle(
@@ -168,6 +192,9 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
             // in (Thickness "10" -> "10,10,10,10") DID take, while a value that neither changed nor equals the
             // request demonstrably did not.
             var succeeded = after is not null && (took || matchesRequested);
+            // A local write replaces a {Binding} (confirmed by the read-back) and overrides an x:Bind.
+            var replacedBinding = succeeded && (beforeRow.Binding is null || afterRow?.Binding is null)
+                ? BoundBy(beforeRow) : null;
 
             if (json)
             {
@@ -194,6 +221,10 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
                     // asked for (a coerced Opacity, a normalized Thickness). A caller that needs to know
                     // whether its exact value took must be able to see that without guessing.
                     writer.WriteBoolean("matchesRequested", matchesRequested);
+                    if (replacedBinding is not null)
+                    {
+                        writer.WriteString("replacedBinding", replacedBinding);
+                    }
                     if (afterRow?.ValueSource is string source)
                     {
                         writer.WriteString("valueSource", source);
@@ -264,8 +295,18 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
                 return Task.FromResult(1);
             }
 
+            if (replacedBinding is not null)
+            {
+                DevToolsRender.WriteMarkupLine(Console, beforeRow.Binding is not null
+                    ? $"{UiSymbols.Warning} This replaced the binding {Markup.Escape(replacedBinding)}; its source no longer updates {Markup.Escape(beforeRow.Name)} until the app restarts."
+                    : $"{UiSymbols.Warning} This overrode {Markup.Escape(replacedBinding)} with a local value until the binding updates again.");
+            }
+
             return Task.FromResult(0);
         }
+
+        internal static string? BoundBy(DevToolsPropertyRow row)
+            => row.Binding ?? (row.AuthoredKind is "xBind" or "binding" ? row.Authored ?? row.AuthoredKind : null);
 
         private static bool MatchesRequested(string actual, string requested, string valueType, string writeType)
         {

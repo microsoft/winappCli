@@ -146,6 +146,7 @@ public class DevToolsCommentsListCommandTests
         Assert.AreEqual(0, exit);
         StringAssert.Contains(output, "cmt_done01");
         Assert.IsFalse(output.Contains("cmt_open01", StringComparison.Ordinal));
+        StringAssert.Contains(output, "(1 open hidden; use --all)", "the footer counts what the filter hid, not what it shows");
     }
 
     /// <summary>
