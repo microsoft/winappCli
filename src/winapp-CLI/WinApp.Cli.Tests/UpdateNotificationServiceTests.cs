@@ -261,7 +261,19 @@ public class UpdateNotificationServiceTests : BaseCommandTests
         finally
         {
             responseGate.Set();
-            SpinWait.SpinUntil(() => !File.ReadAllText(cacheFile).StartsWith("2020-01-01", StringComparison.Ordinal), TimeSpan.FromSeconds(10));
+            SpinWait.SpinUntil(() => RefreshFinished(cacheFile), TimeSpan.FromSeconds(10));
+        }
+
+        static bool RefreshFinished(string path)
+        {
+            try
+            {
+                return !File.ReadAllText(path).StartsWith("2020-01-01", StringComparison.Ordinal);
+            }
+            catch (IOException)
+            {
+                return false; // the refresh is replacing the file right now
+            }
         }
     }
 
