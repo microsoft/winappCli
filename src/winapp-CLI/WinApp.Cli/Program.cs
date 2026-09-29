@@ -301,10 +301,13 @@ internal static class Program
                     CancellationToken.None);
             }
 
-            if (parsedArgs.Action is System.CommandLine.Invocation.ParseErrorAction parseError && IsUiDescendant(parsedArgs))
+            if (parsedArgs.Action is System.CommandLine.Invocation.ParseErrorAction parseError
+                && IsUiDescendant(parsedArgs)
+                && parsedArgs.CommandResult.Command is not UiCommand)
             {
                 // The error names the mistake; the full ui command help after it would bury that
-                // error, so point at --help instead.
+                // error, so point at --help instead. A bare "winapp ui" keeps its help: that is
+                // how people discover the commands.
                 parseError.ShowHelp = false;
                 return InvokeWithHelpPointerAsync(parsedArgs);
             }

@@ -74,32 +74,34 @@ public sealed class UiTargetResolver(
             return Task.FromResult(CreateTarget(resolved.Id, processWindows[0].Hwnd, processWindows[0].Title));
         }
 
-        if (resolved.MainWindowHandle != 0)
-        {
-            return Task.FromResult(new UiTarget
-            {
-                ProcessId = resolved.Id,
-                ProcessName = resolved.ProcessName,
-                WindowTitle = GetMainWindowTitle(resolved)
-            });
-        }
-
         // The process owns no top-level window. Packaged (UWP) apps such as Calculator draw inside
-        // a frame window that belongs to ApplicationFrameHost, so fall back to matching the title.
-        var hosted = int.TryParse(app, out _) ? [] : uiAutomation.FindWindowsByTitle(app);
-        if (hosted.Count > 0)
+        // a frame window that belongs to ApplicationFrameHost, so look for such a frame by title.
+        // Only frames qualify: any other title match ("myapp - Visual Studio Code") is a different app.
+        var frames = resolved.MainWindowHandle != 0 || int.TryParse(app, out _)
+            ? []
+            : FramesOnly(uiAutomation.FindWindowsByTitle(app));
+        if (frames.Count > 0)
         {
             logger.LogInformation(
-                "'{ProcessName}' (PID {Pid}) has no top-level window of its own; matching windows by title '{App}' instead.",
+                "'{ProcessName}' (PID {Pid}) has no top-level window of its own; using the app frame titled like '{App}' instead.",
                 resolved.ProcessName, resolved.Id, app);
-            return Task.FromResult(SelectTitleMatch(hosted, app));
+            return Task.FromResult(SelectTitleMatch(frames, app));
         }
 
-        throw new AppNotFoundException(
-            $"'{resolved.ProcessName}' (PID {resolved.Id}) has no visible window. " +
-            "If another process hosts its window, target it by window title (-a \"<title>\") " +
-            "or by handle (-w <hwnd> from 'winapp ui list-windows').");
+        // No window yet (for example, the app is still starting). Keep the process-scoped target so
+        // polling commands such as wait-for can find the window once it appears.
+        return Task.FromResult(new UiTarget
+        {
+            ProcessId = resolved.Id,
+            ProcessName = resolved.ProcessName,
+            WindowTitle = GetMainWindowTitle(resolved)
+        });
     }
+
+    private List<(nint Hwnd, int Pid, string Title)> FramesOnly(List<(nint Hwnd, int Pid, string Title)> windows) =>
+        windows
+            .Where(w => string.Equals(systemQuery.GetWindowClassName((long)w.Hwnd), ApplicationFrameWindowClass, StringComparison.Ordinal))
+            .ToList();
 
     /// <summary>
     /// Picks a window from title matches. ApplicationFrameHost frames win over other matches (a
@@ -109,9 +111,7 @@ public sealed class UiTargetResolver(
     /// </summary>
     private UiTarget SelectTitleMatch(List<(nint Hwnd, int Pid, string Title)> windows, string app)
     {
-        var frames = windows
-            .Where(w => string.Equals(systemQuery.GetWindowClassName((long)w.Hwnd), ApplicationFrameWindowClass, StringComparison.Ordinal))
-            .ToList();
+        var frames = FramesOnly(windows);
         var candidates = frames.Count > 0 ? frames : windows;
 
         var target = candidates.Count > 1

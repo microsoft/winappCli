@@ -267,9 +267,9 @@ winapp ui search Seven -a calculator  # hosted app: uses its "Calculator" frame 
 ```
 
 Some packaged apps (for example Calculator) have no window of their own; another process
-hosts their frame. When the matched process has no visible window, `-a` looks for a window
-whose title matches instead. If none matches, the command fails and suggests targeting the
-window by title or by `-w <hwnd>` from `winapp ui list-windows`.
+hosts their frame. When the matched process has no visible window, `-a` uses the app frame
+whose title matches instead. If there is none (for example, the app is still starting),
+`-a` targets the process, so `wait-for` keeps looking until its window appears.
 
 ### By window title
 ```bash

@@ -50,7 +50,18 @@ internal static class UiUnknownCommand
             return null;
         }
 
-        return parseResult.UnmatchedTokens.FirstOrDefault(token => !token.StartsWith('-'));
+        // Only the command position counts: when the first unmatched token is an option ("ui -a Notepad"),
+        // the command is missing rather than misspelled, and a real command name after "--" is not a typo.
+        var unmatched = parseResult.UnmatchedTokens;
+        var token = unmatched.Count > 0 ? unmatched[0] : null;
+        if (token is null || token.StartsWith('-'))
+        {
+            return null;
+        }
+
+        var isKnown = parseResult.CommandResult.Command.Subcommands
+            .Any(c => c.Name == token || c.Aliases.Contains(token));
+        return isKnown ? null : token;
     }
 
     public static string[] Suggest(string token, IEnumerable<Command> commands)

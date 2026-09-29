@@ -143,18 +143,19 @@ public class UiSessionServiceTests
     }
 
     [TestMethod]
-    public async Task ResolveByPid_NoWindowAtAll_ThrowsInsteadOfEmptyTarget()
+    public async Task ResolveByPid_NoWindowYet_KeepsProcessTarget()
     {
+        // An app that is still starting has no window yet; wait-for polls the process until one appears.
         var (service, uia, sys) = NewService();
         sys.ProcessesById[502] = new UiProcessInfo(502, "CalculatorApp", 0, "");
         uia.WindowsByPidResult = [];
         uia.WindowsByTitleResult = [((nint)0x77, 999, "502 unrelated")];
+        sys.WindowClassNameByHwnd[0x77] = "ApplicationFrameWindow";
 
-        var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
-            () => service.ResolveAsync(app: "502", hwnd: null, CancellationToken.None));
+        var uiTarget = await service.ResolveAsync(app: "502", hwnd: null, CancellationToken.None);
 
-        StringAssert.Contains(ex.Message, "has no visible window");
-        StringAssert.Contains(ex.Message, "-w <hwnd>");
+        Assert.AreEqual(502, uiTarget.ProcessId, "A PID never falls back to a title match.");
+        Assert.AreEqual(0L, (long)uiTarget.WindowHandle);
     }
 
     // ---- Hosted (ApplicationFrameHost) apps -------------------------------
@@ -184,17 +185,19 @@ public class UiSessionServiceTests
     }
 
     [TestMethod]
-    public async Task ResolveByName_ProcessWithoutWindow_NoTitleMatch_Throws()
+    public async Task ResolveByName_ProcessWithoutWindow_IgnoresNonFrameTitleMatches()
     {
+        // While "myapp" starts, an editor titled "myapp - Visual Studio Code" is a different app.
         var (service, uia, sys) = NewService();
-        sys.ByNameResult = [new UiProcessInfo(890, "bgworker", 0, null)];
+        sys.ByNameResult = [new UiProcessInfo(890, "myapp", 0, null)];
         uia.WindowsByPidResult = [];
-        uia.WindowsByTitleResult = [];
+        uia.WindowsByTitleResult = [((nint)0x501, 999, "myapp - Visual Studio Code")];
+        sys.WindowClassNameByHwnd[0x501] = "Chrome_WidgetWin_1";
 
-        var ex = await Assert.ThrowsExactlyAsync<AppNotFoundException>(
-            () => service.ResolveAsync(app: "bgworker", hwnd: null, CancellationToken.None));
+        var uiTarget = await service.ResolveAsync(app: "myapp", hwnd: null, CancellationToken.None);
 
-        StringAssert.Contains(ex.Message, "'bgworker' (PID 890) has no visible window");
+        Assert.AreEqual(890, uiTarget.ProcessId);
+        Assert.AreEqual(0L, (long)uiTarget.WindowHandle);
     }
 
     [TestMethod]

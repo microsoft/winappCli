@@ -232,6 +232,29 @@ public class UiHelpTests : BaseCommandTests
         Assert.DoesNotContain("Examples:", stdout + stderr);
     }
 
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task BareUiGroup_StillShowsItsHelp()
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(["ui"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(stdout + stderr, "Discover");
+        Assert.DoesNotContain("Unknown command", stderr);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("-a", "Notepad")]
+    [DataRow("--", "inspect")]
+    public async Task MissingCommand_IsNotReportedAsUnknown(string first, string second)
+    {
+        var (_, stderr, exitCode) = await InvokeProgramAsync(["ui", first, second]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.DoesNotContain("Unknown command", stderr);
+    }
+
     private static string SubstitutePlaceholder(string token) => token
         .Replace("<hwnd>", "4242")
         .Replace("<app>", "app")
