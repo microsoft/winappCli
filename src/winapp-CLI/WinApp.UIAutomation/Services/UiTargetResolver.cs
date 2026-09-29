@@ -57,13 +57,7 @@ public sealed class UiTargetResolver(
             {
                 throw new AppNotFoundException($"No running app found matching '{app}'.");
             }
-            if (windows.Count > 1)
-            {
-                return Task.FromResult(AutoSelectWindow(windows, app));
-            }
-            // Single match
-            var match = windows[0];
-            return Task.FromResult(CreateTarget(match.Pid, match.Hwnd, match.Title));
+            return Task.FromResult(SelectTitleMatch(windows, app));
         }
 
         var resolved = process.Value;
@@ -80,13 +74,59 @@ public sealed class UiTargetResolver(
             return Task.FromResult(CreateTarget(resolved.Id, processWindows[0].Hwnd, processWindows[0].Title));
         }
 
-        return Task.FromResult(new UiTarget
+        if (resolved.MainWindowHandle != 0)
         {
-            ProcessId = resolved.Id,
-            ProcessName = resolved.ProcessName,
-            WindowTitle = GetMainWindowTitle(resolved)
-        });
+            return Task.FromResult(new UiTarget
+            {
+                ProcessId = resolved.Id,
+                ProcessName = resolved.ProcessName,
+                WindowTitle = GetMainWindowTitle(resolved)
+            });
+        }
+
+        // The process owns no top-level window. Packaged (UWP) apps such as Calculator draw inside
+        // a frame window that belongs to ApplicationFrameHost, so fall back to matching the title.
+        var hosted = int.TryParse(app, out _) ? [] : uiAutomation.FindWindowsByTitle(app);
+        if (hosted.Count > 0)
+        {
+            logger.LogInformation(
+                "'{ProcessName}' (PID {Pid}) has no top-level window of its own; matching windows by title '{App}' instead.",
+                resolved.ProcessName, resolved.Id, app);
+            return Task.FromResult(SelectTitleMatch(hosted, app));
+        }
+
+        throw new AppNotFoundException(
+            $"'{resolved.ProcessName}' (PID {resolved.Id}) has no visible window. " +
+            "If another process hosts its window, target it by window title (-a \"<title>\") " +
+            "or by handle (-w <hwnd> from 'winapp ui list-windows').");
     }
+
+    /// <summary>
+    /// Picks a window from title matches. ApplicationFrameHost frames win over other matches (a
+    /// browser tab or editor titled "calculator" should not beat the Calculator app), and a target
+    /// resolved to a frame is scoped to that window, because the host process owns the frames of
+    /// every other running packaged app too.
+    /// </summary>
+    private UiTarget SelectTitleMatch(List<(nint Hwnd, int Pid, string Title)> windows, string app)
+    {
+        var frames = windows
+            .Where(w => string.Equals(systemQuery.GetWindowClassName((long)w.Hwnd), ApplicationFrameWindowClass, StringComparison.Ordinal))
+            .ToList();
+        var candidates = frames.Count > 0 ? frames : windows;
+
+        var target = candidates.Count > 1
+            ? AutoSelectWindow(candidates, app)
+            : CreateTarget(candidates[0].Pid, candidates[0].Hwnd, candidates[0].Title);
+
+        if (frames.Count > 0)
+        {
+            target.IsExplicitWindow = true;
+        }
+
+        return target;
+    }
+
+    private const string ApplicationFrameWindowClass = "ApplicationFrameWindow";
 
     /// <summary>
     /// Auto-selects the best window from multiple candidates silently.

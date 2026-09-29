@@ -33,11 +33,13 @@ internal class UiScreenshotCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.OutputOption);
         Options.Add(SharedUiOptions.CaptureScreenOption);
         Options.Add(SharedUiOptions.FocusOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IOwnedWindowFinder ownedWindowFinder,
         ISystemUiQuery systemQuery,
         IAnsiConsole ansiConsole,
@@ -79,6 +81,12 @@ internal class UiScreenshotCommand : Command, IShortDescription
             {
                 UiErrors.MissingApp(logger, json);
                 return 1;
+            }
+
+            if (UiQueryOptions.ValidateWithOptionalSelector(
+                    parseResult, parseResult.GetValue(SharedUiOptions.SelectorArgument), logger, json) is { } invalid)
+            {
+                return invalid;
             }
 
             // Where the PNG goes is knowable now. Screenshot takes the desktop exclusively, so a command
@@ -174,7 +182,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
                     pass = await CaptureUnderSectionAsync(
-                        selector, app, window, json, captureScreen, focus,
+                        parseResult, selector, app, window, json, captureScreen, focus,
                         parseResult.InvocationConfiguration.Error, cancellationToken).ConfigureAwait(false);
                 }
 
@@ -198,6 +206,11 @@ internal class UiScreenshotCommand : Command, IShortDescription
                 logger.LogError("{Symbol} {Message}", UiSymbols.Error, foregroundEx.Message);
                 UiJsonError.Emit(json, UiJsonError.CodeForegroundNotTarget, foregroundEx.Message,
                     errorOut: parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
                 return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
@@ -257,6 +270,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
         /// Everything that reads the shared desktop. Runs entirely inside the caller's active section.
         /// </summary>
         private async Task<CapturePass> CaptureUnderSectionAsync(
+            ParseResult parseResult,
             string? selector,
             string? app,
             long? window,
@@ -317,6 +331,18 @@ internal class UiScreenshotCommand : Command, IShortDescription
                     systemQuery, singleTarget.WindowHandle, singleTarget.ProcessId, logger, json, "screenshot"))
             {
                 return new CapturePass(1, singleTarget, selector, [], [], IsComposite: false);
+            }
+
+            if (selector is not null)
+            {
+                var exact = await UiQueryOptions.ResolveExactSelectorAsync(
+                    parseResult, selectorParser, uiAutomation, singleTarget, selector, ct).ConfigureAwait(false);
+                if (exact is null)
+                {
+                    UiErrors.ElementNotFound(logger, selector, json);
+                    return new CapturePass(1, singleTarget, selector, [], [], IsComposite: false);
+                }
+                selector = exact;
             }
 
             var (pixels, w, h) = await uiAutomation

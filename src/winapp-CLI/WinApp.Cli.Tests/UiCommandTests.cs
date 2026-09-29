@@ -228,6 +228,28 @@ public partial class UiCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Inspect_Interactive_IncludesDocumentsAndEditableElements()
+    {
+        // Notepad's text area is a Document; hiding it pushed agents toward send-keys even though
+        // set-value works on it. Any element with a writable Value pattern is a set-value target too.
+        _fakeUia.InspectResult = [
+            new UiElement { Id = "e0", Type = "Window", Name = "App", Depth = 0 },
+            new UiElement { Id = "e1", Type = "Document", Name = "Text editor", Depth = 1, Selector = "doc-texteditor-1" },
+            new UiElement { Id = "e2", Type = "Custom", Name = "Amount", Depth = 1, Selector = "custom-amount-2", IsEditable = true },
+            new UiElement { Id = "e3", Type = "Text", Name = "Label", Depth = 1, Selector = "txt-label-3" },
+        ];
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--interactive", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        var output = TestAnsiConsole.Output;
+        StringAssert.Contains(output, "doc-texteditor-1");
+        StringAssert.Contains(output, "custom-amount-2");
+        Assert.IsFalse(output.Contains("txt-label-3"), "Static text is not interactive.");
+    }
+
+    [TestMethod]
     public async Task Inspect_Json_HasMoreChildrenHint()
     {
         // When WalkTree hits the depth limit but more children exist, it sets HasMoreChildren=true.

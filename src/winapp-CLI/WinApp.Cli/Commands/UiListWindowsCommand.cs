@@ -119,6 +119,13 @@ internal class UiListWindowsCommand : Command, IShortDescription
                                 windows = uiAutomation.FindWindowsByTitle(app);
                             }
                         }
+
+                        // A packaged app's window can belong to ApplicationFrameHost rather than
+                        // the app's process, so a matched process may own no window at all.
+                        if (windows.Count == 0)
+                        {
+                            windows = uiAutomation.FindWindowsByTitle(app);
+                        }
                     }
                 }
                 else

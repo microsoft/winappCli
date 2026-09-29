@@ -357,20 +357,47 @@ public partial class UiCommandTests
     [DataRow("--root")]
     [DataRow("--type")]
     [DataRow("--class-name")]
-    public async Task Invoke_FiltersWithoutAction_AreParseErrorsIncludingRemoteJson(string option)
+    public void Invoke_FiltersWithoutAction_ParseAndDoNotReportActionErrors(string option)
     {
         string[] args = ["ui", "invoke", "Open", "-w", "1234", "--on", "sandbox",
             option, "Button", "--json"];
         var parsed = GetRequiredService<WinAppRootCommand>().Parse(args);
-        Assert.IsNotEmpty(parsed.Errors);
-        StringAssert.Contains(string.Join(" ", parsed.Errors.Select(e => e.Message)), "--action");
+        Assert.IsEmpty(parsed.Errors, "The golden path teaches 'invoke \"Save\" --type Button' without --action.");
+    }
 
-        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
+    [TestMethod]
+    public async Task Invoke_FilteredAutomaticAction_RequiresUniqueMatchAndSkipsAncestor()
+    {
+        var ancestor = new UiElement { Id = "parent-id", Selector = "parent", Type = "Button" };
+        var selected = new UiElement { Id = "label", Selector = "txt-open-1", WindowHandle = 4242, InvokableAncestor = ancestor };
+        _fakeUia.FindSingleResult = selected;
+        _fakeUia.InvokeResult = "InvokePattern";
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-w", "4242", "--type", "Button", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.All(unique => unique),
+            "A filtered selector must match exactly one element.");
+        Assert.AreEqual("Button", _fakeUia.Queries[0].ControlType);
+        Assert.AreSame(selected, _fakeUia.LastInvokedElement);
+        Assert.AreEqual(1, _fakeUia.AutomaticInvokeCalls);
+        using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual("auto", document.RootElement.GetProperty("requestedAction").GetString());
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredAutomaticAction_AmbiguousMatch_FailsClosed()
+    {
+        _fakeUia.FindUniqueThrow = new UiAmbiguousSelectorException("Selector matched 2 elements.");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Save", "-a", "TestApp", "--type", "Button", "--json"]);
+
         Assert.AreEqual(1, exitCode);
-        AssertJsonErrorCodeIn(stderr, UiJsonError.CodeInvalidArguments);
-        Assert.IsTrue(string.IsNullOrWhiteSpace(stdout));
-        Assert.IsEmpty(_fakeUia.Queries);
-        Assert.IsEmpty(_fakeDesktopLock.Runs);
+        AssertJsonErrorCode(UiJsonError.CodeAmbiguousSelector);
+        Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
     }
 
     [TestMethod]

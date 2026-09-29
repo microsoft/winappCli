@@ -96,6 +96,7 @@ internal class UiTouchCommand : Command, IShortDescription
         Options.Add(DurationOption);
         Options.Add(FingersOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -286,7 +287,7 @@ internal class UiTouchCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -341,7 +342,7 @@ internal class UiTouchCommand : Command, IShortDescription
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
                     var target = await PointerCommandSupport.ResolvePointAsync(
-                        uiAutomation, selectorParser, uiTarget, selectorStr, at, atStr,
+                        uiAutomation, selectorParser, parseResult, uiTarget, selectorStr, at, atStr,
                         "touch", "touch point", logger, json, cancellationToken);
                     if (!target.Ok)
                     {
@@ -426,6 +427,11 @@ internal class UiTouchCommand : Command, IShortDescription
                 }
 
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

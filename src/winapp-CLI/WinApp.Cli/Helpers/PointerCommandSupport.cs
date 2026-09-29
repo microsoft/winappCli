@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.CommandLine;
 using Microsoft.Extensions.Logging;
+using WinApp.Cli.Commands;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
@@ -14,6 +16,7 @@ internal static class PointerCommandSupport
     public static async Task<ResolvedPoint> ResolvePointAsync(
         IUiAutomation uiAutomation,
         IUiSelectorParser selectorParser,
+        ParseResult parseResult,
         UiTarget uiTarget,
         string? selectorStr,
         PointerPoint? explicitPoint,
@@ -29,7 +32,7 @@ internal static class PointerCommandSupport
             return new ResolvedPoint(true, explicitPoint.Value, uiTarget.WindowHandle, explicitLabel);
         }
 
-        var selector = selectorParser.Parse(selectorStr!);
+        var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr!);
         var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
         if (element is null)
         {

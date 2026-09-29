@@ -43,10 +43,13 @@ internal class UiRecordCommand : Command, IShortDescription
         Options.Add(FramesOption);
         Options.Add(OverwriteOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
         IUiTargetResolver targetResolver,
+        IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IUiRecordingService recordingService,
         IWindowCapture windowCapture,
         ISystemUiQuery systemQuery,
@@ -159,8 +162,12 @@ internal class UiRecordCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return ValidateElementFilters(parseResult, json);
         }
+
+        /// <summary>Validates <c>--type</c>/<c>--root</c>/<c>--class-name</c> for verbs that accept them.</summary>
+        protected virtual int? ValidateElementFilters(ParseResult parseResult, bool json)
+            => UiQueryOptions.ValidateWithOptionalSelector(parseResult, ElementSelector(parseResult), logger, json);
 
         protected virtual int ReportOptionError(ParseResult parseResult, UiRecordOptionError error)
         {
@@ -190,6 +197,17 @@ internal class UiRecordCommand : Command, IShortDescription
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
                 var uiTarget = IsDesktop ? null : await ResolveSubjectAsync(parseResult, cancellationToken);
+                if (uiTarget is not null && selector is not null)
+                {
+                    var exact = await UiQueryOptions.ResolveExactSelectorAsync(
+                        parseResult, selectorParser, uiAutomation, uiTarget, selector, cancellationToken);
+                    if (exact is null)
+                    {
+                        UiErrors.ElementNotFound(logger, selector, json);
+                        return 1;
+                    }
+                    selector = exact;
+                }
 
                 var isStdinRedirected = s_isInputRedirectedOverride?.Invoke() ?? Console.IsInputRedirected;
 
